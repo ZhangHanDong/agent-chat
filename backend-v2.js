@@ -13171,6 +13171,64 @@ async function withdrawAgentFromProjectRooms(agentName) {
  * homeserver being unreachable must not make an engagement un-revokable. The caller reports what happened
  * to the seat instead.
  */
+/*
+ * F10 (17-r3): the backend's authoritative roster, in the one shape the masquerade exit asks
+ * for — an MXID predicate. An agent is registered iff its name is a live key of `agents`
+ * (the registry this process owns and persists), and the MXID must compose to the same
+ * localpart on the room's side — the composition every project-side helper already uses.
+ * Anything else is a ghost: in-namespace syntactically, but nobody this fleet vouches for.
+ */
+/*
+ * F10 (17-r4) FINAL RULING — `admits(mxid, sideId)` iff:
+ *   ① the agent record exists;
+ *   ② `agent.projectSide === sideId` — the target side IS the agent's authoritative home
+ *      (a MISSING projectSide fails, it does not fall through);
+ *   ③ `mxid` equals the agent's AUTHORITATIVE MXID verbatim (Matrix case rules: localpart
+ *      case-SENSITIVE, server case-insensitive). The authoritative MXID is the RECORDED
+ *      credential MXID (`agent.matrixIdentity` — the discovered-on-another-server identity,
+ *      which `mintIdentityForProvisionedAgent` writes when federation lets an agent reuse
+ *      its home-server identity) when one exists, else the composition
+ *      `@<prefix><agentName>:<side.serverName>`.
+ *
+ * WHY THE OLD SHAPE WAS REJECTED: it checked prefix + same-name-exists + server match and never
+ * read `agent.projectSide`, so an agent provisioned on side A could be re-composed as
+ * `@ac_<name>:<sideB>` and act under side B's as_token — the cross-side impersonation the
+ * masquerade exit exists to prevent. Prefix-and-server is "the string looks plausible"; this
+ * ruling is "this fleet vouches that THIS identity belongs on THIS side."
+ *
+ * Case handling per Matrix: localparts are case-sensitive (so `@ac_Big:side` is NOT the agent
+ * `@ac_big:side`), server names compare case-insensitively. The authoritative MXID's server is
+ * compared the same way, so a recorded `...@Palpo.Test` still matches the side's `palpo.test`.
+ */
+function backendRosterAdmits(mxid, sideId, agentsMap = agents, sideStore = projectSideStore) {
+  const id = typeof mxid === 'string' ? mxid.trim() : '';
+  const m = id.match(/^@([^:\s@]+):([^\s@]+)$/);
+  if (!m) return false;
+  const [, localpart, server] = m;
+  if (!localpart.startsWith(MATRIX_AGENT_PREFIX_FOR_REGISTRATION)) return false;
+  const agentName = localpart.slice(MATRIX_AGENT_PREFIX_FOR_REGISTRATION.length);
+  const agent = agentsMap[agentName];
+  if (!isAgentRecord(agent)) return false;                                  // ①
+  if (String(agent.projectSide ?? '') !== String(sideId ?? '')) return false; // ② missing ≠ admitted
+  const side = sideStore.getSide(sideId);
+  if (!side?.serverName) return false;                                      // no side, no composition
+  const recorded = typeof agent.matrixIdentity === 'string' && agent.matrixIdentity.trim().startsWith('@')
+    ? agent.matrixIdentity.trim()
+    : null;
+  const authoritative = recorded
+    ?? `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+  const am = authoritative.match(/^@([^:\s@]+):([^\s@]+)$/);
+  if (!am) return false;
+  return localpart === am[1] && server.toLowerCase() === am[2].toLowerCase(); // ③
+}
+
+// F10 (17-r3)/(17-r4): the roster predicate, exported so tests drive it without spinning the
+// server. `sideStore` may be overridden with a { getSide } stub so the ruling's side lookup is
+// tested against a controlled store rather than the live one.
+export function __backendRosterAdmitsForTest(mxid, sideId, agentsMap, sideStore) {
+  return backendRosterAdmits(mxid, sideId, agentsMap, sideStore);
+}
+
 async function withdrawAgentFromProjectRoom(agentName, roomId) {
   const sideId = sideIdForRoom(roomId);
   const side = sideId ? projectSideStore.getSide(sideId) : null;
@@ -13188,11 +13246,33 @@ async function withdrawAgentFromProjectRoom(agentName, roomId) {
    * the namespace the registration claimed before presenting any token.
    */
   const agentMxid = `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+  /*
+   * F10 (17-r5): THE SAME FIRST GATE as admission — before any external request. A leave for an
+   * identity the fleet does not vouch for is an external side effect (the homeserver records the
+   * attempt and any audit trail sees the name), so it is refused here, at zero requests; the
+   * join/leave exit's own roster check stays as depth.
+   */
+  if (!backendRosterAdmits(agentMxid, sideId)) {
+    console.warn(`[room-withdraw] REFUSED: ${agentMxid} is not a registered agent of this fleet on side ${sideId}`);
+    return { roomId, left: false, reason: 'not_a_registered_agent', sideId, mxid: agentMxid };
+  }
   const result = await leaveRoomOnSideAsAgent({
     side: { apiBaseUrl: side.apiBaseUrl, serverName: side.serverName },
     credential,
     roomId,
     agentUserId: agentMxid,
+    /*
+     * F10 (17-r3): the backend's OWN registry is the roster — the leave masquerades as an agent
+     * this fleet registered, so the single exit must hear it from the authority that mints
+     * agent identities. Composed from the requested localpart on the room's server, so a
+     * withdrawn agent already deleted from the registry is refused before any request.
+     */
+    /*
+     * F10 (17-r4): sideId, not serverName — the ruling reads agent.projectSide, which is
+     * keyed by side id. The composed agentMxid below already carries the side's server; if
+     * this agent's authoritative home is a DIFFERENT side, ② refuses here.
+     */
+    isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, sideId),
   });
   return { roomId, mxid: agentMxid, left: Boolean(result.left), reason: result.reason ?? null };
 }
@@ -13217,6 +13297,19 @@ async function admitAgentToProjectRoom(engagement) {
 
   const acting = { side: { apiBaseUrl: side.apiBaseUrl, serverName: side.serverName }, credential };
   const agentMxid = `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+
+  /*
+   * F10 (17-r5): THE ROSTER GATE COMES FIRST — before the invite, before any external request at
+   * all. The invite itself is an external side effect naming the agent: a ghost or a cross-side
+   * re-composition used to receive a real invitation from the representative before the join's
+   * roster check refused the masquerade — half an admission, on the wire, for an identity this
+   * fleet does not vouch for. Refusing here means ZERO requests for a refused identity; the exit's
+   * isRegisteredAgent on the join stays as depth (a second gate that must never be the first).
+   */
+  if (!backendRosterAdmits(agentMxid, sideId)) {
+    console.warn(`[room-admission] REFUSED: ${agentMxid} is not a registered agent of this fleet on side ${sideId}`);
+    return { admitted: false, reason: 'not_a_registered_agent', sideId, mxid: agentMxid };
+  }
 
   const invite = await inviteToRoomOnSide({ ...acting, roomId, userId: agentMxid });
   if (!invite.invited && !invite.already) {
@@ -13250,7 +13343,15 @@ async function admitAgentToProjectRoom(engagement) {
    * the reason is what tells the two apart — an invite that is waiting for its own agent, versus one
    * nobody will ever act on.
    */
-  const join = await joinRoomOnSideAsAgent({ ...acting, roomId, agentUserId: agentMxid });
+  /*
+   * F10 (17-r3): same roster contract as the withdraw path — the backend's registry decides
+   * which `@ac_` identities this fleet owns, and the single exit refuses a ghost.
+   */
+  const join = await joinRoomOnSideAsAgent({
+    ...acting, roomId, agentUserId: agentMxid,
+    // F10 (17-r4): sideId — the authoritative-home check lives in the ruling
+    isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, sideId),
+  });
   return {
     admitted: Boolean(join.joined),
     invited: Boolean(invite.invited),
@@ -15911,6 +16012,10 @@ export const __backendV2TestInternals = {
    */
   sweepCeilingOverrunsForTest: sweepCeilingOverruns,
   sweepProjectRoomMembershipForTest: sweepProjectRoomMembership,
+  // F10 (17-r4): the two real admission/withdraw paths, exported for the roster counterexamples.
+  admitAgentToProjectRoomForTest: admitAgentToProjectRoom,
+  withdrawAgentFromProjectRoomForTest: withdrawAgentFromProjectRoom,
+  backendRosterAdmitsForTest: backendRosterAdmits,
   buildLocalPaneMetadataSnapshotForTest: buildLocalPaneMetadataSnapshotAsync,
   injectSlashClearForTest: injectSlashClear,
   sessionPolicyForTest: sessionPolicy,

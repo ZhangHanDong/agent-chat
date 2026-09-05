@@ -4,11 +4,12 @@ import {
   RustSdkCryptoStorageProvider,
   SimpleFsStorageProvider,
 } from 'matrix-bot-sdk';
-import { validateMasqueradeUserId } from './lib/matrix-representative.js';
+import { validateMasqueradeUserId, setMasqueradeUserParam } from './lib/matrix-representative.js';
 import { createHash } from 'crypto';
 import { createAppserviceRouter } from './lib/appservice-receiver.js';
 import {
-  createRoomOnSide, inviteToRoomOnSide, joinRoomOnSideAsAgent, sendToRoomOnSide, namespaceAdmits,
+  createRoomOnSide, inviteToRoomOnSide, joinRoomOnSideAsAgent, joinRoomOnSideAsRepresentative,
+  sendToRoomOnSide, namespaceAdmits,
   joinedMembersOnSide, roomMessagesOnSide,
 } from './lib/matrix-representative.js';
 import { resolveAppserviceListenerConfig, startAppserviceListener } from './lib/appservice-listener.js';
@@ -2175,6 +2176,28 @@ function groupMappingKey(roomId) { return state.roomGroupMap[roomId] || null; }
  * deleting by bare name against side-qualified keys left orphans (the exact
  * leak class this round closes). Returns the removed mapping key.
  */
+/*
+ * F07 (17-r2): the rooms.leave sweep — a room the representative is OUT of is a permission no
+ * longer held. Trust revoked and the group mapping dropped, the same terms `forgetRoomsOnSides`
+ * uses for a removed side, because a room we cannot read must not keep the admission the trust
+ * gate exists to enforce. Module-level so the collector wiring stays thin and the sweep is
+ * directly testable against seeded state.
+ */
+function sweepLeftRoomsOnSides(sideId, roomIds) {
+  for (const roomId of roomIds) {
+    const wasTrusted = Boolean(state.trustedManagedRooms?.[roomId]);
+    if (state.trustedManagedRooms?.[roomId]) {
+      delete state.trustedManagedRooms[roomId];
+    }
+    const unmappedKey = unmapRoom(roomId);
+    console.log(
+      `[appservice-sync] side ${sideId}: left ${roomId} — trust cleared (${wasTrusted})`
+      + `${unmappedKey ? `, group mapping "${unmappedKey}" dropped` : ''}`,
+    );
+  }
+  saveState();
+}
+
 function unmapRoom(roomId) {
   const key = groupMappingKey(roomId);
   if (!key) return null;
@@ -4438,31 +4461,33 @@ export class MatrixBridge {
     if (String(event?.state_key || '').toLowerCase() !== representative) return;
 
     /*
-     * Joined with `joinRoomOnSideAsAgent`, whose namespace check does not apply to the representative —
-     * it is the sender_localpart, not an `@ac_` user. So the join is done directly, and the ONE
-     * safeguard that matters here is the room's origin: an invite naming a room on another server is
-     * not this side's to accept.
+     * F10 (17-r1): the join goes through `joinRoomOnSideAsRepresentative`, which sets the masquerade
+     * `user_id` through the single exit `setMasqueradeUserParam` — this used to be one more bare
+     * `searchParams.set('user_id', …)` outside the validator, and the outer loop refused F10 for it.
+     * No namespace check applies: the representative IS the registration's sender_localpart, not an
+     * `@ac_` user — what still guards the action is the room's origin check inside the helper (an
+     * invite naming a room on another server is not this side's to accept) and the MXID shape check
+     * at the single exit.
      */
-    if (!roomId.endsWith(`:${sideId}`)) {
-      console.warn(`[appservice] ${sideId}: invite for ${representative} names room ${roomId} on another server`);
-      return;
-    }
-    const url = new URL(
-      `${String(acting.side.apiBaseUrl).replace(/\/+$/, '')}/_matrix/client/v3/join/`
-      + `${encodeURIComponent(roomId)}`,
-    );
-    url.searchParams.set('user_id', representative);
     try {
-      const res = await fetch(url.toString(), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${acting.credential.asToken}`, 'Content-Type': 'application/json' },
-        body: '{}',
+      const joinOutcome = await joinRoomOnSideAsRepresentative({
+        side: acting.side,
+        credential: acting.credential,
+        roomId,
       });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}${detail ? `: ${detail.slice(0, 120)}` : ''}`);
+      if (!joinOutcome.joined) {
+        /*
+         * A foreign room is the one refusal that is nobody's failure: the invite named a room on
+         * another server, and the original path answered it with a warning and silence — no request,
+         * no retry, no operator alert. Pinned tests hold that contract.
+         */
+        if (joinOutcome.code === 'foreign_room') {
+          console.warn(`[appservice] ${sideId}: invite for ${representative} names room ${roomId} on another server`);
+          return;
+        }
+        throw new Error(joinOutcome.reason || 'representative join failed');
       }
-      console.log(`[appservice] ${sideId}: knock answered — ${representative} joined ${roomId}`);
+      console.log(`[appservice] ${sideId}: knock answered — ${joinOutcome.representative} joined ${roomId}`);
       /*
        * THE ROOM IS OURS TO READ NOW, AND THE TRUST GATE HAS TO KNOW.
        *
@@ -4529,8 +4554,20 @@ export class MatrixBridge {
        * NON-retryable failures (the room is gone/banned, or the homeserver says
        * the invite itself is invalid) are recorded and swallowed: retrying
        * those would loop forever, and the operator has the warning.
+       *
+       * F10 (17-r1): a MASQUERADE REFUSAL is permanent too — the single exit
+       * refused to name this user, and re-asking the homeserver cannot make a
+       * spoof legitimate. REFUSED in the log, no request sent, no retry.
        */
       const msg = String(error?.message || error);
+      if (error?.code === 'masquerade_refused') {
+        console.error(`[appservice] ${sideId}: join for ${roomId} REFUSED at the masquerade exit: ${msg}`);
+        this.postWarning(
+          `project side ${sideId} invited ${representative} to ${roomId} and the join was REFUSED: ${msg}`,
+          { kind: 'knock-accepted', scope: roomId },
+        );
+        return;
+      }
       const status = Number.parseInt(msg.match(/HTTP (\d{3})/)?.[1] ?? '', 10);
       const permanent = status === 403 || status === 404 || /M_FORBIDDEN|M_NOT_FOUND|forbidden/i.test(msg);
       if (permanent) {
@@ -4872,17 +4909,39 @@ export class MatrixBridge {
          * store) exactly once per break, so a poisoned batch pages a human instead of blocking
          * the queue in silence.
          */
-        onRoomsNeedingReconcile: (sideId, roomIds) => {
+        onRoomsNeedingReconcile: async (sideId, roomIds) => {
           /*
            * F07: a limited timeline means events were dropped in the gap. Re-pull
            * the room's recent history through the side's backfill helper so the
            * missing window reaches the same handler as a normal timeline event.
+           *
+           * F07 (17-r2): AWAITED now, and the durable record (below) is the
+           * guarantee — a failure here leaves the room in
+           * `state.appserviceSyncReconcile[sideId]` and the collector retries it
+           * at the top of the next poll, so a gap is never lost to a cursor that
+           * already moved past it.
            */
           for (const roomId of roomIds) {
-            this.backfillJoinedRoomOnSide(sideId, roomId, null).catch((err) => {
-              console.warn(`[appservice-sync] reconcile backfill for ${roomId} failed: ${err?.message || err}`);
-            });
+            const representative = `@${String(this.actingSideFor(sideId)?.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
+            await this.backfillJoinedRoomOnSide(sideId, roomId, representative || null);
           }
+        },
+        /*
+         * F07 (17-r2): rooms.leave — the representative is OUT. Trust is revoked
+         * and the group mapping is dropped, the same sweep `forgetRoomsOnSides`
+         * does for a removed side, because a room we cannot read is a permission
+         * we no longer hold: keeping trust would let a re-invite skip the trust
+         * gate that admission exists to enforce.
+         */
+        onLeaves: (sideId, roomIds) => sweepLeftRoomsOnSides(sideId, roomIds),
+        readPendingReconcile: () => Object.keys(state.appserviceSyncReconcile?.[sync.side] ?? {}),
+        writePendingReconcile: (roomId, verdict) => {
+          if (!state.appserviceSyncReconcile) state.appserviceSyncReconcile = {};
+          const queue = state.appserviceSyncReconcile[sync.side]
+            ?? (state.appserviceSyncReconcile[sync.side] = {});
+          if (verdict === 'cleared') delete queue[roomId];
+          else queue[roomId] = Date.now();
+          saveState();
         },
         onCredentialChanged: (sideId, detail) => {
           /*
@@ -8629,6 +8688,16 @@ export class MatrixBridge {
       credential: sender.credential,
       roomId: created.roomId,
       agentUserId: sender.agentUserId,
+      /*
+       * F10 (17-r2): the fleet's authoritative roster rides every agent
+       * masquerade — the exit refuses a ghost before the request is built.
+       * `typeof`-guarded for minimal unit-test selves, same convention as the
+       * agent-send exit: no roster to ask degrades to namespace-only rather
+       * than throwing — production always has the method.
+       */
+      isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
+        ? (mxid) => this.isKnownAgentMxid(mxid)
+        : null,
     });
     if (!joined.joined) {
       /*
@@ -9371,26 +9440,30 @@ export class MatrixBridge {
          * REGISTERED agent of this fleet AND sit inside the side's registered
          * namespace — anything else is a spoof the homeserver would happily
          * execute on the strength of the as_token alone.
+         *
+         * F10 (17-r1): the refusal is now raised BY the single exit itself
+         * (`setMasqueradeUserParam` throws `masquerade_refused` before the
+         * request is built) instead of being re-derived here — this used to be
+         * one more bare `url.searchParams.set('user_id', …)` outside the exit.
          */
-        const verdict = validateMasqueradeUserId({
-          userId: sender.agentUserId,
-          namespace: sender.credential?.namespace ?? null,
-          /*
-           * `typeof`-guarded: unit tests drive this path with minimal `self`
-           * objects that stub agentSenderFor but not the roster method. When
-           * the roster is UNAVAILABLE the check degrades to namespace-only
-           * rather than throwing — production always has the method.
-           */
-          isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
-            ? (mxid) => this.isKnownAgentMxid(mxid)
-            : undefined,
-          label: 'agent-send',
-        });
-        if (!verdict.ok) {
-          console.error(`[masquerade] REFUSED: ${verdict.reason}`);
-          throw new Error(verdict.reason);
+        try {
+          setMasqueradeUserParam(url, sender.agentUserId, {
+            namespace: sender.credential?.namespace ?? null,
+            /*
+             * `typeof`-guarded: unit tests drive this path with minimal `self`
+             * objects that stub agentSenderFor but not the roster method. When
+             * the roster is UNAVAILABLE the check degrades to namespace-only
+             * rather than throwing — production always has the method.
+             */
+            isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
+              ? (mxid) => this.isKnownAgentMxid(mxid)
+              : null,
+            label: 'agent-send',
+          });
+        } catch (masqueradeError) {
+          console.error(`[masquerade] REFUSED: ${masqueradeError?.message || masqueradeError}`);
+          throw masqueradeError;
         }
-        url.searchParams.set('user_id', sender.agentUserId);
       }
       const res = await fetch(url.toString(), {
         method: 'PUT',
@@ -9457,6 +9530,10 @@ export class MatrixBridge {
               credential: sender.credential,
               roomId,
               agentUserId: sender.agentUserId,
+              // F10 (17-r2): roster checked at the single exit on rejoin too (typeof-guarded)
+              isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
+                ? (mxid) => this.isKnownAgentMxid(mxid)
+                : null,
             });
             if (!rejoined.joined) {
               throw new Error(`${sender.agentUserId} could not rejoin ${roomId}: ${rejoined.reason}`);
@@ -9798,6 +9875,11 @@ export function agentTokenStateForTest() {
  */
 export function bridgeStateForTest() {
   return state;
+}
+
+// F07 (17-r2): the rooms.leave sweep, exported so a test can seed state and drive it directly.
+export function __onLeavesForTest(sideId, roomIds) {
+  return sweepLeftRoomsOnSides(sideId, roomIds);
 }
 
 export function humanMxidStateForTest() {

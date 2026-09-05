@@ -80,6 +80,9 @@ const failNonJson = (status) => ({
   ok: false, status, json: async () => { throw new SyntaxError('Unexpected token <'); },
 });
 
+// F10 (17-r3): the fleet roster callback every agent join/leave call must now supply.
+const rosterSaysYes = () => true;
+
 describe('rejected versus unreachable', () => {
   test('only 401 and 403 are a verdict on the credential', () => {
     expect(classifyMatrixFailure({ status: 401 })).toBe('rejected');
@@ -852,7 +855,7 @@ describe('the representative brings an agent into a project room', () => {
 
   test('the agent joins under the appservice credential, as itself', async () => {
     const impl = fakeFetch([ok({ room_id: ROOM })]);
-    const r = await joinRoomOnSideAsAgent({ side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: AGENT, fetchImpl: impl });
+    const r = await joinRoomOnSideAsAgent({ side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: AGENT, isRegisteredAgent: rosterSaysYes, fetchImpl: impl });
     expect(r).toMatchObject({ joined: true, roomId: ROOM });
     const [call] = impl.calls;
     expect(call.url).toContain(`/join/${encodeURIComponent(ROOM)}`);
@@ -869,7 +872,7 @@ describe('the representative brings an agent into a project room', () => {
      */
     const impl = fakeFetch([]);
     const r = await joinRoomOnSideAsAgent({
-      side: SIDE, credential: regCred({ representativeToken: REP_TOKEN }), roomId: ROOM, agentUserId: AGENT, fetchImpl: impl,
+      side: SIDE, credential: regCred({ representativeToken: REP_TOKEN }), roomId: ROOM, agentUserId: AGENT, isRegisteredAgent: rosterSaysYes, fetchImpl: impl,
     });
     expect(r.joined).toBe(false);
     expect(r.reason).toMatch(/per-agent token and must use it/);
@@ -878,8 +881,8 @@ describe('the representative brings an agent into a project room', () => {
 
   test('a user outside the namespace is refused, and the as_token is never sent', async () => {
     const impl = fakeFetch([]);
-    const r = await joinRoomOnSideAsAgent({
-      side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: `@borrower:${SERVER}`, fetchImpl: impl,
+const r = await joinRoomOnSideAsAgent({
+      side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: '@impostor:side.example', isRegisteredAgent: rosterSaysYes, fetchImpl: impl,
     });
     expect(r.joined).toBe(false);
     expect(r.reason).toMatch(/outside the namespace/);
@@ -890,7 +893,7 @@ describe('the representative brings an agent into a project room', () => {
   test('an unparseable namespace is reported as such, not silently permitted', async () => {
     const impl = fakeFetch([]);
     const r = await joinRoomOnSideAsAgent({
-      side: SIDE, credential: asCred({ namespace: '@ac_[' }), roomId: ROOM, agentUserId: AGENT, fetchImpl: impl,
+      side: SIDE, credential: asCred({ namespace: '@ac_[' }), roomId: ROOM, agentUserId: AGENT, isRegisteredAgent: rosterSaysYes, fetchImpl: impl,
     });
     expect(r.joined).toBe(false);
     expect(r.reason).toMatch(/not a usable regex/);
@@ -899,7 +902,7 @@ describe('the representative brings an agent into a project room', () => {
 
   test('a full MXID is required, because a bare name would masquerade as a guess', async () => {
     await expect(joinRoomOnSideAsAgent({
-      side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: 'ac_worker', fetchImpl: fakeFetch([]),
+      side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: 'worker', isRegisteredAgent: rosterSaysYes, fetchImpl: fakeFetch([]),
     })).rejects.toThrow(RepresentativeError);
     await expect(inviteToRoomOnSide({
       side: SIDE, credential: asCred(), roomId: ROOM, userId: 'worker', fetchImpl: fakeFetch([]),
@@ -913,7 +916,7 @@ describe('the representative brings an agent into a project room', () => {
    */
   test('the agent leaves under the appservice credential, as itself', async () => {
     const impl = fakeFetch([ok({})]);
-    const r = await leaveRoomOnSideAsAgent({ side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: AGENT, fetchImpl: impl });
+    const r = await leaveRoomOnSideAsAgent({ side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: AGENT, isRegisteredAgent: rosterSaysYes, fetchImpl: impl });
     expect(r.left).toBe(true);
     const [call] = impl.calls;
     expect(call.url).toContain(`/rooms/${encodeURIComponent(ROOM)}/leave`);
@@ -930,7 +933,7 @@ describe('the representative brings an agent into a project room', () => {
      */
     const impl = fakeFetch([ok({}), ok({})]);
     for (let i = 0; i < 2; i += 1) {
-      const r = await leaveRoomOnSideAsAgent({ side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: AGENT, fetchImpl: impl });
+      const r = await leaveRoomOnSideAsAgent({ side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: AGENT, isRegisteredAgent: rosterSaysYes, fetchImpl: impl });
       expect(r.left).toBe(true);
     }
   });
@@ -939,7 +942,7 @@ describe('the representative brings an agent into a project room', () => {
     // What Palpo actually answers for an identity that never existed: 500 M_UNKNOWN. A cleanup that
     // reports success for a seat still occupied is the failure mode this whole change is about.
     const impl = fakeFetch([fail(500, { errcode: 'M_UNKNOWN', error: 'unknown db error' })]);
-    const r = await leaveRoomOnSideAsAgent({ side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: AGENT, fetchImpl: impl });
+    const r = await leaveRoomOnSideAsAgent({ side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: AGENT, isRegisteredAgent: rosterSaysYes, fetchImpl: impl });
     expect(r.left).toBe(false);
     expect(r.state).toBe('unreachable');
     expect(r.reason).toMatch(/500/);
@@ -950,7 +953,7 @@ describe('the representative brings an agent into a project room', () => {
     // and the check happens before any token leaves the process.
     const impl = fakeFetch([]);
     const r = await leaveRoomOnSideAsAgent({
-      side: SIDE, credential: asCred(), roomId: '!elsewhere:other.example', agentUserId: AGENT, fetchImpl: impl,
+      side: SIDE, credential: asCred(), roomId: '!elsewhere:other.example', agentUserId: AGENT, isRegisteredAgent: rosterSaysYes, fetchImpl: impl,
     });
     expect(r.left).toBe(false);
     expect(r.reason).toMatch(/not on/);
@@ -960,7 +963,7 @@ describe('the representative brings an agent into a project room', () => {
   test('a user outside the namespace is refused before the as_token is presented', async () => {
     const impl = fakeFetch([]);
     const r = await leaveRoomOnSideAsAgent({
-      side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: `@borrower:${SERVER}`, fetchImpl: impl,
+      side: SIDE, credential: asCred(), roomId: ROOM, agentUserId: '@impostor:side.example', isRegisteredAgent: rosterSaysYes, fetchImpl: impl,
     });
     expect(r.left).toBe(false);
     expect(impl.calls).toHaveLength(0);
