@@ -4536,12 +4536,12 @@ export class MatrixBridge {
       if (permanent) {
         console.error(`[appservice] ${sideId}: join for ${roomId} permanently refused: ${msg}`);
         this.postWarning(
-          `project side ${sideId} invited ${representative} to ${roomId} and the join was refused permanently: ${msg}`,
+          `project side ${sideId} invited ${representative} to ${roomId} and the join failed permanently: ${msg}`,
           { kind: 'knock-accepted', scope: roomId },
         );
         return;
       }
-      console.error(`[appservice] ${sideId}: could not join ${roomId} after invite: ${msg} — NOT acking this transaction so it is retried`);
+      console.error(`[appservice] ${sideId}: join failed for ${roomId} after invite: ${msg} — NOT acking this transaction so it is retried`);
       throw error;
     }
   }
