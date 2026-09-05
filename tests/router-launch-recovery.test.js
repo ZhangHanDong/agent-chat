@@ -63,7 +63,7 @@ describe('thread-session runner launch recovery', () => {
     // that took longer than the 1 s (100 x 10 ms) this loop used to allow, and the test flaked with
     // launch_failures one short. Bounded by wall-clock instead: still a hard cap (LOOP-R1), just one
     // sized for process churn rather than for a quiet laptop.
-    const deadline1 = Date.now() + 5_000;
+    const deadline1 = Date.now() + 30_000; // hard cap (LOOP-R1); same reasoning as deadline2 below.
     while (Date.now() < deadline1) {
       row = router.db.prepare(
         'SELECT state, launch_failures, available_at FROM dispatches WHERE dispatch_id = ?',
