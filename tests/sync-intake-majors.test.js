@@ -65,3 +65,46 @@ describe('F08: a malformed HTTP 200 sync body is an error, not a healthy poll', 
       .rejects.toMatchObject({ code: 'malformed_sync_body' });
   });
 });
+
+describe('F09: an acting-credential change invalidates the cached token and the relogin budget', () => {
+  test('rotating the asToken mid-run forces a fresh login and fires onCredentialChanged', async () => {
+    const syncUrl = pathToFileURL(new URL('../lib/appservice-sync.js', import.meta.url).pathname).href;
+    const { startAppserviceSyncCollector } = await import(`${syncUrl}?f09=${Date.now()}-${Math.random()}`);
+    let asToken = 'as-1';
+    const changes = [];
+    const logins = [];
+    const fetchImpl = vi.fn(async (u) => {
+      if (String(u).endsWith('/login')) {
+        const tok = `t-${asToken}-${logins.length}`;
+        logins.push(tok);
+        return { ok: true, status: 200, json: async () => ({ access_token: tok, user_id: '@h:p' }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ next_batch: 'A', rooms: {} }) };
+    });
+    const router = { handle: async () => ({ status: 200, body: {} }) };
+    // rotate the credential AFTER the first successful poll (login #1 already happened)
+    let polls = 0;
+    const credentialFor = () => {
+      if (polls >= 1) asToken = 'as-2';
+      return { kind: 'appservice', asToken, hsToken: 'hs', senderLocalpart: 'hafleet' };
+    };
+    const collector = startAppserviceSyncCollector({
+      baseUrl: 'https://h', side: 's1', router,
+      credentialFor,
+      readCursor: () => null, writeCursor: async () => {},
+      fetchImpl: async (...a) => { polls += 0; const r = await fetchImpl(...a); polls += String(a[0]).includes('/sync') ? 1 : 0; return r; },
+      sleep: async () => { await Promise.resolve(); },
+      shouldContinue: () => logins.length < 2 && watchdog(),
+      onCredentialChanged: (side, detail) => { changes.push({ side, detail }); },
+    });
+    function watchdog() { return (watchdog.t = (watchdog.t ?? 0) + 1) < 50; }
+    await collector.loop;
+    // TWO logins: the original, and the forced relogin after the credential rotation
+    expect(logins).toHaveLength(2);
+    expect(logins[0]).toMatch(/^t-as-1-/);
+    expect(logins[1]).toMatch(/^t-as-2-/);
+    // the hook fired exactly once, naming both tokens
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ side: 's1', detail: { previousAsToken: 'as-1', asToken: 'as-2' } });
+  });
+});

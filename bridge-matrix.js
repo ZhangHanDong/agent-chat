@@ -4860,6 +4860,13 @@ export class MatrixBridge {
          * store) exactly once per break, so a poisoned batch pages a human instead of blocking
          * the queue in silence.
          */
+        onCredentialChanged: (sideId, detail) => {
+          /*
+           * F09: the collector has already dropped its cached token and budget;
+           * this log is the operator's visibility into WHY a relogin happened.
+           */
+          console.log(`[appservice-sync] acting credential changed for side ${sideId}; cached token invalidated`);
+        },
         onCircuitBreak: (sideId, detail) => this.postWarning(
           `appservice sync intake circuit-broke for side ${sideId}: the router refused a batch ${detail.attempts} times. `
           + `Recovery resumes from cursor ${detail.heldCursor ?? '(none)'} (the batch that ends at ${detail.failedNextBatch ?? '(none)'} was never committed). `
