@@ -99,6 +99,7 @@ export async function fakePalpo({
     memberState,
     syncBatches,
     setMembers(roomId, list) { memberState.set(roomId, [...list]); },
+    clearMemberFailure(roomId) { delete memberFailures[roomId]; },
     close: () => new Promise((r) => server.close(r)),
   };
 }

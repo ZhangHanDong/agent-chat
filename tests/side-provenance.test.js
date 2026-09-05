@@ -337,8 +337,8 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
   });
 
   test('side_provenance_relation_unavailable_retries_before_three_typed_paths', async () => {
-    // member read fails (404 from fake palpo for unknown room shape) → room_relation_unavailable
-    const palpo = await fakePalpo({ members: {} });
+    // 5xx membership read → room_relation_unavailable (403 is terminal since r9)
+    const palpo = await fakePalpo({ members: {}, memberFailures: { [ROOM]: 500 } });
     const { self, typed } = await makeBridgeWithSide({
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
@@ -346,6 +346,7 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     expect(r.status).toBe(500);
     expect(typed.messages).toHaveLength(0);
     // recover: members now complete with the representative joined → replay admits once
+    palpo.clearMemberFailure(ROOM);
     palpo.setMembers(ROOM, [REP]);
     const r2 = await pushTxn(self.router, { hsToken: HS, txnId: 't2', events: [msg(ROOM, '$2')] });
     expect(r2.status).toBe(200);
@@ -469,7 +470,7 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
   });
 
   test('side_provenance_failed_delivery_keeps_claim_and_cursor_retryable', async () => {
-    const palpo = await fakePalpo({ members: {} }); // no member evidence for ROOM → unavailable
+    const palpo = await fakePalpo({ members: {}, memberFailures: { [ROOM]: 500 } });
     const { self, typed } = await makeBridgeWithSide({
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
@@ -480,7 +481,9 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
   });
 
   test('side_provenance_mixed_batch_relation_failure_prevents_ack_and_cursor', async () => {
-    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const palpo = await fakePalpo({
+      members: { [ROOM]: [REP] }, memberFailures: { '!unknown:palpo.test': 500 },
+    });
     const { self, typed } = await makeBridgeWithSide({
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
