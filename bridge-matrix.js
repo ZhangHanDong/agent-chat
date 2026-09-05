@@ -4640,8 +4640,25 @@ export class MatrixBridge {
   }
 
   async handleAppserviceEvents(sideId, events, meta) {
+    const registered = this.appserviceInboundSnapshot?.get(normalizeSideKey(sideId));
+    const representativeMxid = typeof registered?.representative?.mxid === 'string'
+      ? registered.representative.mxid.trim()
+      : '';
+    const bootstrapInvites = [];
+    const remaining = [];
     for (const event of events) {
       const roomId = event?.room_id;
+      const isBootstrapInvite = Boolean(
+        roomId && representativeMxid
+        && event?.type === 'm.room.member'
+        && event?.content?.membership === 'invite'
+        && String(event?.state_key ?? '').trim() === representativeMxid,
+      );
+      (isBootstrapInvite ? bootstrapInvites : remaining).push({ event, roomId });
+    }
+    // Stable partition: exact representative invites establish the room relation before any
+    // sibling state/timeline event, without reversing rooms or promoting unrelated invites.
+    for (const { event, roomId } of [...bootstrapInvites, ...remaining]) {
       if (!roomId) {
         console.warn(`[appservice] ${sideId}: event with no room_id in txn=${meta?.txnId} type=${event?.type}`);
         continue;

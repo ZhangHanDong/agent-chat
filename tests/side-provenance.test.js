@@ -89,6 +89,96 @@ async function pushTxn(router, { hsToken, txnId = 't1', events, mode }) {
 const msg = (roomId, eventId, body = 'hello', sender = '@human:palpo.test') => ({
   type: 'm.room.message', room_id: roomId, event_id: eventId, sender, content: { msgtype: 'm.text', body },
 });
+
+describe('16-impl-r9 sync invite bootstrap ordering', () => {
+  test('r9_real_collector_joins_before_same_batch_state_and_commits_cursor', async () => {
+    const roomId = '!r9-fresh:palpo.test';
+    const palpo = await fakePalpo({
+      syncBatches: [{
+        next_batch: 'r9-good',
+        rooms: { invite: { [roomId]: { invite_state: { events: [
+          { type: 'm.room.create', state_key: '', sender: '@alex:palpo.test', content: { creator: '@alex:palpo.test' } },
+          { type: 'm.room.name', state_key: '', sender: '@alex:palpo.test', content: { name: 'fresh' } },
+          { type: 'm.room.member', state_key: REP, sender: '@alex:palpo.test', content: { membership: 'invite' } },
+        ] } } } },
+      }],
+    });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    const { joinRoomOnSideAsRepresentative } = await import('../lib/matrix-representative.js');
+    const realFetch = globalThis.fetch;
+    let joined = false;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('/join/') && String(url).includes(encodeURIComponent(roomId))) {
+        palpo.setMembers(roomId, [REP]);
+        joined = true;
+      }
+      return realFetch(url, init);
+    };
+    cleanup.push(() => { globalThis.fetch = realFetch; });
+    self.onAppserviceMembership = async (sideId, incomingRoomId, event) => {
+      typed.memberships.push({ sideId, roomId: incomingRoomId, event });
+      const result = await joinRoomOnSideAsRepresentative({ ...self.actingSideFor(sideId), roomId: incomingRoomId });
+      expect(result.joined).toBe(true);
+    };
+    let cursor = 'r9-before';
+    const collector = startAppserviceSyncCollector({
+      baseUrl: palpo.url, side: SIDE, router: self.router,
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      readCursor: () => cursor, writeCursor: async (next) => { cursor = next; },
+      fetchImpl: async (url) => String(url).endsWith('/login')
+        ? { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: REP }) }
+        : fetch(url),
+      sleep: async () => {}, shouldContinue: () => cursor !== 'r9-good',
+    });
+    await collector.loop;
+    expect(joined).toBe(true);
+    expect(typed.memberships).toHaveLength(1);
+    expect(collector.stats.failed).toBe(0);
+    expect(cursor).toBe('r9-good');
+  });
+
+  test('r9_forbidden_room_is_terminal_without_poisoning_healthy_sibling', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    const response = await pushTxn(self.router, { hsToken: HS, txnId: 'r9-mixed', events: [
+      msg('!forbidden:palpo.test', '$r9-bad'), msg(ROOM, '$r9-good'),
+    ] });
+    expect(response.status).toBe(200);
+    expect(typed.messages.map(({ event }) => event.event_id)).toEqual(['$r9-good']);
+  });
+
+  test('r9_member_read_5xx_retries_without_advancing_sync_cursor', async () => {
+    const roomId = '!r9-flaky:palpo.test';
+    const eventBatch = {
+      next_batch: 'r9-flaky',
+      rooms: { join: { [roomId]: { timeline: { events: [msg(roomId, '$r9-flaky')] }, state: { events: [] } } } },
+    };
+    const palpo = await fakePalpo({
+      members: { [roomId]: [REP] }, memberFailures: { [roomId]: 500 },
+      syncBatches: [eventBatch, eventBatch, eventBatch],
+    });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    let cursor = 'r9-before';
+    let polls = 0;
+    const collector = startAppserviceSyncCollector({
+      baseUrl: palpo.url, side: SIDE, router: self.router,
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      readCursor: () => cursor, writeCursor: async (next) => { cursor = next; },
+      fetchImpl: (url) => fetch(url), sleep: async () => {},
+      shouldContinue: () => ++polls <= 3,
+    });
+    await collector.loop;
+    expect(collector.stats.failed).toBe(3);
+    expect(cursor).toBe('r9-before');
+    expect(typed.messages).toHaveLength(0);
+  });
+});
 const nameEvt = (roomId, eventId, name) => ({
   type: 'm.room.name', room_id: roomId, event_id: eventId, state_key: '', sender: '@human:palpo.test',
   content: { name },
