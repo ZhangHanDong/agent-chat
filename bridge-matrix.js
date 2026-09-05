@@ -4506,11 +4506,31 @@ export class MatrixBridge {
         console.warn(`[appservice] ${sideId}: join backfill failed for ${roomId}: ${error?.message || error}`);
       }
     } catch (error) {
-      console.error(`[appservice] ${sideId}: could not join ${roomId} after invite: ${error.message}`);
-      this.postWarning(
-        `project side ${sideId} invited ${representative} to ${roomId} and the join failed: ${error.message}`,
-        { kind: 'knock-accepted', scope: roomId },
-      );
+      /*
+       * F05: a RETRYABLE join failure must NOT ack this transaction. The old
+       * path logged a warning and returned normally, so the receiver answered
+       * 200 and the homeserver (or the sync collector's cursor) moved past the
+       * only event that triggers the join — the invite was consumed and the
+       * room was never entered. THROW so the handler's caller answers 5xx and
+       * the txn is redelivered.
+       *
+       * NON-retryable failures (the room is gone/banned, or the homeserver says
+       * the invite itself is invalid) are recorded and swallowed: retrying
+       * those would loop forever, and the operator has the warning.
+       */
+      const msg = String(error?.message || error);
+      const status = Number.parseInt(msg.match(/HTTP (\d{3})/)?.[1] ?? '', 10);
+      const permanent = status === 403 || status === 404 || /M_FORBIDDEN|M_NOT_FOUND|forbidden/i.test(msg);
+      if (permanent) {
+        console.error(`[appservice] ${sideId}: join for ${roomId} permanently refused: ${msg}`);
+        this.postWarning(
+          `project side ${sideId} invited ${representative} to ${roomId} and the join was refused permanently: ${msg}`,
+          { kind: 'knock-accepted', scope: roomId },
+        );
+        return;
+      }
+      console.error(`[appservice] ${sideId}: could not join ${roomId} after invite: ${msg} — NOT acking this transaction so it is retried`);
+      throw error;
     }
   }
 
