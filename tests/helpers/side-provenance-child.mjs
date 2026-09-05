@@ -148,7 +148,6 @@ rl.on('line', async (line) => {
       const freshCred = store.credentialFor(cfg.serverName);
       const freshSide = store.getSide(cfg.serverName);
       const fresh = inboundCredentialsProjection(freshSide, freshCred);
-      projectedSideRef.current = fresh;
       self.backendApiForSides = async () => ({ sides: [fresh] });
       await self.refreshAppserviceSides();
       self.actingCredentials.set(cfg.sideId, {

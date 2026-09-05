@@ -1210,7 +1210,7 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     expect(self.sideProvenanceClaims.size).toBe(0);
   });
 
-  test('r5_side_without_representative_is_retryable_per_spec', async () => {
+  test('side_provenance_registration_without_representative_is_terminal_side_incomplete_registration', async () => {
     const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
     const m = await bridge();
     const self = {
@@ -1224,13 +1224,17 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      // SPEC: absent evidence is RETRYABLE — the batch 500s so the homeserver redelivers once
-      // the representative is recorded; the terminal branch stays behind its default-off flag.
+      /*
+       * SPEC (PR #144): terminal side_incomplete_registration — zero claims, zero typed, the
+       * event is logged and discarded, and a batch containing ONLY this rejection may 200.
+       */
       await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$1')], {
         txnId: 't', provenance: { registration: REG, sideId: SIDE, mode: 'push' },
-      })).rejects.toMatchObject({ code: 'room_relation_unavailable', retryable: true });
-      expect(self.sideProvenanceClaims.size).toBe(0);
-      expect(warnSpy.mock.calls.map((c) => c.join(' ')).join(' ')).toMatch(/has no representative recorded/);
+      })).resolves.toBeUndefined();
+      expect(self.sideProvenanceClaims.size).toBe(0);          // zero claims
+      const logged = warnSpy.mock.calls.map((c) => c.join(' ')).join(' ');
+      expect(logged).toMatch(/has no representative recorded/); // names the side + missing field
+      expect(logged).toMatch(/side_incomplete_registration|palpo.test/);
     } finally { warnSpy.mockRestore(); }
   });
 

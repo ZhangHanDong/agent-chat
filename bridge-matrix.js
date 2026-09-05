@@ -23,12 +23,6 @@ import {
  * (code, kind, registration, sideId, mode, room, event-or-txn ref) and NEVER a token or an
  * event/approval payload. Single-line JSON so log pipelines can parse it.
  */
-/*
- * 16-impl-r5 ⑤: OFF by default — the merged spec classifies an unrecorded representative as
- * retryable evidence-unavailable. Flip only with the operator's one-line spec amendment.
- */
-const SIDE_INCOMPLETE_IS_TERMINAL = false;
-
 function logProvenanceVerdict({ code, kind, provenance = {}, sideId, roomId, ref }) {
   console.warn(JSON.stringify({
     t: 'side-provenance', code, kind,
@@ -4460,26 +4454,18 @@ export class MatrixBridge {
      * own authority, never a sender suffix or a room-name guess.
      */
     /*
-     * 16-impl-r5 ⑤: per the merged SPEC, absent relation evidence is RETRYABLE
-     * room_relation_unavailable — including "no representative recorded yet". A terminal
-     * classification for that case conflicts with the spec text and awaits an operator ruling,
-     * so the branch below is kept behind a default-off flag: flipping it on (with the one-line
-     * spec amendment) restores the r4 behaviour.
+     * 16-impl-r6 ③: spec PR #144 settled it — a registration with NO recorded representative is
+     * TERMINAL side_incomplete_registration (zero claims, zero typed, the batch may 200 once
+     * every event is completed-or-rejected), while FAILED/INCOMPLETE evidence reads remain
+     * retryable room_relation_unavailable. The log names the side and the missing field.
      */
     if (!registered.representative?.mxid) {
       console.warn(`[side-provenance] side ${sideId} has no representative recorded; complete its registration before its events can be admitted`);
-      if (SIDE_INCOMPLETE_IS_TERMINAL) {
-        logProvenanceVerdict({
-          code: 'side_incomplete_registration', kind: 'terminal',
-          provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId,
-        });
-        return { rejected: 'side_incomplete_registration' };
-      }
-      throw new SideProvenanceError(
-        'room_relation_unavailable',
-        `side ${sideId} has no representative recorded; complete its registration (retryable per spec)`,
-        { retryable: true },
-      );
+      logProvenanceVerdict({
+        code: 'side_incomplete_registration', kind: 'terminal',
+        provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId,
+      });
+      return { rejected: 'side_incomplete_registration' };
     }
     const representativeMxid = representativeMxidFor(registered);
     /*
