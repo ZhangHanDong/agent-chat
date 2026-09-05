@@ -13,6 +13,10 @@ import {
   joinedMembersOnSide, roomMessagesOnSide,
 } from './lib/matrix-representative.js';
 import { resolveAppserviceListenerConfig, startAppserviceListener } from './lib/appservice-listener.js';
+import {
+  SideProvenanceError, buildSideProvenance, assertRoomRelation, representativeMxidFor,
+  claimKeyFor,
+} from './lib/side-provenance.js';
 import { resolveEdgeLinkConfig, startEdgePuller } from './lib/appservice-puller.js';
 import { resolveAppserviceSyncConfig, startAppserviceSyncCollector } from './lib/appservice-sync.js';
 import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
@@ -4368,6 +4372,133 @@ export class MatrixBridge {
    * repeated `event_id`. A transaction replayed after it has aged out of the router's window is still
    * not delivered twice.
    */
+  /**
+   * F06 L3 — the provenance gate for ONE event. Registration recheck → room relation →
+   * (claim happens on the typed path's existing dedup, keyed through claimKeyFor).
+   *
+   * TERMINAL verdicts (side_not_registered / room_side_mismatch / invalid_room_id /
+   * invalid_event_identity) are logged and the event is SKIPPED — zero mutations — but the
+   * batch continues: a definitive rejection must not hold valid events hostage.
+   * RETRYABLE verdicts (side_registry_unavailable / room_relation_unavailable /
+   * missing_provenance) THROW so the whole batch answers 500 and is redelivered.
+   */
+  async assertSideProvenanceForEvent(sideId, roomId, event, meta) {
+    const provenance = meta?.provenance;
+    if (!provenance) {
+      /*
+       * NOT a fallback to the bot path. An appservice event without provenance is an internal
+       * error — the adapter contract was violated — and refusing it loudly is the only honest
+       * answer (spec Must Not: provenance may not be inferred or defaulted away).
+       */
+      throw new SideProvenanceError(
+        'missing_provenance',
+        `appservice event in ${roomId} arrived without provenance (txn=${meta?.txnId ?? 'none'})`,
+        { retryable: true },
+      );
+    }
+    /*
+     * ① REGISTRATION RECHECK against the loaded snapshot — per event, never the wiring-time
+     * closure. Absent snapshot (refresh never succeeded) is UNAVAILABLE, not empty.
+     */
+    const snapshot = this.appserviceInboundSnapshot;
+    if (!snapshot) {
+      throw new SideProvenanceError(
+        'side_registry_unavailable',
+        'no project-side registry snapshot has loaded yet',
+        { retryable: true },
+      );
+    }
+    const registered = snapshot.get(provenance.sideId ?? sideId);
+    if (!registered) {
+      /*
+       * TERMINAL: a definitive absence in the last successfully loaded registry. Logged, skipped,
+       * zero mutations — the batch continues so one dead side cannot hold valid events hostage.
+       */
+      console.warn(`[side-provenance] side_not_registered: ${provenance.sideId ?? sideId} is not in the loaded registry`);
+      return { rejected: 'side_not_registered' };
+    }
+    /*
+     * ② ROOM RELATION — the representative's /whoami-recorded MXID must be joined to this
+     * exact room, or the event must BE the first invite addressed to it. The member read goes
+     * through the side's own credential (joinedMembersOnSide) so the proof is the registration's
+     * own authority, never a sender suffix or a room-name guess.
+     */
+    const representativeMxid = representativeMxidFor(registered);
+    /*
+     * TEST SEAM FIRST: when a fixture supplies the relation read, no credential is needed —
+     * the seam IS the evidence. Production never sets it and the acting credential below is
+     * what performs the authoritative member read.
+     */
+    const hasRelationSeam = typeof this.sideRelationLookup === 'function';
+    const acting = hasRelationSeam ? null : this.actingSideFor(provenance.sideId ?? sideId);
+    if (!hasRelationSeam && !acting) {
+      throw new SideProvenanceError(
+        'room_relation_unavailable',
+        `no acting credential for side ${provenance.sideId ?? sideId} to prove the room relation`,
+        { retryable: true },
+      );
+    }
+    /*
+     * TERMINAL relation verdicts (invalid_room_id / room_side_mismatch) skip the event; RETRYABLE
+     * ones (room_relation_unavailable) propagate so the batch answers 500 and is redelivered.
+     */
+    try {
+      await assertRoomRelation({
+      event,
+      roomId,
+      representativeMxid,
+      /*
+       * `this.sideRelationLookup` is a test seam ONLY: production leaves it unset and the read
+       * goes through the side's own credential below. It exists because the dispatch-order tests
+       * exercise what runs BEHIND the gate, and their minimal selves have no homeserver — the
+       * honest fixture is "the relation is proven", not "half the internet is stubbed".
+       */
+      memberLookup: this.sideRelationLookup ?? (async (rid, mxid) => {
+        let members;
+        try {
+          members = await joinedMembersOnSide({ ...acting, roomId: rid });
+        } catch (error) {
+          return { complete: false, reason: String(error?.message ?? error) };
+        }
+        if (members?.known !== true) {
+          /*
+           * The read itself failed (403/unreachable) — evidence is ABSENT, not empty. An absent
+           * read must stay retryable (room_relation_unavailable); treating it as "not joined"
+           * would turn a transient refusal into a terminal mismatch.
+           */
+          return { complete: false, reason: members?.reason || 'member read unknown' };
+        }
+        const chunk = Array.isArray(members?.members) ? members.members : [];
+        const hit = (chunk ?? []).find((m) => String(m?.user_id ?? m ?? '').trim() === mxid);
+        return { complete: true, membership: hit ? 'join' : 'leave' };
+      }),
+      });
+    } catch (relationError) {
+      if (relationError instanceof SideProvenanceError && !relationError.retryable) {
+        console.warn(`[side-provenance] ${relationError.code}: ${relationError.message}`);
+        return { rejected: relationError.code };
+      }
+      throw relationError;
+    }
+    /*
+     * ③ THE CLAIM KEY is computed and recorded BEFORE the typed path runs, so a rejected-later
+     * event cannot mint a claim and a crash between claim and typed execution still collapses
+     * the redelivery. Stored on the instance's provenance claim set (in-memory: the receiver's
+     * txn window and the typed paths' own dedup carry the persistent layers).
+     */
+    const claimKey = claimKeyFor({ registration: provenance.registration, roomId, event });
+    if (!this.sideProvenanceClaims) this.sideProvenanceClaims = new Set();
+    if (this.sideProvenanceClaims.has(claimKey)) {
+      /*
+       * ALREADY CLAIMED across modes/txns: the logical event happened once. Skipping here is
+       * the coalescing the spec asks for; mode is diagnostic and never part of the key.
+       */
+      return { claimed: 'duplicate', claimKey };
+    }
+    this.sideProvenanceClaims.add(claimKey);
+    return { claimed: 'first', claimKey };
+  }
+
   async handleAppserviceEvents(sideId, events, meta) {
     for (const event of events) {
       const roomId = event?.room_id;
@@ -4376,6 +4507,30 @@ export class MatrixBridge {
         continue;
       }
       try {
+        /*
+         * F06 L3 — THE PROVENANCE GATE, before any typed path and before any dedup claim.
+         * Fixed order (board release note): ①registration rechecked against the loaded registry
+         * snapshot (never a wiring-time closure), ②room relation proven for THIS registration's
+         * representative (membership=join or the first-invite bootstrap), ③dedup claim, ④typed
+         * path. A retryable verdict THROWS so the receiver answers 500 without completing the
+         * txn, the edge puller does not ack, and the sync collector holds its cursor — the same
+         * at-least-once channel F05/F08 already use.
+         */
+        const verdict = await this.assertSideProvenanceForEvent(sideId, roomId, event, meta);
+        if (verdict?.rejected) {
+          /*
+           * F06: a TERMINAL provenance rejection. Zero typed actions, zero claims; the loop
+           * continues so definitive garbage cannot hold the batch's valid events hostage.
+           */
+          continue;
+        }
+        if (verdict?.claimed === 'duplicate') {
+          /*
+           * F06: the logical event already executed once (any mode, any txn). Coalesced here,
+           * before any typed path — mode is diagnostic, never identity.
+           */
+          continue;
+        }
         if (event.type === 'm.room.encrypted') {
           /*
            * Named rather than dropped silently. ADR-016 settled that intake rooms are PLAINTEXT, and
@@ -4798,10 +4953,32 @@ export class MatrixBridge {
      * replaced credential is picked up rather than remembered.
      */
     this.appserviceSideTokens = new Map(sides.map((side) => [side.sideId, side.hsToken]));
+    /*
+     * F06: the last SUCCESSFULLY LOADED registry snapshot. The L3 gate rechecks registration
+     * membership against THIS on every event — a closure snapshot from wiring time would keep
+     * admitting a side the registry has since removed (spec: 'A side removed after
+     * authentication no longer admits its event'). A failed refresh (the catch above) leaves
+     * the previous snapshot in place: an unavailable registry is not an empty one.
+     */
+    this.appserviceInboundSnapshot = new Map(sides.map((side) => [side.sideId, side]));
     this.appserviceRouter.setSides(sides.map((side) => ({
       sideId: side.sideId,
       hsToken: side.hsToken,
-      onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, meta),
+      onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, {
+        ...meta,
+        /*
+         * F06: provenance is attached HERE, at the bridge-owned adapter boundary, outside the event
+         * body. `registration` is the non-secret identity of the credential this sideId selects in
+         * THIS instance (ruling C); `mode` is filled per intake adapter below — the shared receiver
+         * contract carries it through unchanged. The bridge never re-derives a side from sender
+         * suffixes, room names, or headers; this object is the only origin that counts.
+         */
+        provenance: buildSideProvenance({
+          registration: side.registration ?? side.sideId,
+          sideId: side.sideId,
+          mode: meta?.mode ?? 'push',
+        }),
+      }),
       onUserQuery: async (userId) => Boolean(findCaseInsensitiveKey(state.agentTokens || {}, String(userId))) || String(userId).startsWith(`@${AGENT_PREFIX}`),
     })));
     const ids = this.appserviceRouter.sideIds();
