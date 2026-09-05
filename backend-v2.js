@@ -13246,6 +13246,16 @@ async function withdrawAgentFromProjectRoom(agentName, roomId) {
    * the namespace the registration claimed before presenting any token.
    */
   const agentMxid = `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+  /*
+   * F10 (17-r5): THE SAME FIRST GATE as admission — before any external request. A leave for an
+   * identity the fleet does not vouch for is an external side effect (the homeserver records the
+   * attempt and any audit trail sees the name), so it is refused here, at zero requests; the
+   * join/leave exit's own roster check stays as depth.
+   */
+  if (!backendRosterAdmits(agentMxid, sideId)) {
+    console.warn(`[room-withdraw] REFUSED: ${agentMxid} is not a registered agent of this fleet on side ${sideId}`);
+    return { roomId, left: false, reason: 'not_a_registered_agent', sideId, mxid: agentMxid };
+  }
   const result = await leaveRoomOnSideAsAgent({
     side: { apiBaseUrl: side.apiBaseUrl, serverName: side.serverName },
     credential,
@@ -13287,6 +13297,19 @@ async function admitAgentToProjectRoom(engagement) {
 
   const acting = { side: { apiBaseUrl: side.apiBaseUrl, serverName: side.serverName }, credential };
   const agentMxid = `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+
+  /*
+   * F10 (17-r5): THE ROSTER GATE COMES FIRST — before the invite, before any external request at
+   * all. The invite itself is an external side effect naming the agent: a ghost or a cross-side
+   * re-composition used to receive a real invitation from the representative before the join's
+   * roster check refused the masquerade — half an admission, on the wire, for an identity this
+   * fleet does not vouch for. Refusing here means ZERO requests for a refused identity; the exit's
+   * isRegisteredAgent on the join stays as depth (a second gate that must never be the first).
+   */
+  if (!backendRosterAdmits(agentMxid, sideId)) {
+    console.warn(`[room-admission] REFUSED: ${agentMxid} is not a registered agent of this fleet on side ${sideId}`);
+    return { admitted: false, reason: 'not_a_registered_agent', sideId, mxid: agentMxid };
+  }
 
   const invite = await inviteToRoomOnSide({ ...acting, roomId, userId: agentMxid });
   if (!invite.invited && !invite.already) {

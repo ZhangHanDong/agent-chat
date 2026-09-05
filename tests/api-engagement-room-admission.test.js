@@ -518,7 +518,7 @@ describe('F10 (17-r4): the roster ruling refuses cross-side re-composition (real
    * Driven through the REAL admitAgentToProjectRoom / withdrawAgentFromProjectRoom so the call
    * sites' sideId wiring is what fails, not a re-implementation of the predicate.
    */
-  test('a) an agent whose projectSide is ANOTHER side: admission and withdraw both refuse, zero requests', async () => {
+  test('a) an agent whose projectSide is ANOTHER side: admission and withdraw both refuse, ZERO total requests', async () => {
     const hs = await fakeHomeserver();
     // The agent record carries projectSide: 'elsewhere.test' — a real, configured OTHER side
     const app = await boot({ hs, credential: asCredential() });
@@ -526,21 +526,38 @@ describe('F10 (17-r4): the roster ruling refuses cross-side re-composition (real
       .send({ server_name: 'elsewhere.test', api_base_url: hs.url }).expect(200);
     await request(app).put(`/api/agents/${AGENT}/project-side`).send({ projectSide: 'elsewhere.test' }).expect(200);
 
+    const before = hs.seen.length;
     const admitted = await context.internals.admitAgentToProjectRoomForTest({
       projectRoomId: ROOM, agent: AGENT,
     });
-    // The invite (representative masquerade) may go out; the AGENT join is what the roster gates
-    expect(admitted.joined).toBe(false);
-    expect(String(admitted.reason)).toMatch(/not a registered agent of this fleet/);
+    if (admitted === undefined) throw new Error(`admit returned undefined; internals keys: ${Object.keys(context.internals).filter((k) => k.toLowerCase().includes('admit') || k.toLowerCase().includes('roster')).join(',')}`);
+    expect(admitted.admitted).toBe(false);
+    expect(admitted.reason).toBe('not_a_registered_agent');
 
     const withdrawn = await context.internals.withdrawAgentFromProjectRoomForTest(AGENT, ROOM);
     expect(withdrawn.left).toBe(false);
-    expect(String(withdrawn.reason)).toMatch(/not a registered agent of this fleet/);
+    expect(withdrawn.reason).toBe('not_a_registered_agent');
 
-    // ZERO agent-masquerade requests left the process: no /join with ?user_id=@ac_..., no /leave
-    const agentCalls = hs.seen.filter((c) => c.url.includes('user_id=')
-      && c.url.includes(encodeURIComponent('@ac_')));
-    expect(agentCalls).toEqual([]);
+    // 17-r5: TOTAL fetch count is zero — not "no agent-masquerade requests", NO requests at all,
+    // because the roster gate runs before the invite and before everything else on the wire.
+    expect(hs.seen.length - before).toBe(0);
+  });
+
+  test('e) a GHOST name (no agent record): both paths refuse, ZERO total requests', async () => {
+    const hs = await fakeHomeserver();
+    const app = await boot({ hs, credential: asCredential() });
+    // No such agent in the registry at all — the composed @ac_<ghost>:<side> is nobody's identity
+    const before = hs.seen.length;
+    const admitted = await context.internals.admitAgentToProjectRoomForTest({
+      projectRoomId: ROOM, agent: 'ghost-that-is-not-registered',
+    });
+    expect(admitted.admitted).toBe(false);
+    expect(admitted.reason).toBe('not_a_registered_agent');
+
+    const withdrawn = await context.internals.withdrawAgentFromProjectRoomForTest('ghost-that-is-not-registered', ROOM);
+    expect(withdrawn.left).toBe(false);
+    expect(withdrawn.reason).toBe('not_a_registered_agent');
+    expect(hs.seen.length - before).toBe(0);
   });
 
   test('d) an agent whose projectSide IS this side: admission proceeds and the join goes out', async () => {
@@ -548,13 +565,17 @@ describe('F10 (17-r4): the roster ruling refuses cross-side re-composition (real
     const app = await boot({ hs, credential: asCredential() });
     await request(app).put(`/api/agents/${AGENT}/project-side`).send({ projectSide: SIDE }).expect(200);
 
+    const before = hs.seen.length;
     const admitted = await context.internals.admitAgentToProjectRoomForTest({
       projectRoomId: ROOM, agent: AGENT,
     });
     expect(admitted.joined).toBe(true);
     expect(admitted.mxid).toBe(`@ac_${AGENT}:${SIDE}`);
-    const join = hs.seen.find((c) => c.url.includes('/join/'));
-    expect(join).toBeDefined();
-    expect(join.url).toContain(encodeURIComponent(`@ac_${AGENT}:${SIDE}`));
+    // 17-r5: the honest path is STILL exactly two requests — invite then join, nothing more
+    const after = hs.seen.slice(before);
+    expect(after).toHaveLength(2);
+    expect(after[0].url.includes('/invite')).toBe(true);
+    expect(after[1].url.includes('/join/')).toBe(true);
+    expect(after[1].url).toContain(encodeURIComponent(`@ac_${AGENT}:${SIDE}`));
   });
 });
