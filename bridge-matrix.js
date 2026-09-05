@@ -4,6 +4,7 @@ import {
   RustSdkCryptoStorageProvider,
   SimpleFsStorageProvider,
 } from 'matrix-bot-sdk';
+import { validateMasqueradeUserId } from './lib/matrix-representative.js';
 import { createHash } from 'crypto';
 import { createAppserviceRouter } from './lib/appservice-receiver.js';
 import {
@@ -3769,6 +3770,17 @@ export class MatrixBridge {
     return tokenName ? (state.agentTokens[tokenName] || null) : null;
   }
   isKnownAgentName(name) { return Boolean(this.resolveKnownAgentName(name)); }
+  /*
+   * F10: is this MXID an agent THIS FLEET registered? Used by the masquerade
+   * exit check — a user_id outside the roster is a spoof even if it happens to
+   * match the namespace regex.
+   */
+  isKnownAgentMxid(mxid) {
+    const local = String(mxid || '').slice(1, String(mxid).indexOf(':'));
+    if (!local) return false;
+    if (!local.startsWith(AGENT_PREFIX)) return false;
+    return this.isKnownAgentName(local.slice(AGENT_PREFIX.length));
+  }
 
   /*
    * The live set of agents with no usable Matrix credential.
@@ -4506,11 +4518,31 @@ export class MatrixBridge {
         console.warn(`[appservice] ${sideId}: join backfill failed for ${roomId}: ${error?.message || error}`);
       }
     } catch (error) {
-      console.error(`[appservice] ${sideId}: could not join ${roomId} after invite: ${error.message}`);
-      this.postWarning(
-        `project side ${sideId} invited ${representative} to ${roomId} and the join failed: ${error.message}`,
-        { kind: 'knock-accepted', scope: roomId },
-      );
+      /*
+       * F05: a RETRYABLE join failure must NOT ack this transaction. The old
+       * path logged a warning and returned normally, so the receiver answered
+       * 200 and the homeserver (or the sync collector's cursor) moved past the
+       * only event that triggers the join — the invite was consumed and the
+       * room was never entered. THROW so the handler's caller answers 5xx and
+       * the txn is redelivered.
+       *
+       * NON-retryable failures (the room is gone/banned, or the homeserver says
+       * the invite itself is invalid) are recorded and swallowed: retrying
+       * those would loop forever, and the operator has the warning.
+       */
+      const msg = String(error?.message || error);
+      const status = Number.parseInt(msg.match(/HTTP (\d{3})/)?.[1] ?? '', 10);
+      const permanent = status === 403 || status === 404 || /M_FORBIDDEN|M_NOT_FOUND|forbidden/i.test(msg);
+      if (permanent) {
+        console.error(`[appservice] ${sideId}: join for ${roomId} permanently refused: ${msg}`);
+        this.postWarning(
+          `project side ${sideId} invited ${representative} to ${roomId} and the join failed permanently: ${msg}`,
+          { kind: 'knock-accepted', scope: roomId },
+        );
+        return;
+      }
+      console.error(`[appservice] ${sideId}: join failed for ${roomId} after invite: ${msg} — NOT acking this transaction so it is retried`);
+      throw error;
     }
   }
 
@@ -4840,6 +4872,25 @@ export class MatrixBridge {
          * store) exactly once per break, so a poisoned batch pages a human instead of blocking
          * the queue in silence.
          */
+        onRoomsNeedingReconcile: (sideId, roomIds) => {
+          /*
+           * F07: a limited timeline means events were dropped in the gap. Re-pull
+           * the room's recent history through the side's backfill helper so the
+           * missing window reaches the same handler as a normal timeline event.
+           */
+          for (const roomId of roomIds) {
+            this.backfillJoinedRoomOnSide(sideId, roomId, null).catch((err) => {
+              console.warn(`[appservice-sync] reconcile backfill for ${roomId} failed: ${err?.message || err}`);
+            });
+          }
+        },
+        onCredentialChanged: (sideId, detail) => {
+          /*
+           * F09: the collector has already dropped its cached token and budget;
+           * this log is the operator's visibility into WHY a relogin happened.
+           */
+          console.log(`[appservice-sync] acting credential changed for side ${sideId}; cached token invalidated`);
+        },
         onCircuitBreak: (sideId, detail) => this.postWarning(
           `appservice sync intake circuit-broke for side ${sideId}: the router refused a batch ${detail.attempts} times. `
           + `Recovery resumes from cursor ${detail.heldCursor ?? '(none)'} (the batch that ends at ${detail.failedNextBatch ?? '(none)'} was never committed). `
@@ -9314,7 +9365,33 @@ export class MatrixBridge {
         `${base}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}`
         + `/send/m.room.message/${txnId}`,
       );
-      if (sender.kind === 'appservice') url.searchParams.set('user_id', sender.agentUserId);
+      if (sender.kind === 'appservice') {
+        /*
+         * F10: the single exit check for agent masquerade. The id must name a
+         * REGISTERED agent of this fleet AND sit inside the side's registered
+         * namespace — anything else is a spoof the homeserver would happily
+         * execute on the strength of the as_token alone.
+         */
+        const verdict = validateMasqueradeUserId({
+          userId: sender.agentUserId,
+          namespace: sender.credential?.namespace ?? null,
+          /*
+           * `typeof`-guarded: unit tests drive this path with minimal `self`
+           * objects that stub agentSenderFor but not the roster method. When
+           * the roster is UNAVAILABLE the check degrades to namespace-only
+           * rather than throwing — production always has the method.
+           */
+          isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
+            ? (mxid) => this.isKnownAgentMxid(mxid)
+            : undefined,
+          label: 'agent-send',
+        });
+        if (!verdict.ok) {
+          console.error(`[masquerade] REFUSED: ${verdict.reason}`);
+          throw new Error(verdict.reason);
+        }
+        url.searchParams.set('user_id', sender.agentUserId);
+      }
       const res = await fetch(url.toString(), {
         method: 'PUT',
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
