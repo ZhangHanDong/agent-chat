@@ -50,3 +50,18 @@ describe('F05: retryable join failure is not acked', () => {
     err.mockRestore();
   });
 });
+
+describe('F08: a malformed HTTP 200 sync body is an error, not a healthy poll', () => {
+  test('missing next_batch → throws malformed_sync_body (backoff lane, no healthy poll)', async () => {
+    const { appserviceSyncOnce } = await import(`${url.replace('bridge-matrix.js', 'lib/appservice-sync.js')}?f08=${Date.now()}`);
+    const bad = async () => ({ ok: true, status: 200, json: async () => ({ rooms: { join: {} } }) });
+    await expect(appserviceSyncOnce({ baseUrl: 'https://h', accessToken: 't', since: 'x', fetchImpl: bad }))
+      .rejects.toMatchObject({ code: 'malformed_sync_body' });
+  });
+  test('rooms not an object → same treatment', async () => {
+    const { appserviceSyncOnce } = await import(`${url.replace('bridge-matrix.js', 'lib/appservice-sync.js')}?f08b=${Date.now()}`);
+    const bad = async () => ({ ok: true, status: 200, json: async () => ({ next_batch: 'n', rooms: [1, 2] }) });
+    await expect(appserviceSyncOnce({ baseUrl: 'https://h', accessToken: 't', since: 'x', fetchImpl: bad }))
+      .rejects.toMatchObject({ code: 'malformed_sync_body' });
+  });
+});
