@@ -91,7 +91,7 @@ describe('thread-session runner launch recovery', () => {
       'UPDATE dispatches SET available_at = ? WHERE dispatch_id = ?',
     ).run(Date.now() + 100, queued.dispatchId);
     context.internals.scheduleRouterPumpForTest();
-    const deadline2 = Date.now() + 5_000;
+    const deadline2 = Date.now() + 30_000; // hard cap (LOOP-R1); 5s flaked on loaded CI runners (#139, #141): requeue → relaunch → second death takes longer there. Success still exits within one 10ms poll.
     while (Date.now() < deadline2) {
       row = router.db.prepare(
         'SELECT state, launch_failures, available_at FROM dispatches WHERE dispatch_id = ?',
