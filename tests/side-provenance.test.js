@@ -904,8 +904,24 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
         child.kill('SIGKILL');
         await new Promise((r) => { child.on('exit', r); setTimeout(r, 500).unref?.(); r(); });
       };
-      cleanup.push(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } });
-      return { child, lines, send, wait, kill };
+      /*
+       * 16-impl-r5 注记② LIFECYCLE, in full: (a) afterAll/cleanup KILLS and AWAITS the exit —
+       * a kill without waiting leaves the reaper racing the next test's port binds; (b) the PARENT
+       * registers an exit hook so an abnormal parent exit cannot orphan the child.
+       */
+      const killAndAwait = async () => {
+        if (child.exitCode !== null || child.killed) return;
+        const exited = new Promise((r) => child.once('exit', r));
+        try { child.kill('SIGKILL'); } catch { /* already gone */ }
+        await Promise.race([exited, new Promise((r) => setTimeout(r, 2000).unref?.() ?? r())]);
+      };
+      const onParentExit = () => { try { child.kill('SIGKILL'); } catch { /* gone */ } };
+      process.on('exit', onParentExit);
+      cleanup.push(async () => {
+        process.off('exit', onParentExit);
+        await killAndAwait();
+      });
+      return { child, lines, send, wait, kill: killAndAwait };
     };
   }
 
