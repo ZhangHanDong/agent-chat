@@ -4453,6 +4453,19 @@ export class MatrixBridge {
      * through the side's own credential (joinedMembersOnSide) so the proof is the registration's
      * own authority, never a sender suffix or a room-name guess.
      */
+    /*
+     * 16-impl-r4 注记①: a side whose projection carries NO representative is an INCOMPLETE
+     * REGISTRATION — a configuration gap no retry can fix. Terminal, named, logged with the
+     * missing field; never an endless room_relation_unavailable 500 loop.
+     */
+    if (!registered.representative?.mxid) {
+      logProvenanceVerdict({
+        code: 'side_incomplete_registration', kind: 'terminal',
+        provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId,
+      });
+      console.warn(`[side-provenance] side ${sideId} has no representative recorded; complete its registration before its events can be admitted`);
+      return { rejected: 'side_incomplete_registration' };
+    }
     const representativeMxid = representativeMxidFor(registered);
     /*
      * TEST SEAM FIRST: when a fixture supplies the relation read, no credential is needed —
@@ -4505,7 +4518,10 @@ export class MatrixBridge {
       });
     } catch (relationError) {
       if (relationError instanceof SideProvenanceError && !relationError.retryable) {
-        console.warn(`[side-provenance] ${relationError.code}: ${relationError.message}`);
+        logProvenanceVerdict({
+          code: relationError.code, kind: 'terminal', provenance, sideId, roomId,
+          ref: event?.event_id ?? meta?.txnId,
+        });
         return { rejected: relationError.code };
       }
       throw relationError;
@@ -4887,7 +4903,7 @@ export class MatrixBridge {
     }
     const next = new Map();
     for (const side of Array.isArray(payload?.sides) ? payload.sides : []) {
-      if (side?.sideId) next.set(side.sideId, side);
+      if (side?.sideId) next.set(normalizeSideKey(side.sideId), side);
     }
     /*
      * A SIDE THAT WAS SERVED AND IS NOT ANY MORE has been removed on the backend, and this refresh is the
@@ -5086,7 +5102,12 @@ export class MatrixBridge {
      * would, and the router deliberately does not hand tokens back out. Rebuilt on every refresh so a
      * replaced credential is picked up rather than remembered.
      */
-    this.appserviceSideTokens = new Map(sides.map((side) => [side.sideId, side.hsToken]));
+    /*
+     * 16-impl-r4 ⑤: EVERY production write keys the side through normalizeSideKey — the token
+     * map, the snapshot, the router entries — so a mixed-case id from the backend cannot miss
+     * the lowercase reads (actingSideFor, the L3 gate) that follow.
+     */
+    this.appserviceSideTokens = new Map(sides.map((side) => [normalizeSideKey(side.sideId), side.hsToken]));
     /*
      * F06: the last SUCCESSFULLY LOADED registry snapshot. The L3 gate rechecks registration
      * membership against THIS on every event — a closure snapshot from wiring time would keep
@@ -5101,9 +5122,9 @@ export class MatrixBridge {
      * retryable relation_unavailable — the representative exists, the projection just omitted it.
      */
     const previousSnapshot = this.appserviceInboundSnapshot ?? new Map();
-    this.appserviceInboundSnapshot = new Map(sides.map((side) => [side.sideId, {
+    this.appserviceInboundSnapshot = new Map(sides.map((side) => [normalizeSideKey(side.sideId), {
       ...side,
-      representative: side.representative ?? previousSnapshot.get(side.sideId)?.representative ?? null,
+      representative: side.representative ?? previousSnapshot.get(normalizeSideKey(side.sideId))?.representative ?? null,
     }]));
     /*
      * 16-impl-r2 F: NO REGISTRATION FALLBACK. The identity comes from the backend's inbound shape
@@ -5117,7 +5138,7 @@ export class MatrixBridge {
       return false;
     });
     this.appserviceRouter.setSides(wirable.map((side) => ({
-      sideId: side.sideId,
+      sideId: normalizeSideKey(side.sideId),
       hsToken: side.hsToken,
       onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, {
         ...meta,
@@ -5202,7 +5223,7 @@ export class MatrixBridge {
         url: edge.url,
         token: edge.token,
         router: this.appserviceRouter,
-        hsTokenFor: () => this.appserviceSideTokens?.get(edge.side) ?? null,
+        hsTokenFor: () => this.appserviceSideTokens?.get(normalizeSideKey(edge.side)) ?? null,
       });
       console.log(`[appservice] collecting from a co-located edge at ${edge.url} for side ${edge.side}`);
     }
@@ -5229,7 +5250,7 @@ export class MatrixBridge {
            * the router an empty string here, took 403 eight times and circuit-broke — the fake
            * homeserver tests never saw it because they supplied hsToken directly.
            */
-          const hsToken = this.appserviceSideTokens?.get?.(sync.side) ?? null;
+          const hsToken = this.appserviceSideTokens?.get?.(normalizeSideKey(sync.side)) ?? null;
           if (!hsToken) return null;
           return { ...cred, hsToken };
         },

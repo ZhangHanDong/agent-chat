@@ -44,6 +44,7 @@ import roleCapacity from './lib/role-capacity.json' with { type: 'json' };
 import { buildSeats, normalizeDeclaration, seatIdentity } from './lib/seat-store.js';
 import { createEngagementStore, routeRequest, EngagementError } from './lib/engagement-store.js';
 import { ProjectSideStore, ProjectSideStoreError } from './lib/project-side-store.js';
+import { inboundCredentialsProjection } from './lib/project-side-inbound.js';
 import {
   canRepresentativeInvite, ensureRepresentative, inviteToRoomOnSide, joinRoomOnSideAsAgent,
   leaveRoomOnSideAsAgent,
@@ -9159,27 +9160,7 @@ app.get('/api/project-sides/inbound-credentials', requireApprovalBridgeSecret, (
   try {
     const sides = projectSideStore.listSides({ activeOnly: true })
       .filter((side) => side.credentialKind === 'appservice')
-      .map((side) => {
-        const credential = projectSideStore.credentialFor(side.id);
-        return credential?.hsToken
-          ? {
-            sideId: side.id,
-            serverName: side.serverName,
-            apiBaseUrl: side.apiBaseUrl,
-            senderLocalpart: credential.senderLocalpart,
-            namespace: credential.namespace,
-            hsToken: credential.hsToken,
-            /*
-             * F06 (16-impl-r2 F): the STABLE NON-SECRET registration identity. Derived from the
-             * hs_token's digest so rotating the credential rotates the identity (an in-flight
-             * receiver holding the old identity then fails the consistency check terminally),
-             * while a restart with the same token derives the same id. Never the token itself,
-             * nor any longer fragment of it.
-             */
-            registration: `${side.id}@${createHash('sha256').update(credential.hsToken).digest('hex').slice(0, 8)}`,
-          }
-          : null;
-      })
+      .map((side) => inboundCredentialsProjection(side, projectSideStore.credentialFor(side.id)))
       .filter(Boolean);
     return res.json({ ok: true, sides });
   } catch (error) {

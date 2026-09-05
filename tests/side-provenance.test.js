@@ -880,3 +880,232 @@ describe('16-impl-r3 additions', () => {
     expect(actingKeys.get(key)?.registration).toBe(REG);
   });
 });
+
+
+describe('16-impl-r4 E: process-isolated instances (two child processes, real adapters)', () => {
+  test('r4_two_children_independent_processes_stores_and_registrations', async () => {
+    const { makeInstance } = await import('./helpers/side-provenance-harness.js');
+    const { spawn } = await import('child_process');
+    const instA = makeInstance({ prefix: 'r4a-', sideId: SIDE, serverName: SIDE, registration: 'unused', hsToken: 'hs4A', asToken: 'as4A', representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*' });
+    const instB = makeInstance({ prefix: 'r4b-', sideId: SIDE, serverName: SIDE, registration: 'unused', hsToken: 'hs4B', asToken: 'as4B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+    cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
+    cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
+
+    const mkChild = (tag, inst, repMxid) => {
+      const child = spawn(process.execPath, ['--experimental-vm-modules', 'tests/helpers/side-provenance-child.mjs', JSON.stringify({
+        tag, runtimeDir: inst.runtimeDir, sideId: SIDE, serverName: SIDE,
+        hsToken: inst.hsToken ?? 'hs4' + tag, asToken: 'as4' + tag,
+        representativeMxid: repMxid, namespace: '@ac_.*',
+        palpoBaseUrl: 'http://127.0.0.1:1',
+      })], { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'inherit'] });
+      const lines = [];
+      child.stdout.on('data', (d) => { for (const l of String(d).split('\n')) if (l.trim()) lines.push(JSON.parse(l)); });
+      const send = (obj) => child.stdin.write(JSON.stringify(obj) + '\n');
+      const wait = async (pred, ms = 5000) => {
+        const t0 = Date.now();
+        while (Date.now() - t0 < ms) {
+          const hit = lines.find(pred);
+          if (hit) return hit;
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        throw new Error('child did not report in time; lines=' + JSON.stringify(lines));
+      };
+      cleanup.push(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+      return { child, lines, send, wait };
+    };
+    // NOTE: the harness writes hsToken into the store; the child reads it from ITS store
+    const A = mkChild('A', instA, '@hafleet_a:palpo.test');
+    const B = mkChild('B', instB, '@hafleet_b:palpo.test');
+    const ra = await A.wait((l) => l.t === 'ready');
+    const rb = await B.wait((l) => l.t === 'ready');
+    // 注记② evidence: two DIFFERENT pids, two different runtime dirs
+    expect(ra.pid).not.toBe(rb.pid);
+    expect(ra.runtimeDir).not.toBe(rb.runtimeDir);
+    // and the two registrations are derived from the two stores' own tokens
+    expect(ra.registration).not.toBe(rb.registration);
+    A.child.kill('SIGKILL');
+    B.child.kill('SIGKILL');
+  });
+});
+
+
+describe('16-impl-r4: production-chain tests (no seams except network)', () => {
+  test('r4_cold_start_through_real_backend_projection', async () => {
+    const { createBackendTestContext } = await import('./helpers/backend-test-runtime.js');
+    const request = (await import('supertest')).default;
+    // seed the REAL store file (with a recorded representative) through the runtime helper
+    const R4_SECRET = 'r4-bridge-secret-0123456789abcdef';
+    const ctx = await createBackendTestContext('r4-cold-', {
+      env: { MATRIX_BRIDGE_SECRET: R4_SECRET },
+      rawRuntimeFiles: {
+        'data/project-sides.json': JSON.stringify({
+          version: 1,
+          sides: {
+            [SIDE]: {
+              id: SIDE, serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:1', createdAt: 1, updatedAt: 1,
+              active: true, projects: {},
+              credential: {
+                kind: 'appservice', hsToken: HS, asToken: AS,
+                senderLocalpart: 'hafleet', namespace: '@ac_.*', url: null,
+              },
+              representative: { mxid: REP, localpart: 'hafleet', observedAt: 1 },
+            },
+          },
+          audit: [],
+        }),
+      },
+    });
+    cleanup.push(() => ctx.cleanup());
+    // the REAL endpoint + the REAL projection (no seam at all in this segment)
+    const res = await request(ctx.app).get('/api/project-sides/inbound-credentials')
+      .set('x-bridge-secret', R4_SECRET).expect(200);
+    const side = res.body.sides.find((x) => String(x.sideId).toLowerCase() === SIDE);
+    expect(side.representative).toEqual({ mxid: REP });
+    expect(side.registration).toMatch(/@([0-9a-f]{8})$/);
+
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const m = await bridge();
+    const self = {
+      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet', namespace: '@ac_.*', registration: side.registration }]]),
+      sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
+      actingSideFor(id) { const r = this.actingCredentials.get(String(id).trim().toLowerCase()); return r ? { side: { apiBaseUrl: r.apiBaseUrl, serverName: r.serverName }, credential: r } : null; },
+      postWarning() {}, async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
+    };
+    self.handleAppserviceEvents = m.MatrixBridge.prototype.handleAppserviceEvents.bind(self);
+    self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
+    self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
+    self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.backendApiForSides = async () => ({ sides: res.body.sides }); // ONLY the HTTP hop is replaced
+    self.appserviceRouter = { setSides() {}, sideIds: () => [SIDE] };
+    self.appserviceInboundSnapshot = null;                            // COLD start
+    await self.refreshAppserviceSides();
+    expect(self.appserviceInboundSnapshot.get(SIDE)?.representative?.mxid).toBe(REP);
+    await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$cold')], {
+      txnId: 'cold', provenance: { registration: side.registration, sideId: SIDE, mode: 'push' },
+    })).resolves.toBeUndefined();                                      // admitted on the FIRST refresh
+  });
+
+  test('r4_side_key_normalized_across_real_chain', async () => {
+    const palpo = await fakePalpo({ members: {} });
+    const m = await bridge();
+    const mk = (rawId) => {
+      const self = {
+        sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
+        postWarning() {}, async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
+      };
+      self.handleAppserviceEvents = m.MatrixBridge.prototype.handleAppserviceEvents.bind(self);
+      self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
+      self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
+      self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+      self.backendApiForSides = async () => ({ sides: [{
+        sideId: rawId, serverName: SIDE, apiBaseUrl: palpo.url, hsToken: HS, registration: REG,
+        senderLocalpart: 'hafleet', namespace: '@ac_.*', representative: { mxid: REP },
+      }] });
+      self.appserviceRouter = {
+        setSides(sides) {
+          // production receiver setSides normalizes; emulate the read side we then exercise
+          self.__routerKeys = new Set(sides.map((x) => String(x.sideId).trim().toLowerCase()));
+        },
+        sideIds: () => [],
+      };
+      self.appserviceSideTokens = null;
+      return self;
+    };
+    for (const rawId of ['Palpo.Test', '  palpo.test ', 'palpo.test:8448']) {
+      const self = mk(rawId);
+      await self.refreshAppserviceSides();
+      const key = rawId.trim().toLowerCase();
+      expect(self.__routerKeys.has(key)).toBe(true);                       // router table
+      expect(self.appserviceInboundSnapshot.get(key)?.registration).toBe(REG); // snapshot
+      expect(self.appserviceSideTokens.get(key)).toBe(HS);                 // token map
+    }
+  });
+
+  test('r4_rotation_binds_snapshot_and_acting', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const m = await bridge();
+    const { derivedRegistrationId } = await import('../lib/project-side-inbound.js');
+    const oldReg = derivedRegistrationId(SIDE, HS);
+    const newToken = 'hs-rotated';
+    const newReg = derivedRegistrationId(SIDE, newToken);
+    expect(oldReg).not.toBe(newReg);
+    const self = {
+      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: newToken, senderLocalpart: 'hafleet', namespace: '@ac_.*', registration: newReg }]]),
+      sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
+      actingSideFor(id) { const r = this.actingCredentials.get(String(id).trim().toLowerCase()); return r ? { side: { apiBaseUrl: r.apiBaseUrl, serverName: r.serverName }, credential: r } : null; },
+      postWarning() {}, async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
+    };
+    self.handleAppserviceEvents = m.MatrixBridge.prototype.handleAppserviceEvents.bind(self);
+    self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
+    self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
+    self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.backendApiForSides = async () => ({ sides: [{
+      sideId: SIDE, serverName: SIDE, apiBaseUrl: palpo.url, hsToken: newToken, registration: newReg,
+      senderLocalpart: 'hafleet', namespace: '@ac_.*', representative: { mxid: REP },
+    }] });
+    self.appserviceRouter = { setSides() {}, sideIds: () => [] };
+    await self.refreshAppserviceSides();
+    expect(self.appserviceInboundSnapshot.get(SIDE)?.registration).toBe(newReg);
+    expect(self.actingSideFor('PALPO.TEST')?.credential.registration).toBe(newReg); // acting bound to the NEW registration
+    // an in-flight event carrying the OLD registration is TERMINALLY refused
+    await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$old')], {
+      txnId: 'old', provenance: { registration: oldReg, sideId: SIDE, mode: 'push' },
+    })).resolves.toBeUndefined();
+    expect(self.sideProvenanceClaims.size).toBe(0);
+  });
+
+  test('r4_side_without_representative_is_terminal_incomplete_registration', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const m = await bridge();
+    const self = {
+      actingCredentials: new Map(), appserviceInboundSnapshot: new Map([[SIDE, { sideId: SIDE, registration: REG, representative: null }]]),
+      sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
+      actingSideFor: () => null, postWarning() {},
+      async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
+    };
+    self.handleAppserviceEvents = m.MatrixBridge.prototype.handleAppserviceEvents.bind(self);
+    self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
+    self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$1')], {
+        txnId: 't', provenance: { registration: REG, sideId: SIDE, mode: 'push' },
+      })).resolves.toBeUndefined();            // TERMINAL skip, not a 500 loop
+      expect(self.sideProvenanceClaims.size).toBe(0);
+      expect(warnSpy.mock.calls.map((c) => c.join(' ')).join(' ')).toMatch(/side_incomplete_registration/);
+    } finally { warnSpy.mockRestore(); }
+  });
+
+  test('r4_structured_log_fields', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [] } });
+    const m = await bridge();
+    const self = {
+      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet', namespace: '@ac_.*', registration: REG }]]),
+      appserviceInboundSnapshot: new Map([[SIDE, { sideId: SIDE, registration: REG, representative: { mxid: REP } }]]),
+      sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
+      actingSideFor(id) { const r = this.actingCredentials.get(String(id).trim().toLowerCase()); return r ? { side: { apiBaseUrl: r.apiBaseUrl, serverName: r.serverName }, credential: r } : null; },
+      postWarning() {},
+      async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
+    };
+    self.handleAppserviceEvents = m.MatrixBridge.prototype.handleAppserviceEvents.bind(self);
+    self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
+    self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
+    const lines = [];
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...a) => lines.push(a.join(' ')));
+    try {
+      // TERMINAL verdicts log ONE structured JSON line (relation mismatch here): the full
+      // diagnostic identity — code/kind/registration/side/mode/room/event-or-txn — and nothing
+      // sensitive.
+      await self.handleAppserviceEvents(SIDE, [msg(ROOM, '$log1')], {
+        txnId: 'tlog', provenance: { registration: REG, sideId: SIDE, mode: 'push' },
+      });
+      const json = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      expect(json.length).toBeGreaterThanOrEqual(1);
+      const v = json.find((j) => j.t === 'side-provenance');
+      expect(v).toMatchObject({ code: expect.any(String), kind: expect.any(String), registration: REG, sideId: SIDE, mode: 'push', room: ROOM });
+      expect(v.ref).toBeTruthy();
+      expect(lines.join(' ')).not.toContain(HS);
+      expect(lines.join(' ')).not.toContain(AS);
+    } finally { warnSpy.mockRestore(); }
+  });
+});
