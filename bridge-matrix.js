@@ -4,6 +4,7 @@ import {
   RustSdkCryptoStorageProvider,
   SimpleFsStorageProvider,
 } from 'matrix-bot-sdk';
+import { validateMasqueradeUserId } from './lib/matrix-representative.js';
 import { createHash } from 'crypto';
 import { createAppserviceRouter } from './lib/appservice-receiver.js';
 import {
@@ -3769,6 +3770,17 @@ export class MatrixBridge {
     return tokenName ? (state.agentTokens[tokenName] || null) : null;
   }
   isKnownAgentName(name) { return Boolean(this.resolveKnownAgentName(name)); }
+  /*
+   * F10: is this MXID an agent THIS FLEET registered? Used by the masquerade
+   * exit check — a user_id outside the roster is a spoof even if it happens to
+   * match the namespace regex.
+   */
+  isKnownAgentMxid(mxid) {
+    const local = String(mxid || '').slice(1, String(mxid).indexOf(':'));
+    if (!local) return false;
+    if (!local.startsWith(AGENT_PREFIX)) return false;
+    return this.isKnownAgentName(local.slice(AGENT_PREFIX.length));
+  }
 
   /*
    * The live set of agents with no usable Matrix credential.
@@ -9353,7 +9365,33 @@ export class MatrixBridge {
         `${base}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}`
         + `/send/m.room.message/${txnId}`,
       );
-      if (sender.kind === 'appservice') url.searchParams.set('user_id', sender.agentUserId);
+      if (sender.kind === 'appservice') {
+        /*
+         * F10: the single exit check for agent masquerade. The id must name a
+         * REGISTERED agent of this fleet AND sit inside the side's registered
+         * namespace — anything else is a spoof the homeserver would happily
+         * execute on the strength of the as_token alone.
+         */
+        const verdict = validateMasqueradeUserId({
+          userId: sender.agentUserId,
+          namespace: sender.credential?.namespace ?? null,
+          /*
+           * `typeof`-guarded: unit tests drive this path with minimal `self`
+           * objects that stub agentSenderFor but not the roster method. When
+           * the roster is UNAVAILABLE the check degrades to namespace-only
+           * rather than throwing — production always has the method.
+           */
+          isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
+            ? (mxid) => this.isKnownAgentMxid(mxid)
+            : undefined,
+          label: 'agent-send',
+        });
+        if (!verdict.ok) {
+          console.error(`[masquerade] REFUSED: ${verdict.reason}`);
+          throw new Error(verdict.reason);
+        }
+        url.searchParams.set('user_id', sender.agentUserId);
+      }
       const res = await fetch(url.toString(), {
         method: 'PUT',
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },

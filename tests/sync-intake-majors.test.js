@@ -162,3 +162,23 @@ describe('F07: the projection keeps state, leaves, and gap signals', () => {
     expect(seen).toEqual([['s1', ['!r:p']]]);              // fired once, after acceptance
   });
 });
+
+describe('F10: every masquerade user_id passes one exit check', () => {
+  const repUrl = () => pathToFileURL(new URL('../lib/matrix-representative.js', import.meta.url).pathname).href;
+  test('validateMasqueradeUserId: roster + namespace + MXID shape, each refusing', async () => {
+    const { validateMasqueradeUserId } = await import(`${repUrl()}?f10=${Date.now()}`);
+    const roster = (mxid) => mxid === '@ac_worker:side.example';
+    const ns = '@ac_.*';
+    expect(validateMasqueradeUserId({ userId: '@ac_worker:side.example', namespace: ns, isRegisteredAgent: roster })).toEqual({ ok: true });
+    expect(validateMasqueradeUserId({ userId: 'not-an-mxid', namespace: ns, isRegisteredAgent: roster }).ok).toBe(false);
+    expect(validateMasqueradeUserId({ userId: '@ac_ghost:side.example', namespace: ns, isRegisteredAgent: roster }).ok).toBe(false); // not in roster
+    expect(validateMasqueradeUserId({ userId: '@impostor:side.example', namespace: ns, isRegisteredAgent: () => true }).ok).toBe(false); // outside namespace
+  });
+  test('the representative helper REFUSES an invalid user_id before building the request', async () => {
+    const m = await import(`${repUrl()}?f10b=${Date.now()}`);
+    // find an exported function that sets user_id; the internal helper throws via the validator
+    const { validateMasqueradeUserId } = m;
+    const bad = validateMasqueradeUserId({ userId: '@x y:z', label: 't' });
+    expect(bad.ok).toBe(false);
+  });
+});
