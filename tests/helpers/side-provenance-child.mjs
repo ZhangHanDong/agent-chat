@@ -38,6 +38,7 @@ const m = await import(`${bridgeUrl}?child=${cfg.tag}`);
 const proto = m.MatrixBridge.prototype;
 
 const counters = { typed: 0, ack: 0, cursor: 0, refused: 0 };
+const typedDetail = [];
 const self = {
   appserviceRouter: null,
   appserviceSideTokens: null,
@@ -55,9 +56,9 @@ const self = {
     return row ? { side: { apiBaseUrl: row.apiBaseUrl, serverName: row.serverName }, credential: row } : null;
   },
   postWarning() {},
-  async onRoomMessage() { counters.typed += 1; },
-  async onRoomEvent() { counters.typed += 1; },
-  async onAppserviceMembership() { counters.typed += 1; },
+  async onRoomMessage(roomId, event) { counters.typed += 1; const d = { kind: 'message', roomId, eventId: event?.event_id ?? null }; typedDetail.push(d); emit({ t: 'typed', ...d }); },
+  async onRoomEvent(roomId, event) { counters.typed += 1; const d = { kind: 'state', roomId, eventId: event?.event_id ?? null }; typedDetail.push(d); emit({ t: 'typed', ...d }); },
+  async onAppserviceMembership(sideId, roomId, event) { counters.typed += 1; const d = { kind: 'membership', roomId, eventId: event?.event_id ?? null }; typedDetail.push(d); emit({ t: 'typed', ...d }); },
 };
 self.handleAppserviceEvents = proto.handleAppserviceEvents.bind(self);
 self.assertSideProvenanceForEvent = proto.assertSideProvenanceForEvent.bind(self);
@@ -100,6 +101,8 @@ const startAdapters = async () => {
       shouldContinue: () => !self.__stopped,
     });
     adapters.push(() => { self.__stopped = true; });
+    // the puller exposes stats() as a function; read processed (= acked 200s) at report time
+    self.__pullerStats = () => puller.stats();
     emit({ t: 'edge-started', registration: projected.registration });
   } else if (cfg.mode === 'sync') {
     const collector = startAppserviceSyncCollector({
@@ -132,6 +135,8 @@ rl.on('line', async (line) => {
         t: 'report', typed: counters.typed, ack: counters.ack, cursor: counters.cursor,
         refused: counters.refused, claims: [...self.sideProvenanceClaims.keys()],
         snapshotRegistration: self.appserviceInboundSnapshot?.get(projected.sideId)?.registration ?? null,
+        edgeProcessed: typeof self.__pullerStats === 'function' ? (self.__pullerStats().processed ?? 0) : null,
+        typedDetail,
       });
       return;
     }

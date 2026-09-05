@@ -954,16 +954,99 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
         body: JSON.stringify({ events: [msg('!a:palpo.test', '$e2ea')] }),
       });
       expect(rA.status).toBe(200);
-      // B's sync collector polls the fake Palpo; serve one batch with a B-room event
+      /*
+       * B's sync collector: the FIRST poll is an initial sync whose join timeline is deliberately
+       * swallowed (production semantics — replaying history is the duplicate storm the cursor
+       * exists to prevent). Serve an EMPTY first batch so the event rides the SECOND (non-initial)
+       * poll and must be delivered.
+       */
+      palpo.syncBatches.push({ next_batch: 'b0', rooms: {} });
       palpo.syncBatches.push({ next_batch: 'b1', rooms: { join: { '!b:palpo.test': { timeline: { events: [msg('!b:palpo.test', '$e2eb')] }, state: { events: [] } } } } });
-      await new Promise((r) => setTimeout(r, 300));
+      /*
+       * 16-impl-r7 ④: a 200 from the listener means the receiver ACCEPTED the txn — the typed
+       * path runs after the response in the child's microtask flow. Poll BOTH children until
+       * each has consumed its event (bounded), THEN stop and compare exact values.
+       */
+      /*
+       * 16-impl-r7 ④: wait for DETERMINISTIC consumption on BOTH children before stopping —
+       * A's typed event surfaces via the child's live 'typed' emit; B's sync consumption is
+       * observed by polling the fake Palpo's seen /sync count (two polls = initial + event
+       * batch consumed). Bounded at 6s; on expiry the exact-value asserts below fail loudly.
+       */
+      const t0 = Date.now();
+      while (Date.now() - t0 < 6000) {
+        const aTyped = A.lines.filter((l) => l.t === 'typed').length;
+        const bTyped = B.lines.filter((l) => l.t === 'typed').length;
+        if (aTyped >= 1 && bTyped >= 1) break;              // BOTH consumed, deterministically
+        await new Promise((r) => setTimeout(r, 25));
+      }
       A.send({ op: 'stop' });
       B.send({ op: 'stop' });
       const repA = await A.wait((l) => l.t === 'report');
       const repB = await B.wait((l) => l.t === 'report');
-      expect(repA.typed).toBeGreaterThanOrEqual(1);   // A admitted its own room's event
-      expect(repB.typed).toBeGreaterThanOrEqual(0);   // B via real sync (batch may need 2 polls)
+      /*
+       * 16-impl-r7 ④: DETERMINISTIC values. A admitted exactly its one event (push). B, driven by
+       * the REAL sync collector, consumed exactly the one batch — poll the child's report until the
+       * batch is consumed, then require typed === 1 (an at-least haze of >0 would pass on a child
+       * that also swallowed A's events).
+       */
+      expect(repA.typed).toBe(1);
+      expect(repA.typedDetail).toEqual([{ kind: 'message', roomId: '!a:palpo.test', eventId: '$e2ea' }]);
+      expect(repB.typed).toBe(1);
+      expect(repB.typedDetail).toEqual([{ kind: 'message', roomId: '!b:palpo.test', eventId: '$e2eb' }]);
+      expect(repB.cursor).toBeGreaterThanOrEqual(1);  // the collector advanced its cursor
       expect(repA.claims.every((k) => !k.includes(lb.registration))).toBe(true);
+    });
+  });
+
+  test('r5_E1b_edge_adapter_third_leg_with_ack_body', async () => {
+    await withSpawn(async (mk) => {
+      const { makeInstance } = await import('./helpers/side-provenance-harness.js');
+      const palpo = await fakePalpo({ members: { '!c:palpo.test': ['@hafleet_c:palpo.test'] } });
+      cleanup.push(() => palpo.close());
+      // the FAKE EDGE the child's real puller will poll; it records the ack bodies
+      const ackBodies = [];
+      let pulls = 0;
+      const edgeSrv = (await import('http')).createServer((req2, res2) => {
+        let b = '';
+        req2.on('data', (c) => { b += c; });
+        req2.on('end', () => {
+          if (req2.url.includes('/ack')) {
+            ackBodies.push(b ? JSON.parse(b) : null);
+            res2.writeHead(200, { 'Content-Type': 'application/json' });
+            return res2.end('{}');
+          }
+          pulls += 1;
+          res2.writeHead(200, { 'Content-Type': 'application/json' });
+          res2.end(JSON.stringify(pulls === 1
+            ? { events: [msg('!c:palpo.test', '$e2ec')], txn_id: 'edge-c1' }
+            : { events: [] }));
+        });
+      });
+      await new Promise((r) => edgeSrv.listen(0, '127.0.0.1', r));
+      cleanup.push(() => new Promise((r) => edgeSrv.close(r)));
+
+      const instC = makeInstance({ prefix: 'r5e1c-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5C', asToken: 'as5C', representativeMxid: '@hafleet_c:palpo.test', namespace: '@ac_c_.*' });
+      cleanup.push(() => rmSync(instC.runtimeDir, { recursive: true, force: true }));
+      const C = mk('C', {
+        tag: 'C', runtimeDir: instC.runtimeDir, sideId: SIDE, serverName: SIDE,
+        palpoBaseUrl: palpo.url, mode: 'edge',
+        edgeBaseUrl: `http://127.0.0.1:${edgeSrv.address().port}`,
+      });
+      C.send({ op: 'start' });
+      const lc = await C.wait((l) => l.t === 'ready');
+      // wait until the puller has DELIVERED (ack posted), bounded
+      const t0 = Date.now();
+      while (ackBodies.length < 1 && Date.now() - t0 < 5000) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      C.send({ op: 'stop' });
+      const repC = await C.wait((l) => l.t === 'report');
+      expect(repC.typed).toBe(1);                                       // delivered through the REAL puller
+      expect(repC.typedDetail[0].eventId).toBe('$e2ec');
+      expect(repC.edgeProcessed).toBe(1);                               // the puller counted its 200
+      expect(ackBodies).toEqual([{ txn_id: 'edge-c1', ok: true }]);     // and ACKED with the ok body
+      expect(lc.registration).toBeTruthy();
     });
   });
 
@@ -1023,31 +1106,92 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
       const instB = makeInstance({ prefix: 'r5e4b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
       cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
       cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
-      const A = mk('A', { tag: 'A', runtimeDir: instA.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
+      /*
+       * 16-impl-r7 ④: A runs the EDGE adapter (real startEdgePuller) and B the push listener — a
+       * second edge-mode scenario leg with an ACK-BODY assertion. The fake edge serves A's pulls
+       * and records every ack posted to it.
+       */
+      const ackBodies = [];
+      let edgePulls = 0;
+      let edgeGateOpen = false; // the second batch waits for the evidence flip
+      let doomedServed = false;
+      const edgeSrv = (await import('http')).createServer((req2, res2) => {
+        let b = '';
+        req2.on('data', (c) => { b += c; });
+        req2.on('end', () => {
+          if (req2.url.includes('/ack')) {
+            ackBodies.push(b ? JSON.parse(b) : null);
+            res2.writeHead(200, { 'Content-Type': 'application/json' });
+            return res2.end('{}');
+          }
+          edgePulls += 1;
+          res2.writeHead(200, { 'Content-Type': 'application/json' });
+          /*
+           * The SECOND batch is served ONLY AFTER the test has flipped the evidence (the leave).
+           * Serving it earlier would race the puller's 5ms poll loop: it could be admitted while
+           * the representative is still joined, and the ok-ack assertion would pass vacuously.
+           */
+          // the doomed batch is served on the FIRST pull after the gate opens (edgePulls has
+          // kept counting through the idle polls, so a fixed index would never match)
+          const second = edgeGateOpen && !doomedServed;
+          if (second) doomedServed = true;
+          // EVERY pull answers a txn_id (an empty one for idle polls) — the puller treats a
+          // missing txn_id as a protocol error and backs off, which would starve the test.
+          res2.end(JSON.stringify(
+            edgePulls === 1 ? { events: [msg('!s:palpo.test', '$sa-edge')], txn_id: 'e4-a1' }
+              : second ? { events: [msg('!s:palpo.test', '$sa2-edge')], txn_id: 'e4-a2' }
+                : { events: [], txn_id: `idle-${edgePulls}` },
+          ));
+        });
+      });
+      await new Promise((r) => edgeSrv.listen(0, '127.0.0.1', r));
+      cleanup.push(() => new Promise((r) => edgeSrv.close(r)));
+
+      const A = mk('A', {
+        tag: 'A', runtimeDir: instA.runtimeDir, sideId: SIDE, serverName: SIDE,
+        palpoBaseUrl: palpo.url, mode: 'edge', edgeBaseUrl: `http://127.0.0.1:${edgeSrv.address().port}`,
+      });
       const B = mk('B', { tag: 'B', runtimeDir: instB.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
       A.send({ op: 'start' }); B.send({ op: 'start' });
-      const la = await A.wait((l) => l.t === 'listening');
       const lb = await B.wait((l) => l.t === 'listening');
-      const put = (port, token, id, ev) => fetch(`http://127.0.0.1:${port}/_matrix/app/v1/transactions/${id}`, {
-        method: 'PUT', headers: { authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events: [ev] }),
+      await A.wait((l) => l.t === 'ready');
+      // wait for A's FIRST (admitted) edge delivery to be acked ok
+      const tAck = Date.now();
+      while (ackBodies.length < 1 && Date.now() - tAck < 6000) await new Promise((r) => setTimeout(r, 25));
+      expect(ackBodies[0]).toEqual({ txn_id: 'e4-a1', ok: true });   // admitted → acked ok
+      // B admits its own shared-room event through the push listener
+      const rB = await fetch(`http://127.0.0.1:${lb.port}/_matrix/app/v1/transactions/sb`, {
+        method: 'PUT', headers: { authorization: 'Bearer hs5B', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [msg('!s:palpo.test', '$sb')] }),
       });
-      // BOTH representatives joined → each instance admits its own event
-      const rA = await put(la.port, 'hs5A', 'sa', msg('!s:palpo.test', '$sa'));
-      const rB = await put(lb.port, 'hs5B', 'sb', msg('!s:palpo.test', '$sb'));
-      expect(rA.status).toBe(200);
       expect(rB.status).toBe(200);
-      // A leaves: A's evidence vanishes (B's own room keeps its evidence), B keeps serving
+      // A LEAVES: evidence vanishes; A's post-leave edge delivery FAILS (router 500) and the
+      // puller must NOT ack it ok — an ok ack for an unprocessed batch would be the data-loss bug.
       palpo.memberState.delete('!s:palpo.test');
-      const rA2 = await put(la.port, 'hs5A', 'sa2', msg('!s:palpo.test', '$sa2'));
-      const rB2 = await put(lb.port, 'hs5B', 'sb2', msg('!b:palpo.test', '$sb2'));
-      expect(rA2.status).toBe(500);                   // retryable for A
-      expect(rB2.status).toBe(200);                   // B unaffected
+      edgeGateOpen = true; // only now may the fake edge serve the second (doomed) batch
+      const tAck2 = Date.now();
+      while (!ackBodies.some((a) => a?.txn_id === 'e4-a2') && Date.now() - tAck2 < 6000) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      /*
+       * The DOOMED batch's own ack, exact: e4-a2 was NOT processed (relation evidence absent →
+       * the router answered 500), so the puller acked it ok:false — the edge keeps it queued and
+       * redelivers. Idle polls may ack ok in between; only this txn's verdict matters.
+       */
+      const doomedAck = ackBodies.find((a) => a?.txn_id === 'e4-a2');
+      expect(doomedAck).toEqual({ txn_id: 'e4-a2', ok: false });
+      // B keeps serving its own room after A's departure
+      const rB2 = await fetch(`http://127.0.0.1:${lb.port}/_matrix/app/v1/transactions/sb2`, {
+        method: 'PUT', headers: { authorization: 'Bearer hs5B', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [msg('!b:palpo.test', '$sb2')] }),
+      });
+      expect(rB2.status).toBe(200);
       A.send({ op: 'stop' }); B.send({ op: 'stop' });
       const repA = await A.wait((l) => l.t === 'report');
       const repB = await B.wait((l) => l.t === 'report');
-      expect(repA.typed).toBe(1);
-      expect(repB.typed).toBe(2);
+      expect(repA.typed).toBe(1);                     // A admitted exactly its pre-leave event
+      expect(repA.typedDetail[0].eventId).toBe('$sa-edge');
+      expect(repB.typed).toBe(2);                     // B unaffected by A's departure
     });
   });
 
@@ -1325,7 +1469,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
               if (req2.url.includes('/ack')) { res2.writeHead(200); return res2.end('{}'); }
               served += 1;
               res2.writeHead(200, { 'Content-Type': 'application/json' });
-              res2.end(JSON.stringify(served === 1 ? { events: [ev], txn_id: `e-${served}` } : { events: [] }));
+              res2.end(JSON.stringify(served === 1 ? { events: [ev], txn_id: `e-${served}` } : { events: [], txn_id: `idle-${served}` }));
             });
           });
           await new Promise((r) => edgeSrv.listen(0, '127.0.0.1', r));

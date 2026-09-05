@@ -63,9 +63,18 @@ export async function fakePalpo({
         if (!memberState.has(roomId)) memberState.set(roomId, []);
         return json(200, { room_id: roomId });
       }
+      if (url.includes('/login')) {
+        // the sync collector logs in as the sender_localpart with the as_token
+        return json(200, { user_id: '@hafleet:palpo.test', access_token: 'sync-access-token', device_id: 'DEV' });
+      }
       if (url.includes('/_matrix/client/v3/sync')) {
-        const batch = syncBatches[syncIdx] ?? { next_batch: `s${syncIdx}`, rooms: {} };
-        syncIdx += 1;
+        /*
+         * 16-impl-r7: batches are served as a QUEUE (shift), not by index. An index races a
+         * collector that polls before the test pushes its batches — the default empty answers
+         * consume indices 0..n and the pushed batches become unreachable. A queue delivers each
+         * pushed batch exactly once, whenever the next poll comes.
+         */
+        const batch = syncBatches.length ? syncBatches.shift() : { next_batch: `s${++syncIdx}`, rooms: {} };
         return json(200, batch);
       }
       if (url.includes('/_matrix/app/unstable/com.beeper.calendar/queue') || url.includes('/transactions')) {
