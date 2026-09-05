@@ -1763,29 +1763,76 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
     return { status: cursor === 'm1' ? 200 : 500, cursor };
   }
 
-  test('r5_backfill_and_tombstone_real_followup', async () => {
-    const palpo = await fakePalpo({ members: { [ROOM]: [REP], '!new:palpo.test': [REP] } });
-    // /messages for the real backfill: newest-first page with an ask before the join boundary
-    palpo.seen; // (the fake records everything; /messages falls through to 404 unless we add it)
+  test('r7_backfill_real_prototype_messages_and_gate', async () => {
+    /*
+     * 16-impl-r7 ②: the REAL prototype backfill runs — no whole-method replacement. The fake
+     * Palpo serves /messages pages (newest-first, as a homeserver does); the backfill pulls
+     * them through the production roomMessagesOnSide, and every backfilled event ENTERS THE
+     * GATE (provenance → relation → claim) exactly like a live event.
+     */
+    const PREJOIN_ASK = msg(ROOM, '$bf-ask', '!request architect 300000 20000');
+    const memberJoin = { type: 'm.room.member', room_id: ROOM, event_id: '$bf-join', state_key: REP, sender: '@human:palpo.test', content: { membership: 'join' } };
+    // the boundary the selector anchors on: the LAST invite to the representative, then its join
+    const memberInvite = { type: 'm.room.member', room_id: ROOM, event_id: '$bf-inv', state_key: REP, sender: '@human:palpo.test', content: { membership: 'invite' } };
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const m = await bridge();
     const { self, typed } = await makeBridgeWithSide({
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
-    // bind the REAL backfill against the fake Palpo's /messages (added below via a route)
-    const m = await bridge();
-    self.backfillJoinedRoomOnSide = async (sideId, roomId) => {
-      backfills.push({ sideId, roomId });
-      return 0;
+    // the real routeBackfilledEvents dedups through these — provide the production shapes
+    self.isDuplicateMatrixEvent = () => false;
+    self.processingMatrixEventIds = new Map();
+    // the fake Palpo's /messages: one newest-first page — ask, join boundary, older noise
+    /*
+     * NEWEST-FIRST, as /messages?dir=b serves it: join, ASK, invite, older noise. Reversed by
+     * the selector into timeline order (noise, invite, ASK, join) — the window [invite+1, join)
+     * is exactly the ask.
+     */
+    const messagesPage = [memberJoin, PREJOIN_ASK, memberInvite, msg(ROOM, '$bf-old', 'older noise')];
+    palpo.__messagesHandler = (roomId) => ({
+      chunk: messagesPage,
+      end: 't0-1',
+    });
+    const seenMessagesReads = [];
+    const realJoinBackfillFetch = globalThis.fetch;
+    // bind the REAL prototype method; the only instrumentation wraps fetch to COUNT /messages reads
+    self.backfillJoinedRoomOnSide = m.MatrixBridge.prototype.backfillJoinedRoomOnSide.bind(self);
+    self.routeBackfilledEvents = m.MatrixBridge.prototype.routeBackfilledEvents.bind(self);
+    self.actingSideFor = self.actingSideFor.bind(self);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (u, ...rest) => {
+      const url = String(u);
+      if (url.includes('/messages')) seenMessagesReads.push(url);
+      if (url.includes('/messages')) {
+        const rid = decodeURIComponent(url.split('/rooms/')[1]?.split('/')[0] ?? '');
+        const page = palpo.__messagesHandler?.(rid);
+        if (page) return { ok: true, status: 200, json: async () => page };
+      }
+      return origFetch(u, ...rest);
     };
-    const backfills = [];
+    cleanup.push(() => { globalThis.fetch = origFetch; });
+
+    const delivered = await self.backfillJoinedRoomOnSide(SIDE, ROOM, REP);
+    expect(seenMessagesReads.length).toBeGreaterThanOrEqual(1);        // the REAL pull happened
+    expect(seenMessagesReads[0]).toContain('/_matrix/client/v3/rooms/');
+    expect(seenMessagesReads[0]).toContain('/messages');
+    // the pre-join ask reached the typed path through the gate (delivered count from the real method)
+    expect(delivered).toBeGreaterThanOrEqual(1);
+    expect(typed.messages.map((t) => t.event.event_id)).toContain('$bf-ask');
+
+    // the tombstone's replacement room goes through ITS OWN gate verdict: joined → admitted
     const tomb = {
       type: 'm.room.tombstone', room_id: ROOM, event_id: '$tomb1', state_key: '',
       sender: '@human:palpo.test', content: { body: 'superseded', replacement_room: '!new:palpo.test' },
     };
-    const r = await pushTxn(self.router, { hsToken: HS, txnId: 'tb', events: [tomb, msg(ROOM, '$m1')] });
+    const r = await pushTxn(self.router, { hsToken: HS, txnId: 'tb', events: [tomb] });
     expect(r.status).toBe(200);
-    expect(typed.states.length).toBeGreaterThanOrEqual(1);      // the tombstone took the state path
-    // gap: a limited sync timeline triggers the REAL reconcile hook
+    expect(typed.states.map((t) => t.event.event_id)).toContain('$tomb1');
+
+    // a gap (timeline.limited) fires the REAL reconcile hook into the REAL backfill
+    palpo.__messagesHandler = () => ({ chunk: [], end: null });
     const reconcileRooms = [];
+    const reconcileBackfills = [];
     const collector = startAppserviceSyncCollector({
       baseUrl: palpo.url, side: SIDE, router: self.router,
       credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
@@ -1800,90 +1847,113 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
           }),
         };
       },
-      onRoomsNeedingReconcile: async (side, rooms) => { reconcileRooms.push(...rooms); },
+      onRoomsNeedingReconcile: async (side, rooms) => {
+        reconcileRooms.push(...rooms);
+        for (const rid of rooms) {
+          reconcileBackfills.push(await self.backfillJoinedRoomOnSide(side, rid, REP));
+        }
+      },
       sleep: async () => { await Promise.resolve(); },
       shouldContinue: () => (w3.t = (w3.t ?? 0) + 1) < 2,
     });
     function w3() {}
     await collector.loop;
     expect(reconcileRooms).toContain(ROOM);                     // the gap fired the real hook
+    expect(reconcileBackfills).toHaveLength(1);                 // and it drove the REAL backfill
   });
 
-  test('r5_rotation_via_real_acting_endpoint_and_convergence', async () => {
+  test('r7_rotation_full_real_chain_store_endpoints_refresh', async () => {
+    /*
+     * 16-impl-r7 ③: NO actingSideFor override, NO hand-set snapshot registration. The store is
+     * a REAL ProjectSideStore file; rotation mutates IT; both projections come from the REAL
+     * backend endpoints (backend-test-runtime serves them; only the bridge→backend HTTP hop is
+     * seamed per the board's rule); both refreshes are the real methods.
+     */
     const { createBackendTestContext } = await import('./helpers/backend-test-runtime.js');
     const request = (await import('supertest')).default;
     const { derivedRegistrationId } = await import('../lib/project-side-inbound.js');
-    const R5_SECRET = 'r5-bridge-secret-0123456789abcdef';
-    const mkStore = (hsToken) => JSON.stringify({
+    const R7_SECRET = 'r7-bridge-secret-0123456789abcdef';
+    const mkStoreJson = (hsToken, asToken) => JSON.stringify({
       version: 1,
       sides: { [SIDE]: {
         id: SIDE, serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:1', createdAt: 1, updatedAt: 1,
         active: true, projects: {},
-        credential: { kind: 'appservice', hsToken, asToken: AS, senderLocalpart: 'hafleet', namespace: '@ac_.*', url: null },
+        credential: { kind: 'appservice', hsToken, asToken, senderLocalpart: 'hafleet', namespace: '@ac_.*', url: null },
         representative: { mxid: REP, localpart: 'hafleet', observedAt: 1 },
       } },
       audit: [],
     });
-    const ctx = await createBackendTestContext('r5-rot-', {
-      env: { MATRIX_BRIDGE_SECRET: R5_SECRET },
-      rawRuntimeFiles: { 'data/project-sides.json': mkStore(HS) },
+    const ctx = await createBackendTestContext('r7-rot-', {
+      env: { MATRIX_BRIDGE_SECRET: R7_SECRET },
+      rawRuntimeFiles: { 'data/project-sides.json': mkStoreJson(HS, AS) },
     });
     cleanup.push(() => ctx.cleanup());
-    const acting = await request(ctx.app).get('/api/project-sides/acting-credentials')
-      .set('x-bridge-secret', R5_SECRET).expect(200);
-    const sideA = acting.body.sides.find((x) => String(x.sideId).toLowerCase() === SIDE);
-    expect(sideA.registration).toBe(derivedRegistrationId(SIDE, HS));  // the REAL endpoint derives it
-
-    // bridge: real refreshActingCredentials + real acting endpoint (seam = HTTP only)
     const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
     const m = await bridge();
     const self = {
       actingCredentials: new Map(),
+      appserviceInboundSnapshot: null,
+      appserviceSideTokens: null,
       sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
-      postWarning() {}, async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
-    };
-    self.actingSideFor = function actingSideFor(id) {
-      const row = this.actingCredentials.get(String(id).trim().toLowerCase());
-      return row ? { side: { apiBaseUrl: row.apiBaseUrl, serverName: row.serverName }, credential: row } : null;
+      postWarning() {},
+      async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
     };
     self.handleAppserviceEvents = m.MatrixBridge.prototype.handleAppserviceEvents.bind(self);
     self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
     self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
+    // ③: the REAL actingSideFor — no override; it reads the actingCredentials map the real
+    // refreshActingCredentials populated from the real endpoint payload.
+    self.actingSideFor = m.MatrixBridge.prototype.actingSideFor.bind(self);
     self.refreshActingCredentials = m.MatrixBridge.prototype.refreshActingCredentials.bind(self);
-    self.backendApiForActing = async () => ({ sides: acting.body.sides }); // ONLY the HTTP hop
     self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
-    self.backendApiForSides = async () => ({ sides: acting.body.sides });
     self.appserviceRouter = { setSides() {}, sideIds: () => [SIDE] };
-    await self.refreshAppserviceSides();
-    // the ACTING payload carries no representative (that belongs to the INBOUND shape); the
-    // snapshot's representative comes from the inbound endpoint — record it as that refresh would
-    if (!self.appserviceInboundSnapshot?.get(SIDE)) throw new Error('inbound snapshot missing after refresh');
-    self.appserviceInboundSnapshot.get(SIDE).representative = { mxid: REP };
-    await self.refreshActingCredentials();
-    expect(self.actingSideFor('PALPO.TEST')?.credential.registration).toBe(sideA.registration);
+    // BOTH endpoints served from the REAL backend app over supertest (HTTP hop only)
+    const fetchEndpoints = async () => {
+      const inbound = await request(ctx.app).get('/api/project-sides/inbound-credentials').set('x-bridge-secret', R7_SECRET);
+      const acting = await request(ctx.app).get('/api/project-sides/acting-credentials').set('x-bridge-secret', R7_SECRET);
+      return { inbound: inbound.body, acting: acting.body };
+    };
+    self.backendApiForSides = async () => (await fetchEndpoints()).inbound;
+    self.backendApiForActing = async () => (await fetchEndpoints()).acting;
 
-    /*
-     * INTERLEAVE: the receiver carries the NEW generation's provenance and the snapshot agrees
-     * (both refreshed), but the ACTING map still holds the old credential's registration → the
-     * relation would be proven with a stale credential. Retryable stale, log names both.
-     */
-    const newToken = 'hs-r5-rotated';
-    const newReg = derivedRegistrationId(SIDE, newToken);
-    self.appserviceInboundSnapshot.set(SIDE, { ...self.appserviceInboundSnapshot.get(SIDE), registration: newReg });
+    // gen 1: both refreshes from the REAL store through the REAL endpoints
+    await self.refreshAppserviceSides();
+    await self.refreshActingCredentials();
+    const reg1 = derivedRegistrationId(SIDE, HS);
+    expect(self.appserviceInboundSnapshot.get(SIDE)?.registration).toBe(reg1);
+    const acting1 = self.actingCredentials.get(SIDE);
+    expect(acting1?.registration).toBe(reg1);
+    // the apiBaseUrl lives in the STORE; point it at the fake Palpo through the REAL API (the
+    // backend owns its store; the API is the only write path it observes)
+    await request(ctx.app).post('/api/project-sides')
+      .send({ server_name: SIDE, api_base_url: palpo.url }).expect(200);
+
+    // ROTATION through the REAL backend API (the backend owns the store in memory; mutating the
+    // file underneath it would not be observed — the API is the authoritative write path)
+    const NEW_HS = 'hs-r7-rotated';
+    const NEW_AS = 'as-r7-rotated';
+    const reg2 = derivedRegistrationId(SIDE, NEW_HS);
+    await request(ctx.app).put(`/api/project-sides/${SIDE}/credential`).send({
+      credential: { kind: 'appservice', hsToken: NEW_HS, asToken: NEW_AS, senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+    }).expect(200);
+
+    // INTERLEAVE: inbound refreshed to gen2, acting still gen1 → retryable stale
+    await self.refreshAppserviceSides();
+    expect(self.appserviceInboundSnapshot.get(SIDE)?.registration).toBe(reg2);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$rot1')], {
-        txnId: 'rot1', provenance: { registration: newReg, sideId: SIDE, mode: 'push' },
+      await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$rot7')], {
+        txnId: 'rot7', provenance: { registration: reg2, sideId: SIDE, mode: 'push' },
       })).rejects.toMatchObject({ code: 'acting_registration_stale', retryable: true });
       expect(warnSpy.mock.calls.map((c) => c.join(' ')).join(' ')).toMatch(/generation .* != snapshot/);
 
-      // 注记① CONVERGENCE: the acting refresh completes → the SAME event replays and PASSES
-      self.actingCredentials.set(SIDE, {
-        ...self.actingCredentials.get(SIDE), registration: newReg, apiBaseUrl: palpo.url,
-      });
-      await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$rot1')], {
-        txnId: 'rot1r', provenance: { registration: newReg, sideId: SIDE, mode: 'push' },
+      // CONVERGENCE: the ACTING refresh completes from the SAME store → the same event passes
+      await self.refreshActingCredentials();
+      expect(self.actingCredentials.get(SIDE)?.registration).toBe(reg2);
+      await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$rot7')], {
+        txnId: 'rot7r', provenance: { registration: reg2, sideId: SIDE, mode: 'push' },
       })).resolves.toBeUndefined();
+      expect(self.sideProvenanceClaims.get(`${reg2}|${ROOM}|$rot7`)?.state).toBe('completed');
     } finally { warnSpy.mockRestore(); }
   });
 
