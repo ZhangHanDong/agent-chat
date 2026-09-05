@@ -2176,6 +2176,28 @@ function groupMappingKey(roomId) { return state.roomGroupMap[roomId] || null; }
  * deleting by bare name against side-qualified keys left orphans (the exact
  * leak class this round closes). Returns the removed mapping key.
  */
+/*
+ * F07 (17-r2): the rooms.leave sweep — a room the representative is OUT of is a permission no
+ * longer held. Trust revoked and the group mapping dropped, the same terms `forgetRoomsOnSides`
+ * uses for a removed side, because a room we cannot read must not keep the admission the trust
+ * gate exists to enforce. Module-level so the collector wiring stays thin and the sweep is
+ * directly testable against seeded state.
+ */
+function sweepLeftRoomsOnSides(sideId, roomIds) {
+  for (const roomId of roomIds) {
+    const wasTrusted = Boolean(state.trustedManagedRooms?.[roomId]);
+    if (state.trustedManagedRooms?.[roomId]) {
+      delete state.trustedManagedRooms[roomId];
+    }
+    const unmappedKey = unmapRoom(roomId);
+    console.log(
+      `[appservice-sync] side ${sideId}: left ${roomId} — trust cleared (${wasTrusted})`
+      + `${unmappedKey ? `, group mapping "${unmappedKey}" dropped` : ''}`,
+    );
+  }
+  saveState();
+}
+
 function unmapRoom(roomId) {
   const key = groupMappingKey(roomId);
   if (!key) return null;
@@ -4887,17 +4909,39 @@ export class MatrixBridge {
          * store) exactly once per break, so a poisoned batch pages a human instead of blocking
          * the queue in silence.
          */
-        onRoomsNeedingReconcile: (sideId, roomIds) => {
+        onRoomsNeedingReconcile: async (sideId, roomIds) => {
           /*
            * F07: a limited timeline means events were dropped in the gap. Re-pull
            * the room's recent history through the side's backfill helper so the
            * missing window reaches the same handler as a normal timeline event.
+           *
+           * F07 (17-r2): AWAITED now, and the durable record (below) is the
+           * guarantee — a failure here leaves the room in
+           * `state.appserviceSyncReconcile[sideId]` and the collector retries it
+           * at the top of the next poll, so a gap is never lost to a cursor that
+           * already moved past it.
            */
           for (const roomId of roomIds) {
-            this.backfillJoinedRoomOnSide(sideId, roomId, null).catch((err) => {
-              console.warn(`[appservice-sync] reconcile backfill for ${roomId} failed: ${err?.message || err}`);
-            });
+            const representative = `@${String(this.actingSideFor(sideId)?.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
+            await this.backfillJoinedRoomOnSide(sideId, roomId, representative || null);
           }
+        },
+        /*
+         * F07 (17-r2): rooms.leave — the representative is OUT. Trust is revoked
+         * and the group mapping is dropped, the same sweep `forgetRoomsOnSides`
+         * does for a removed side, because a room we cannot read is a permission
+         * we no longer hold: keeping trust would let a re-invite skip the trust
+         * gate that admission exists to enforce.
+         */
+        onLeaves: (sideId, roomIds) => sweepLeftRoomsOnSides(sideId, roomIds),
+        readPendingReconcile: () => Object.keys(state.appserviceSyncReconcile?.[sync.side] ?? {}),
+        writePendingReconcile: (roomId, verdict) => {
+          if (!state.appserviceSyncReconcile) state.appserviceSyncReconcile = {};
+          const queue = state.appserviceSyncReconcile[sync.side]
+            ?? (state.appserviceSyncReconcile[sync.side] = {});
+          if (verdict === 'cleared') delete queue[roomId];
+          else queue[roomId] = Date.now();
+          saveState();
         },
         onCredentialChanged: (sideId, detail) => {
           /*
@@ -8644,6 +8688,16 @@ export class MatrixBridge {
       credential: sender.credential,
       roomId: created.roomId,
       agentUserId: sender.agentUserId,
+      /*
+       * F10 (17-r2): the fleet's authoritative roster rides every agent
+       * masquerade — the exit refuses a ghost before the request is built.
+       * `typeof`-guarded for minimal unit-test selves, same convention as the
+       * agent-send exit: no roster to ask degrades to namespace-only rather
+       * than throwing — production always has the method.
+       */
+      isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
+        ? (mxid) => this.isKnownAgentMxid(mxid)
+        : null,
     });
     if (!joined.joined) {
       /*
@@ -9476,6 +9530,10 @@ export class MatrixBridge {
               credential: sender.credential,
               roomId,
               agentUserId: sender.agentUserId,
+              // F10 (17-r2): roster checked at the single exit on rejoin too (typeof-guarded)
+              isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
+                ? (mxid) => this.isKnownAgentMxid(mxid)
+                : null,
             });
             if (!rejoined.joined) {
               throw new Error(`${sender.agentUserId} could not rejoin ${roomId}: ${rejoined.reason}`);
@@ -9817,6 +9875,11 @@ export function agentTokenStateForTest() {
  */
 export function bridgeStateForTest() {
   return state;
+}
+
+// F07 (17-r2): the rooms.leave sweep, exported so a test can seed state and drive it directly.
+export function __onLeavesForTest(sideId, roomIds) {
+  return sweepLeftRoomsOnSides(sideId, roomIds);
 }
 
 export function humanMxidStateForTest() {

@@ -243,3 +243,189 @@ describe('F10 (17-r1): the bridge invite→join path refuses at the single exit,
     expect(calls[0]).toContain('user_id=%40hafleet%3Apalpo.example'); // masquerade intact via the exit
   });
 });
+
+describe('F10 (17-r2): agent join/leave refuse a ghost at the single exit', () => {
+  const repUrl = () => pathToFileURL(new URL('../lib/matrix-representative.js', import.meta.url).pathname).href;
+  const SIDE = { serverName: 'side.example', apiBaseUrl: 'https://hs.example' };
+  const CRED = { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet', namespace: '@ac_.*' };
+  const ROOM = '!r:side.example';
+
+  test('in-namespace but NOT in the fleet roster → join refuses with ZERO requests', async () => {
+    const { joinRoomOnSideAsAgent } = await import(`${repUrl()}?f10r2a=${Date.now()}`);
+    const calls = [];
+    const fetchImpl = async (u) => { calls.push(String(u)); return { ok: true, status: 200, json: async () => ({}) }; };
+    const r = await joinRoomOnSideAsAgent({
+      side: SIDE, credential: CRED, roomId: ROOM, agentUserId: '@ac_ghost:side.example',
+      isRegisteredAgent: (mxid) => mxid === '@ac_worker:side.example', fetchImpl,
+    });
+    expect(r.joined).toBe(false);
+    expect(r.reason).toMatch(/not a registered agent of this fleet/);
+    expect(calls).toEqual([]);                        // no request left the process
+  });
+
+  test('same ghost → leave refuses with ZERO requests', async () => {
+    const { leaveRoomOnSideAsAgent } = await import(`${repUrl()}?f10r2b=${Date.now()}`);
+    const calls = [];
+    const fetchImpl = async (u) => { calls.push(String(u)); return { ok: true, status: 200, json: async () => ({}) }; };
+    const r = await leaveRoomOnSideAsAgent({
+      side: SIDE, credential: CRED, roomId: ROOM, agentUserId: '@ac_ghost:side.example',
+      isRegisteredAgent: (mxid) => mxid === '@ac_worker:side.example', fetchImpl,
+    });
+    expect(r.left).toBe(false);
+    expect(r.reason).toMatch(/not a registered agent of this fleet/);
+    expect(calls).toEqual([]);
+  });
+
+  test('a rostered agent still joins through the exit', async () => {
+    const { joinRoomOnSideAsAgent } = await import(`${repUrl()}?f10r2c=${Date.now()}`);
+    const calls = [];
+    const fetchImpl = async (u) => { calls.push(String(u)); return { ok: true, status: 200, json: async () => ({ room_id: ROOM }) }; };
+    const r = await joinRoomOnSideAsAgent({
+      side: SIDE, credential: CRED, roomId: ROOM, agentUserId: '@ac_worker:side.example',
+      isRegisteredAgent: (mxid) => mxid === '@ac_worker:side.example', fetchImpl,
+    });
+    expect(r.joined).toBe(true);
+    expect(calls[0]).toContain('user_id=%40ac_worker%3Aside.example');
+  });
+
+  test('no roster supplied degrades to namespace-only (documented contract)', async () => {
+    const { joinRoomOnSideAsAgent } = await import(`${repUrl()}?f10r2d=${Date.now()}`);
+    const calls = [];
+    const fetchImpl = async (u) => { calls.push(String(u)); return { ok: true, status: 200, json: async () => ({ room_id: ROOM }) }; };
+    const r = await joinRoomOnSideAsAgent({ side: SIDE, credential: CRED, roomId: ROOM, agentUserId: '@ac_anyone:side.example', fetchImpl });
+    expect(r.joined).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('F07 (17-r2): leaves drive cleanup and gap reconcile retries durably', () => {
+  const syncUrl = () => pathToFileURL(new URL('../lib/appservice-sync.js', import.meta.url).pathname).href;
+  const bridgeUrl = () => pathToFileURL(new URL('../bridge-matrix.js', import.meta.url).pathname).href;
+
+  test('a batch with rooms.leave fires onLeaves, and cleanup happens with no further delivery', async () => {
+    const { startAppserviceSyncCollector } = await import(`${syncUrl()}?f07r2a=${Date.now()}`);
+    const leaves = [];
+    let polls = 0;
+    const fetchImpl = async (u) => {
+      if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: '@h:p' }) };
+      polls += 1;
+      return {
+        ok: true, status: 200,
+        json: async () => (polls === 1
+          ? { next_batch: 'A', rooms: { join: {}, leave: { '!gone:p': {} } } }
+          : { next_batch: 'B', rooms: {} }),
+      };
+    };
+    const delivered = [];
+    const cursorWrites = [];
+    let n = 0;
+    const collector = startAppserviceSyncCollector({
+      baseUrl: 'https://h', side: 's1',
+      router: { handle: async () => { delivered.push(++n); return { status: 200, body: {} }; } },
+      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+      readCursor: () => null, writeCursor: async (c) => { cursorWrites.push(c); },
+      onLeaves: (side, ids) => leaves.push([side, ids]),
+      fetchImpl,
+      sleep: async () => { await Promise.resolve(); },
+      shouldContinue: () => polls < 2 && (watchdog.t = (watchdog.t ?? 0) + 1) < 50,
+    });
+    function watchdog() {}
+    await collector.loop;
+    expect(leaves).toEqual([['s1', ['!gone:p']]]);     // cleanup fired exactly once, for the left room
+    expect(delivered).toEqual([]);                     // a leave-only batch has no events to deliver
+    expect(cursorWrites[0]).toBe('A');                 // cursor still advanced past the leave batch
+  });
+
+  test('gap reconcile: first backfill FAILS → durable record holds → next poll retries → clears', async () => {
+    const { startAppserviceSyncCollector } = await import(`${syncUrl()}?f07r2b=${Date.now()}`);
+    const reconcile = { calls: 0 };
+    let polls = 0;
+    let failFirst = true;
+    const durable = {};                                   // the persisted pending-reconcile store
+    const fetchImpl = async (u) => {
+      if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: '@h:p' }) };
+      polls += 1;
+      return {
+        ok: true, status: 200,
+        json: async () => (polls === 1
+          ? { next_batch: 'A', rooms: { join: { '!r:p': { timeline: { limited: true, events: [{ event_id: '$e' }] }, state: { events: [] } } } } }
+          : { next_batch: `B${polls}`, rooms: {} }),
+      };
+    };
+    const collector = startAppserviceSyncCollector({
+      baseUrl: 'https://h', side: 's1',
+      router: { handle: async () => ({ status: 200, body: {} }) },
+      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+      readCursor: () => null, writeCursor: async () => {},
+      fetchImpl,
+      sleep: async () => { await Promise.resolve(); },
+      shouldContinue: () => polls < 3 && (watchdog.t = (watchdog.t ?? 0) + 1) < 60,
+      onRoomsNeedingReconcile: async (side, ids) => {
+        reconcile.calls += 1;
+        if (failFirst) { failFirst = false; throw new Error('backfill 503'); }
+      },
+      readPendingReconcile: () => Object.keys(durable),
+      writePendingReconcile: (roomId, verdict) => {
+        if (verdict === 'cleared') delete durable[roomId];
+        else durable[roomId] = Date.now();
+      },
+    });
+    function watchdog() {}
+    await collector.loop;
+    expect(reconcile.calls).toBe(2);                   // failed once, retried, cleared
+    expect(Object.keys(durable)).toEqual([]);          // record cleared after success
+  });
+
+  test('a restart does not lose the gap: pending rooms are retried from the durable store', async () => {
+    const { startAppserviceSyncCollector } = await import(`${syncUrl()}?f07r2c=${Date.now()}`);
+    const durable = { '!sticky:p': 1234 };              // persisted by a PREVIOUS run
+    const retried = [];
+    let polls = 0;
+    const fetchImpl = async (u) => {
+      if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: '@h:p' }) };
+      polls += 1;
+      return { ok: true, status: 200, json: async () => ({ next_batch: `N${polls}`, rooms: {} }) };
+    };
+    const collector = startAppserviceSyncCollector({
+      baseUrl: 'https://h', side: 's1',
+      router: { handle: async () => ({ status: 200, body: {} }) },
+      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+      readCursor: () => 'N0', writeCursor: async () => {},
+      fetchImpl,
+      sleep: async () => { await Promise.resolve(); },
+      shouldContinue: () => polls < 1 && (watchdog.t = (watchdog.t ?? 0) + 1) < 30,
+      onRoomsNeedingReconcile: async (side, ids) => { retried.push(...ids); },
+      readPendingReconcile: () => Object.keys(durable),
+      writePendingReconcile: (roomId, verdict) => {
+        if (verdict === 'cleared') delete durable[roomId];
+        else durable[roomId] = Date.now();
+      },
+    });
+    function watchdog() {}
+    await collector.loop;
+    expect(retried).toEqual(['!sticky:p']);            // the OLD gap was retried on the FIRST poll
+    expect(durable['!sticky:p']).toBeUndefined();      // and cleared on success
+  });
+
+  test('the bridge onLeaves clears trust + group mapping and logs (driven through bridge state)', async () => {
+    const m = await import(`${bridgeUrl()}?f07r2d=${Date.now()}`);
+    const logs = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...a) => logs.push(a.join(' ')));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // The bridge's own state module: seeded the way a trusted project-side room would be
+      const st = m.bridgeStateForTest();
+      st.trustedManagedRooms = { '!gone:p': { trustReason: 'project_side_invite' } };
+      st.groupRoomMap = { 'team@palpo.test': '!gone:p' };
+      st.roomGroupMap = { '!gone:p': 'team@palpo.test' };
+      // The sweep the bridge installs as onLeaves, invoked the way the collector would
+      m.__onLeavesForTest('palpo.test', ['!gone:p']);
+      expect(st.trustedManagedRooms['!gone:p']).toBeUndefined();   // trust revoked
+      expect(st.groupRoomMap['team@palpo.test']).toBeUndefined();  // mapping dropped
+      expect(st.roomGroupMap['!gone:p']).toBeUndefined();
+      expect(logs.join(' ')).toMatch(/trust cleared \(true\)/);  // operator-visible
+    } finally {
+      logSpy.mockRestore(); warnSpy.mockRestore();
+    }
+  });
+});
