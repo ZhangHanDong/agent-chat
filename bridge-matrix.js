@@ -4520,15 +4520,18 @@ export class MatrixBridge {
         try {
           members = await joinedMembersOnSide({ ...acting, roomId: rid });
         } catch (error) {
-          return { complete: false, reason: String(error?.message ?? error) };
+          const reasonText = String(error?.message ?? error);
+          if (/M_FORBIDDEN|HTTP 403/i.test(reasonText)) {
+            return { complete: true, membership: 'leave' };
+          }
+          return { complete: false, reason: reasonText };
         }
         if (members?.known !== true) {
-          /*
-           * The read itself failed (403/unreachable) — evidence is ABSENT, not empty. An absent
-           * read must stay retryable (room_relation_unavailable); treating it as "not joined"
-           * would turn a transient refusal into a terminal mismatch.
-           */
-          return { complete: false, reason: members?.reason || 'member read unknown' };
+          const reasonText = String(members?.reason ?? '');
+          if (/M_FORBIDDEN|HTTP 403/i.test(reasonText)) {
+            return { complete: true, membership: 'leave' };
+          }
+          return { complete: false, reason: reasonText || 'member read unknown' };
         }
         const chunk = Array.isArray(members?.members) ? members.members : [];
         const hit = (chunk ?? []).find((m) => String(m?.user_id ?? m ?? '').trim() === mxid);

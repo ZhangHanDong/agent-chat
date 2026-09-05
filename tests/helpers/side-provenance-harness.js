@@ -22,6 +22,7 @@ export function bridgeUrl() {
 export async function fakePalpo({
   whoami = {},
   members = {},        // roomId -> [mxid, ...] joined members
+  memberFailures = {}, // roomId -> HTTP status for injected transient read failures
   syncBatches = [],    // array of sync response bodies
   edgeQueue = [],      // array of { txnId, events }
 } = {}) {
@@ -48,6 +49,9 @@ export async function fakePalpo({
       }
       if (/\/rooms\/[^/]+\/joined_members/.test(url)) {
         const roomId = decodeURIComponent(url.split('/rooms/')[1]?.split('/')[0] ?? '');
+        if (memberFailures[roomId]) {
+          return json(memberFailures[roomId], { errcode: 'M_UNKNOWN', error: 'injected member read failure' });
+        }
         /*
          * A room with no member evidence answers 403, as a real homeserver does for a room the
          * credential's representative has no readable membership in — NOT an empty 200, which

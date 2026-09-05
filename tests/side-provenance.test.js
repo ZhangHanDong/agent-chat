@@ -465,12 +465,11 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     const inv2 = { type: 'm.room.member', room_id: ROOM, state_key: '@someone-else:palpo.test', sender: '@a:palpo.test', content: { membership: 'invite' }, unsigned: { invite_room_state: [{ type: 'm.room.join_rules', state_key: '', content: { join_rule: 'knock' } }] } };
     /*
      * inv1 is the bootstrap for OUR representative (admitted). inv2 targets someone else: not a
-     * bootstrap, and the room has no member evidence at all → room_relation_unavailable, which is
-     * RETRYABLE — the whole batch answers 500 with zero typed calls, so the distinct invitation
-     * facts never collapse into one claim.
+     * bootstrap, and the room's M_FORBIDDEN member read is a terminal mismatch. The first fact
+     * executes and the second is skipped without collapsing into the first claim.
      */
     const r = await pushTxn(self.router, { hsToken: HS, txnId: 't1', events: [inv1, inv2] });
-    expect(r.status).toBe(500);
+    expect(r.status).toBe(200);
     /*
      * AT-LEAST-ONCE, per-event: inv1 (the bootstrap) already executed when inv2's unavailable
      * relation throws — a retry redelivers the batch, the claim absorbs inv1, and inv2 stays
@@ -739,11 +738,10 @@ describe('16-impl-r2 E: two REAL instances from makeInstance (isolated runtime/s
     expect(rsb.status).toBe(200);
     expect(A.typed.messages).toHaveLength(2);
     expect(B.typed.messages).toHaveLength(1); // B's representative not joined → terminal for B
-    // A LEAVES: the evidence for A's membership is gone (403 on read), A's later events are
-    // retryable-unavailable; B is untouched by A's departure
+    // A LEAVES: M_FORBIDDEN is definitive and isolated; B is untouched by A's departure.
     palpo.memberState.delete('!shared:palpo.test');
     const rsa2 = await pushTxn(A.router, { hsToken: 'hsA', txnId: 'sa2', events: [msg('!shared:palpo.test', '$sa2')] });
-    expect(rsa2.status).toBe(500);            // evidence absent → retryable, no cursor advance
+    expect(rsa2.status).toBe(200);            // terminal room mismatch does not poison the batch
     expect(B.typed.messages).toHaveLength(1); // B untouched by A's departure
   });
 });
@@ -1165,8 +1163,7 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
         body: JSON.stringify({ events: [msg('!s:palpo.test', '$sb')] }),
       });
       expect(rB.status).toBe(200);
-      // A LEAVES: evidence vanishes; A's post-leave edge delivery FAILS (router 500) and the
-      // puller must NOT ack it ok — an ok ack for an unprocessed batch would be the data-loss bug.
+      // A LEAVES: M_FORBIDDEN is terminal for this room, so the edge batch is safely consumed.
       palpo.memberState.delete('!s:palpo.test');
       edgeGateOpen = true; // only now may the fake edge serve the second (doomed) batch
       const tAck2 = Date.now();
@@ -1174,12 +1171,10 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
         await new Promise((r) => setTimeout(r, 25));
       }
       /*
-       * The DOOMED batch's own ack, exact: e4-a2 was NOT processed (relation evidence absent →
-       * the router answered 500), so the puller acked it ok:false — the edge keeps it queued and
-       * redelivers. Idle polls may ack ok in between; only this txn's verdict matters.
+       * The event is terminally rejected before typed dispatch, but the batch itself completed.
        */
       const doomedAck = ackBodies.find((a) => a?.txn_id === 'e4-a2');
-      expect(doomedAck).toEqual({ txn_id: 'e4-a2', ok: false });
+      expect(doomedAck).toEqual({ txn_id: 'e4-a2', ok: true });
       // B keeps serving its own room after A's departure
       const rB2 = await fetch(`http://127.0.0.1:${lb.port}/_matrix/app/v1/transactions/sb2`, {
         method: 'PUT', headers: { authorization: 'Bearer hs5B', 'Content-Type': 'application/json' },
@@ -1487,7 +1482,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       verdict: 'terminal',                        // every fixture rejected, batch 200
     },
     side_provenance_relation_unavailable_retries_before_three_typed_paths: {
-      members: {},                                 // no evidence at all → retryable
+      members: {}, memberFailures: { [ROOM]: 500 },
       events: () => [msg(ROOM, '$ru1')],
       verdict: 'retryable',
     },
@@ -1539,12 +1534,13 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       verdict: 'partial',                          // bad terminal-skipped; good admitted
     },
     side_provenance_failed_delivery_keeps_claim_and_cursor_retryable: {
-      members: {},                                 // relation unavailable → retryable
+      members: {}, memberFailures: { [ROOM]: 500 },
       events: () => [msg(ROOM, '$fd1')],
       verdict: 'retryable',
     },
     side_provenance_mixed_batch_relation_failure_prevents_ack_and_cursor: {
       members: { [ROOM]: [REP] },
+      memberFailures: { '!unknown:palpo.test': 500 },
       events: () => [msg('!unknown:palpo.test', '$mx-u'), msg(ROOM, '$mx-g')],
       verdict: 'retryable',                        // one unavailable → whole batch 500
     },
@@ -1587,7 +1583,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       // room has no membership evidence → retryable-unavailable for it, so the batch 500s with
       // the first event already executed (at-least-once). The scenario's Then — the two facts do
       // not collapse — is asserted by the push-basis test's claim-identity checks.
-      verdict: 'retryable',
+      verdict: 'partial',
       allowPartialExecution: true,                 // per-event at-least-once: the first executes
     },
     side_provenance_rejection_logs_omit_tokens_and_approval_payloads: {
@@ -1604,7 +1600,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
     for (const [title, fx] of Object.entries(SCENARIO_FIXTURES)) {
       if (fx.na) { naTitles.push(title); continue; }   // recorded, never silently skipped
       for (const mode of ['edge', 'sync']) {
-        const palpo = await fakePalpo({ members: fx.members });
+        const palpo = await fakePalpo({ members: fx.members, memberFailures: fx.memberFailures });
         const { self, typed } = await makeBridgeWithSide({
           sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
         });
