@@ -219,6 +219,28 @@ describe('what arrives, and what is handed on', () => {
     expect(seenEvents[0].meta.txnId).toBe('t9');
   });
 
+  test('F06: a non-event mode field in the body rides through to meta, outside the events', async () => {
+    /*
+     * 16-impl-r1 ③: the puller and sync collector stamp their intake mode beside the events;
+     * this pins that the receiver passes it through as meta.mode and never merges it into any
+     * event object. A homeserver push (no mode field) arrives with meta.mode undefined.
+     */
+    const { rec, seenEvents } = receiver();
+    await rec.handle(put({
+      path: '/_matrix/app/v1/transactions/t-mode',
+      body: { events: [{ type: 'm.room.message', event_id: '$m' }], mode: 'edge' },
+    }));
+    expect(seenEvents[0].meta.mode).toBe('edge');
+    expect(seenEvents[0].events).toEqual([{ type: 'm.room.message', event_id: '$m' }]);
+    expect(seenEvents[0].events[0]).not.toHaveProperty('mode');
+
+    await rec.handle(put({
+      path: '/_matrix/app/v1/transactions/t-nomode',
+      body: { events: [{ type: 'm.room.message', event_id: '$n' }] },
+    }));
+    expect(seenEvents[1].meta.mode).toBeUndefined();
+  });
+
   test('a body with no events is an empty array, not a crash', async () => {
     // Observed shapes include ephemeral-only transactions when a registration opts into them, and a
     // homeserver is entitled to send an empty one.
