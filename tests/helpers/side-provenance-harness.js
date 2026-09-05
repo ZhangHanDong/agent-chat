@@ -22,7 +22,7 @@ export function bridgeUrl() {
 export async function fakePalpo({
   whoami = {},
   members = {},        // roomId -> [mxid, ...] joined members
-  memberFailures = {}, // roomId -> HTTP status for injected transient read failures
+  memberFailures = {}, // roomId -> HTTP status or a per-read status queue
   syncBatches = [],    // array of sync response bodies
   edgeQueue = [],      // array of { txnId, events }
 } = {}) {
@@ -49,8 +49,17 @@ export async function fakePalpo({
       }
       if (/\/rooms\/[^/]+\/joined_members/.test(url)) {
         const roomId = decodeURIComponent(url.split('/rooms/')[1]?.split('/')[0] ?? '');
-        if (memberFailures[roomId]) {
-          return json(memberFailures[roomId], { errcode: 'M_UNKNOWN', error: 'injected member read failure' });
+        const configuredFailure = memberFailures[roomId];
+        const failure = Array.isArray(configuredFailure) ? configuredFailure.shift() : configuredFailure;
+        if (failure) {
+          const status = typeof failure === 'object' ? failure.status : failure;
+          return json(status, {
+            errcode: status === 429 ? 'M_LIMIT_EXCEEDED' : 'M_UNKNOWN',
+            error: 'injected member read failure',
+            ...(typeof failure === 'object' && Number.isFinite(failure.retryAfterMs)
+              ? { retry_after_ms: failure.retryAfterMs }
+              : {}),
+          });
         }
         /*
          * A room with no member evidence answers 403, as a real homeserver does for a room the

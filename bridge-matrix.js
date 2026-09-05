@@ -4516,22 +4516,24 @@ export class MatrixBridge {
        * honest fixture is "the relation is proven", not "half the internet is stubbed".
        */
       memberLookup: this.sideRelationLookup ?? (async (rid, mxid) => {
+        const cache = meta?.memberReadCache;
+        let read = cache?.get(rid);
+        if (!read) {
+          read = joinedMembersOnSide({ ...acting, roomId: rid });
+          cache?.set(rid, read);
+        }
         let members;
-        try {
-          members = await joinedMembersOnSide({ ...acting, roomId: rid });
-        } catch (error) {
+        try { members = await read; } catch (error) {
           const reasonText = String(error?.message ?? error);
-          if (/M_FORBIDDEN|HTTP 403/i.test(reasonText)) {
-            return { complete: true, membership: 'leave' };
-          }
-          return { complete: false, reason: reasonText };
+          if (/M_FORBIDDEN|HTTP 403/i.test(reasonText)) return { complete: true, membership: 'leave' };
+          return { complete: false, reason: reasonText, retryAfterMs: error?.retryAfterMs };
         }
         if (members?.known !== true) {
           const reasonText = String(members?.reason ?? '');
           if (/M_FORBIDDEN|HTTP 403/i.test(reasonText)) {
             return { complete: true, membership: 'leave' };
           }
-          return { complete: false, reason: reasonText || 'member read unknown' };
+          return { complete: false, reason: reasonText || 'member read unknown', retryAfterMs: members?.retryAfterMs };
         }
         const chunk = Array.isArray(members?.members) ? members.members : [];
         const hit = (chunk ?? []).find((m) => String(m?.user_id ?? m ?? '').trim() === mxid);
@@ -4658,6 +4660,7 @@ export class MatrixBridge {
     }
     // Stable partition: exact representative invites establish the room relation before any
     // sibling state/timeline event, without reversing rooms or promoting unrelated invites.
+    const batchMeta = { ...meta, memberReadCache: new Map() };
     for (const { event, roomId } of [...bootstrapInvites, ...remaining]) {
       if (!roomId) {
         console.warn(`[appservice] ${sideId}: event with no room_id in txn=${meta?.txnId} type=${event?.type}`);
@@ -4673,7 +4676,7 @@ export class MatrixBridge {
          * txn, the edge puller does not ack, and the sync collector holds its cursor — the same
          * at-least-once channel F05/F08 already use.
          */
-        const verdict = await this.assertSideProvenanceForEvent(sideId, roomId, event, meta);
+        const verdict = await this.assertSideProvenanceForEvent(sideId, roomId, event, batchMeta);
         if (verdict?.rejected) {
           /*
            * F06: a TERMINAL provenance rejection. Zero typed actions, zero claims; the loop
@@ -5357,12 +5360,6 @@ export class MatrixBridge {
            */
           console.log(`[appservice-sync] acting credential changed for side ${sideId}; cached token invalidated`);
         },
-        onCircuitBreak: (sideId, detail) => this.postWarning(
-          `appservice sync intake circuit-broke for side ${sideId}: the router refused a batch ${detail.attempts} times. `
-          + `Recovery resumes from cursor ${detail.heldCursor ?? '(none)'} (the batch that ends at ${detail.failedNextBatch ?? '(none)'} was never committed). `
-          + `Last error: ${detail.lastError}`,
-          { kind: 'appservice_sync', scope: `side:${sideId}` },
-        ),
       });
       console.log(`[appservice] collecting via outbound /sync from ${sync.baseUrl} for side ${sync.side}`);
     }

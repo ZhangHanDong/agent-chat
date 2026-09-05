@@ -179,6 +179,54 @@ describe('16-impl-r9 sync invite bootstrap ordering', () => {
     expect(typed.messages).toHaveLength(0);
   });
 });
+
+describe('16-impl-r10 batch membership cache', () => {
+  test('r10_real_collector_honors_two_429s_then_commits_the_held_batch', async () => {
+    const roomId = '!r10-throttle:palpo.test';
+    const eventBatch = {
+      next_batch: 'r10-after',
+      rooms: { join: { [roomId]: { timeline: { events: [msg(roomId, '$r10-throttle')] } } } },
+    };
+    const palpo = await fakePalpo({
+      members: { [roomId]: [REP] },
+      memberFailures: { [roomId]: [
+        { status: 429, retryAfterMs: 2_500 }, { status: 429, retryAfterMs: 2_500 },
+      ] },
+      syncBatches: [eventBatch, eventBatch, eventBatch],
+    });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    let cursor = 'r10-before';
+    const sleeps = [];
+    const collector = startAppserviceSyncCollector({
+      baseUrl: palpo.url, side: SIDE, router: self.router,
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      readCursor: () => cursor, writeCursor: async (next) => { cursor = next; },
+      fetchImpl: (url) => fetch(url), sleep: async (ms) => { sleeps.push(ms); },
+      shouldContinue: () => cursor !== 'r10-after',
+    });
+    await collector.loop;
+    expect(sleeps).toEqual([2_500, 2_500]);
+    expect(collector.stats.failed).toBe(2);
+    expect(cursor).toBe('r10-after');
+    expect(typed.messages.map(({ event }) => event.event_id)).toEqual(['$r10-throttle']);
+  });
+
+  test('r10_same_room_events_perform_one_membership_read_in_the_transaction', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    const response = await pushTxn(self.router, {
+      hsToken: HS, txnId: 'r10-cache',
+      events: [msg(ROOM, '$r10-1'), msg(ROOM, '$r10-2'), msg(ROOM, '$r10-3')],
+    });
+    expect(response.status).toBe(200);
+    expect(typed.messages).toHaveLength(3);
+    expect(palpo.seen.filter(({ url }) => url.includes('/joined_members'))).toHaveLength(1);
+  });
+});
 const nameEvt = (roomId, eventId, name) => ({
   type: 'm.room.name', room_id: roomId, event_id: eventId, state_key: '', sender: '@human:palpo.test',
   content: { name },
