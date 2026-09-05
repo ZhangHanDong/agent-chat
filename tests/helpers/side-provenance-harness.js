@@ -84,6 +84,7 @@ export async function fakePalpo({
     url: `http://127.0.0.1:${server.address().port}`,
     whoamiState,
     memberState,
+    syncBatches,
     setMembers(roomId, list) { memberState.set(roomId, [...list]); },
     close: () => new Promise((r) => server.close(r)),
   };

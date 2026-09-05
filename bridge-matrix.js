@@ -4454,16 +4454,17 @@ export class MatrixBridge {
      * own authority, never a sender suffix or a room-name guess.
      */
     /*
-     * 16-impl-r4 注记①: a side whose projection carries NO representative is an INCOMPLETE
-     * REGISTRATION — a configuration gap no retry can fix. Terminal, named, logged with the
-     * missing field; never an endless room_relation_unavailable 500 loop.
+     * 16-impl-r6 ③: spec PR #144 settled it — a registration with NO recorded representative is
+     * TERMINAL side_incomplete_registration (zero claims, zero typed, the batch may 200 once
+     * every event is completed-or-rejected), while FAILED/INCOMPLETE evidence reads remain
+     * retryable room_relation_unavailable. The log names the side and the missing field.
      */
     if (!registered.representative?.mxid) {
+      console.warn(`[side-provenance] side ${sideId} has no representative recorded; complete its registration before its events can be admitted`);
       logProvenanceVerdict({
         code: 'side_incomplete_registration', kind: 'terminal',
         provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId,
       });
-      console.warn(`[side-provenance] side ${sideId} has no representative recorded; complete its registration before its events can be admitted`);
       return { rejected: 'side_incomplete_registration' };
     }
     const representativeMxid = representativeMxidFor(registered);
@@ -4478,6 +4479,24 @@ export class MatrixBridge {
       throw new SideProvenanceError(
         'room_relation_unavailable',
         `no acting credential for side ${provenance.sideId ?? sideId} to prove the room relation`,
+        { retryable: true },
+      );
+    }
+    /*
+     * 16-impl-r5 rotation: the acting credential and the inbound snapshot must be the SAME
+     * generation. Two refreshes interleave → the snapshot may already carry the new derived
+     * registration while acting still holds the old one; proving a relation with the stale
+     * credential would vouch for an identity the registry no longer has. RETRYABLE — the next
+     * refresh pair converges (both derive from the same store), and a replay then passes.
+     */
+    if (!hasRelationSeam
+        && acting?.credential?.registration
+        && registered.registration
+        && acting.credential.registration !== registered.registration) {
+      console.warn(`[side-provenance] acting credential generation ${acting.credential.registration} != snapshot ${registered.registration} for side ${sideId}; awaiting refresh convergence`);
+      throw new SideProvenanceError(
+        'acting_registration_stale',
+        `acting credential registration ${acting.credential.registration} is stale against snapshot ${registered.registration} for side ${sideId}`,
         { retryable: true },
       );
     }
@@ -4892,7 +4911,13 @@ export class MatrixBridge {
   async refreshActingCredentials() {
     let payload;
     try {
-      payload = await backendApi('GET', '/api/project-sides/acting-credentials', null, 'context=bridge:acting-credentials');
+      /*
+       * `this.backendApiForActing` is a TEST SEAM ONLY (production leaves it unset and the real
+       * backendApi runs): the r5 rotation test drives the REAL refresh against the REAL endpoint's
+       * payload — only the HTTP hop is replaced.
+       */
+      const apiActing = this.backendApiForActing ?? backendApi;
+      payload = await apiActing('GET', '/api/project-sides/acting-credentials', null, 'context=bridge:acting-credentials');
     } catch (error) {
       /*
        * Keep what we had, for the same reason the inbound refresh does: a backend restart must not
@@ -4994,7 +5019,16 @@ export class MatrixBridge {
     return {
       side: { apiBaseUrl: row.apiBaseUrl, serverName: row.serverName },
       credential: row.kind === 'appservice'
-        ? { kind: 'appservice', asToken: row.asToken, senderLocalpart: row.senderLocalpart, namespace: row.namespace }
+        ? {
+          kind: 'appservice', asToken: row.asToken, senderLocalpart: row.senderLocalpart,
+          namespace: row.namespace,
+          /*
+           * 16-impl-r5 rotation: the acting credential carries the SAME derived registration the
+           * inbound snapshot holds, so the gate can refuse a mixed-generation pair (two refreshes
+           * interleaving) instead of proving a relation with last cycle's credential.
+           */
+          registration: row.registration ?? null,
+        }
         : { kind: 'registrationToken', representativeToken: row.representativeToken, registrationToken: null },
     };
   }
