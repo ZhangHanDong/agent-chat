@@ -44,7 +44,7 @@ import roleCapacity from './lib/role-capacity.json' with { type: 'json' };
 import { buildSeats, normalizeDeclaration, seatIdentity } from './lib/seat-store.js';
 import { createEngagementStore, routeRequest, EngagementError } from './lib/engagement-store.js';
 import { ProjectSideStore, ProjectSideStoreError } from './lib/project-side-store.js';
-import { inboundCredentialsProjection } from './lib/project-side-inbound.js';
+import { inboundCredentialsProjection, derivedRegistrationId } from './lib/project-side-inbound.js';
 import {
   canRepresentativeInvite, ensureRepresentative, inviteToRoomOnSide, joinRoomOnSideAsAgent,
   leaveRoomOnSideAsAgent,
@@ -9103,6 +9103,11 @@ app.get('/api/project-sides/acting-credentials', requireApprovalBridgeSecret, (r
           asToken: credential.asToken,
           senderLocalpart: credential.senderLocalpart,
           namespace: credential.namespace,
+          /*
+           * 16-impl-r5 rotation: the SAME derived identity the inbound projection emits, so the
+           * bridge can compare the acting generation against the snapshot generation.
+           */
+          registration: derivedRegistrationId(side.id, credential.hsToken),
         };
       }
       if (credential.kind === 'registrationToken' && credential.representativeToken) {

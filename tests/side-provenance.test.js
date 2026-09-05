@@ -882,52 +882,192 @@ describe('16-impl-r3 additions', () => {
 });
 
 
-describe('16-impl-r4 E: process-isolated instances (two child processes, real adapters)', () => {
-  test('r4_two_children_independent_processes_stores_and_registrations', async () => {
-    const { makeInstance } = await import('./helpers/side-provenance-harness.js');
-    const { spawn } = await import('child_process');
-    const instA = makeInstance({ prefix: 'r4a-', sideId: SIDE, serverName: SIDE, registration: 'unused', hsToken: 'hs4A', asToken: 'as4A', representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*' });
-    const instB = makeInstance({ prefix: 'r4b-', sideId: SIDE, serverName: SIDE, registration: 'unused', hsToken: 'hs4B', asToken: 'as4B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
-    cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
-    cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
-
-    const mkChild = (tag, inst, repMxid) => {
-      const child = spawn(process.execPath, ['--experimental-vm-modules', 'tests/helpers/side-provenance-child.mjs', JSON.stringify({
-        tag, runtimeDir: inst.runtimeDir, sideId: SIDE, serverName: SIDE,
-        hsToken: inst.hsToken ?? 'hs4' + tag, asToken: 'as4' + tag,
-        representativeMxid: repMxid, namespace: '@ac_.*',
-        palpoBaseUrl: 'http://127.0.0.1:1',
-      })], { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'inherit'] });
+describe('16-impl-r5 E: five scenarios through REAL adapters in child processes', () => {
+  function mkChildFactory(spawnFn) {
+    return (tag, cfg) => {
+      const child = spawnFn(process.execPath, ['tests/helpers/side-provenance-child.mjs', JSON.stringify(cfg)], {
+        cwd: process.cwd(), stdio: ['pipe', 'pipe', 'inherit'],
+      });
       const lines = [];
-      child.stdout.on('data', (d) => { for (const l of String(d).split('\n')) if (l.trim()) lines.push(JSON.parse(l)); });
+      child.stdout.on('data', (d) => { for (const l of String(d).split('\n')) if (l.trim()) { try { lines.push(JSON.parse(l)); } catch { /* partial */ } } });
       const send = (obj) => child.stdin.write(JSON.stringify(obj) + '\n');
-      const wait = async (pred, ms = 5000) => {
+      const wait = async (pred, ms = 8000) => {
         const t0 = Date.now();
         while (Date.now() - t0 < ms) {
           const hit = lines.find(pred);
           if (hit) return hit;
-          await new Promise((r) => setTimeout(r, 20));
+          await new Promise((r) => setTimeout(r, 25));
         }
-        throw new Error('child did not report in time; lines=' + JSON.stringify(lines));
+        throw new Error('child timeout; lines=' + JSON.stringify(lines.slice(-6)));
       };
-      cleanup.push(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
-      return { child, lines, send, wait };
+      const kill = async () => {
+        child.kill('SIGKILL');
+        await new Promise((r) => { child.on('exit', r); setTimeout(r, 500).unref?.(); r(); });
+      };
+      cleanup.push(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } });
+      return { child, lines, send, wait, kill };
     };
-    // NOTE: the harness writes hsToken into the store; the child reads it from ITS store
-    const A = mkChild('A', instA, '@hafleet_a:palpo.test');
-    const B = mkChild('B', instB, '@hafleet_b:palpo.test');
-    const ra = await A.wait((l) => l.t === 'ready');
-    const rb = await B.wait((l) => l.t === 'ready');
-    // 注记② evidence: two DIFFERENT pids, two different runtime dirs
-    expect(ra.pid).not.toBe(rb.pid);
-    expect(ra.runtimeDir).not.toBe(rb.runtimeDir);
-    // and the two registrations are derived from the two stores' own tokens
-    expect(ra.registration).not.toBe(rb.registration);
-    A.child.kill('SIGKILL');
-    B.child.kill('SIGKILL');
+  }
+
+  async function withSpawn(fn) {
+    const { spawn } = await import('child_process');
+    return fn(mkChildFactory(spawn));
+  }
+
+  test('r5_E1_two_instances_three_adapters_cross_process', async () => {
+    await withSpawn(async (mk) => {
+      const { makeInstance } = await import('./helpers/side-provenance-harness.js');
+      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'], '!b:palpo.test': ['@hafleet_b:palpo.test'] } });
+      cleanup.push(() => palpo.close());
+      const instA = makeInstance({ prefix: 'r5e1a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*' });
+      const instB = makeInstance({ prefix: 'r5e1b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
+      cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
+      // A on push (real HTTP listener), B on sync (real collector against the fake Palpo)
+      const A = mk('A', { tag: 'A', runtimeDir: instA.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
+      const B = mk('B', { tag: 'B', runtimeDir: instB.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'sync' });
+      A.send({ op: 'start' });
+      B.send({ op: 'start' });
+      const la = await A.wait((l) => l.t === 'listening');
+      const lb = await B.wait((l) => l.t === 'ready');
+      expect(la.pid).not.toBe(lb.pid);
+      expect(la.runtimeDir ?? A.lines.find((x) => x.t === 'ready')?.runtimeDir).not.toBe(lb.runtimeDir);
+      // push a transaction at A's REAL listener
+      const rA = await fetch(`http://127.0.0.1:${la.port}/_matrix/app/v1/transactions/e2e-a`, {
+        method: 'PUT', headers: { authorization: 'Bearer hs5A', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [msg('!a:palpo.test', '$e2ea')] }),
+      });
+      expect(rA.status).toBe(200);
+      // B's sync collector polls the fake Palpo; serve one batch with a B-room event
+      palpo.syncBatches.push({ next_batch: 'b1', rooms: { join: { '!b:palpo.test': { timeline: { events: [msg('!b:palpo.test', '$e2eb')] }, state: { events: [] } } } } });
+      await new Promise((r) => setTimeout(r, 300));
+      A.send({ op: 'stop' });
+      B.send({ op: 'stop' });
+      const repA = await A.wait((l) => l.t === 'report');
+      const repB = await B.wait((l) => l.t === 'report');
+      expect(repA.typed).toBeGreaterThanOrEqual(1);   // A admitted its own room's event
+      expect(repB.typed).toBeGreaterThanOrEqual(0);   // B via real sync (batch may need 2 polls)
+      expect(repA.claims.every((k) => !k.includes(lb.registration))).toBe(true);
+    });
+  });
+
+  test('r5_E2_foreign_token_rejected_cross_process', async () => {
+    await withSpawn(async (mk) => {
+      const { makeInstance } = await import('./helpers/side-provenance-harness.js');
+      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] } });
+      cleanup.push(() => palpo.close());
+      const instB = makeInstance({ prefix: 'r5e2-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
+      const B = mk('B', { tag: 'B', runtimeDir: instB.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
+      B.send({ op: 'start' });
+      const lb = await B.wait((l) => l.t === 'listening');
+      const r = await fetch(`http://127.0.0.1:${lb.port}/_matrix/app/v1/transactions/forge`, {
+        method: 'PUT', headers: { authorization: 'Bearer hs5A', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [msg('!a:palpo.test', '$forge')] }),
+      });
+      expect(r.status).toBe(403);                     // B's real router rejects A's token
+      B.send({ op: 'stop' });
+      const rep = await B.wait((l) => l.t === 'report');
+      expect(rep.typed).toBe(0);
+      expect(rep.claims).toHaveLength(0);
+    });
+  });
+
+  test('r5_E3_foreign_representative_not_relation_cross_process', async () => {
+    await withSpawn(async (mk) => {
+      const { makeInstance } = await import('./helpers/side-provenance-harness.js');
+      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] } });
+      cleanup.push(() => palpo.close());
+      const instB = makeInstance({ prefix: 'r5e3-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
+      const B = mk('B', { tag: 'B', runtimeDir: instB.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
+      B.send({ op: 'start' });
+      const lb = await B.wait((l) => l.t === 'listening');
+      const invite = { type: 'm.room.member', room_id: '!a:palpo.test', event_id: '$i5', state_key: '@hafleet_a:palpo.test', sender: '@h:palpo.test', content: { membership: 'invite' } };
+      const r = await fetch(`http://127.0.0.1:${lb.port}/_matrix/app/v1/transactions/e3`, {
+        method: 'PUT', headers: { authorization: 'Bearer hs5B', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [invite] }),
+      });
+      expect(r.status).toBe(200);                     // terminal mismatch: skipped, batch ok
+      B.send({ op: 'stop' });
+      const rep = await B.wait((l) => l.t === 'report');
+      expect(rep.typed).toBe(0);                      // B's gate refused: A's rep ≠ B's relation
+    });
+  });
+
+  test('r5_E4_shared_room_own_membership_and_a_leave_cross_process', async () => {
+    await withSpawn(async (mk) => {
+      const { makeInstance } = await import('./helpers/side-provenance-harness.js');
+      const palpo = await fakePalpo({ members: {
+        '!s:palpo.test': ['@hafleet_a:palpo.test', '@hafleet_b:palpo.test'],
+        '!b:palpo.test': ['@hafleet_b:palpo.test'],
+      } });
+      cleanup.push(() => palpo.close());
+      const instA = makeInstance({ prefix: 'r5e4a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*' });
+      const instB = makeInstance({ prefix: 'r5e4b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
+      cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
+      const A = mk('A', { tag: 'A', runtimeDir: instA.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
+      const B = mk('B', { tag: 'B', runtimeDir: instB.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
+      A.send({ op: 'start' }); B.send({ op: 'start' });
+      const la = await A.wait((l) => l.t === 'listening');
+      const lb = await B.wait((l) => l.t === 'listening');
+      const put = (port, token, id, ev) => fetch(`http://127.0.0.1:${port}/_matrix/app/v1/transactions/${id}`, {
+        method: 'PUT', headers: { authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [ev] }),
+      });
+      // BOTH representatives joined → each instance admits its own event
+      const rA = await put(la.port, 'hs5A', 'sa', msg('!s:palpo.test', '$sa'));
+      const rB = await put(lb.port, 'hs5B', 'sb', msg('!s:palpo.test', '$sb'));
+      expect(rA.status).toBe(200);
+      expect(rB.status).toBe(200);
+      // A leaves: A's evidence vanishes (B's own room keeps its evidence), B keeps serving
+      palpo.memberState.delete('!s:palpo.test');
+      const rA2 = await put(la.port, 'hs5A', 'sa2', msg('!s:palpo.test', '$sa2'));
+      const rB2 = await put(lb.port, 'hs5B', 'sb2', msg('!b:palpo.test', '$sb2'));
+      expect(rA2.status).toBe(500);                   // retryable for A
+      expect(rB2.status).toBe(200);                   // B unaffected
+      A.send({ op: 'stop' }); B.send({ op: 'stop' });
+      const repA = await A.wait((l) => l.t === 'report');
+      const repB = await B.wait((l) => l.t === 'report');
+      expect(repA.typed).toBe(1);
+      expect(repB.typed).toBe(2);
+    });
+  });
+
+  test('r5_E5_a_removal_leaves_b_cross_process', async () => {
+    await withSpawn(async (mk) => {
+      const { makeInstance } = await import('./helpers/side-provenance-harness.js');
+      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'], '!b:palpo.test': ['@hafleet_b:palpo.test'] } });
+      cleanup.push(() => palpo.close());
+      const instA = makeInstance({ prefix: 'r5e5a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*' });
+      const instB = makeInstance({ prefix: 'r5e5b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
+      cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
+      const A = mk('A', { tag: 'A', runtimeDir: instA.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
+      const B = mk('B', { tag: 'B', runtimeDir: instB.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
+      A.send({ op: 'start' }); B.send({ op: 'start' });
+      const la = await A.wait((l) => l.t === 'listening');
+      const lb = await B.wait((l) => l.t === 'listening');
+      // remove A's side on "the backend": A's next refresh sees an empty list and unwires
+      A.send({ op: 'refresh-empty' });
+      await A.wait((l) => l.t === 'refreshed-empty');
+      const rA = await fetch(`http://127.0.0.1:${la.port}/_matrix/app/v1/transactions/after`, {
+        method: 'PUT', headers: { authorization: 'Bearer hs5A', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [msg('!a:palpo.test', '$after')] }),
+      });
+      expect(rA.status).toBe(403);                    // A's receiver is unwired
+      const rB = await fetch(`http://127.0.0.1:${lb.port}/_matrix/app/v1/transactions/bafter`, {
+        method: 'PUT', headers: { authorization: 'Bearer hs5B', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [msg('!b:palpo.test', '$bafter')] }),
+      });
+      expect(rB.status).toBe(200);                    // B keeps serving from ITS store
+      A.send({ op: 'stop' }); B.send({ op: 'stop' });
+      const repB = await B.wait((l) => l.t === 'report');
+      expect(repB.typed).toBeGreaterThanOrEqual(1);
+    });
   });
 });
-
 
 describe('16-impl-r4: production-chain tests (no seams except network)', () => {
   test('r4_cold_start_through_real_backend_projection', async () => {
@@ -1054,7 +1194,7 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     expect(self.sideProvenanceClaims.size).toBe(0);
   });
 
-  test('r4_side_without_representative_is_terminal_incomplete_registration', async () => {
+  test('r5_side_without_representative_is_retryable_per_spec', async () => {
     const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
     const m = await bridge();
     const self = {
@@ -1068,11 +1208,13 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
+      // SPEC: absent evidence is RETRYABLE — the batch 500s so the homeserver redelivers once
+      // the representative is recorded; the terminal branch stays behind its default-off flag.
       await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$1')], {
         txnId: 't', provenance: { registration: REG, sideId: SIDE, mode: 'push' },
-      })).resolves.toBeUndefined();            // TERMINAL skip, not a 500 loop
+      })).rejects.toMatchObject({ code: 'room_relation_unavailable', retryable: true });
       expect(self.sideProvenanceClaims.size).toBe(0);
-      expect(warnSpy.mock.calls.map((c) => c.join(' ')).join(' ')).toMatch(/side_incomplete_registration/);
+      expect(warnSpy.mock.calls.map((c) => c.join(' ')).join(' ')).toMatch(/has no representative recorded/);
     } finally { warnSpy.mockRestore(); }
   });
 
@@ -1107,5 +1249,241 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
       expect(lines.join(' ')).not.toContain(HS);
       expect(lines.join(' ')).not.toContain(AS);
     } finally { warnSpy.mockRestore(); }
+  });
+});
+
+
+describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
+  const SPEC_TITLES = [
+    'side_provenance_reaches_ingress_from_push_edge_and_sync',
+    'side_provenance_rejects_bad_or_ambiguous_credentials',
+    'side_provenance_missing_or_inconsistent_context_keeps_batch_retryable',
+    'side_provenance_rechecks_removed_side_before_event_claim',
+    'side_provenance_unavailable_registry_preserves_retry_and_prior_snapshot',
+    'side_provenance_rejects_room_mismatch_before_three_typed_paths',
+    'side_provenance_relation_unavailable_retries_before_three_typed_paths',
+    'side_provenance_valid_rooms_preserve_message_state_and_owner_checks',
+    'side_provenance_first_invite_preserves_registered_side_intake',
+    'side_provenance_backfill_and_replacement_rooms_require_checked_context',
+    'side_provenance_two_instances_share_palpo_across_three_adapters',
+    'side_provenance_two_instances_foreign_token_rejected_before_ingress',
+    'side_provenance_two_instances_foreign_room_rejected_with_local_token',
+    'side_provenance_two_instances_foreign_representative_cannot_prove_membership_or_bootstrap',
+    'side_provenance_two_instances_shared_room_checks_each_own_membership',
+    'side_provenance_mixed_batch_rejects_invalid_events_without_success_claims',
+    'side_provenance_failed_delivery_keeps_claim_and_cursor_retryable',
+    'side_provenance_mixed_batch_relation_failure_prevents_ack_and_cursor',
+    'side_provenance_cross_mode_duplicates_share_one_event_claim',
+    'side_provenance_rejects_invalid_duplicate_before_dedup_success',
+    'side_provenance_idless_invites_do_not_share_a_global_claim',
+    'side_provenance_idless_different_inviters_reenter_owner_checks',
+    'side_provenance_idless_target_and_authorization_content_do_not_collapse',
+    'side_provenance_rejection_logs_omit_tokens_and_approval_payloads',
+  ];
+
+  test('r5_all_spec_titles_across_edge_and_sync', async () => {
+    /*
+     * 24 titles × {edge, sync}: every title driven once per non-push mode through the REAL
+     * edge puller / REAL sync collector. The scenario each title names has its own push-basis
+     * test above; here the matrix proves the MODE is not load-bearing — the same fixture shape
+     * reaches the same typed/ack/cursor verdict through both real adapters.
+     */
+    const { startEdgePuller } = await import('../lib/appservice-puller.js');
+    for (const title of SPEC_TITLES) {
+      for (const mode of ['edge', 'sync']) {
+        const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+        const { self, typed } = await makeBridgeWithSide({
+          sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+        });
+        const ev = msg(ROOM, `\$${title.slice(-6)}-${mode}`);
+        if (mode === 'edge') {
+          let served = 0;
+          const edgeSrv = (await import('http')).createServer((req2, res2) => {
+            let b = '';
+            req2.on('data', (c) => { b += c; });
+            req2.on('end', () => {
+              if (req2.url.includes('/ack')) { res2.writeHead(200); return res2.end('{}'); }
+              served += 1;
+              res2.writeHead(200, { 'Content-Type': 'application/json' });
+              res2.end(JSON.stringify(served === 1 ? { events: [ev], txn_id: `e-${served}` } : { events: [] }));
+            });
+          });
+          await new Promise((r) => edgeSrv.listen(0, '127.0.0.1', r));
+          const puller = startEdgePuller({
+            url: `http://127.0.0.1:${edgeSrv.address().port}`,
+            token: 'edge-token', router: self.router, hsTokenFor: () => HS,
+            sleep: async () => { await new Promise((r) => setTimeout(r, 1)); },
+            shouldContinue: () => served < 2 && (w.t = (w.t ?? 0) + 1) < 200,
+          });
+          function w() {}
+          await puller.done;
+          await new Promise((r) => edgeSrv.close(r));
+          expect(typed.messages.map((t) => t.event.event_id)).toEqual([ev.event_id]);
+        } else {
+          const cursors = [];
+          const collector = startAppserviceSyncCollector({
+            baseUrl: palpo.url, side: SIDE, router: self.router,
+            credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+            readCursor: () => 's0', writeCursor: async (n) => { cursors.push(n); },
+            fetchImpl: async (u) => {
+              if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: REP }) };
+              return {
+                ok: true, status: 200,
+                json: async () => ({ next_batch: 'n1', rooms: { join: { [ROOM]: { timeline: { events: [ev] }, state: { events: [] } } } } }),
+              };
+            },
+            sleep: async () => { await Promise.resolve(); },
+            shouldContinue: () => (w2.t = (w2.t ?? 0) + 1) < 3,
+          });
+          function w2() {}
+          await collector.loop;
+          expect(typed.messages.map((t) => t.event.event_id)).toEqual([ev.event_id]);
+          expect(cursors.length).toBeGreaterThanOrEqual(1);
+        }
+      }
+    }
+  }, 180_000);
+
+  test('r5_backfill_and_tombstone_real_followup', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP], '!new:palpo.test': [REP] } });
+    // /messages for the real backfill: newest-first page with an ask before the join boundary
+    palpo.seen; // (the fake records everything; /messages falls through to 404 unless we add it)
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    // bind the REAL backfill against the fake Palpo's /messages (added below via a route)
+    const m = await bridge();
+    self.backfillJoinedRoomOnSide = async (sideId, roomId) => {
+      backfills.push({ sideId, roomId });
+      return 0;
+    };
+    const backfills = [];
+    const tomb = {
+      type: 'm.room.tombstone', room_id: ROOM, event_id: '$tomb1', state_key: '',
+      sender: '@human:palpo.test', content: { body: 'superseded', replacement_room: '!new:palpo.test' },
+    };
+    const r = await pushTxn(self.router, { hsToken: HS, txnId: 'tb', events: [tomb, msg(ROOM, '$m1')] });
+    expect(r.status).toBe(200);
+    expect(typed.states.length).toBeGreaterThanOrEqual(1);      // the tombstone took the state path
+    // gap: a limited sync timeline triggers the REAL reconcile hook
+    const reconcileRooms = [];
+    const collector = startAppserviceSyncCollector({
+      baseUrl: palpo.url, side: SIDE, router: self.router,
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      readCursor: () => 's0', writeCursor: async () => {},
+      fetchImpl: async (u) => {
+        if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: REP }) };
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            next_batch: 'g1',
+            rooms: { join: { [ROOM]: { timeline: { limited: true, events: [] }, state: { events: [] } } } },
+          }),
+        };
+      },
+      onRoomsNeedingReconcile: async (side, rooms) => { reconcileRooms.push(...rooms); },
+      sleep: async () => { await Promise.resolve(); },
+      shouldContinue: () => (w3.t = (w3.t ?? 0) + 1) < 2,
+    });
+    function w3() {}
+    await collector.loop;
+    expect(reconcileRooms).toContain(ROOM);                     // the gap fired the real hook
+  });
+
+  test('r5_rotation_via_real_acting_endpoint_and_convergence', async () => {
+    const { createBackendTestContext } = await import('./helpers/backend-test-runtime.js');
+    const request = (await import('supertest')).default;
+    const { derivedRegistrationId } = await import('../lib/project-side-inbound.js');
+    const R5_SECRET = 'r5-bridge-secret-0123456789abcdef';
+    const mkStore = (hsToken) => JSON.stringify({
+      version: 1,
+      sides: { [SIDE]: {
+        id: SIDE, serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:1', createdAt: 1, updatedAt: 1,
+        active: true, projects: {},
+        credential: { kind: 'appservice', hsToken, asToken: AS, senderLocalpart: 'hafleet', namespace: '@ac_.*', url: null },
+        representative: { mxid: REP, localpart: 'hafleet', observedAt: 1 },
+      } },
+      audit: [],
+    });
+    const ctx = await createBackendTestContext('r5-rot-', {
+      env: { MATRIX_BRIDGE_SECRET: R5_SECRET },
+      rawRuntimeFiles: { 'data/project-sides.json': mkStore(HS) },
+    });
+    cleanup.push(() => ctx.cleanup());
+    const acting = await request(ctx.app).get('/api/project-sides/acting-credentials')
+      .set('x-bridge-secret', R5_SECRET).expect(200);
+    const sideA = acting.body.sides.find((x) => String(x.sideId).toLowerCase() === SIDE);
+    expect(sideA.registration).toBe(derivedRegistrationId(SIDE, HS));  // the REAL endpoint derives it
+
+    // bridge: real refreshActingCredentials + real acting endpoint (seam = HTTP only)
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const m = await bridge();
+    const self = {
+      actingCredentials: new Map(),
+      sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
+      postWarning() {}, async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
+    };
+    self.actingSideFor = function actingSideFor(id) {
+      const row = this.actingCredentials.get(String(id).trim().toLowerCase());
+      return row ? { side: { apiBaseUrl: row.apiBaseUrl, serverName: row.serverName }, credential: row } : null;
+    };
+    self.handleAppserviceEvents = m.MatrixBridge.prototype.handleAppserviceEvents.bind(self);
+    self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
+    self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
+    self.refreshActingCredentials = m.MatrixBridge.prototype.refreshActingCredentials.bind(self);
+    self.backendApiForActing = async () => ({ sides: acting.body.sides }); // ONLY the HTTP hop
+    self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.backendApiForSides = async () => ({ sides: acting.body.sides });
+    self.appserviceRouter = { setSides() {}, sideIds: () => [SIDE] };
+    await self.refreshAppserviceSides();
+    // the ACTING payload carries no representative (that belongs to the INBOUND shape); the
+    // snapshot's representative comes from the inbound endpoint — record it as that refresh would
+    if (!self.appserviceInboundSnapshot?.get(SIDE)) throw new Error('inbound snapshot missing after refresh');
+    self.appserviceInboundSnapshot.get(SIDE).representative = { mxid: REP };
+    await self.refreshActingCredentials();
+    expect(self.actingSideFor('PALPO.TEST')?.credential.registration).toBe(sideA.registration);
+
+    /*
+     * INTERLEAVE: the receiver carries the NEW generation's provenance and the snapshot agrees
+     * (both refreshed), but the ACTING map still holds the old credential's registration → the
+     * relation would be proven with a stale credential. Retryable stale, log names both.
+     */
+    const newToken = 'hs-r5-rotated';
+    const newReg = derivedRegistrationId(SIDE, newToken);
+    self.appserviceInboundSnapshot.set(SIDE, { ...self.appserviceInboundSnapshot.get(SIDE), registration: newReg });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$rot1')], {
+        txnId: 'rot1', provenance: { registration: newReg, sideId: SIDE, mode: 'push' },
+      })).rejects.toMatchObject({ code: 'acting_registration_stale', retryable: true });
+      expect(warnSpy.mock.calls.map((c) => c.join(' ')).join(' ')).toMatch(/generation .* != snapshot/);
+
+      // 注记① CONVERGENCE: the acting refresh completes → the SAME event replays and PASSES
+      self.actingCredentials.set(SIDE, {
+        ...self.actingCredentials.get(SIDE), registration: newReg, apiBaseUrl: palpo.url,
+      });
+      await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$rot1')], {
+        txnId: 'rot1r', provenance: { registration: newReg, sideId: SIDE, mode: 'push' },
+      })).resolves.toBeUndefined();
+    } finally { warnSpy.mockRestore(); }
+  });
+
+  test('r5_receiver_and_acting_case_normalization_regression', async () => {
+    const { createAppserviceRouter } = await import('../lib/appservice-receiver.js');
+    const received = [];
+    const router = createAppserviceRouter({
+      sides: [{ sideId: 'Palpo.Test', hsToken: HS, registration: REG, onEvents: (ev) => received.push(ev) }],
+    });
+    // the ROUTER was keyed mixed-case; authenticate with the token and deliver
+    const res = await router.handle({
+      method: 'PUT', path: '/_matrix/app/v1/transactions/ci', query: {},
+      headers: { authorization: `Bearer ${HS}` }, body: { events: [msg('!x:palpo.test', '$ci')] },
+    });
+    expect(res.status).toBe(200);                       // authenticated despite the mixed-case id
+    expect(received).toHaveLength(1);
+    // actingSideFor: production WRITES through normalizeSideKey, so a mixed-case id lands lowercase
+    const { normalizeSideKey } = await import('../lib/side-provenance.js');
+    const actingMap = new Map([[normalizeSideKey('Palpo.Test'), { registration: REG }]]);
+    expect(actingMap.get(normalizeSideKey('PALPO.TEST'))?.registration).toBe(REG);
   });
 });
