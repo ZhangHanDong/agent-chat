@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -21,7 +21,7 @@ describe('provenance metadata (5.8.3 Layer 1)', () => {
     writeJson(path.join(dataDir, 'agents.json'), {
       alice: { name: 'alice', type: 'agent', kind: 'agent', online: false },
     });
-    writeJson(path.join(dataDir, 'groups.json'), {});
+    writeJson(path.join(dataDir, 'groups.json'), { project: { name: 'project', members: ['alice'] } });
     writeJson(path.join(dataDir, 'messages.json'), []);
     writeJson(path.join(dataDir, 'cursors.json'), {});
     writeJson(path.join(dataDir, 'servers.json'), {});
@@ -93,6 +93,32 @@ describe('provenance metadata (5.8.3 Layer 1)', () => {
     expect(msg.source).toBe('api');
     expect(msg.sourceRoom).toBeNull();
     expect(msg.senderMxid).toBeNull();
+  });
+
+  test('an agent group reply inherits backend-owned Matrix room and event context', async () => {
+    const inbound = await request(app)
+      .post('/api/messages')
+      .set('X-Bridge-Secret', bridgeSecret)
+      .send({
+        from: 'alex', group: 'project', type: 'human', summary: 'question', full: 'question',
+        source: 'matrix', source_room: '!project:matrix.test', source_event_id: '$question',
+        sender_mxid: '@alex:matrix.test',
+    });
+    expect(inbound.status).toBe(200);
+    const persistedAfterInbound = JSON.parse(readFileSync(path.join(runtimeDir, 'data', 'messages.json'), 'utf8'));
+    expect(persistedAfterInbound.find((msg) => msg.id === inbound.body.id)).toMatchObject({
+      group: 'project', source: 'matrix',
+      matrixContext: { roomId: '!project:matrix.test', eventId: '$question' },
+    });
+
+    const reply = await request(app).post('/api/messages').send({
+      from: 'alice', group: 'project', type: 'reply', summary: 'answer', reply_to: inbound.body.id,
+    });
+    expect(reply.status).toBe(200);
+    const persisted = JSON.parse(readFileSync(path.join(runtimeDir, 'data', 'messages.json'), 'utf8'));
+    expect(persisted.find((msg) => msg.id === reply.body.id)?.replyContext).toEqual({
+      roomId: '!project:matrix.test', eventId: '$question', threadRootEventId: null,
+    });
   });
 
   test('sender_mxid is truncated at 255 chars for matrix source', async () => {

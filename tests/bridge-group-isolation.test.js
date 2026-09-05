@@ -193,3 +193,71 @@ describe('15-r2: composite-key leaks closed — single entry, bare face', () => 
     expect(after.groupRoomMap['Keep']).toBeUndefined();                          // never bare
   });
 });
+
+describe('16-impl-r11: a reply route is anchored to its inbound room', () => {
+  let bridge; let runtimeDir; let stateFile; let envSnapshot;
+
+  beforeAll(async () => {
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-r11-'));
+    envSnapshot = { ...process.env };
+    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    process.env.MATRIX_AGENT_PREFIX = 'ac_';
+    const url = pathToFileURL(path.resolve('bridge-matrix.js')).href;
+    bridge = await import(`${url}?r11=${Date.now()}-${Math.random()}`);
+    stateFile = path.join(runtimeDir, 'data', 'matrix', 'bridge-state.json');
+    bridge.__mapRoomForTest('!a:sidea.example', 'Twin', { side: 'sidea.example' });
+    bridge.__mapRoomForTest('!b:sideb.example', 'Twin', { side: 'sideb.example' });
+  });
+  afterAll(() => { process.env = envSnapshot; rmSync(runtimeDir, { recursive: true, force: true }); });
+
+  function outbound(id, extra = {}) {
+    return { id, from: 'worker', group: 'Twin', type: 'reply', summary: 'done', full: '', mentions: [], ...extra };
+  }
+
+  function instance(sourceMessage = null) {
+    const self = new bridge.MatrixBridge();
+    self.addKnownAgent('worker');
+    self.ensureAgentToken = vi.fn().mockResolvedValue('worker-token');
+    self.agentSenderFor = vi.fn(() => ({ kind: 'token', token: 'worker-token', agentName: 'worker' }));
+    self.callBackendApi = vi.fn().mockResolvedValue(sourceMessage);
+    self.sendAsAgent = vi.fn().mockResolvedValue('$sent');
+    self.sendAttachmentsForMessage = vi.fn().mockResolvedValue(undefined);
+    self.endAgentWork = vi.fn();
+    self.postWarning = vi.fn();
+    return self;
+  }
+
+  test('same-name rooms: a reply to an inbound event from A is sent only to A', async () => {
+    const self = instance({
+      id: 'human-a', group: 'Twin', source: 'matrix', sourceRoom: '!a:sidea.example',
+      matrixContext: { roomId: '!a:sidea.example', eventId: '$human-a', threadRootEventId: null },
+    });
+    await self.onAgentMessage(outbound('reply-a', { reply_to: 'human-a' }));
+    expect(self.sendAsAgent).toHaveBeenCalledTimes(1);
+    expect(self.sendAsAgent.mock.calls[0][1]).toBe('!a:sidea.example');
+  });
+
+  test('an ambiguous source-less broadcast is refused but retained in the Matrix route queue', async () => {
+    const self = instance();
+    await self.onAgentMessage(outbound('broadcast-ambiguous'));
+    expect(self.sendAsAgent).not.toHaveBeenCalled();
+    const persisted = JSON.parse(readFileSync(stateFile, 'utf8'));
+    expect(persisted.pendingMatrixRouteQueue).toEqual([
+      expect.objectContaining({ messageId: 'broadcast-ambiguous', reason: 'ambiguous_group', message: expect.objectContaining({ id: 'broadcast-ambiguous' }) }),
+    ]);
+    expect(self.postWarning).toHaveBeenCalledWith(expect.stringContaining('retained for retry'), expect.any(Object));
+    bridge.__unmapRoomForTest('!b:sideb.example');
+    expect(await self.retryPendingMatrixRoutes()).toBe(1);
+    expect(self.sendAsAgent.mock.calls.at(-1)[1]).toBe('!a:sidea.example');
+    expect(JSON.parse(readFileSync(stateFile, 'utf8')).pendingMatrixRouteQueue).toEqual([]);
+  });
+
+  test('a source-less broadcast uses the backend-registered project side', async () => {
+    bridge.__mapRoomForTest('!b:sideb.example', 'Twin', { side: 'sideb.example' });
+    const self = instance({ projectSide: 'sidea.example' });
+    await self.onAgentMessage(outbound('broadcast-side'));
+    expect(self.sendAsAgent).toHaveBeenCalledTimes(1);
+    expect(self.sendAsAgent.mock.calls[0][1]).toBe('!a:sidea.example');
+    expect(self.callBackendApi).toHaveBeenCalledWith('GET', '/api/agents/worker');
+  });
+});
