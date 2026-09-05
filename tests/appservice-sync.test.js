@@ -484,7 +484,7 @@ describe('5-r3: real-side-effect invite idempotence (join path)', () => {
     const membershipEvents = [];
     const warnings = [];
     const bridge = {
-      actingSideFor: () => ({ side: { apiBaseUrl: 'https://hs.example' }, credential: { asToken: 'as1', senderLocalpart: 'hafleet' } }),
+      actingSideFor: () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as1', senderLocalpart: 'hafleet' } }),
       postWarning: async (msg, meta) => { warnings.push({ msg, meta }); },
     };
     // Drive the MEMBERSHIP dispatch twice through the real method shape

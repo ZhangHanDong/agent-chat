@@ -20,9 +20,8 @@ describe('F05: retryable join failure is not acked', () => {
   test('an HTTP 503 join THROWS (receiver will answer non-200 and retry the txn)', async () => {
     const m = await loadBridge();
     const bridge = Object.create(m.MatrixBridge.prototype);
-    bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://hs.example' }, credential: { asToken: 'as', senderLocalpart: 'hafleet' } });
+    bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet' } });
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
-    bridge.postWarning = vi.fn();
     const fetch503 = async () => ({ ok: false, status: 503, text: async () => 'boom' });
     const orig = globalThis.fetch; globalThis.fetch = fetch503;
     await expect(bridge.onAppserviceMembership('palpo.example', '!r:palpo.example', {
@@ -36,7 +35,7 @@ describe('F05: retryable join failure is not acked', () => {
   test('an HTTP 403 join is recorded and SWALLOWED (permanent, no retry loop)', async () => {
     const m = await loadBridge();
     const bridge = Object.create(m.MatrixBridge.prototype);
-    bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://hs.example' }, credential: { asToken: 'as', senderLocalpart: 'hafleet' } });
+    bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet' } });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     bridge.postWarning = vi.fn();
     const orig = globalThis.fetch;
@@ -180,5 +179,67 @@ describe('F10: every masquerade user_id passes one exit check', () => {
     const { validateMasqueradeUserId } = m;
     const bad = validateMasqueradeUserId({ userId: '@x y:z', label: 't' });
     expect(bad.ok).toBe(false);
+  });
+});
+
+describe('F10 (17-r1): the bridge invite→join path refuses at the single exit, not on the wire', () => {
+  const SIDE = 'palpo.example';
+  /*
+   * 17-r1 named bridge-matrix.js:4454 — a bare `url.searchParams.set('user_id', representative)`
+   * with only a room-suffix guard — as a masquerade exit outside the validator. This test DRIVES
+   * the bridge's own appservice invite→join path (`onAppserviceMembership`), not the lib helpers:
+   * when the composed representative MXID is not something the single exit will authorize (here:
+   * a sender_localpart that is not a legal localpart, so the MXID is no MXID at all and is
+   * outside every namespace and roster by construction), NO join request may be built and the
+   * refusal must be logged as REFUSED.
+   *
+   * RED ON MASTER: with bridge-matrix.js reverted to master, the raw `set` sends the request
+   * unvalidated — fetch IS called and nothing logs REFUSED — so both assertions fail there.
+   */
+  test('a representative MXID the exit will not authorize → NO request, REFUSED logged (red on master)', async () => {
+    const m = await loadBridge();
+    const bridge = Object.create(m.MatrixBridge.prototype);
+    bridge.actingSideFor = () => ({
+      side: { apiBaseUrl: 'https://hs.example', serverName: SIDE },
+      credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet team', namespace: '@ac_.*' },
+    });
+    const errors = [];
+    const errSpy = vi.spyOn(console, 'error').mockImplementation((...a) => errors.push(a.join(' ')));
+    bridge.postWarning = vi.fn();
+    const calls = [];
+    const orig = globalThis.fetch; globalThis.fetch = async (u) => { calls.push(String(u)); return { ok: true, status: 200, text: async () => '{}' }; };
+    await bridge.onAppserviceMembership(SIDE, '!market:palpo.example', {
+      type: 'm.room.member', state_key: '@hafleet team:palpo.example',
+      content: { membership: 'invite' }, sender: '@x:palpo.example',
+    });
+    globalThis.fetch = orig;
+    errSpy.mockRestore();
+    expect(calls).toEqual([]);                       // no join request left this process
+    expect(errors.join(' ')).toMatch(/REFUSED/);     // and the refusal is on the record
+    expect(bridge.postWarning).toHaveBeenCalledTimes(1);
+  });
+
+  test('an authorized representative still joins, with the masquerade set by the single exit', async () => {
+    const m = await loadBridge();
+    const bridge = Object.create(m.MatrixBridge.prototype);
+    bridge.actingSideFor = () => ({
+      side: { apiBaseUrl: 'https://hs.example', serverName: SIDE },
+      credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    bridge.postWarning = vi.fn();
+    bridge.backfillJoinedRoomOnSide = async () => {};
+    const calls = [];
+    const orig = globalThis.fetch; globalThis.fetch = async (u) => { calls.push(String(u)); return { ok: true, status: 200, text: async () => '{}', json: async () => ({}) }; };
+    await bridge.onAppserviceMembership(SIDE, '!market:palpo.example', {
+      type: 'm.room.member', state_key: '@hafleet:palpo.example',
+      content: { membership: 'invite' }, sender: '@x:palpo.example',
+    });
+    globalThis.fetch = orig;
+    logSpy.mockRestore(); errSpy.mockRestore();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('/_matrix/client/v3/join/');
+    expect(calls[0]).toContain('user_id=%40hafleet%3Apalpo.example'); // masquerade intact via the exit
   });
 });
