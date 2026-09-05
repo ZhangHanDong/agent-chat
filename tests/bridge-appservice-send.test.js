@@ -63,6 +63,8 @@ describe('sending as an agent that has no token of its own', () => {
       endAgentWorkForToken(token, roomId) { this.ended.push({ token, roomId }); },
       postWarning(message) { this.warnings.push(message); },
       rememberMatrixEvent() {},
+      // F10 (17-r3): the required roster callback — admits this sender's own MXID
+      isKnownAgentMxid: (mxid) => mxid === AGENT_MXID,
     };
     stub.sendAsAgentContent = MatrixBridge.prototype.sendAsAgentContent.bind(stub);
     stub.sendAsAgent = MatrixBridge.prototype.sendAsAgent.bind(stub);
@@ -229,6 +231,11 @@ describe('a DM room for an agent with no token of its own', () => {
       warnings: [],
       postWarning(message, meta) { this.warnings.push({ message, meta }); },
       agentSenderFor: () => sender,
+      /*
+       * F10 (17-r3): the roster callback is now REQUIRED on agent masquerades —
+       * this stub admits the sender's own MXID, the minimal honest roster.
+       */
+      isKnownAgentMxid: (mxid) => mxid === sender?.agentUserId,
     };
     self.ensureDmRoomOnSide = MatrixBridge.prototype.ensureDmRoomOnSide.bind(self);
     /*
@@ -414,6 +421,13 @@ describe('a room on a project side is acted in by the side, not by us', () => {
       getBotToken: () => 'bot-token',
       getAgentToken: () => 'agent-token',
       botUserId: '@hafleetbot:matrix.example.test',
+      /*
+       * F10 (17-r3): the required roster callback. This describe drives invite/actor
+       * paths whose senders carry several agent MXIDs, so the stub admits any
+       * `@ac_*` localpart on the side — the namespace the real roster would vouch
+       * for here, without re-deriving each test's composed MXID.
+       */
+      isKnownAgentMxid: (mxid) => /^@ac_[^:]+:palpo\.test$/.test(mxid),
     };
     for (const m of ['sideForRoom', '_inviteHumanToDm', 'inviteBotIntoAgentRoom']) {
       self[m] = MatrixBridge.prototype[m].bind(self);

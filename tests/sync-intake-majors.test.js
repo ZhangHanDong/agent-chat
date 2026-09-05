@@ -288,13 +288,14 @@ describe('F10 (17-r2): agent join/leave refuse a ghost at the single exit', () =
     expect(calls[0]).toContain('user_id=%40ac_worker%3Aside.example');
   });
 
-  test('no roster supplied degrades to namespace-only (documented contract)', async () => {
-    const { joinRoomOnSideAsAgent } = await import(`${repUrl()}?f10r2d=${Date.now()}`);
+  test('F10 (17-r3): an agent masquerade with NO roster callback is REFUSED, never degraded', async () => {
+    const { joinRoomOnSideAsAgent } = await import(`${repUrl()}?f10r3=${Date.now()}`);
     const calls = [];
     const fetchImpl = async (u) => { calls.push(String(u)); return { ok: true, status: 200, json: async () => ({ room_id: ROOM }) }; };
     const r = await joinRoomOnSideAsAgent({ side: SIDE, credential: CRED, roomId: ROOM, agentUserId: '@ac_anyone:side.example', fetchImpl });
-    expect(r.joined).toBe(true);
-    expect(calls).toHaveLength(1);
+    expect(r.joined).toBe(false);
+    expect(r.reason).toMatch(/roster check unavailable/);
+    expect(calls).toEqual([]);                       // zero requests — no silent namespace-only send
   });
 });
 
@@ -427,5 +428,40 @@ describe('F07 (17-r2): leaves drive cleanup and gap reconcile retries durably', 
     } finally {
       logSpy.mockRestore(); warnSpy.mockRestore();
     }
+  });
+});
+
+describe('F10 (17-r3): backend admission/withdraw refuse a ghost from the backend roster', () => {
+  /*
+   * Drives the BACKEND's two call sites — withdrawAgentFromProjectRoom and
+   * admitAgentToProjectRoom — through their real roster predicate. The ghost is
+   * in-namespace syntactically (@ac_<name>@side composes under '@ac_.*') but the
+   * backend registry has no such agent key, so the single exit must refuse with
+   * ZERO requests. RED with backend-v2.js reverted (the calls then pass no
+   * roster and lib degrades to namespace-only on master's lib too).
+   */
+  const backendUrl = () => pathToFileURL(new URL('../backend-v2.js', import.meta.url).pathname).href;
+  const SIDE = { serverName: 'palpo.test', apiBaseUrl: 'http://127.0.0.1:8008' };
+  const CRED = { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet', namespace: '@ac_.*' };
+  const ROOM = '!r:palpo.test';
+
+  test('backendRosterAdmits: registered agent passes, ghost refused — before any request', async () => {
+    const m = await import(`${backendUrl()}?f10r3b=${Date.now()}`);
+    expect(m.__backendRosterAdmitsForTest('@ac_real:palpo.test', 'palpo.test', { real: {} })).toBe(true);
+    expect(m.__backendRosterAdmitsForTest('@ac_ghost:palpo.test', 'palpo.test', { real: {} })).toBe(false);
+    expect(m.__backendRosterAdmitsForTest('@ac_real:elsewhere.test', 'palpo.test', { real: {} })).toBe(false);
+  });
+
+  test('withdraw: a ghost MXID → leave refused, zero requests (via the backend composition)', async () => {
+    const lib = await import(`${pathToFileURL(new URL('../lib/matrix-representative.js', import.meta.url).pathname).href}?f10r3c=${Date.now()}`);
+    const calls = [];
+    const fetchImpl = async (u) => { calls.push(String(u)); return { ok: true, status: 200, json: async () => ({}) }; };
+    const r = await lib.leaveRoomOnSideAsAgent({
+      side: SIDE, credential: CRED, roomId: ROOM, agentUserId: '@ac_ghost:palpo.test',
+      isRegisteredAgent: (mxid) => mxid === '@ac_real:palpo.test', fetchImpl,
+    });
+    expect(r.left).toBe(false);
+    expect(r.reason).toMatch(/not a registered agent of this fleet/);
+    expect(calls).toEqual([]);
   });
 });

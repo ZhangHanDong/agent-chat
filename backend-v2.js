@@ -13171,6 +13171,34 @@ async function withdrawAgentFromProjectRooms(agentName) {
  * homeserver being unreachable must not make an engagement un-revokable. The caller reports what happened
  * to the seat instead.
  */
+/*
+ * F10 (17-r3): the backend's authoritative roster, in the one shape the masquerade exit asks
+ * for — an MXID predicate. An agent is registered iff its name is a live key of `agents`
+ * (the registry this process owns and persists), and the MXID must compose to the same
+ * localpart on the room's side — the composition every project-side helper already uses.
+ * Anything else is a ghost: in-namespace syntactically, but nobody this fleet vouches for.
+ */
+function backendRosterAdmits(mxid, serverName, agentsMap = agents) {
+  const id = typeof mxid === 'string' ? mxid.trim().toLowerCase() : '';
+  const m = id.match(/^@([^:]+):(.+)$/);
+  if (!m) return false;
+  const [, localpart, server] = m;
+  if (!localpart.startsWith(MATRIX_AGENT_PREFIX_FOR_REGISTRATION)) return false;
+  const agentName = localpart.slice(MATRIX_AGENT_PREFIX_FOR_REGISTRATION.length);
+  if (!Object.prototype.hasOwnProperty.call(agentsMap, agentName)) return false;
+  return serverName ? server === String(serverName).toLowerCase() : server.length > 0;
+}
+
+// F10 (17-r3): the roster predicate, exported so tests drive it without spinning the server.
+export function __backendRosterAdmitsForTest(mxid, serverName, agentsMap) {
+  const saved = agents;
+  try {
+    // The predicate reads the module-level registry; tests pass their own map by
+    // shallow-swap rather than by reaching into private state.
+    return backendRosterAdmits(mxid, serverName, agentsMap);
+  } finally { void saved; }
+}
+
 async function withdrawAgentFromProjectRoom(agentName, roomId) {
   const sideId = sideIdForRoom(roomId);
   const side = sideId ? projectSideStore.getSide(sideId) : null;
@@ -13193,6 +13221,13 @@ async function withdrawAgentFromProjectRoom(agentName, roomId) {
     credential,
     roomId,
     agentUserId: agentMxid,
+    /*
+     * F10 (17-r3): the backend's OWN registry is the roster — the leave masquerades as an agent
+     * this fleet registered, so the single exit must hear it from the authority that mints
+     * agent identities. Composed from the requested localpart on the room's server, so a
+     * withdrawn agent already deleted from the registry is refused before any request.
+     */
+    isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, side.serverName),
   });
   return { roomId, mxid: agentMxid, left: Boolean(result.left), reason: result.reason ?? null };
 }
@@ -13250,7 +13285,14 @@ async function admitAgentToProjectRoom(engagement) {
    * the reason is what tells the two apart — an invite that is waiting for its own agent, versus one
    * nobody will ever act on.
    */
-  const join = await joinRoomOnSideAsAgent({ ...acting, roomId, agentUserId: agentMxid });
+  /*
+   * F10 (17-r3): same roster contract as the withdraw path — the backend's registry decides
+   * which `@ac_` identities this fleet owns, and the single exit refuses a ghost.
+   */
+  const join = await joinRoomOnSideAsAgent({
+    ...acting, roomId, agentUserId: agentMxid,
+    isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, acting.side.serverName),
+  });
   return {
     admitted: Boolean(join.joined),
     invited: Boolean(invite.invited),
