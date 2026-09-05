@@ -13178,25 +13178,55 @@ async function withdrawAgentFromProjectRooms(agentName) {
  * localpart on the room's side — the composition every project-side helper already uses.
  * Anything else is a ghost: in-namespace syntactically, but nobody this fleet vouches for.
  */
-function backendRosterAdmits(mxid, serverName, agentsMap = agents) {
-  const id = typeof mxid === 'string' ? mxid.trim().toLowerCase() : '';
-  const m = id.match(/^@([^:]+):(.+)$/);
+/*
+ * F10 (17-r4) FINAL RULING — `admits(mxid, sideId)` iff:
+ *   ① the agent record exists;
+ *   ② `agent.projectSide === sideId` — the target side IS the agent's authoritative home
+ *      (a MISSING projectSide fails, it does not fall through);
+ *   ③ `mxid` equals the agent's AUTHORITATIVE MXID verbatim (Matrix case rules: localpart
+ *      case-SENSITIVE, server case-insensitive). The authoritative MXID is the RECORDED
+ *      credential MXID (`agent.matrixIdentity` — the discovered-on-another-server identity,
+ *      which `mintIdentityForProvisionedAgent` writes when federation lets an agent reuse
+ *      its home-server identity) when one exists, else the composition
+ *      `@<prefix><agentName>:<side.serverName>`.
+ *
+ * WHY THE OLD SHAPE WAS REJECTED: it checked prefix + same-name-exists + server match and never
+ * read `agent.projectSide`, so an agent provisioned on side A could be re-composed as
+ * `@ac_<name>:<sideB>` and act under side B's as_token — the cross-side impersonation the
+ * masquerade exit exists to prevent. Prefix-and-server is "the string looks plausible"; this
+ * ruling is "this fleet vouches that THIS identity belongs on THIS side."
+ *
+ * Case handling per Matrix: localparts are case-sensitive (so `@ac_Big:side` is NOT the agent
+ * `@ac_big:side`), server names compare case-insensitively. The authoritative MXID's server is
+ * compared the same way, so a recorded `...@Palpo.Test` still matches the side's `palpo.test`.
+ */
+function backendRosterAdmits(mxid, sideId, agentsMap = agents, sideStore = projectSideStore) {
+  const id = typeof mxid === 'string' ? mxid.trim() : '';
+  const m = id.match(/^@([^:\s@]+):([^\s@]+)$/);
   if (!m) return false;
   const [, localpart, server] = m;
   if (!localpart.startsWith(MATRIX_AGENT_PREFIX_FOR_REGISTRATION)) return false;
   const agentName = localpart.slice(MATRIX_AGENT_PREFIX_FOR_REGISTRATION.length);
-  if (!Object.prototype.hasOwnProperty.call(agentsMap, agentName)) return false;
-  return serverName ? server === String(serverName).toLowerCase() : server.length > 0;
+  const agent = agentsMap[agentName];
+  if (!isAgentRecord(agent)) return false;                                  // ①
+  if (String(agent.projectSide ?? '') !== String(sideId ?? '')) return false; // ② missing ≠ admitted
+  const side = sideStore.getSide(sideId);
+  if (!side?.serverName) return false;                                      // no side, no composition
+  const recorded = typeof agent.matrixIdentity === 'string' && agent.matrixIdentity.trim().startsWith('@')
+    ? agent.matrixIdentity.trim()
+    : null;
+  const authoritative = recorded
+    ?? `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+  const am = authoritative.match(/^@([^:\s@]+):([^\s@]+)$/);
+  if (!am) return false;
+  return localpart === am[1] && server.toLowerCase() === am[2].toLowerCase(); // ③
 }
 
-// F10 (17-r3): the roster predicate, exported so tests drive it without spinning the server.
-export function __backendRosterAdmitsForTest(mxid, serverName, agentsMap) {
-  const saved = agents;
-  try {
-    // The predicate reads the module-level registry; tests pass their own map by
-    // shallow-swap rather than by reaching into private state.
-    return backendRosterAdmits(mxid, serverName, agentsMap);
-  } finally { void saved; }
+// F10 (17-r3)/(17-r4): the roster predicate, exported so tests drive it without spinning the
+// server. `sideStore` may be overridden with a { getSide } stub so the ruling's side lookup is
+// tested against a controlled store rather than the live one.
+export function __backendRosterAdmitsForTest(mxid, sideId, agentsMap, sideStore) {
+  return backendRosterAdmits(mxid, sideId, agentsMap, sideStore);
 }
 
 async function withdrawAgentFromProjectRoom(agentName, roomId) {
@@ -13227,7 +13257,12 @@ async function withdrawAgentFromProjectRoom(agentName, roomId) {
      * agent identities. Composed from the requested localpart on the room's server, so a
      * withdrawn agent already deleted from the registry is refused before any request.
      */
-    isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, side.serverName),
+    /*
+     * F10 (17-r4): sideId, not serverName — the ruling reads agent.projectSide, which is
+     * keyed by side id. The composed agentMxid below already carries the side's server; if
+     * this agent's authoritative home is a DIFFERENT side, ② refuses here.
+     */
+    isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, sideId),
   });
   return { roomId, mxid: agentMxid, left: Boolean(result.left), reason: result.reason ?? null };
 }
@@ -13291,7 +13326,8 @@ async function admitAgentToProjectRoom(engagement) {
    */
   const join = await joinRoomOnSideAsAgent({
     ...acting, roomId, agentUserId: agentMxid,
-    isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, acting.side.serverName),
+    // F10 (17-r4): sideId — the authoritative-home check lives in the ruling
+    isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, sideId),
   });
   return {
     admitted: Boolean(join.joined),
@@ -15953,6 +15989,10 @@ export const __backendV2TestInternals = {
    */
   sweepCeilingOverrunsForTest: sweepCeilingOverruns,
   sweepProjectRoomMembershipForTest: sweepProjectRoomMembership,
+  // F10 (17-r4): the two real admission/withdraw paths, exported for the roster counterexamples.
+  admitAgentToProjectRoomForTest: admitAgentToProjectRoom,
+  withdrawAgentFromProjectRoomForTest: withdrawAgentFromProjectRoom,
+  backendRosterAdmitsForTest: backendRosterAdmits,
   buildLocalPaneMetadataSnapshotForTest: buildLocalPaneMetadataSnapshotAsync,
   injectSlashClearForTest: injectSlashClear,
   sessionPolicyForTest: sessionPolicy,

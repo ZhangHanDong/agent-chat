@@ -445,11 +445,48 @@ describe('F10 (17-r3): backend admission/withdraw refuse a ghost from the backen
   const CRED = { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet', namespace: '@ac_.*' };
   const ROOM = '!r:palpo.test';
 
-  test('backendRosterAdmits: registered agent passes, ghost refused — before any request', async () => {
-    const m = await import(`${backendUrl()}?f10r3b=${Date.now()}`);
-    expect(m.__backendRosterAdmitsForTest('@ac_real:palpo.test', 'palpo.test', { real: {} })).toBe(true);
-    expect(m.__backendRosterAdmitsForTest('@ac_ghost:palpo.test', 'palpo.test', { real: {} })).toBe(false);
-    expect(m.__backendRosterAdmitsForTest('@ac_real:elsewhere.test', 'palpo.test', { real: {} })).toBe(false);
+  // A controlled side store: side ids are real sides with real server names.
+  const sides = {
+    'side-a': { serverName: 'side-a.example' },
+    'side-b': { serverName: 'side-b.example' },
+  };
+  const sideStore = { getSide: (id) => sides[id] ?? null };
+
+  test('17-r4 a) cross-side RE-COMPOSITION of a side-A agent as a side-B MXID → refused', async () => {
+    const m = await import(`${backendUrl()}?f10r4a=${Date.now()}`);
+    const rosterA = { dual: { kind: 'agent', name: 'dual', projectSide: 'side-a' } };
+    // The agent lives on side-a; someone re-composes @ac_dual:<sideB-server> and presents
+    // side B's as_token. ② (projectSide === sideId) refuses even though the name exists
+    // and the server segment is a REAL configured side.
+    expect(m.__backendRosterAdmitsForTest('@ac_dual:side-b.example', 'side-b', rosterA, sideStore)).toBe(false);
+    // and the honest form on its OWN side still passes (d, at predicate level)
+    expect(m.__backendRosterAdmitsForTest('@ac_dual:side-a.example', 'side-a', rosterA, sideStore)).toBe(true);
+  });
+
+  test('17-r4 b) an agent with a RECORDED other-server MXID: the composed MXID is an impostor', async () => {
+    const m = await import(`${backendUrl()}?f10r4b=${Date.now()}`);
+    const roster = { fed: { kind: 'agent', name: 'fed', projectSide: 'side-a', matrixIdentity: '@ac_fed:home.example' } };
+    // Recorded identity wins: the name+side composition is NOT the authoritative MXID
+    expect(m.__backendRosterAdmitsForTest('@ac_fed:side-a.example', 'side-a', roster, sideStore)).toBe(false);
+    // ...and the recorded one IS, with Matrix case rules on the server segment
+    expect(m.__backendRosterAdmitsForTest('@ac_fed:HOME.example', 'side-a', roster, sideStore)).toBe(true);
+    // localpart case is SENSITIVE: @ac_Fed is not @ac_fed
+    expect(m.__backendRosterAdmitsForTest('@ac_Fed:home.example', 'side-a', roster, sideStore)).toBe(false);
+  });
+
+  test('17-r4 c) same-name agent with MISSING projectSide → refused (no fall-through)', async () => {
+    const m = await import(`${backendUrl()}?f10r4c=${Date.now()}`);
+    const roster = { orphan: { kind: 'agent', name: 'orphan' } };
+    expect(m.__backendRosterAdmitsForTest('@ac_orphan:side-a.example', 'side-a', roster, sideStore)).toBe(false);
+  });
+
+  test('17-r4 ghosts and shape failures still refuse', async () => {
+    const m = await import(`${backendUrl()}?f10r4d=${Date.now()}`);
+    const roster = { real: { kind: 'agent', name: 'real', projectSide: 'side-a' } };
+    expect(m.__backendRosterAdmitsForTest('@ac_ghost:side-a.example', 'side-a', roster, sideStore)).toBe(false); // unknown name
+    expect(m.__backendRosterAdmitsForTest('not-an-mxid', 'side-a', roster, sideStore)).toBe(false);              // not an MXID
+    expect(m.__backendRosterAdmitsForTest('@human:side-a.example', 'side-a', roster, sideStore)).toBe(false);     // wrong prefix
+    expect(m.__backendRosterAdmitsForTest('@ac_real:side-a.example', 'side-b', roster, sideStore)).toBe(false);   // side mismatch = ②
   });
 
   test('withdraw: a ghost MXID → leave refused, zero requests (via the backend composition)', async () => {

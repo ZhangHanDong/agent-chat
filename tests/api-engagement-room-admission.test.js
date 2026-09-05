@@ -86,6 +86,9 @@ async function boot({ hs = null, credential = null, allocatedTokens = 5_000_000 
     agents: {
       [AGENT]: {
         name: AGENT, type: 'agent', kind: 'agent', online: true, role: 'coding',
+        // F10 (17-r4): the roster ruling requires the agent's authoritative side; the
+        // admission tests exercise a room on SIDE, so that is the agent's home here.
+        projectSide: SIDE,
         runtimeProfile: { primary: { framework: 'claude', provider: 'anthropic', model: 'claude-opus-5' } },
       },
     },
@@ -504,5 +507,54 @@ describe('a refused invite says WHY, when the reason is power rather than creden
     // Default fake power levels DO say 50/0, so this asserts the diagnosis path; the unreadable case is
     // covered by the library test that drives `canRepresentativeInvite` against a failing state read.
     expect((await approve(app)).body.roomAdmission.reason).toBe('representative_lacks_invite_power');
+  });
+});
+
+
+describe('F10 (17-r4): the roster ruling refuses cross-side re-composition (real admission/withdraw)', () => {
+  /*
+   * The 17-r4 board ruling: admits(mxid, sideId) iff the agent exists, projectSide === sideId, and
+   * the mxid equals the authoritative MXID (recorded credential MXID first, else name+side server).
+   * Driven through the REAL admitAgentToProjectRoom / withdrawAgentFromProjectRoom so the call
+   * sites' sideId wiring is what fails, not a re-implementation of the predicate.
+   */
+  test('a) an agent whose projectSide is ANOTHER side: admission and withdraw both refuse, zero requests', async () => {
+    const hs = await fakeHomeserver();
+    // The agent record carries projectSide: 'elsewhere.test' — a real, configured OTHER side
+    const app = await boot({ hs, credential: asCredential() });
+    await request(app).post('/api/project-sides')
+      .send({ server_name: 'elsewhere.test', api_base_url: hs.url }).expect(200);
+    await request(app).put(`/api/agents/${AGENT}/project-side`).send({ projectSide: 'elsewhere.test' }).expect(200);
+
+    const admitted = await context.internals.admitAgentToProjectRoomForTest({
+      projectRoomId: ROOM, agent: AGENT,
+    });
+    // The invite (representative masquerade) may go out; the AGENT join is what the roster gates
+    expect(admitted.joined).toBe(false);
+    expect(String(admitted.reason)).toMatch(/not a registered agent of this fleet/);
+
+    const withdrawn = await context.internals.withdrawAgentFromProjectRoomForTest(AGENT, ROOM);
+    expect(withdrawn.left).toBe(false);
+    expect(String(withdrawn.reason)).toMatch(/not a registered agent of this fleet/);
+
+    // ZERO agent-masquerade requests left the process: no /join with ?user_id=@ac_..., no /leave
+    const agentCalls = hs.seen.filter((c) => c.url.includes('user_id=')
+      && c.url.includes(encodeURIComponent('@ac_')));
+    expect(agentCalls).toEqual([]);
+  });
+
+  test('d) an agent whose projectSide IS this side: admission proceeds and the join goes out', async () => {
+    const hs = await fakeHomeserver();
+    const app = await boot({ hs, credential: asCredential() });
+    await request(app).put(`/api/agents/${AGENT}/project-side`).send({ projectSide: SIDE }).expect(200);
+
+    const admitted = await context.internals.admitAgentToProjectRoomForTest({
+      projectRoomId: ROOM, agent: AGENT,
+    });
+    expect(admitted.joined).toBe(true);
+    expect(admitted.mxid).toBe(`@ac_${AGENT}:${SIDE}`);
+    const join = hs.seen.find((c) => c.url.includes('/join/'));
+    expect(join).toBeDefined();
+    expect(join.url).toContain(encodeURIComponent(`@ac_${AGENT}:${SIDE}`));
   });
 });
