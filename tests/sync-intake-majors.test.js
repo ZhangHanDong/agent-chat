@@ -108,3 +108,57 @@ describe('F09: an acting-credential change invalidates the cached token and the 
     expect(changes[0]).toMatchObject({ side: 's1', detail: { previousAsToken: 'as-1', asToken: 'as-2' } });
   });
 });
+
+describe('F07: the projection keeps state, leaves, and gap signals', () => {
+  const syncUrl = () => pathToFileURL(new URL('../lib/appservice-sync.js', import.meta.url).pathname).href;
+
+  test('state events project, leave rooms are reported, and timeline.limited flags a reconcile', async () => {
+    const { appserviceSyncOnce } = await import(`${syncUrl()}?f07=${Date.now()}`);
+    const body = {
+      next_batch: 'N2',
+      rooms: {
+        join: {
+          '!r:p': {
+            state: { events: [{ type: 'm.room.member', state_key: '@a:p', content: { membership: 'join' } }] },
+            timeline: { limited: true, events: [{ event_id: '$e1', type: 'm.room.message' }] },
+          },
+        },
+        leave: { '!gone:p': {} },
+        invite: { '!inv:p': { invite_state: { events: [] } } },
+      },
+    };
+    const fetchImpl = async () => ({ ok: true, status: 200, json: async () => body });
+    const out = await appserviceSyncOnce({ baseUrl: 'https://h', accessToken: 't', since: 'N1', fetchImpl });
+    expect(out.stateEvents).toHaveLength(1);               // state no longer dropped
+    expect(out.stateEvents[0]).toMatchObject({ room_id: '!r:p', type: 'm.room.member' });
+    expect(out.leaves).toEqual(['!gone:p']);               // leave surfaces
+    expect(out.roomsNeedingReconcile).toEqual(['!r:p']);   // gap flagged
+    expect(out.timelineEvents[0].event_id).toBe('$e1');
+  });
+
+  test('the collector fires onRoomsNeedingReconcile after the batch is accepted', async () => {
+    const { startAppserviceSyncCollector } = await import(`${syncUrl()}?f07b=${Date.now()}`);
+    const flagged = [];
+    let polls = 0;
+    const fetchImpl = vi.fn(async (u) => {
+      if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: '@h:p' }) };
+      polls += 1;
+      return { ok: true, status: 200, json: async () => ({
+        next_batch: polls === 1 ? 'A' : 'B',
+        rooms: polls === 1 ? { join: { '!r:p': { timeline: { limited: true, events: [{ event_id: '$g' }] }, state: { events: [] } } } } : {},
+      }) };
+    });
+    const seen = [];
+    const collector = startAppserviceSyncCollector({
+      baseUrl: 'https://h', side: 's1', router: { handle: async () => ({ status: 200, body: {} }) },
+      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+      readCursor: () => null, writeCursor: async () => {},
+      fetchImpl,
+      sleep: async () => { await Promise.resolve(); },
+      shouldContinue: () => polls < 2 && (globalThis.__wd = (globalThis.__wd ?? 0) + 1) < 50,
+      onRoomsNeedingReconcile: (side, rooms) => { seen.push([side, rooms]); },
+    });
+    await collector.loop;
+    expect(seen).toEqual([['s1', ['!r:p']]]);              // fired once, after acceptance
+  });
+});

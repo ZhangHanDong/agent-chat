@@ -4860,6 +4860,18 @@ export class MatrixBridge {
          * store) exactly once per break, so a poisoned batch pages a human instead of blocking
          * the queue in silence.
          */
+        onRoomsNeedingReconcile: (sideId, roomIds) => {
+          /*
+           * F07: a limited timeline means events were dropped in the gap. Re-pull
+           * the room's recent history through the side's backfill helper so the
+           * missing window reaches the same handler as a normal timeline event.
+           */
+          for (const roomId of roomIds) {
+            this.backfillJoinedRoomOnSide(sideId, roomId, null).catch((err) => {
+              console.warn(`[appservice-sync] reconcile backfill for ${roomId} failed: ${err?.message || err}`);
+            });
+          }
+        },
         onCredentialChanged: (sideId, detail) => {
           /*
            * F09: the collector has already dropped its cached token and budget;
