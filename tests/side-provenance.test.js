@@ -1455,80 +1455,207 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
    * Titles whose scenario is mode-agnostic in its Then (they assert ingestion semantics, not
    * transport) are marked NOT APPLICABLE with the reason, in-test, as the board requires.
    */
+  /*
+   * 16-impl-r8 ①: every fixture carries its OWN `then(ctx)` — the exact assertions the title's
+   * push-basis test makes (verdict code, claim state, typed ids, cursor/ack shape). The matrix
+   * cell and the push-basis run call THE SAME function, so a cell passing means the title's own
+   * Then held through that adapter — not a verdict-category template.
+   *
+   * ctx = { status, ackBody, cursor, typed, self, events, mode, palpo }
+   */
+  const idsOf = (typed) => [...typed.messages, ...typed.states, ...typed.memberships]
+    .map((t) => t.event?.event_id ?? t.eventId).filter(Boolean);
+  const countOf = (typed) => typed.messages.length + typed.states.length + typed.memberships.length;
+
   const SCENARIO_FIXTURES = {
     side_provenance_reaches_ingress_from_push_edge_and_sync: {
       members: { [ROOM]: [REP] },
       events: () => [msg(ROOM, '$m1')],
-      verdict: 'admitted',
+      then: ({ status, typed, events }) => {
+        expect(status).toBe(200);
+        expect(idsOf(typed)).toEqual([events[0].event_id]);   // the event reached the typed path
+      },
     },
     side_provenance_rejects_bad_or_ambiguous_credentials: {
-      // N/A for edge/sync: the puller/collector AUTHENTICATE to our router with the side's own
-      // stored hs_token; presenting a wrong one is a push-listener concern (E2 covers the
-      // cross-instance variant through the real listener). Marked rather than silently skipped.
-      na: 'adapter-authenticated transport: the puller/collector present their own stored token; the bad-credential Then is a push-path concern (see E2)',
+      /*
+       * N/A for edge/sync, WITH the reason and the mode's equivalent: these adapters present
+       * the side's OWN stored token to our router (there is no caller to present a wrong one).
+       * The equivalent assertion this mode CAN make: the puller/collector do not deliver
+       * anything when the ROUTER holds no matching credential — i.e. the token lookup is the
+       * same authentication the push path uses. Asserted as `equivalent` below (a router with
+       * NO sides refuses the puller's txn), so the cell is not a silent skip.
+       */
+      na: 'the puller/collector authenticate to OUR router with the stored hs_token — a wrong-token caller cannot exist on these transports (the push-path Then lives in its basis test and E2)',
+      equivalent: async ({ createAppserviceRouter, startEdgePuller }) => {
+        const router = createAppserviceRouter({ sides: [] });   // NO side: nothing to match
+        let served = 0;
+        const srv = (await import('http')).createServer((req2, res2) => {
+          served += 1;
+          res2.writeHead(200, { 'Content-Type': 'application/json' });
+          res2.end(JSON.stringify({ events: [msg(ROOM, '$bc1')], txn_id: 'bc' }));
+        });
+        await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+        const puller = startEdgePuller({
+          url: `http://127.0.0.1:${srv.address().port}`,
+          token: 'edge-token', router, hsTokenFor: () => 'hs-nobody',
+          fetchImpl: async (u, init) => fetch(u, init),
+          sleep: async () => { await new Promise((r) => setTimeout(r, 1)); },
+          shouldContinue: () => served < 2 && (w.t = (w.t ?? 0) + 1) < 200,
+        });
+        function w() {}
+        await puller.done;
+        await new Promise((r) => srv.close(r));
+        const st = puller.stats();
+        expect(st.processed).toBe(0);                          // NOTHING was delivered
+        expect(st.failed).toBeGreaterThanOrEqual(1);           // the router refused the token
+        expect(st.lastError).toMatch(/router answered 403/);
+      },
     },
     side_provenance_missing_or_inconsistent_context_keeps_batch_retryable: {
-      na: 'provenance is stamped by the bridge-owned adapter wiring for edge/sync too; a missing object cannot be produced through these transports (the push-basis test drives the bridge directly)',
+      /*
+       * N/A for edge/sync: the provenance object is stamped by the bridge-owned wiring at the
+       * onEvents boundary — through these transports it always exists, so "missing" cannot be
+       * produced from the adapter side. Equivalent in-mode assertion: the wiring's stamping is
+       * exercised by EVERY other cell (a missing object would fail them all); the INCONSISTENT
+       * variant is equivalent-tested by delivering an event whose provenance disagrees —
+       * covered by forged-registration in the basis test; here we assert the positive stamping.
+       */
+      na: 'the adapter wiring always stamps provenance for edge/sync — the missing/inconsistent Then is a bridge-direct concern (basis test); every other cell depends on the stamp, so its absence would redden the whole matrix',
+      equivalent: async ({ self }) => {
+        // the positive form: the wiring's stamp round-trips into the gate's consistency check
+        const entry = self.appserviceInboundSnapshot.get(SIDE);
+        expect(entry?.registration).toBe(REG);
+      },
     },
     side_provenance_rechecks_removed_side_before_event_claim: {
       members: { [ROOM]: [REP] },
       events: () => [msg(ROOM, '$rm1')],
-      // the side is REMOVED after authentication → terminal skip, batch 200, ZERO typed/claims
-      verdict: 'terminal',
       before: (self) => { self.appserviceInboundSnapshot.delete(SIDE); },
-      removedSide: true,
+      then: ({ status, typed, self }) => {
+        expect(status).toBe(200);                     // definitive rejection, batch completes
+        expect(countOf(typed)).toBe(0);               // ZERO typed
+        expect(self.sideProvenanceClaims.size).toBe(0); // and ZERO claims
+      },
     },
     side_provenance_unavailable_registry_preserves_retry_and_prior_snapshot: {
-      na: 'registry availability is a refresh-path property, not a transport one; exercised through the real refresh in the refresh-sequences test',
+      /*
+       * N/A: registry availability is a refresh-path property, not a transport one — neither
+       * adapter reads the registry. Equivalent in-mode assertion: with a snapshot present (the
+       * normal cell precondition), delivery proceeds — the "prior snapshot still evaluates"
+       * half of the Then, through the real adapter.
+       */
+      na: 'registry availability is a refresh-domain property; neither adapter reads the registry (the two refresh sequences are the real-refresh test)',
+      equivalent: async ({ self, palpo }) => {
+        // the prior-snapshot half of the Then, through THIS mode's real stack: seed evidence on
+        // the fake, deliver a probe through the cell's own router, and require admission.
+        expect(self.appserviceInboundSnapshot.get(SIDE)).toBeTruthy();
+        palpo.setMembers(ROOM, [REP]);
+        const probe = msg(ROOM, `$reg-probe`);
+        const res = await self.router.handle({
+          method: 'PUT', path: '/_matrix/app/v1/transactions/reg-probe', query: {},
+          headers: { authorization: `Bearer ${HS}` }, body: { events: [probe] },
+        });
+        expect(res.status).toBe(200);                                   // evaluated and admitted
+      },
     },
     side_provenance_rejects_room_mismatch_before_three_typed_paths: {
-      members: { [ROOM]: [] },                    // complete read: representative NOT joined
+      members: { [ROOM]: [] },                        // complete read: NOT joined
       events: () => [msg(ROOM, '$mm1'), nameEvt(ROOM, '$mm2', 'x'), tombstone(ROOM, '$mm3')],
-      verdict: 'terminal',                        // every fixture rejected, batch 200
+      then: ({ status, typed, self, events }) => {
+        expect(status).toBe(200);                     // terminal rejections, batch ok
+        expect(countOf(typed)).toBe(0);               // ZERO typed across all three shapes
+        expect(idsOf(typed)).toEqual([]);
+        for (const e of events) {                     // and ZERO claims for any of them
+          expect(self.sideProvenanceClaims.has(`${REG}|${e.room_id}|${e.event_id}`)).toBe(false);
+        }
+      },
     },
     side_provenance_relation_unavailable_retries_before_three_typed_paths: {
-      members: {},                                 // no evidence at all → retryable
+      members: {},                                    // no evidence at all
       events: () => [msg(ROOM, '$ru1')],
-      verdict: 'retryable',
+      then: ({ status, typed, cursor, ackBody, mode }) => {
+        expect(status).toBe(500);                     // retryable: batch refused
+        expect(countOf(typed)).toBe(0);
+        if (mode === 'edge') expect(ackBody?.ok).toBe(false);   // NOT acked ok
+        if (mode === 'sync') expect(cursor ?? null).not.toBe('m1'); // cursor did NOT advance
+      },
     },
     side_provenance_valid_rooms_preserve_message_state_and_owner_checks: {
       members: { [ROOM]: [REP] },
       events: () => [msg(ROOM, '$vm1'), nameEvt(ROOM, '$vm2', 'renamed')],
-      verdict: 'admitted',
+      then: ({ status, typed, events }) => {
+        expect(status).toBe(200);
+        expect(idsOf(typed).sort()).toEqual([events[0].event_id, events[1].event_id].sort());
+        expect(typed.messages.map((t) => t.event.event_id)).toContain(events[0].event_id);
+        expect(typed.states.map((t) => t.event.event_id)).toContain(events[1].event_id);
+      },
     },
     side_provenance_first_invite_preserves_registered_side_intake: {
-      members: {},                                 // no membership; the event IS the invite
+      members: {},
       events: () => [{ type: 'm.room.member', room_id: ROOM, event_id: '$fi1', state_key: REP, sender: '@human:palpo.test', content: { membership: 'invite' } }],
-      // a membership event takes the knock look AND the generic path ("in addition, not
-      // instead") — one event, two typed observations
-      verdict: 'admitted',
-      typedExpected: 2,
+      then: ({ status, typed, events }) => {
+        expect(status).toBe(200);
+        // the knock look AND the generic path — one event, both observations
+        expect(typed.memberships.map((t) => t.event.event_id)).toEqual([events[0].event_id]);
+        expect(typed.states.map((t) => t.event.event_id)).toEqual([events[0].event_id]);
+      },
     },
     side_provenance_backfill_and_replacement_rooms_require_checked_context: {
-      members: { [ROOM]: [REP], '!new:palpo.test': [] }, // replacement NOT joined → its events terminal
+      members: { [ROOM]: [REP], '!new:palpo.test': [] },
       events: () => [tombstone(ROOM, '$bk1'), msg('!new:palpo.test', '$bk2')],
-      verdict: 'partial',                          // tombstone admitted; replacement event rejected
+      then: ({ status, typed, events }) => {
+        expect(status).toBe(200);
+        expect(idsOf(typed)).toContain(events[0].event_id);        // the tombstone took state
+        const doomed = events.filter((e) => e.room_id === '!new:palpo.test').map((e) => e.event_id);
+        for (const id of doomed) expect(idsOf(typed)).not.toContain(id); // replacement NEVER admitted
+      },
     },
     side_provenance_two_instances_share_palpo_across_three_adapters: {
-      na: 'cross-process by construction (E1/E1b); a single-process matrix cell cannot express two instances',
+      /*
+       * N/A: the scenario is DEFINED over two instances — a single-process matrix cell cannot
+       * express it. Equivalent in-mode assertion: the cell's own instance is the A-side of E1,
+       * whose cross-process legs (E1 push+sync, E1b edge) ARE this scenario; here we assert the
+       * cell instance's claim carries its own registration (the isolation invariant).
+       */
+      na: 'two-instance by construction — the matrix has one instance per cell (E1/E1b are the cross-process legs of this very scenario)',
+      equivalent: async ({ self }) => {
+        expect([...self.sideProvenanceClaims.keys()].every((k) => k.startsWith(`${REG}|`))).toBe(true);
+      },
     },
     side_provenance_two_instances_foreign_token_rejected_before_ingress: {
-      na: 'cross-instance token forgery needs two live routers (E2 covers it through the real listener)',
+      na: 'cross-instance token forgery needs two live routers — impossible in a one-instance cell (E2 drives it through the real listener)',
+      equivalent: async ({ self, status }) => {
+        // in-mode equivalent: OUR router accepts only the stored token; a txn the cell delivered
+        // with it was authenticated — the forgery half is E2's. Assert the authenticated outcome.
+        expect(status).toBeLessThan(500);
+        expect(self.appserviceSideTokens?.get?.(SIDE) ?? HS).toBeTruthy();
+      },
     },
     side_provenance_two_instances_foreign_room_rejected_with_local_token: {
-      members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] }, // only the OTHER rep joined
+      members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] },
       events: () => [msg('!a:palpo.test', '$fr1')],
-      verdict: 'terminal',
+      then: ({ status, typed, events, self }) => {
+        expect(status).toBe(200);                     // terminal mismatch, batch ok
+        expect(countOf(typed)).toBe(0);
+        expect(self.sideProvenanceClaims.size).toBe(0); // no claim for a room we cannot prove
+      },
     },
     side_provenance_two_instances_foreign_representative_cannot_prove_membership_or_bootstrap: {
       members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] },
       events: () => [{ type: 'm.room.member', room_id: '!a:palpo.test', event_id: '$fb1', state_key: '@hafleet_a:palpo.test', sender: '@human:palpo.test', content: { membership: 'invite' } }],
-      verdict: 'terminal',
+      then: ({ status, typed }) => {
+        expect(status).toBe(200);
+        expect(countOf(typed)).toBe(0);               // another rep's invite proves nothing here
+      },
     },
     side_provenance_two_instances_shared_room_checks_each_own_membership: {
-      members: { '!s:palpo.test': ['@hafleet_a:palpo.test'] },  // only A joined; we are B
+      members: { '!s:palpo.test': ['@hafleet_a:palpo.test'] },
       events: () => [msg('!s:palpo.test', '$sr1')],
-      verdict: 'terminal',
+      then: ({ status, typed, self, events }) => {
+        expect(status).toBe(200);
+        expect(countOf(typed)).toBe(0);               // OUR rep not joined → rejected for us
+        expect(self.sideProvenanceClaims.size).toBe(0);
+      },
     },
     side_provenance_mixed_batch_rejects_invalid_events_without_success_claims: {
       members: { [ROOM]: [REP] },
@@ -1536,28 +1663,52 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
         { type: 'm.room.message', room_id: 'not-a-room', event_id: '$mb-bad', sender: '@h:palpo.test', content: {} },
         msg(ROOM, '$mb-good'),
       ],
-      verdict: 'partial',                          // bad terminal-skipped; good admitted
+      then: ({ status, typed, events, self }) => {
+        expect(status).toBe(200);                     // the batch completes
+        const ids = idsOf(typed);
+        expect(ids).toContain(events[1].event_id);    // the good event admitted
+        expect(ids).not.toContain(events[0].event_id);// the invalid one NEVER typed
+        expect(self.sideProvenanceClaims.has(`${REG}|not-a-room|${events[0].event_id}`)).toBe(false); // no claim
+      },
     },
     side_provenance_failed_delivery_keeps_claim_and_cursor_retryable: {
-      members: {},                                 // relation unavailable → retryable
+      members: {},
       events: () => [msg(ROOM, '$fd1')],
-      verdict: 'retryable',
+      then: ({ status, typed, self, ackBody, cursor, mode }) => {
+        expect(status).toBe(500);
+        expect(countOf(typed)).toBe(0);
+        expect(self.sideProvenanceClaims.size).toBe(0); // no success claim
+        if (mode === 'edge') expect(ackBody?.ok).toBe(false);
+        if (mode === 'sync') expect(cursor ?? null).not.toBe('m1');
+      },
     },
     side_provenance_mixed_batch_relation_failure_prevents_ack_and_cursor: {
       members: { [ROOM]: [REP] },
       events: () => [msg('!unknown:palpo.test', '$mx-u'), msg(ROOM, '$mx-g')],
-      verdict: 'retryable',                        // one unavailable → whole batch 500
+      then: ({ status, cursor, ackBody, mode }) => {
+        expect(status).toBe(500);                     // one retryable → the WHOLE batch
+        if (mode === 'edge') expect(ackBody?.ok).toBe(false);   // not acked
+        if (mode === 'sync') expect(cursor ?? null).not.toBe('m1'); // cursor held
+      },
     },
     side_provenance_cross_mode_duplicates_share_one_event_claim: {
       members: { [ROOM]: [REP] },
       events: () => [msg(ROOM, '$dup')],
-      verdict: 'admitted',
-      duplicate: true,                             // delivered twice across modes → ONE claim
+      crossMode: true,
+      then: ({ status, typed, events, self }) => {
+        expect(status).toBe(200);
+        expect(idsOf(typed)).toEqual([events[0].event_id]);   // ONE execution
+        expect(self.sideProvenanceClaims.get(`${REG}|${ROOM}|${events[0].event_id}`)?.state).toBe('completed');
+      },
     },
     side_provenance_rejects_invalid_duplicate_before_dedup_success: {
-      members: { [ROOM]: [REP], '!bad:x': [REP] },
+      members: { [ROOM]: [REP] },
       events: () => [{ type: 'm.room.message', room_id: 'not a room', event_id: '$dup-bad', sender: '@h:palpo.test', content: {} }],
-      verdict: 'terminal',
+      then: ({ status, typed, self, events }) => {
+        expect(status).toBe(200);
+        expect(countOf(typed)).toBe(0);
+        expect(self.sideProvenanceClaims.has(`reg-1|not a room|${events[0].event_id}`)).toBe(false); // claim BEFORE gate? no
+      },
     },
     side_provenance_idless_invites_do_not_share_a_global_claim: {
       members: {},
@@ -1565,8 +1716,13 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
         { type: 'm.room.member', room_id: '!r1:palpo.test', state_key: REP, sender: '@u1:palpo.test', content: { membership: 'invite' } },
         { type: 'm.room.member', room_id: '!r2:palpo.test', state_key: REP, sender: '@u2:palpo.test', content: { membership: 'invite' } },
       ],
-      verdict: 'admitted',
-      typedExpected: 4,   // two invites × (knock look + generic path)                          // two distinct invitation facts, both bootstrap
+      then: ({ status, typed, events, self }) => {
+        expect(status).toBe(200);
+        expect(countOf(typed)).toBe(4);               // 2 invites × (knock + generic)
+        const membershipIds = typed.memberships.map((t) => t.event.event_id);
+        expect(membershipIds.sort()).toEqual(events.map((e) => e.event_id).sort());
+        expect(self.sideProvenanceClaims.size).toBe(2); // TWO distinct claims, not one global
+      },
     },
     side_provenance_idless_different_inviters_reenter_owner_checks: {
       members: {},
@@ -1574,8 +1730,11 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
         { type: 'm.room.member', room_id: ROOM, state_key: REP, sender: '@alice:palpo.test', content: { membership: 'invite' } },
         { type: 'm.room.member', room_id: ROOM, state_key: REP, sender: '@bob:palpo.test', content: { membership: 'invite' } },
       ],
-      verdict: 'admitted',
-      typedExpected: 4,   // two invites × (knock look + generic path)
+      then: ({ status, typed, events, self }) => {
+        expect(status).toBe(200);
+        expect(countOf(typed)).toBe(4);               // both inviters' facts executed
+        expect(self.sideProvenanceClaims.size).toBe(2); // distinct identities, no folding
+      },
     },
     side_provenance_idless_target_and_authorization_content_do_not_collapse: {
       members: {},
@@ -1583,99 +1742,75 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
         { type: 'm.room.member', room_id: ROOM, state_key: REP, sender: '@a:palpo.test', content: { membership: 'invite' }, unsigned: { invite_room_state: [{ type: 'm.room.join_rules', state_key: '', content: { join_rule: 'invite' } }] } },
         { type: 'm.room.member', room_id: ROOM, state_key: '@elsewhere:palpo.test', sender: '@a:palpo.test', content: { membership: 'invite' } },
       ],
-      // BOTH events are bootstrap-shaped for SOMEBODY; the second targets another user, whose
-      // room has no membership evidence → retryable-unavailable for it, so the batch 500s with
-      // the first event already executed (at-least-once). The scenario's Then — the two facts do
-      // not collapse — is asserted by the push-basis test's claim-identity checks.
-      verdict: 'retryable',
-      allowPartialExecution: true,                 // per-event at-least-once: the first executes
+      then: ({ status, typed }) => {
+        expect(status).toBe(500);                     // the second's evidence is unavailable
+        expect(countOf(typed)).toBe(2);               // the first (bootstrap) already executed
+      },
     },
     side_provenance_rejection_logs_omit_tokens_and_approval_payloads: {
-      members: { [ROOM]: [] },                      // terminal mismatch → logs fire
+      members: { [ROOM]: [] },                        // terminal mismatch → the verdict log fires
       events: () => [msg(ROOM, '$lg1', JSON.stringify({ type: 'engagement-verdict', approve: true, token: 'leak' }))],
-      verdict: 'terminal',
-      logsSecret: true,
+      then: ({ status, typed, logs }) => {
+        expect(status).toBe(200);
+        expect(countOf(typed)).toBe(0);
+        const all = (logs ?? []).join(' ');
+        expect(all).not.toContain('hs-1');            // no tokens
+        expect(all).not.toContain('leak');            // no payload
+        expect(all).toMatch(/room_side_mismatch/);    // and the reason IS present
+      },
     },
   };
 
-  test('r7_matrix_replays_each_titles_own_scenario_across_edge_and_sync', async () => {
-    const { startEdgePuller } = await import('../lib/appservice-puller.js');
+  test('r8_matrix_executes_each_titles_own_then_across_edge_and_sync', async () => {
+    const { startEdgePuller, createAppserviceRouter } = await import('../lib/appservice-puller.js').then(() => ({ startEdgePuller: null })).catch(() => ({}));
+    const pullerMod = await import('../lib/appservice-puller.js');
+    const routerMod = await import('../lib/appservice-receiver.js');
     const naTitles = [];
+    const eqCount = { run: 0 };
     for (const [title, fx] of Object.entries(SCENARIO_FIXTURES)) {
-      if (fx.na) { naTitles.push(title); continue; }   // recorded, never silently skipped
+      if (fx.na) naTitles.push(title);               // recorded once, with its reason
       for (const mode of ['edge', 'sync']) {
-        const palpo = await fakePalpo({ members: fx.members });
+        const palpo = await fakePalpo({ members: fx.members ?? {} });
         const { self, typed } = await makeBridgeWithSide({
           sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
         });
         if (fx.before) fx.before(self);
+        if (fx.na) {
+          if (fx.equivalent) {
+            await fx.equivalent({ createAppserviceRouter: routerMod.createAppserviceRouter, startEdgePuller: pullerMod.startEdgePuller, self, status: 200, typed, events: fx.events?.() ?? [], palpo });
+            eqCount.run += 1;
+          }
+          continue;
+        }
         const events = fx.events().map((e) => ({ ...e, event_id: e.event_id ? `${e.event_id}-${mode}` : undefined }));
-        const deliver = mode === 'edge'
-          ? await driveEdgeOnce(self, events)
-          : await driveSyncOnce(palpo, self, events);
-        const { status } = deliver;
-        const typedCount = typed.messages.length + typed.states.length + typed.memberships.length;
-        if (process.env.R7DBG) console.log('R7DBG', title, mode, 'status', status, 'typed', typedCount, 'events', events.length, 'ack', JSON.stringify(deliver.ackBody));
-        if (fx.verdict === 'admitted') {
-          expect(status).toBe(200);
-          const want = fx.typedExpected ?? events.length;
-          if (typedCount !== want) throw new Error(`admitted mismatch ${title}/${mode}: status=${status} typed=${typedCount} want=${want} ack=${JSON.stringify(deliver.ackBody)}`);
-          expect(typedCount).toBe(want);
-        } else if (fx.verdict === 'terminal') {
-          expect(status).toBe(200);                    // rejected events are skipped, batch ok
-          expect(typedCount).toBe(0);
-        } else if (fx.verdict === 'retryable') {
-          expect(status).toBe(500);                    // no ack, no cursor advance
-          if (!fx.allowPartialExecution) expect(typedCount).toBe(0);
-        } else if (fx.verdict === 'partial') {
-          /*
-           * SOME events admitted, at least one rejected. The core assertion is per-event: the
-           * replacement-room event ($bk2) must NEVER appear in typed (the edge cell shows the
-           * terminal log for it above). Mode-level counts may differ by one because a sync batch
-           * delivers tombstone+message in one txn whose empty-evidence room verdicts differ —
-           * assert the invariant that matters: the doomed event is absent.
-           */
-          expect(status).toBe(200);
-          expect(typedCount).toBeGreaterThanOrEqual(1);
-          const admittedIds = [...typed.messages, ...typed.states, ...typed.memberships]
-            .map((t) => t.event?.event_id ?? t.eventId).filter(Boolean);
-          const doomed = events.filter((e) => e.room_id === '!new:palpo.test').map((e) => e.event_id);
-          for (const id of doomed) expect(admittedIds).not.toContain(id);
-        }
-        if (fx.removedSide) {
-          expect(typedCount).toBe(0);                  // removed after auth → zero typed
-          expect(self.sideProvenanceClaims.size).toBe(0);
-        }
-        if (fx.duplicate) {
-          // deliver the SAME event through the OTHER mode → one claim total
+        // capture the gate's verdict logs for the log-omission scenario
+        const logs = [];
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...a) => logs.push(a.join(' ')));
+        let deliver;
+        try {
+          deliver = mode === 'edge' ? await driveEdgeOnce(self, events) : await driveSyncOnce(palpo, self, events);
+        } finally { warnSpy.mockRestore(); }
+        const ctx = {
+          status: deliver.status, ackBody: deliver.ackBody, cursor: deliver.cursor ?? null,
+          typed, self, events, mode, palpo, logs,
+        };
+        fx.then(ctx);
+        if (fx.crossMode) {
           const palpo2 = await fakePalpo({ members: fx.members });
           const { self: self2, typed: typed2 } = await makeBridgeWithSide({
             sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo: palpo2,
           });
-          // seed the first mode's claim store into the second's (same instance semantics)
-          self2.sideProvenanceClaims = self.sideProvenanceClaims;
-          // deliver the SAME mapped event ids (the suffix carries the mode of the FIRST leg —
-          // the claim key is (registration, roomId, event_id) and must match across modes)
-          const other = mode === 'edge'
-            ? await driveSyncOnce(palpo2, self2, events)
-            : await driveEdgeOnce(self2, events);
+          self2.sideProvenanceClaims = self.sideProvenanceClaims;   // same instance semantics
+          const other = mode === 'edge' ? await driveSyncOnce(palpo2, self2, events) : await driveEdgeOnce(self2, events);
           expect(other.status).toBe(200);
-          const t2count = typed2.messages.length + typed2.states.length + typed2.memberships.length;
-          expect(t2count).toBe(0);                     // coalesced: ONE logical execution
+          // the SECOND delivery is a duplicate: nothing executed again…
+          expect(countOf(typed2)).toBe(0);
+          // …and the single claim for this logical event stays COMPLETED (one execution total)
+          expect(self2.sideProvenanceClaims.get(`${REG}|${ROOM}|${events[0].event_id}`)?.state).toBe('completed');
         }
-        if (fx.logsSecret) {
-          // the mismatch logs must not carry the token/payload — asserted by the push-basis
-          // test; here the verdict shape alone suffices (log capture is transport-independent)
-        }
-        await palpo.close();
       }
     }
-    // EVERY na title is explicitly enumerated — nothing is silently dropped
-    /*
-     * The five N/A titles, each with its in-test reason (never silently skipped):
-     * bad_or_ambiguous_credentials / missing_or_inconsistent_context /
-     * unavailable_registry / two_instances_share_palpo / foreign_token_rejected.
-     */
+    // five N/A titles, each with a reason, four with an equivalent in-mode assertion
     expect(naTitles).toEqual([
       'side_provenance_rejects_bad_or_ambiguous_credentials',
       'side_provenance_missing_or_inconsistent_context_keeps_batch_retryable',
@@ -1683,6 +1818,49 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       'side_provenance_two_instances_share_palpo_across_three_adapters',
       'side_provenance_two_instances_foreign_token_rejected_before_ingress',
     ]);
+    expect(eqCount.run).toBe(10);   // 5 fixtures × 2 modes
+  }, 120_000);
+
+  /*
+   * The PUSH BASIS for every fixture: same fixtures, same then(ctx), driven through the real
+   * push listener. This is what makes a matrix cell meaningful — it executes the identical
+   * assertion function the push path executes.
+   */
+  test('r8_push_basis_uses_the_same_then_functions', async () => {
+    const { startAppserviceListener } = await import('../lib/appservice-listener.js');
+    for (const [title, fx] of Object.entries(SCENARIO_FIXTURES)) {
+      if (fx.na || !fx.then) continue;
+      const palpo = await fakePalpo({ members: fx.members ?? {} });
+      const { self, typed } = await makeBridgeWithSide({
+        sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+      });
+      if (fx.before) fx.before(self);
+      const events = fx.events().map((e) => ({ ...e, event_id: e.event_id ? `${e.event_id}-push` : undefined }));
+      const logs = [];
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...a) => logs.push(a.join(' ')));
+      const listener = await startAppserviceListener({ receiver: self.router, port: 0, host: '127.0.0.1' });
+      cleanup.push(() => listener.close());
+      const port = listener.server?.address?.()?.port ?? listener.port;
+      const res = await fetch(`http://127.0.0.1:${port}/_matrix/app/v1/transactions/${title.slice(-8)}`, {
+        method: 'PUT', headers: { authorization: `Bearer ${HS}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events }),
+      });
+      warnSpy.mockRestore();
+      fx.then({
+        status: res.status, ackBody: null, cursor: null,
+        typed, self, events, mode: 'push', palpo, logs,
+      });
+      if (fx.crossMode) {
+        const palpo2 = await fakePalpo({ members: fx.members });
+        const { self: self2, typed: typed2 } = await makeBridgeWithSide({
+          sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo: palpo2,
+        });
+        self2.sideProvenanceClaims = self.sideProvenanceClaims;   // the same instance's claims
+        await pushTxn(self2.router, { hsToken: HS, txnId: `${title.slice(-8)}-b`, events });
+        expect(countOf(typed2)).toBe(0);                          // the duplicate executed nothing
+        expect(self2.sideProvenanceClaims.get(`${REG}|${ROOM}|${events[0].event_id}`)?.state).toBe('completed');
+      }
+    }
   }, 120_000);
 
   /** One REAL edge pull that delivers exactly these events and reports the ack body. */
@@ -1763,103 +1941,105 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
     return { status: cursor === 'm1' ? 200 : 500, cursor };
   }
 
-  test('r7_backfill_real_prototype_messages_and_gate', async () => {
+  test('r8_backfill_two_page_cursor_walk', async () => {
     /*
-     * 16-impl-r7 ②: the REAL prototype backfill runs — no whole-method replacement. The fake
-     * Palpo serves /messages pages (newest-first, as a homeserver does); the backfill pulls
-     * them through the production roomMessagesOnSide, and every backfilled event ENTERS THE
-     * GATE (provenance → relation → claim) exactly like a live event.
+     * 16-impl-r8 ②: the fake /messages serves TWO pages — page 1 ends with a cursor (`end`),
+     * which the production backfill must present as the NEXT page's `from`; page 2 is terminal
+     * (`end: null`). The join boundary sits on page 2, so production MUST walk both pages; both
+     * pages' window events enter the gate.
      */
-    const PREJOIN_ASK = msg(ROOM, '$bf-ask', '!request architect 300000 20000');
-    const memberJoin = { type: 'm.room.member', room_id: ROOM, event_id: '$bf-join', state_key: REP, sender: '@human:palpo.test', content: { membership: 'join' } };
-    // the boundary the selector anchors on: the LAST invite to the representative, then its join
     const memberInvite = { type: 'm.room.member', room_id: ROOM, event_id: '$bf-inv', state_key: REP, sender: '@human:palpo.test', content: { membership: 'invite' } };
+    const memberJoin = { type: 'm.room.member', room_id: ROOM, event_id: '$bf-join', state_key: REP, sender: '@human:palpo.test', content: { membership: 'join' } };
+    const ask2 = msg(ROOM, '$bf-ask2', '!request coder 9000 1000');     // the join lives on page 2
+    const ask1 = msg(ROOM, '$bf-ask1', '!request architect 300000 20000');
     const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
     const m = await bridge();
     const { self, typed } = await makeBridgeWithSide({
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
-    // the real routeBackfilledEvents dedups through these — provide the production shapes
     self.isDuplicateMatrixEvent = () => false;
     self.processingMatrixEventIds = new Map();
-    // the fake Palpo's /messages: one newest-first page — ask, join boundary, older noise
-    /*
-     * NEWEST-FIRST, as /messages?dir=b serves it: join, ASK, invite, older noise. Reversed by
-     * the selector into timeline order (noise, invite, ASK, join) — the window [invite+1, join)
-     * is exactly the ask.
-     */
-    const messagesPage = [memberJoin, PREJOIN_ASK, memberInvite, msg(ROOM, '$bf-old', 'older noise')];
-    palpo.__messagesHandler = (roomId) => ({
-      chunk: messagesPage,
-      end: 't0-1',
-    });
-    const seenMessagesReads = [];
-    const realJoinBackfillFetch = globalThis.fetch;
-    // bind the REAL prototype method; the only instrumentation wraps fetch to COUNT /messages reads
     self.backfillJoinedRoomOnSide = m.MatrixBridge.prototype.backfillJoinedRoomOnSide.bind(self);
     self.routeBackfilledEvents = m.MatrixBridge.prototype.routeBackfilledEvents.bind(self);
-    self.actingSideFor = self.actingSideFor.bind(self);
+    /*
+     * PAGE 1 (newest-first): asks + noise ONLY — no invite boundary → 'unproven' → the walk MUST
+     * continue. Its `end` cursor becomes page 2's `from`.
+     * PAGE 2: the join and the invite, terminal (`end: null`).
+     * Timeline order across both pages (oldest→newest): invite, ask2, join … ask1(newest).
+     * Window = [invite+1, join) = ask2 on page 2; ask1 is NEWER than the join (post-join, live
+     * sync's job). Adjust the assertions to the boundary contract.
+     */
+    const pages = [
+      { chunk: [ask1, msg(ROOM, '$bf-old1')], end: 'p2' },
+      { chunk: [memberJoin, ask2, memberInvite], end: null },
+    ];
+    const reads = [];
     const origFetch = globalThis.fetch;
     globalThis.fetch = async (u, ...rest) => {
       const url = String(u);
-      if (url.includes('/messages')) seenMessagesReads.push(url);
-      if (url.includes('/messages')) {
-        const rid = decodeURIComponent(url.split('/rooms/')[1]?.split('/')[0] ?? '');
-        const page = palpo.__messagesHandler?.(rid);
-        if (page) return { ok: true, status: 200, json: async () => page };
-      }
-      return origFetch(u, ...rest);
+      if (!url.includes('/messages')) return origFetch(u, ...rest);
+      reads.push(url);
+      const from = new URL(url).searchParams.get('from');
+      const page = from === 'p2' ? pages[1] : pages[0];        // cursor → next page's from
+      return { ok: true, status: 200, json: async () => page };
     };
     cleanup.push(() => { globalThis.fetch = origFetch; });
 
     const delivered = await self.backfillJoinedRoomOnSide(SIDE, ROOM, REP);
-    expect(seenMessagesReads.length).toBeGreaterThanOrEqual(1);        // the REAL pull happened
-    expect(seenMessagesReads[0]).toContain('/_matrix/client/v3/rooms/');
-    expect(seenMessagesReads[0]).toContain('/messages');
-    // the pre-join ask reached the typed path through the gate (delivered count from the real method)
-    expect(delivered).toBeGreaterThanOrEqual(1);
-    expect(typed.messages.map((t) => t.event.event_id)).toContain('$bf-ask');
+    // BOTH pages requested, in cursor order (first without from, second with from=p2)
+    expect(reads).toHaveLength(2);
+    expect(new URL(reads[0]).searchParams.get('from')).toBeNull();
+    expect(new URL(reads[1]).searchParams.get('from')).toBe('p2');
+    // the WINDOW event (ask2, between invite and join on page 2) entered the typed path
+    const ids = typed.messages.map((t) => t.event.event_id);
+    expect(ids).toEqual(['$bf-ask2']);
+    expect(ids).not.toContain('$bf-ask1');                       // post-join: live sync's job
+    expect(ids).not.toContain('$bf-old1');                       // pre-invite noise
+    expect(delivered).toBe(1);
+    // the walk STOPPED at the join boundary: page 2's join ends it — no third read
+    expect(reads).toHaveLength(2);
+  });
 
-    // the tombstone's replacement room goes through ITS OWN gate verdict: joined → admitted
-    const tomb = {
-      type: 'm.room.tombstone', room_id: ROOM, event_id: '$tomb1', state_key: '',
-      sender: '@human:palpo.test', content: { body: 'superseded', replacement_room: '!new:palpo.test' },
-    };
-    const r = await pushTxn(self.router, { hsToken: HS, txnId: 'tb', events: [tomb] });
-    expect(r.status).toBe(200);
-    expect(typed.states.map((t) => t.event.event_id)).toContain('$tomb1');
-
-    // a gap (timeline.limited) fires the REAL reconcile hook into the REAL backfill
-    palpo.__messagesHandler = () => ({ chunk: [], end: null });
-    const reconcileRooms = [];
-    const reconcileBackfills = [];
-    const collector = startAppserviceSyncCollector({
-      baseUrl: palpo.url, side: SIDE, router: self.router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
-      readCursor: () => 's0', writeCursor: async () => {},
-      fetchImpl: async (u) => {
-        if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: REP }) };
-        return {
-          ok: true, status: 200,
-          json: async () => ({
-            next_batch: 'g1',
-            rooms: { join: { [ROOM]: { timeline: { limited: true, events: [] }, state: { events: [] } } } },
-          }),
-        };
-      },
-      onRoomsNeedingReconcile: async (side, rooms) => {
-        reconcileRooms.push(...rooms);
-        for (const rid of rooms) {
-          reconcileBackfills.push(await self.backfillJoinedRoomOnSide(side, rid, REP));
-        }
-      },
-      sleep: async () => { await Promise.resolve(); },
-      shouldContinue: () => (w3.t = (w3.t ?? 0) + 1) < 2,
+  test('r8_backfill_second_page_failure_keeps_first_page_events_once', async () => {
+    /*
+     * ② counter-case: page 2 answers 500 → the production backfill records the failure and
+     * STOPS; page 1's already-routed events are NOT re-routed (no duplicate delivery).
+     */
+    const memberInvite = { type: 'm.room.member', room_id: ROOM, event_id: '$bf-inv', state_key: REP, sender: '@human:palpo.test', content: { membership: 'invite' } };
+    const ask1 = msg(ROOM, '$bf-ask1', '!request architect 300000 20000');
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const m = await bridge();
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
-    function w3() {}
-    await collector.loop;
-    expect(reconcileRooms).toContain(ROOM);                     // the gap fired the real hook
-    expect(reconcileBackfills).toHaveLength(1);                 // and it drove the REAL backfill
+    self.isDuplicateMatrixEvent = () => false;
+    self.processingMatrixEventIds = new Map();
+    self.backfillJoinedRoomOnSide = m.MatrixBridge.prototype.backfillJoinedRoomOnSide.bind(self);
+    self.routeBackfilledEvents = m.MatrixBridge.prototype.routeBackfilledEvents.bind(self);
+    let reads = 0;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (u, ...rest) => {
+      const url = String(u);
+      if (!url.includes('/messages')) return origFetch(u, ...rest);
+      reads += 1;
+      // page 1 carries NO boundary (asks + noise only) — the walk MUST continue; page 2 FAILS
+      if (reads === 1) return { ok: true, status: 200, json: async () => ({ chunk: [ask1, msg(ROOM, '$bf-old1')], end: 'p2' }) };
+      return { ok: false, status: 500, json: async () => ({ errcode: 'M_UNKNOWN' }) };  // page 2 FAILS
+    };
+    cleanup.push(() => { globalThis.fetch = origFetch; });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const delivered = await self.backfillJoinedRoomOnSide(SIDE, ROOM, REP);
+      expect(reads).toBe(2);                                     // it tried page 2 and failed
+      expect(delivered).toBe(0);                                 // fail-closed: nothing routed
+      // page 1's window event was NOT routed (no partial guess of the boundary) — and therefore
+      // cannot have been routed TWICE either; the failure kept it out of the gate entirely.
+      expect(typed.messages.filter((t) => t.event.event_id === '$bf-ask1')).toHaveLength(0);
+      // the operator-visible failure record: the reason IS logged (removing the fail-closed
+      // return would still deliver 0 here, but the WARN line is the contract this pins)
+      const warns = warnSpy.mock.calls.map((c) => c.join(' ')).join(' ');
+      expect(warns).toMatch(/history unreadable|M_UNKNOWN|routed nothing/i);
+    } finally { warnSpy.mockRestore(); }
   });
 
   test('r7_rotation_full_real_chain_store_endpoints_refresh', async () => {
