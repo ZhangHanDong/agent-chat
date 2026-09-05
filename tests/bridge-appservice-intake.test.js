@@ -75,10 +75,42 @@ afterAll(async () => {
   await new Promise((resolve) => backend.close(resolve));
 });
 
+/*
+ * F06: `handleAppserviceEvents` now gates every event on provenance first. These tests exercise
+ * the DISPATCH order behind that gate, so the minimal honest fixture is a registered side whose
+ * representative is recorded and joined — the gate passes and the dispatch under test runs.
+ */
+function withProvenanceGate(base, { registration = 'reg-test' } = {}) {
+  /*
+   * The dispatch tests use several side ids; the gate only needs the side to be IN the loaded
+   * registry, so the fixture answers any id with a registered record whose representative is
+   * recorded. The relation check for these rooms runs through `joinedMembersOnSide`, which needs
+   * no credential stub here because the member events under test ARE bootstrap invites to the
+   * recorded representative, and ordinary messages carry an event_id whose claim is checked after
+   * the relation — so the fixture representative is also JOINED by way of the snapshot below.
+   */
+  base.appserviceInboundSnapshot = new Map();
+  base.appserviceInboundSnapshot.get = (id) => ({
+    sideId: id, serverName: id, registration, representative: { mxid: '@hafleet:palpo.test' },
+  });
+  base.sideProvenanceClaims = new Map();
+  base.sideProvenanceClaimOrder = [];
+  base.actingSideFor = base.actingSideFor ?? (() => null);
+  /*
+   * Test seam (bridge honours it only when set): the relation is PROVEN for these dispatch
+   * fixtures — the representative is joined to whatever room the event names.
+   */
+  base.sideRelationLookup = async () => ({ complete: true, membership: 'join' });
+  // the REAL gate, bound to the fixture (so dispatch tests run behind the real order)
+  base.assertSideProvenanceForEvent = bridgeModule.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(base);
+  base.executeTypedForClaim = bridgeModule.MatrixBridge.prototype.executeTypedForClaim.bind(base);
+  return base;
+}
+
 /** A `this` carrying only what the method under test touches. */
 function fakeBridge({ acting = null } = {}) {
   const seen = { messages: [], events: [], warnings: [], memberships: [] };
-  return {
+  return withProvenanceGate({
     seen,
     onRoomMessage: async (roomId, event) => { seen.messages.push({ roomId, type: event.type, id: event.event_id }); },
     onRoomEvent: async (roomId, event) => { seen.events.push({ roomId, type: event.type }); },
@@ -94,11 +126,19 @@ function fakeBridge({ acting = null } = {}) {
       seen.memberships.push({ sideId, roomId, membership: event?.content?.membership ?? null });
     },
     actingSideFor: () => acting,
-  };
+  });
 }
 
-const call = (self, sideId, events, meta = { txnId: 't1' }) =>
-  bridgeModule.MatrixBridge.prototype.handleAppserviceEvents.call(self, sideId, events, meta);
+/*
+ * F06: every appservice event now carries provenance in meta. The dispatch tests pass the same
+ * fixture shape the production adapter wiring builds (registration + sideId + mode).
+ */
+const call = (self, sideId, events, meta = {}) =>
+  bridgeModule.MatrixBridge.prototype.handleAppserviceEvents.call(self, sideId, events, {
+    txnId: 't1',
+    ...meta,
+    provenance: meta.provenance ?? { registration: 'reg-test', sideId, mode: 'push' },
+  });
 
 describe('an event takes the SAME path a synced one takes', () => {
   test('m.room.message goes to onRoomMessage, which is where deduplication lives', async () => {
@@ -140,7 +180,7 @@ describe('an event takes the SAME path a synced one takes', () => {
       onAppserviceMembership: async () => { order.push('knock-look'); },
       actingSideFor: () => null,
     };
-    await call(self, 'a.example', [
+    await call(withProvenanceGate(self, { sideId: 'a.example' }), 'a.example', [
       { type: 'm.room.member', room_id: '!r:a', event_id: '$1' },
       { type: 'm.room.message', room_id: '!r:a', event_id: '$2' },
     ]);
@@ -192,10 +232,10 @@ describe('what it refuses to pretend it handled', () => {
      * would answer 200 for a transaction that was not processed, and the homeserver would never send
      * it again — the same class of loss as remembering a txnId before processing succeeded.
      */
-    const self = {
+    const self = withProvenanceGate({
       onRoomMessage: async () => { throw new Error('backend refused'); },
       onRoomEvent: async () => {},
-    };
+    });
     await expect(call(self, 'a.example', [
       { type: 'm.room.message', room_id: '!r:a', event_id: '$1' },
     ])).rejects.toThrow(/backend refused/);
@@ -207,7 +247,7 @@ describe('which project sides the bridge serves', () => {
     backendCalls = [];
     backendReply = () => [200, {
       ok: true,
-      sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000' }],
+      sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000', registration: 'a.example@deadbeef' }],
     }];
     const self = { appserviceRouter: createAppserviceRouter() };
     await bridgeModule.MatrixBridge.prototype.refreshAppserviceSides.call(self);
@@ -225,7 +265,7 @@ describe('which project sides the bridge serves', () => {
      * broken party. The listener keeps serving what it already had.
      */
     backendReply = () => [200, {
-      ok: true, sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000' }],
+      ok: true, sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000', registration: 'a.example@deadbeef' }],
     }];
     const self = { appserviceRouter: createAppserviceRouter() };
     await bridgeModule.MatrixBridge.prototype.refreshAppserviceSides.call(self);

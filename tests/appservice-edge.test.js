@@ -273,7 +273,15 @@ describe('HAFleet collecting from an edge', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0].path).toBe('/_matrix/app/v1/transactions/tx9');
     expect(seen[0].headers.authorization).toBe(`Bearer ${HS}`);
-    expect(seen[0].body).toEqual({ events: [{ a: 1 }] });
+    /*
+     * F06 (16-impl-r1): the puller's body now carries the intake mode BESIDE the events —
+     * `mode` is transport context in the body's non-event field, never event data. Two pins:
+     * the body's exact shape ({ events, mode }), and the events ARRAY itself untouched
+     * (no mode injected into any event object — provenance stays outside the event body).
+     */
+    expect(seen[0].body).toEqual({ events: [{ a: 1 }], mode: 'edge' });
+    expect(seen[0].body.events).toEqual([{ a: 1 }]);
+    expect(seen[0].body.events[0]).not.toHaveProperty('mode');
     expect(answered).toMatchObject({ status: 200 });
   });
 

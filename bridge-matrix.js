@@ -13,6 +13,26 @@ import {
   joinedMembersOnSide, roomMessagesOnSide,
 } from './lib/matrix-representative.js';
 import { resolveAppserviceListenerConfig, startAppserviceListener } from './lib/appservice-listener.js';
+import {
+  SideProvenanceError, buildSideProvenance, assertRoomRelation, representativeMxidFor,
+  claimKeyFor, assertTransportProvenanceConsistency, normalizeSideKey,
+} from './lib/side-provenance.js';
+
+/**
+ * F06 (16-impl-r2): ONE structured verdict log line — always carries the diagnostic identity
+ * (code, kind, registration, sideId, mode, room, event-or-txn ref) and NEVER a token or an
+ * event/approval payload. Single-line JSON so log pipelines can parse it.
+ */
+function logProvenanceVerdict({ code, kind, provenance = {}, sideId, roomId, ref }) {
+  console.warn(JSON.stringify({
+    t: 'side-provenance', code, kind,
+    registration: provenance.registration ?? null,
+    sideId: sideId ?? provenance.sideId ?? null,
+    mode: provenance.mode ?? null,
+    room: roomId ?? null,
+    ref: ref ?? null,
+  }));
+}
 import { resolveEdgeLinkConfig, startEdgePuller } from './lib/appservice-puller.js';
 import { resolveAppserviceSyncConfig, startAppserviceSyncCollector } from './lib/appservice-sync.js';
 import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
@@ -4368,6 +4388,235 @@ export class MatrixBridge {
    * repeated `event_id`. A transaction replayed after it has aged out of the router's window is still
    * not delivered twice.
    */
+  /**
+   * F06 L3 — the provenance gate for ONE event. Registration recheck → room relation →
+   * (claim happens on the typed path's existing dedup, keyed through claimKeyFor).
+   *
+   * TERMINAL verdicts (side_not_registered / room_side_mismatch / invalid_room_id /
+   * invalid_event_identity) are logged and the event is SKIPPED — zero mutations — but the
+   * batch continues: a definitive rejection must not hold valid events hostage.
+   * RETRYABLE verdicts (side_registry_unavailable / room_relation_unavailable /
+   * missing_provenance) THROW so the whole batch answers 500 and is redelivered.
+   */
+  async assertSideProvenanceForEvent(sideId, roomId, event, meta) {
+    const provenance = meta?.provenance;
+    /*
+     * 16-impl-r2 B: the transport provenance must AGREE with the authenticated side and the
+     * loaded registration BEFORE anything else runs. A missing/malformed object is retryable
+     * (internal wiring); a DISAGREEMENT (wrong sideId, forged registration, alien mode) is a
+     * terminal provenance_mismatch — zero relation reads, zero claims, zero typed paths.
+     */
+    try {
+      assertTransportProvenanceConsistency({ provenance, authenticatedSideId: sideId, snapshotEntry: null });
+    } catch (consistencyError) {
+      if (consistencyError instanceof SideProvenanceError && !consistencyError.retryable) {
+        logProvenanceVerdict({ code: consistencyError.code, kind: 'terminal', provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId });
+        return { rejected: consistencyError.code };
+      }
+      throw consistencyError;
+    }
+    /*
+     * ① REGISTRATION RECHECK against the loaded snapshot — per event, never the wiring-time
+     * closure. Absent snapshot (refresh never succeeded) is UNAVAILABLE, not empty.
+     */
+    const snapshot = this.appserviceInboundSnapshot;
+    if (!snapshot) {
+      throw new SideProvenanceError(
+        'side_registry_unavailable',
+        'no project-side registry snapshot has loaded yet',
+        { retryable: true },
+      );
+    }
+    const registered = snapshot.get(normalizeSideKey(provenance.sideId));
+    if (registered) {
+      try {
+        assertTransportProvenanceConsistency({ provenance, authenticatedSideId: sideId, snapshotEntry: registered });
+      } catch (consistencyError) {
+        if (consistencyError instanceof SideProvenanceError && !consistencyError.retryable) {
+          logProvenanceVerdict({ code: consistencyError.code, kind: 'terminal', provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId });
+          return { rejected: consistencyError.code };
+        }
+        throw consistencyError;
+      }
+    }
+    if (!registered) {
+      /*
+       * TERMINAL: a definitive absence in the last successfully loaded registry. Logged, skipped,
+       * zero mutations — the batch continues so one dead side cannot hold valid events hostage.
+       */
+      console.warn(`[side-provenance] side_not_registered: ${provenance.sideId ?? sideId} is not in the loaded registry`);
+      return { rejected: 'side_not_registered' };
+    }
+    /*
+     * ② ROOM RELATION — the representative's /whoami-recorded MXID must be joined to this
+     * exact room, or the event must BE the first invite addressed to it. The member read goes
+     * through the side's own credential (joinedMembersOnSide) so the proof is the registration's
+     * own authority, never a sender suffix or a room-name guess.
+     */
+    /*
+     * 16-impl-r4 注记①: a side whose projection carries NO representative is an INCOMPLETE
+     * REGISTRATION — a configuration gap no retry can fix. Terminal, named, logged with the
+     * missing field; never an endless room_relation_unavailable 500 loop.
+     */
+    if (!registered.representative?.mxid) {
+      logProvenanceVerdict({
+        code: 'side_incomplete_registration', kind: 'terminal',
+        provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId,
+      });
+      console.warn(`[side-provenance] side ${sideId} has no representative recorded; complete its registration before its events can be admitted`);
+      return { rejected: 'side_incomplete_registration' };
+    }
+    const representativeMxid = representativeMxidFor(registered);
+    /*
+     * TEST SEAM FIRST: when a fixture supplies the relation read, no credential is needed —
+     * the seam IS the evidence. Production never sets it and the acting credential below is
+     * what performs the authoritative member read.
+     */
+    const hasRelationSeam = typeof this.sideRelationLookup === 'function';
+    const acting = hasRelationSeam ? null : this.actingSideFor(provenance.sideId ?? sideId);
+    if (!hasRelationSeam && !acting) {
+      throw new SideProvenanceError(
+        'room_relation_unavailable',
+        `no acting credential for side ${provenance.sideId ?? sideId} to prove the room relation`,
+        { retryable: true },
+      );
+    }
+    /*
+     * TERMINAL relation verdicts (invalid_room_id / room_side_mismatch) skip the event; RETRYABLE
+     * ones (room_relation_unavailable) propagate so the batch answers 500 and is redelivered.
+     */
+    try {
+      await assertRoomRelation({
+      event,
+      roomId,
+      representativeMxid,
+      /*
+       * `this.sideRelationLookup` is a test seam ONLY: production leaves it unset and the read
+       * goes through the side's own credential below. It exists because the dispatch-order tests
+       * exercise what runs BEHIND the gate, and their minimal selves have no homeserver — the
+       * honest fixture is "the relation is proven", not "half the internet is stubbed".
+       */
+      memberLookup: this.sideRelationLookup ?? (async (rid, mxid) => {
+        let members;
+        try {
+          members = await joinedMembersOnSide({ ...acting, roomId: rid });
+        } catch (error) {
+          return { complete: false, reason: String(error?.message ?? error) };
+        }
+        if (members?.known !== true) {
+          /*
+           * The read itself failed (403/unreachable) — evidence is ABSENT, not empty. An absent
+           * read must stay retryable (room_relation_unavailable); treating it as "not joined"
+           * would turn a transient refusal into a terminal mismatch.
+           */
+          return { complete: false, reason: members?.reason || 'member read unknown' };
+        }
+        const chunk = Array.isArray(members?.members) ? members.members : [];
+        const hit = (chunk ?? []).find((m) => String(m?.user_id ?? m ?? '').trim() === mxid);
+        return { complete: true, membership: hit ? 'join' : 'leave' };
+      }),
+      });
+    } catch (relationError) {
+      if (relationError instanceof SideProvenanceError && !relationError.retryable) {
+        logProvenanceVerdict({
+          code: relationError.code, kind: 'terminal', provenance, sideId, roomId,
+          ref: event?.event_id ?? meta?.txnId,
+        });
+        return { rejected: relationError.code };
+      }
+      throw relationError;
+    }
+    /*
+     * ③ THE CLAIM KEY is computed and recorded BEFORE the typed path runs, so a rejected-later
+     * event cannot mint a claim and a crash between claim and typed execution still collapses
+     * the redelivery. Stored on the instance's provenance claim set (in-memory: the receiver's
+     * txn window and the typed paths' own dedup carry the persistent layers).
+     */
+    /*
+     * 16-impl-r2 A: the claim is computed but NOT recorded here — only COMPLETION of the typed
+     * path suppresses. The handleAppserviceEvents wrapper records in-flight before dispatch,
+     * awaits the typed result, and either completes the claim (success) or RELEASES it
+     * (failure/rethrow) so a redelivery re-enters the typed path. Concurrent duplicates await
+     * the same in-flight promise instead of executing twice.
+     */
+    /*
+     * 16-impl-r2: an event whose identity cannot be expressed (neither event_id nor a complete
+     * idless-invite tuple) is TERMINAL — it could never be deduplicated, so admitting it would
+     * break the exactly-once contract. Zero claim, zero typed.
+     */
+    let claimKey;
+    try {
+      claimKey = claimKeyFor({ registration: provenance.registration, roomId, event });
+    } catch (identityError) {
+      logProvenanceVerdict({ code: 'invalid_event_identity', kind: 'terminal', provenance, sideId, roomId, ref: meta?.txnId });
+      return { rejected: 'invalid_event_identity', detail: identityError?.message };
+    }
+    if (!this.sideProvenanceClaims) this.sideProvenanceClaims = new Map();
+    const existing = this.sideProvenanceClaims.get(claimKey);
+    if (existing?.state === 'completed') {
+      return { claimed: 'duplicate', claimKey };
+    }
+    if (existing?.state === 'inflight') {
+      return { claimed: 'inflight', claimKey, settled: existing.settled };
+    }
+    return { claimed: 'first', claimKey };
+  }
+
+  /**
+   * 16-impl-r2 A: run the typed path UNDER the claim's lifecycle. First entry marks the claim
+   * in-flight and executes; success COMPLETES it (bounded retention); a throw RELEASES it so the
+   * redelivery re-enters the typed path. Concurrent duplicates await the in-flight promise.
+   * IN-FLIGHT ENTRIES ARE NEVER EVICTED — only completed ones rotate out (N bound).
+   */
+  async executeTypedForClaim(claimKey, typedFn) {
+    if (!this.sideProvenanceClaims) this.sideProvenanceClaims = new Map();
+    if (!this.sideProvenanceClaimOrder) this.sideProvenanceClaimOrder = [];
+    const existing = this.sideProvenanceClaims.get(claimKey);
+    if (existing?.state === 'completed') return { duplicate: true, executed: false };
+    if (existing?.state === 'inflight') {
+      /*
+       * 16-impl-r3 A2: a concurrent delivery that observes the leader's FAILURE does not answer
+       * success — the event has not happened. It RE-ENTERS the typed path itself (the claim was
+       * released by the leader, so this becomes the new leader); if that also fails, the throw
+       * propagates and this batch is retried like any other.
+       */
+      const outcome = await existing.settled;
+      const after = this.sideProvenanceClaims.get(claimKey);
+      if (after?.state === 'completed') return { duplicate: true, executed: false };
+      if (outcome?.ok === false) {
+        return this.executeTypedForClaim(claimKey, typedFn); // re-enter as the new leader
+      }
+      return { duplicate: true, executed: false };
+    }
+    /*
+     * 16-impl-r3 A1: the in-flight signal NEVER REJECTS. A rejected promise nobody awaits is an
+     * unhandledRejection, and Node's default there terminates the process — a production crash
+     * hidden inside a retry path. The settle signal only records the outcome; the leader's own
+     * throw still propagates through its return path, and a follower that observes failure
+     * re-executes below (A2).
+     */
+    let settle;
+    const settled = new Promise((res) => { settle = res; });
+    this.sideProvenanceClaims.set(claimKey, { state: 'inflight', settled });
+    try {
+      const result = await typedFn();
+      this.sideProvenanceClaims.set(claimKey, { state: 'completed' });
+      this.sideProvenanceClaimOrder.push(claimKey);
+      while (this.sideProvenanceClaimOrder.length > 4096) {
+        const oldest = this.sideProvenanceClaimOrder.shift();
+        if (this.sideProvenanceClaims.get(oldest)?.state === 'completed') {
+          this.sideProvenanceClaims.delete(oldest);
+        }
+      }
+      settle({ ok: true, result });
+      return { duplicate: false, executed: true };
+    } catch (error) {
+      this.sideProvenanceClaims.delete(claimKey);
+      settle({ ok: false });
+      throw error;
+    }
+  }
+
   async handleAppserviceEvents(sideId, events, meta) {
     for (const event of events) {
       const roomId = event?.room_id;
@@ -4376,6 +4625,49 @@ export class MatrixBridge {
         continue;
       }
       try {
+        /*
+         * F06 L3 — THE PROVENANCE GATE, before any typed path and before any dedup claim.
+         * Fixed order (board release note): ①registration rechecked against the loaded registry
+         * snapshot (never a wiring-time closure), ②room relation proven for THIS registration's
+         * representative (membership=join or the first-invite bootstrap), ③dedup claim, ④typed
+         * path. A retryable verdict THROWS so the receiver answers 500 without completing the
+         * txn, the edge puller does not ack, and the sync collector holds its cursor — the same
+         * at-least-once channel F05/F08 already use.
+         */
+        const verdict = await this.assertSideProvenanceForEvent(sideId, roomId, event, meta);
+        if (verdict?.rejected) {
+          /*
+           * F06: a TERMINAL provenance rejection. Zero typed actions, zero claims; the loop
+           * continues so definitive garbage cannot hold the batch's valid events hostage.
+           */
+          continue;
+        }
+        if (verdict?.claimed === 'duplicate') {
+          /*
+           * F06: the logical event COMPLETED once (any mode, any txn). Coalesced here, before
+           * any typed path — mode is diagnostic, never identity.
+           */
+          continue;
+        }
+        if (verdict?.claimed === 'inflight') {
+          /*
+           * 16-impl-r2/r3 A: a concurrent delivery of the same logical event is executing. AWAIT
+           * its settle signal; on the leader's success this delivery is a satisfied duplicate, and
+           * on its failure THIS delivery re-enters the typed path as the new leader — never an
+           * early success for an event that did not happen.
+           */
+          const outcome = await verdict.settled;
+          const settled = this.sideProvenanceClaims?.get(verdict.claimKey);
+          if (settled?.state === 'completed') continue;
+          if (outcome?.ok === false) {
+            await this.executeTypedForClaim(verdict.claimKey, async () => {
+              if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
+              if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
+              else await this.onRoomEvent(roomId, event);
+            });
+          }
+          continue;
+        }
         if (event.type === 'm.room.encrypted') {
           /*
            * Named rather than dropped silently. ADR-016 settled that intake rooms are PLAINTEXT, and
@@ -4414,9 +4706,15 @@ export class MatrixBridge {
          * that swallowed them would have needed both re-implemented. So this runs beside the generic
          * path and the event still goes through it.
          */
-        if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
-        if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
-        else await this.onRoomEvent(roomId, event);
+        /*
+         * 16-impl-r2 A: the typed dispatch runs UNDER the claim — success completes it, a throw
+         * releases it (the redelivery re-enters the typed path) and propagates for the 500.
+         */
+        await this.executeTypedForClaim(verdict.claimKey, async () => {
+          if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
+          if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
+          else await this.onRoomEvent(roomId, event);
+        });
       } catch (error) {
         /*
          * Re-thrown, because the receiver turns a throw into a 500 and a 500 makes the homeserver
@@ -4605,7 +4903,7 @@ export class MatrixBridge {
     }
     const next = new Map();
     for (const side of Array.isArray(payload?.sides) ? payload.sides : []) {
-      if (side?.sideId) next.set(side.sideId, side);
+      if (side?.sideId) next.set(normalizeSideKey(side.sideId), side);
     }
     /*
      * A SIDE THAT WAS SERVED AND IS NOT ANY MORE has been removed on the backend, and this refresh is the
@@ -4781,7 +5079,14 @@ export class MatrixBridge {
     if (!this.appserviceRouter) return;
     let payload;
     try {
-      payload = await backendApi('GET', '/api/project-sides/inbound-credentials', null, 'context=bridge:appservice-sides');
+      /*
+       * `this.backendApiForSides` is a TEST SEAM ONLY (production leaves it unset and the real
+       * backendApi runs): the r2 refresh-sequence tests drive the two documented sequences —
+       * success→failure keeps the snapshot, success→empty unwires the receiver — through the
+       * REAL refresh, not by mutating the maps by hand.
+       */
+      const api = this.backendApiForSides ?? backendApi;
+      payload = await api('GET', '/api/project-sides/inbound-credentials', null, 'context=bridge:appservice-sides');
     } catch (error) {
       /*
        * The listener stays up with whatever it already had. Tearing sides down because the backend
@@ -4797,11 +5102,59 @@ export class MatrixBridge {
      * would, and the router deliberately does not hand tokens back out. Rebuilt on every refresh so a
      * replaced credential is picked up rather than remembered.
      */
-    this.appserviceSideTokens = new Map(sides.map((side) => [side.sideId, side.hsToken]));
-    this.appserviceRouter.setSides(sides.map((side) => ({
-      sideId: side.sideId,
+    /*
+     * 16-impl-r4 ⑤: EVERY production write keys the side through normalizeSideKey — the token
+     * map, the snapshot, the router entries — so a mixed-case id from the backend cannot miss
+     * the lowercase reads (actingSideFor, the L3 gate) that follow.
+     */
+    this.appserviceSideTokens = new Map(sides.map((side) => [normalizeSideKey(side.sideId), side.hsToken]));
+    /*
+     * F06: the last SUCCESSFULLY LOADED registry snapshot. The L3 gate rechecks registration
+     * membership against THIS on every event — a closure snapshot from wiring time would keep
+     * admitting a side the registry has since removed (spec: 'A side removed after
+     * authentication no longer admits its event'). A failed refresh (the catch above) leaves
+     * the previous snapshot in place: an unavailable registry is not an empty one.
+     */
+    /*
+     * 16-impl-r2: the snapshot MERGES the previous entry's recorded representative when the
+     * refreshed shape does not carry one (the inbound-credentials projection has no reason to
+     * repeat it every poll). Losing it here would turn every post-refresh event into a
+     * retryable relation_unavailable — the representative exists, the projection just omitted it.
+     */
+    const previousSnapshot = this.appserviceInboundSnapshot ?? new Map();
+    this.appserviceInboundSnapshot = new Map(sides.map((side) => [normalizeSideKey(side.sideId), {
+      ...side,
+      representative: side.representative ?? previousSnapshot.get(normalizeSideKey(side.sideId))?.representative ?? null,
+    }]));
+    /*
+     * 16-impl-r2 F: NO REGISTRATION FALLBACK. The identity comes from the backend's inbound shape
+     * (derived from the token digest, stable across restarts, never the token); a side without
+     * one is NOT wired — a fabricated id would let in-flight events borrow another
+     * registration's authority. Same key normalization everywhere (normalizeSideKey).
+     */
+    const wirable = sides.filter((side) => {
+      if (side.registration) return true;
+      console.warn(`[side-provenance] side ${side.sideId} carries no registration identity; not wiring its receiver`);
+      return false;
+    });
+    this.appserviceRouter.setSides(wirable.map((side) => ({
+      sideId: normalizeSideKey(side.sideId),
       hsToken: side.hsToken,
-      onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, meta),
+      onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, {
+        ...meta,
+        /*
+         * F06: provenance is attached HERE, at the bridge-owned adapter boundary, outside the event
+         * body. `registration` is the non-secret identity of the credential this sideId selects in
+         * THIS instance (ruling C); `mode` is filled per intake adapter below — the shared receiver
+         * contract carries it through unchanged. The bridge never re-derives a side from sender
+         * suffixes, room names, or headers; this object is the only origin that counts.
+         */
+        provenance: buildSideProvenance({
+          registration: side.registration,
+          sideId: side.sideId,
+          mode: meta?.mode ?? 'push',
+        }),
+      }),
       onUserQuery: async (userId) => Boolean(findCaseInsensitiveKey(state.agentTokens || {}, String(userId))) || String(userId).startsWith(`@${AGENT_PREFIX}`),
     })));
     const ids = this.appserviceRouter.sideIds();
@@ -4870,7 +5223,7 @@ export class MatrixBridge {
         url: edge.url,
         token: edge.token,
         router: this.appserviceRouter,
-        hsTokenFor: () => this.appserviceSideTokens?.get(edge.side) ?? null,
+        hsTokenFor: () => this.appserviceSideTokens?.get(normalizeSideKey(edge.side)) ?? null,
       });
       console.log(`[appservice] collecting from a co-located edge at ${edge.url} for side ${edge.side}`);
     }
@@ -4897,7 +5250,7 @@ export class MatrixBridge {
            * the router an empty string here, took 403 eight times and circuit-broke — the fake
            * homeserver tests never saw it because they supplied hsToken directly.
            */
-          const hsToken = this.appserviceSideTokens?.get?.(sync.side) ?? null;
+          const hsToken = this.appserviceSideTokens?.get?.(normalizeSideKey(sync.side)) ?? null;
           if (!hsToken) return null;
           return { ...cred, hsToken };
         },
