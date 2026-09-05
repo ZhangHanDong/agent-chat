@@ -9169,6 +9169,14 @@ app.get('/api/project-sides/inbound-credentials', requireApprovalBridgeSecret, (
             senderLocalpart: credential.senderLocalpart,
             namespace: credential.namespace,
             hsToken: credential.hsToken,
+            /*
+             * F06 (16-impl-r2 F): the STABLE NON-SECRET registration identity. Derived from the
+             * hs_token's digest so rotating the credential rotates the identity (an in-flight
+             * receiver holding the old identity then fails the consistency check terminally),
+             * while a restart with the same token derives the same id. Never the token itself,
+             * nor any longer fragment of it.
+             */
+            registration: `${side.id}@${createHash('sha256').update(credential.hsToken).digest('hex').slice(0, 8)}`,
           }
           : null;
       })

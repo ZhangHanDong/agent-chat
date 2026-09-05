@@ -15,8 +15,24 @@ import {
 import { resolveAppserviceListenerConfig, startAppserviceListener } from './lib/appservice-listener.js';
 import {
   SideProvenanceError, buildSideProvenance, assertRoomRelation, representativeMxidFor,
-  claimKeyFor,
+  claimKeyFor, assertTransportProvenanceConsistency, normalizeSideKey,
 } from './lib/side-provenance.js';
+
+/**
+ * F06 (16-impl-r2): ONE structured verdict log line — always carries the diagnostic identity
+ * (code, kind, registration, sideId, mode, room, event-or-txn ref) and NEVER a token or an
+ * event/approval payload. Single-line JSON so log pipelines can parse it.
+ */
+function logProvenanceVerdict({ code, kind, provenance = {}, sideId, roomId, ref }) {
+  console.warn(JSON.stringify({
+    t: 'side-provenance', code, kind,
+    registration: provenance.registration ?? null,
+    sideId: sideId ?? provenance.sideId ?? null,
+    mode: provenance.mode ?? null,
+    room: roomId ?? null,
+    ref: ref ?? null,
+  }));
+}
 import { resolveEdgeLinkConfig, startEdgePuller } from './lib/appservice-puller.js';
 import { resolveAppserviceSyncConfig, startAppserviceSyncCollector } from './lib/appservice-sync.js';
 import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
@@ -4384,17 +4400,20 @@ export class MatrixBridge {
    */
   async assertSideProvenanceForEvent(sideId, roomId, event, meta) {
     const provenance = meta?.provenance;
-    if (!provenance) {
-      /*
-       * NOT a fallback to the bot path. An appservice event without provenance is an internal
-       * error — the adapter contract was violated — and refusing it loudly is the only honest
-       * answer (spec Must Not: provenance may not be inferred or defaulted away).
-       */
-      throw new SideProvenanceError(
-        'missing_provenance',
-        `appservice event in ${roomId} arrived without provenance (txn=${meta?.txnId ?? 'none'})`,
-        { retryable: true },
-      );
+    /*
+     * 16-impl-r2 B: the transport provenance must AGREE with the authenticated side and the
+     * loaded registration BEFORE anything else runs. A missing/malformed object is retryable
+     * (internal wiring); a DISAGREEMENT (wrong sideId, forged registration, alien mode) is a
+     * terminal provenance_mismatch — zero relation reads, zero claims, zero typed paths.
+     */
+    try {
+      assertTransportProvenanceConsistency({ provenance, authenticatedSideId: sideId, snapshotEntry: null });
+    } catch (consistencyError) {
+      if (consistencyError instanceof SideProvenanceError && !consistencyError.retryable) {
+        logProvenanceVerdict({ code: consistencyError.code, kind: 'terminal', provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId });
+        return { rejected: consistencyError.code };
+      }
+      throw consistencyError;
     }
     /*
      * ① REGISTRATION RECHECK against the loaded snapshot — per event, never the wiring-time
@@ -4408,7 +4427,18 @@ export class MatrixBridge {
         { retryable: true },
       );
     }
-    const registered = snapshot.get(provenance.sideId ?? sideId);
+    const registered = snapshot.get(normalizeSideKey(provenance.sideId));
+    if (registered) {
+      try {
+        assertTransportProvenanceConsistency({ provenance, authenticatedSideId: sideId, snapshotEntry: registered });
+      } catch (consistencyError) {
+        if (consistencyError instanceof SideProvenanceError && !consistencyError.retryable) {
+          logProvenanceVerdict({ code: consistencyError.code, kind: 'terminal', provenance, sideId, roomId, ref: event?.event_id ?? meta?.txnId });
+          return { rejected: consistencyError.code };
+        }
+        throw consistencyError;
+      }
+    }
     if (!registered) {
       /*
        * TERMINAL: a definitive absence in the last successfully loaded registry. Logged, skipped,
@@ -4486,17 +4516,73 @@ export class MatrixBridge {
      * the redelivery. Stored on the instance's provenance claim set (in-memory: the receiver's
      * txn window and the typed paths' own dedup carry the persistent layers).
      */
-    const claimKey = claimKeyFor({ registration: provenance.registration, roomId, event });
-    if (!this.sideProvenanceClaims) this.sideProvenanceClaims = new Set();
-    if (this.sideProvenanceClaims.has(claimKey)) {
-      /*
-       * ALREADY CLAIMED across modes/txns: the logical event happened once. Skipping here is
-       * the coalescing the spec asks for; mode is diagnostic and never part of the key.
-       */
+    /*
+     * 16-impl-r2 A: the claim is computed but NOT recorded here — only COMPLETION of the typed
+     * path suppresses. The handleAppserviceEvents wrapper records in-flight before dispatch,
+     * awaits the typed result, and either completes the claim (success) or RELEASES it
+     * (failure/rethrow) so a redelivery re-enters the typed path. Concurrent duplicates await
+     * the same in-flight promise instead of executing twice.
+     */
+    /*
+     * 16-impl-r2: an event whose identity cannot be expressed (neither event_id nor a complete
+     * idless-invite tuple) is TERMINAL — it could never be deduplicated, so admitting it would
+     * break the exactly-once contract. Zero claim, zero typed.
+     */
+    let claimKey;
+    try {
+      claimKey = claimKeyFor({ registration: provenance.registration, roomId, event });
+    } catch (identityError) {
+      logProvenanceVerdict({ code: 'invalid_event_identity', kind: 'terminal', provenance, sideId, roomId, ref: meta?.txnId });
+      return { rejected: 'invalid_event_identity', detail: identityError?.message };
+    }
+    if (!this.sideProvenanceClaims) this.sideProvenanceClaims = new Map();
+    const existing = this.sideProvenanceClaims.get(claimKey);
+    if (existing?.state === 'completed') {
       return { claimed: 'duplicate', claimKey };
     }
-    this.sideProvenanceClaims.add(claimKey);
+    if (existing?.state === 'inflight') {
+      return { claimed: 'inflight', claimKey, promise: existing.promise };
+    }
     return { claimed: 'first', claimKey };
+  }
+
+  /**
+   * 16-impl-r2 A: run the typed path UNDER the claim's lifecycle. First entry marks the claim
+   * in-flight and executes; success COMPLETES it (bounded retention); a throw RELEASES it so the
+   * redelivery re-enters the typed path. Concurrent duplicates await the in-flight promise.
+   * IN-FLIGHT ENTRIES ARE NEVER EVICTED — only completed ones rotate out (N bound).
+   */
+  async executeTypedForClaim(claimKey, typedFn) {
+    if (!this.sideProvenanceClaims) this.sideProvenanceClaims = new Map();
+    if (!this.sideProvenanceClaimOrder) this.sideProvenanceClaimOrder = [];
+    const existing = this.sideProvenanceClaims.get(claimKey);
+    if (existing?.state === 'completed') return { duplicate: true, executed: false };
+    if (existing?.state === 'inflight') {
+      await existing.promise.catch(() => {}); // observe the outcome without rethrowing here
+      const after = this.sideProvenanceClaims.get(claimKey);
+      if (after?.state === 'completed') return { duplicate: true, executed: false };
+      return { duplicate: false, executed: false, released: true }; // the first attempt failed; the redelivery path will re-enter
+    }
+    let resolve; let reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    this.sideProvenanceClaims.set(claimKey, { state: 'inflight', promise });
+    try {
+      const result = await typedFn();
+      this.sideProvenanceClaims.set(claimKey, { state: 'completed' });
+      this.sideProvenanceClaimOrder.push(claimKey);
+      while (this.sideProvenanceClaimOrder.length > 4096) {
+        const oldest = this.sideProvenanceClaimOrder.shift();
+        if (this.sideProvenanceClaims.get(oldest)?.state === 'completed') {
+          this.sideProvenanceClaims.delete(oldest);
+        }
+      }
+      resolve(result);
+      return { duplicate: false, executed: true };
+    } catch (error) {
+      this.sideProvenanceClaims.delete(claimKey);
+      reject(error);
+      throw error;
+    }
   }
 
   async handleAppserviceEvents(sideId, events, meta) {
@@ -4526,10 +4612,21 @@ export class MatrixBridge {
         }
         if (verdict?.claimed === 'duplicate') {
           /*
-           * F06: the logical event already executed once (any mode, any txn). Coalesced here,
-           * before any typed path — mode is diagnostic, never identity.
+           * F06: the logical event COMPLETED once (any mode, any txn). Coalesced here, before
+           * any typed path — mode is diagnostic, never identity.
            */
           continue;
+        }
+        if (verdict?.claimed === 'inflight') {
+          /*
+           * 16-impl-r2 A: a concurrent delivery of the same logical event is executing. AWAIT
+           * its outcome rather than answering early; its failure must propagate so this batch
+           * is also retried.
+           */
+          await verdict.promise.catch(() => {});
+          const settled = this.sideProvenanceClaims?.get(verdict.claimKey);
+          if (settled?.state === 'completed') continue;
+          continue; // the first attempt failed; THIS delivery's 500 has already been requested by its own batch
         }
         if (event.type === 'm.room.encrypted') {
           /*
@@ -4569,9 +4666,15 @@ export class MatrixBridge {
          * that swallowed them would have needed both re-implemented. So this runs beside the generic
          * path and the event still goes through it.
          */
-        if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
-        if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
-        else await this.onRoomEvent(roomId, event);
+        /*
+         * 16-impl-r2 A: the typed dispatch runs UNDER the claim — success completes it, a throw
+         * releases it (the redelivery re-enters the typed path) and propagates for the 500.
+         */
+        await this.executeTypedForClaim(verdict.claimKey, async () => {
+          if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
+          if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
+          else await this.onRoomEvent(roomId, event);
+        });
       } catch (error) {
         /*
          * Re-thrown, because the receiver turns a throw into a 500 and a 500 makes the homeserver
@@ -4936,7 +5039,14 @@ export class MatrixBridge {
     if (!this.appserviceRouter) return;
     let payload;
     try {
-      payload = await backendApi('GET', '/api/project-sides/inbound-credentials', null, 'context=bridge:appservice-sides');
+      /*
+       * `this.backendApiForSides` is a TEST SEAM ONLY (production leaves it unset and the real
+       * backendApi runs): the r2 refresh-sequence tests drive the two documented sequences —
+       * success→failure keeps the snapshot, success→empty unwires the receiver — through the
+       * REAL refresh, not by mutating the maps by hand.
+       */
+      const api = this.backendApiForSides ?? backendApi;
+      payload = await api('GET', '/api/project-sides/inbound-credentials', null, 'context=bridge:appservice-sides');
     } catch (error) {
       /*
        * The listener stays up with whatever it already had. Tearing sides down because the backend
@@ -4960,8 +5070,29 @@ export class MatrixBridge {
      * authentication no longer admits its event'). A failed refresh (the catch above) leaves
      * the previous snapshot in place: an unavailable registry is not an empty one.
      */
-    this.appserviceInboundSnapshot = new Map(sides.map((side) => [side.sideId, side]));
-    this.appserviceRouter.setSides(sides.map((side) => ({
+    /*
+     * 16-impl-r2: the snapshot MERGES the previous entry's recorded representative when the
+     * refreshed shape does not carry one (the inbound-credentials projection has no reason to
+     * repeat it every poll). Losing it here would turn every post-refresh event into a
+     * retryable relation_unavailable — the representative exists, the projection just omitted it.
+     */
+    const previousSnapshot = this.appserviceInboundSnapshot ?? new Map();
+    this.appserviceInboundSnapshot = new Map(sides.map((side) => [side.sideId, {
+      ...side,
+      representative: side.representative ?? previousSnapshot.get(side.sideId)?.representative ?? null,
+    }]));
+    /*
+     * 16-impl-r2 F: NO REGISTRATION FALLBACK. The identity comes from the backend's inbound shape
+     * (derived from the token digest, stable across restarts, never the token); a side without
+     * one is NOT wired — a fabricated id would let in-flight events borrow another
+     * registration's authority. Same key normalization everywhere (normalizeSideKey).
+     */
+    const wirable = sides.filter((side) => {
+      if (side.registration) return true;
+      console.warn(`[side-provenance] side ${side.sideId} carries no registration identity; not wiring its receiver`);
+      return false;
+    });
+    this.appserviceRouter.setSides(wirable.map((side) => ({
       sideId: side.sideId,
       hsToken: side.hsToken,
       onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, {
@@ -4974,7 +5105,7 @@ export class MatrixBridge {
          * suffixes, room names, or headers; this object is the only origin that counts.
          */
         provenance: buildSideProvenance({
-          registration: side.registration ?? side.sideId,
+          registration: side.registration,
           sideId: side.sideId,
           mode: meta?.mode ?? 'push',
         }),

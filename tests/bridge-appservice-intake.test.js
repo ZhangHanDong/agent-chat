@@ -93,7 +93,8 @@ function withProvenanceGate(base, { registration = 'reg-test' } = {}) {
   base.appserviceInboundSnapshot.get = (id) => ({
     sideId: id, serverName: id, registration, representative: { mxid: '@hafleet:palpo.test' },
   });
-  base.sideProvenanceClaims = new Set();
+  base.sideProvenanceClaims = new Map();
+  base.sideProvenanceClaimOrder = [];
   base.actingSideFor = base.actingSideFor ?? (() => null);
   /*
    * Test seam (bridge honours it only when set): the relation is PROVEN for these dispatch
@@ -102,6 +103,7 @@ function withProvenanceGate(base, { registration = 'reg-test' } = {}) {
   base.sideRelationLookup = async () => ({ complete: true, membership: 'join' });
   // the REAL gate, bound to the fixture (so dispatch tests run behind the real order)
   base.assertSideProvenanceForEvent = bridgeModule.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(base);
+  base.executeTypedForClaim = bridgeModule.MatrixBridge.prototype.executeTypedForClaim.bind(base);
   return base;
 }
 
@@ -245,7 +247,7 @@ describe('which project sides the bridge serves', () => {
     backendCalls = [];
     backendReply = () => [200, {
       ok: true,
-      sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000' }],
+      sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000', registration: 'a.example@deadbeef' }],
     }];
     const self = { appserviceRouter: createAppserviceRouter() };
     await bridgeModule.MatrixBridge.prototype.refreshAppserviceSides.call(self);
@@ -263,7 +265,7 @@ describe('which project sides the bridge serves', () => {
      * broken party. The listener keeps serving what it already had.
      */
     backendReply = () => [200, {
-      ok: true, sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000' }],
+      ok: true, sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000', registration: 'a.example@deadbeef' }],
     }];
     const self = { appserviceRouter: createAppserviceRouter() };
     await bridgeModule.MatrixBridge.prototype.refreshAppserviceSides.call(self);
