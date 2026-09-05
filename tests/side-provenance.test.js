@@ -89,6 +89,96 @@ async function pushTxn(router, { hsToken, txnId = 't1', events, mode }) {
 const msg = (roomId, eventId, body = 'hello', sender = '@human:palpo.test') => ({
   type: 'm.room.message', room_id: roomId, event_id: eventId, sender, content: { msgtype: 'm.text', body },
 });
+
+describe('16-impl-r9 sync invite bootstrap ordering', () => {
+  test('r9_real_collector_joins_before_same_batch_state_and_commits_cursor', async () => {
+    const roomId = '!r9-fresh:palpo.test';
+    const palpo = await fakePalpo({
+      syncBatches: [{
+        next_batch: 'r9-good',
+        rooms: { invite: { [roomId]: { invite_state: { events: [
+          { type: 'm.room.create', state_key: '', sender: '@alex:palpo.test', content: { creator: '@alex:palpo.test' } },
+          { type: 'm.room.name', state_key: '', sender: '@alex:palpo.test', content: { name: 'fresh' } },
+          { type: 'm.room.member', state_key: REP, sender: '@alex:palpo.test', content: { membership: 'invite' } },
+        ] } } } },
+      }],
+    });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    const { joinRoomOnSideAsRepresentative } = await import('../lib/matrix-representative.js');
+    const realFetch = globalThis.fetch;
+    let joined = false;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('/join/') && String(url).includes(encodeURIComponent(roomId))) {
+        palpo.setMembers(roomId, [REP]);
+        joined = true;
+      }
+      return realFetch(url, init);
+    };
+    cleanup.push(() => { globalThis.fetch = realFetch; });
+    self.onAppserviceMembership = async (sideId, incomingRoomId, event) => {
+      typed.memberships.push({ sideId, roomId: incomingRoomId, event });
+      const result = await joinRoomOnSideAsRepresentative({ ...self.actingSideFor(sideId), roomId: incomingRoomId });
+      expect(result.joined).toBe(true);
+    };
+    let cursor = 'r9-before';
+    const collector = startAppserviceSyncCollector({
+      baseUrl: palpo.url, side: SIDE, router: self.router,
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      readCursor: () => cursor, writeCursor: async (next) => { cursor = next; },
+      fetchImpl: async (url) => String(url).endsWith('/login')
+        ? { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: REP }) }
+        : fetch(url),
+      sleep: async () => {}, shouldContinue: () => cursor !== 'r9-good',
+    });
+    await collector.loop;
+    expect(joined).toBe(true);
+    expect(typed.memberships).toHaveLength(1);
+    expect(collector.stats.failed).toBe(0);
+    expect(cursor).toBe('r9-good');
+  });
+
+  test('r9_forbidden_room_is_terminal_without_poisoning_healthy_sibling', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    const response = await pushTxn(self.router, { hsToken: HS, txnId: 'r9-mixed', events: [
+      msg('!forbidden:palpo.test', '$r9-bad'), msg(ROOM, '$r9-good'),
+    ] });
+    expect(response.status).toBe(200);
+    expect(typed.messages.map(({ event }) => event.event_id)).toEqual(['$r9-good']);
+  });
+
+  test('r9_member_read_5xx_retries_without_advancing_sync_cursor', async () => {
+    const roomId = '!r9-flaky:palpo.test';
+    const eventBatch = {
+      next_batch: 'r9-flaky',
+      rooms: { join: { [roomId]: { timeline: { events: [msg(roomId, '$r9-flaky')] }, state: { events: [] } } } },
+    };
+    const palpo = await fakePalpo({
+      members: { [roomId]: [REP] }, memberFailures: { [roomId]: 500 },
+      syncBatches: [eventBatch, eventBatch, eventBatch],
+    });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    let cursor = 'r9-before';
+    let polls = 0;
+    const collector = startAppserviceSyncCollector({
+      baseUrl: palpo.url, side: SIDE, router: self.router,
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      readCursor: () => cursor, writeCursor: async (next) => { cursor = next; },
+      fetchImpl: (url) => fetch(url), sleep: async () => {},
+      shouldContinue: () => ++polls <= 3,
+    });
+    await collector.loop;
+    expect(collector.stats.failed).toBe(3);
+    expect(cursor).toBe('r9-before');
+    expect(typed.messages).toHaveLength(0);
+  });
+});
 const nameEvt = (roomId, eventId, name) => ({
   type: 'm.room.name', room_id: roomId, event_id: eventId, state_key: '', sender: '@human:palpo.test',
   content: { name },
@@ -247,8 +337,8 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
   });
 
   test('side_provenance_relation_unavailable_retries_before_three_typed_paths', async () => {
-    // member read fails (404 from fake palpo for unknown room shape) → room_relation_unavailable
-    const palpo = await fakePalpo({ members: {} });
+    // 5xx membership read → room_relation_unavailable (403 is terminal since r9)
+    const palpo = await fakePalpo({ members: {}, memberFailures: { [ROOM]: 500 } });
     const { self, typed } = await makeBridgeWithSide({
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
@@ -256,6 +346,7 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     expect(r.status).toBe(500);
     expect(typed.messages).toHaveLength(0);
     // recover: members now complete with the representative joined → replay admits once
+    palpo.clearMemberFailure(ROOM);
     palpo.setMembers(ROOM, [REP]);
     const r2 = await pushTxn(self.router, { hsToken: HS, txnId: 't2', events: [msg(ROOM, '$2')] });
     expect(r2.status).toBe(200);
@@ -379,7 +470,7 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
   });
 
   test('side_provenance_failed_delivery_keeps_claim_and_cursor_retryable', async () => {
-    const palpo = await fakePalpo({ members: {} }); // no member evidence for ROOM → unavailable
+    const palpo = await fakePalpo({ members: {}, memberFailures: { [ROOM]: 500 } });
     const { self, typed } = await makeBridgeWithSide({
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
@@ -390,7 +481,9 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
   });
 
   test('side_provenance_mixed_batch_relation_failure_prevents_ack_and_cursor', async () => {
-    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const palpo = await fakePalpo({
+      members: { [ROOM]: [REP] }, memberFailures: { '!unknown:palpo.test': 500 },
+    });
     const { self, typed } = await makeBridgeWithSide({
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
@@ -465,12 +558,11 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     const inv2 = { type: 'm.room.member', room_id: ROOM, state_key: '@someone-else:palpo.test', sender: '@a:palpo.test', content: { membership: 'invite' }, unsigned: { invite_room_state: [{ type: 'm.room.join_rules', state_key: '', content: { join_rule: 'knock' } }] } };
     /*
      * inv1 is the bootstrap for OUR representative (admitted). inv2 targets someone else: not a
-     * bootstrap, and the room has no member evidence at all → room_relation_unavailable, which is
-     * RETRYABLE — the whole batch answers 500 with zero typed calls, so the distinct invitation
-     * facts never collapse into one claim.
+     * bootstrap, and the room's M_FORBIDDEN member read is a terminal mismatch. The first fact
+     * executes and the second is skipped without collapsing into the first claim.
      */
     const r = await pushTxn(self.router, { hsToken: HS, txnId: 't1', events: [inv1, inv2] });
-    expect(r.status).toBe(500);
+    expect(r.status).toBe(200);
     /*
      * AT-LEAST-ONCE, per-event: inv1 (the bootstrap) already executed when inv2's unavailable
      * relation throws — a retry redelivers the batch, the claim absorbs inv1, and inv2 stays
@@ -739,11 +831,10 @@ describe('16-impl-r2 E: two REAL instances from makeInstance (isolated runtime/s
     expect(rsb.status).toBe(200);
     expect(A.typed.messages).toHaveLength(2);
     expect(B.typed.messages).toHaveLength(1); // B's representative not joined → terminal for B
-    // A LEAVES: the evidence for A's membership is gone (403 on read), A's later events are
-    // retryable-unavailable; B is untouched by A's departure
+    // A LEAVES: M_FORBIDDEN is definitive and isolated; B is untouched by A's departure.
     palpo.memberState.delete('!shared:palpo.test');
     const rsa2 = await pushTxn(A.router, { hsToken: 'hsA', txnId: 'sa2', events: [msg('!shared:palpo.test', '$sa2')] });
-    expect(rsa2.status).toBe(500);            // evidence absent → retryable, no cursor advance
+    expect(rsa2.status).toBe(200);            // terminal room mismatch does not poison the batch
     expect(B.typed.messages).toHaveLength(1); // B untouched by A's departure
   });
 });
@@ -1165,8 +1256,7 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
         body: JSON.stringify({ events: [msg('!s:palpo.test', '$sb')] }),
       });
       expect(rB.status).toBe(200);
-      // A LEAVES: evidence vanishes; A's post-leave edge delivery FAILS (router 500) and the
-      // puller must NOT ack it ok — an ok ack for an unprocessed batch would be the data-loss bug.
+      // A LEAVES: M_FORBIDDEN is terminal for this room, so the edge batch is safely consumed.
       palpo.memberState.delete('!s:palpo.test');
       edgeGateOpen = true; // only now may the fake edge serve the second (doomed) batch
       const tAck2 = Date.now();
@@ -1174,12 +1264,10 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
         await new Promise((r) => setTimeout(r, 25));
       }
       /*
-       * The DOOMED batch's own ack, exact: e4-a2 was NOT processed (relation evidence absent →
-       * the router answered 500), so the puller acked it ok:false — the edge keeps it queued and
-       * redelivers. Idle polls may ack ok in between; only this txn's verdict matters.
+       * The event is terminally rejected before typed dispatch, but the batch itself completed.
        */
       const doomedAck = ackBodies.find((a) => a?.txn_id === 'e4-a2');
-      expect(doomedAck).toEqual({ txn_id: 'e4-a2', ok: false });
+      expect(doomedAck).toEqual({ txn_id: 'e4-a2', ok: true });
       // B keeps serving its own room after A's departure
       const rB2 = await fetch(`http://127.0.0.1:${lb.port}/_matrix/app/v1/transactions/sb2`, {
         method: 'PUT', headers: { authorization: 'Bearer hs5B', 'Content-Type': 'application/json' },
@@ -1487,7 +1575,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       verdict: 'terminal',                        // every fixture rejected, batch 200
     },
     side_provenance_relation_unavailable_retries_before_three_typed_paths: {
-      members: {},                                 // no evidence at all → retryable
+      members: {}, memberFailures: { [ROOM]: 500 },
       events: () => [msg(ROOM, '$ru1')],
       verdict: 'retryable',
     },
@@ -1539,12 +1627,13 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       verdict: 'partial',                          // bad terminal-skipped; good admitted
     },
     side_provenance_failed_delivery_keeps_claim_and_cursor_retryable: {
-      members: {},                                 // relation unavailable → retryable
+      members: {}, memberFailures: { [ROOM]: 500 },
       events: () => [msg(ROOM, '$fd1')],
       verdict: 'retryable',
     },
     side_provenance_mixed_batch_relation_failure_prevents_ack_and_cursor: {
       members: { [ROOM]: [REP] },
+      memberFailures: { '!unknown:palpo.test': 500 },
       events: () => [msg('!unknown:palpo.test', '$mx-u'), msg(ROOM, '$mx-g')],
       verdict: 'retryable',                        // one unavailable → whole batch 500
     },
@@ -1587,7 +1676,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       // room has no membership evidence → retryable-unavailable for it, so the batch 500s with
       // the first event already executed (at-least-once). The scenario's Then — the two facts do
       // not collapse — is asserted by the push-basis test's claim-identity checks.
-      verdict: 'retryable',
+      verdict: 'partial',
       allowPartialExecution: true,                 // per-event at-least-once: the first executes
     },
     side_provenance_rejection_logs_omit_tokens_and_approval_payloads: {
@@ -1604,7 +1693,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
     for (const [title, fx] of Object.entries(SCENARIO_FIXTURES)) {
       if (fx.na) { naTitles.push(title); continue; }   // recorded, never silently skipped
       for (const mode of ['edge', 'sync']) {
-        const palpo = await fakePalpo({ members: fx.members });
+        const palpo = await fakePalpo({ members: fx.members, memberFailures: fx.memberFailures });
         const { self, typed } = await makeBridgeWithSide({
           sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
         });
