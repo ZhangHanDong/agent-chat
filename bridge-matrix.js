@@ -4541,7 +4541,7 @@ export class MatrixBridge {
       return { claimed: 'duplicate', claimKey };
     }
     if (existing?.state === 'inflight') {
-      return { claimed: 'inflight', claimKey, promise: existing.promise };
+      return { claimed: 'inflight', claimKey, settled: existing.settled };
     }
     return { claimed: 'first', claimKey };
   }
@@ -4558,14 +4558,30 @@ export class MatrixBridge {
     const existing = this.sideProvenanceClaims.get(claimKey);
     if (existing?.state === 'completed') return { duplicate: true, executed: false };
     if (existing?.state === 'inflight') {
-      await existing.promise.catch(() => {}); // observe the outcome without rethrowing here
+      /*
+       * 16-impl-r3 A2: a concurrent delivery that observes the leader's FAILURE does not answer
+       * success — the event has not happened. It RE-ENTERS the typed path itself (the claim was
+       * released by the leader, so this becomes the new leader); if that also fails, the throw
+       * propagates and this batch is retried like any other.
+       */
+      const outcome = await existing.settled;
       const after = this.sideProvenanceClaims.get(claimKey);
       if (after?.state === 'completed') return { duplicate: true, executed: false };
-      return { duplicate: false, executed: false, released: true }; // the first attempt failed; the redelivery path will re-enter
+      if (outcome?.ok === false) {
+        return this.executeTypedForClaim(claimKey, typedFn); // re-enter as the new leader
+      }
+      return { duplicate: true, executed: false };
     }
-    let resolve; let reject;
-    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-    this.sideProvenanceClaims.set(claimKey, { state: 'inflight', promise });
+    /*
+     * 16-impl-r3 A1: the in-flight signal NEVER REJECTS. A rejected promise nobody awaits is an
+     * unhandledRejection, and Node's default there terminates the process — a production crash
+     * hidden inside a retry path. The settle signal only records the outcome; the leader's own
+     * throw still propagates through its return path, and a follower that observes failure
+     * re-executes below (A2).
+     */
+    let settle;
+    const settled = new Promise((res) => { settle = res; });
+    this.sideProvenanceClaims.set(claimKey, { state: 'inflight', settled });
     try {
       const result = await typedFn();
       this.sideProvenanceClaims.set(claimKey, { state: 'completed' });
@@ -4576,11 +4592,11 @@ export class MatrixBridge {
           this.sideProvenanceClaims.delete(oldest);
         }
       }
-      resolve(result);
+      settle({ ok: true, result });
       return { duplicate: false, executed: true };
     } catch (error) {
       this.sideProvenanceClaims.delete(claimKey);
-      reject(error);
+      settle({ ok: false });
       throw error;
     }
   }
@@ -4619,14 +4635,22 @@ export class MatrixBridge {
         }
         if (verdict?.claimed === 'inflight') {
           /*
-           * 16-impl-r2 A: a concurrent delivery of the same logical event is executing. AWAIT
-           * its outcome rather than answering early; its failure must propagate so this batch
-           * is also retried.
+           * 16-impl-r2/r3 A: a concurrent delivery of the same logical event is executing. AWAIT
+           * its settle signal; on the leader's success this delivery is a satisfied duplicate, and
+           * on its failure THIS delivery re-enters the typed path as the new leader — never an
+           * early success for an event that did not happen.
            */
-          await verdict.promise.catch(() => {});
+          const outcome = await verdict.settled;
           const settled = this.sideProvenanceClaims?.get(verdict.claimKey);
           if (settled?.state === 'completed') continue;
-          continue; // the first attempt failed; THIS delivery's 500 has already been requested by its own batch
+          if (outcome?.ok === false) {
+            await this.executeTypedForClaim(verdict.claimKey, async () => {
+              if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
+              if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
+              else await this.onRoomEvent(roomId, event);
+            });
+          }
+          continue;
         }
         if (event.type === 'm.room.encrypted') {
           /*

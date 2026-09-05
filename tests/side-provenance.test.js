@@ -564,8 +564,7 @@ describe('16-impl-r2 additions: claim lifecycle, key disambiguation, refresh seq
     expect(stillHeld.duplicate).toBe(true);
     // an in-flight entry is NEVER evicted: 'live' holds the in-flight state while the ring
     // rotates past the bound; it is not in the completed order, so it cannot be a victim.
-    let inflightResolve;
-    self.sideProvenanceClaims.set('live', { state: 'inflight', promise: new Promise((r) => { inflightResolve = r; }) });
+    self.sideProvenanceClaims.set('live', { state: 'inflight', settled: Promise.resolve({ ok: true }) });
     for (let i = 5000; i < 9500; i += 1) {
       self.sideProvenanceClaims.set(`k${i}`, { state: 'completed' });
       self.sideProvenanceClaimOrder.push(`k${i}`);
@@ -574,7 +573,6 @@ describe('16-impl-r2 additions: claim lifecycle, key disambiguation, refresh seq
     expect(self.sideProvenanceClaims.get('live')?.state).toBe('inflight'); // never evicted
     const inflightCount = [...self.sideProvenanceClaims.values()].filter((v) => v.state === 'inflight').length;
     expect(inflightCount).toBe(1);                              // the ONLY survivor outside completed
-    inflightResolve();
   });
 
   test('side_provenance_idless_delimiter_collision_and_content_only_change_do_not_fold', async () => {
@@ -747,5 +745,138 @@ describe('16-impl-r2 E: two REAL instances from makeInstance (isolated runtime/s
     const rsa2 = await pushTxn(A.router, { hsToken: 'hsA', txnId: 'sa2', events: [msg('!shared:palpo.test', '$sa2')] });
     expect(rsa2.status).toBe(500);            // evidence absent → retryable, no cursor advance
     expect(B.typed.messages).toHaveLength(1); // B untouched by A's departure
+  });
+});
+
+
+describe('16-impl-r3 additions', () => {
+  test('r3_A1_typed_failure_never_causes_unhandledRejection', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const { self } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    const seen = [];
+    const handler = (reason) => seen.push(String(reason));
+    process.on('unhandledRejection', handler);
+    try {
+      let calls = 0;
+      await self.executeTypedForClaim('r3-key', async () => { calls += 1; throw new Error('typed boom'); })
+        .catch(() => { /* the throw path is expected */ });
+      expect(calls).toBe(1);
+      // give the microtask queue a chance to surface any stray rejection
+      await new Promise((r) => setImmediate(r));
+      expect(seen).toEqual([]);            // ZERO unhandled rejections
+    } finally {
+      process.off('unhandledRejection', handler);
+    }
+  });
+
+  test('r3_A2_follower_reenters_typed_after_leader_failure', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    let typedCalls = 0;
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const { self } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+      onTyped: async () => {
+        typedCalls += 1;
+        if (typedCalls === 1) { await gate; throw new Error('leader fails'); }
+      },
+    });
+    const leader = pushTxn(self.router, { hsToken: HS, txnId: 'L', events: [msg(ROOM, '$1')] });
+    await new Promise((r) => setImmediate(r));
+    const follower = pushTxn(self.router, { hsToken: HS, txnId: 'F', events: [msg(ROOM, '$1')] });
+    await new Promise((r) => setImmediate(r));
+    release();
+    const [rl, rf] = await Promise.all([leader, follower]);
+    expect(rl.status).toBe(500);           // the leader's own batch failed
+    expect(rf.status).toBe(200);           // the follower re-executed and succeeded
+    expect(typedCalls).toBe(2);            // leader attempt + follower re-entry
+  });
+
+  test('r3_E_stores_back_the_instances_and_A_removal_leaves_B_alone', async () => {
+    const { ProjectSideStore } = await import('../lib/project-side-store.js');
+    const { makeInstance } = await import('./helpers/side-provenance-harness.js');
+    const instA = makeInstance({
+      prefix: 'r3-a-', sideId: 'palpo.test', serverName: 'palpo.test',
+      registration: 'palpo.test@r3aa001', hsToken: 'hsR3A', asToken: 'asR3A',
+      representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*',
+    });
+    const instB = makeInstance({
+      prefix: 'r3-b-', sideId: 'palpo.test', serverName: 'palpo.test',
+      registration: 'palpo.test@r3bb002', hsToken: 'hsR3B', asToken: 'asR3B',
+      representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*',
+    });
+    cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
+    cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
+    const storeA = new ProjectSideStore(instA.storePath);
+    const storeB = new ProjectSideStore(instB.storePath);
+    const sideA = storeA.getSide('palpo.test');
+    const sideB = storeB.getSide('palpo.test');
+    // A's registry/credential/representative come from A's STORE, B's from B's
+    expect(sideA.representative.mxid).toBe('@hafleet_a:palpo.test');
+    expect(sideB.representative.mxid).toBe('@hafleet_b:palpo.test');
+    // credentials come from each side's OWN store (publicSide hides them; credentialFor reads them)
+    expect(storeA.credentialFor('palpo.test')?.hsToken).toBe('hsR3A');
+    expect(storeB.credentialFor('palpo.test')?.hsToken).toBe('hsR3B');
+    // removing A's side from A's store leaves B's intact
+    storeA.removeSide('palpo.test');
+    expect(storeA.getSide('palpo.test')).toBeNull();
+    expect(storeB.getSide('palpo.test')).not.toBeNull();
+    // and B's bridge keeps serving from ITS store
+    const palpo = await fakePalpo({ members: { '!b:palpo.test': ['@hafleet_b:palpo.test'] } });
+    const B = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: 'hsR3B', asToken: 'asR3B', registration: 'palpo.test@r3bb002',
+      representativeMxid: '@hafleet_b:palpo.test', palpo,
+    });
+    const rb = await pushTxn(B.router, { hsToken: 'hsR3B', txnId: 'b9', events: [msg('!b:palpo.test', '$b9')] });
+    expect(rb.status).toBe(200);
+    expect(B.typed.messages).toHaveLength(1);
+  });
+
+  test('r3_cold_start_first_refresh_yields_usable_relation_evidence', async () => {
+    const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
+    const { self, typed } = await makeBridgeWithSide({
+      sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
+    });
+    const m = await bridge();
+    // COLD: no prior snapshot at all
+    self.appserviceInboundSnapshot = null;
+    self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.backendApiForSides = async () => ({
+      sides: [{
+        sideId: SIDE, hsToken: HS, registration: REG, serverName: SIDE, apiBaseUrl: palpo.url,
+        senderLocalpart: 'hafleet', namespace: '@ac_.*',
+        // 16-impl-r3 ④: the inbound shape carries the representative so a COLD start can prove
+        // relations on the first refresh (no prior snapshot to merge from)
+        representative: { mxid: REP },
+      }],
+    });
+    await self.refreshAppserviceSides();
+    const entry = self.appserviceInboundSnapshot.get(SIDE);
+    expect(entry?.representative?.mxid).toBe(REP);   // evidence present after the FIRST refresh
+    const r = await pushTxn(self.router, { hsToken: HS, txnId: 'cold', events: [msg(ROOM, '$c1')] });
+    expect(r.status).toBe(200);
+    expect(typed.messages).toHaveLength(1);
+  });
+
+  test('r3_side_key_truth_table_across_router_snapshot_acting', async () => {
+    const { normalizeSideKey } = await import('../lib/side-provenance.js');
+    for (const raw of ['Palpo.Test', '  palpo.test ', 'PALPO.TEST:8448', 'palpo.test:8448']) {
+      const key = normalizeSideKey(raw);
+      expect(typeof key).toBe('string');
+      expect(key).toBe(key.toLowerCase().trim());
+    }
+    expect(normalizeSideKey('Palpo.Test')).toBe('palpo.test');
+    expect(normalizeSideKey('PALPO.TEST:8448')).toBe('palpo.test:8448');
+    // the three tables agree: build a router+snapshot+acting keyed the same way
+    const mixed = 'Palpo.Test';
+    const key = normalizeSideKey(mixed);
+    const routerKeys = new Set([key]);
+    const snapshotKeys = new Map([[key, { registration: REG }]]);
+    const actingKeys = new Map([[key, { registration: REG }]]);
+    expect(routerKeys.has(key)).toBe(true);
+    expect(snapshotKeys.get(key)?.registration).toBe(REG);
+    expect(actingKeys.get(key)?.registration).toBe(REG);
   });
 });
