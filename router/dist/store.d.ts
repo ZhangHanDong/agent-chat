@@ -160,6 +160,12 @@ export declare class RouterStore {
         ok: true;
         contextGeneration: number;
     } | Refusal;
+    /** Small allowlisted projection, independent of the dashboard history limit. */
+    agentDispatchActivity(agentId: string): {
+        activeDispatchCount: number;
+        queuedDispatchCount: number;
+        parkedDispatchCount: number;
+    };
     snapshot(): RouterSnapshot;
     eventsAfter(after: number, limit?: number): EventPage;
     private meta;

@@ -42,6 +42,7 @@ jobs:
         with:
           node-version: 22.22.0
       - run: npm ci
+      - run: npm ci --prefix mockup
       # `test:ci` is `npm test` plus a JSON reporter. The suite has a documented intermittent failure
       # class (docs/TESTING.md) that has now been seen on this runner as well as locally, which killed
       # the theory that our own long-lived processes were starving it. Four hypotheses have been

@@ -12,7 +12,8 @@ import { send } from '@/lib/api';
 import { Toast, useToast } from '@/components/Toast';
 // Pure formatters only: they take a number and return a string, so they have no
 // data source to belong to. Everything data-dependent comes from useData().
-import { fmtTokens, runtimeStatusText } from '@/lib/mock-data';
+import { fmtTokens } from '@/lib/mock-data';
+import { runtimeLabel, transportLabel } from '@/lib/agent-detail';
 
 /*
  * ① 我的资源 — L1, and the home route.
@@ -48,7 +49,7 @@ export default function ResourcesPage() {
   const t = useT();
   const {
     agents, presets, presetOf, tierOf, familyOf, committed, remaining, overBy, capability,
-    seats = [], seatKeyed,
+    seats = [], seatKeyed, usageLive = [],
   } = useData();
 
   const toast = useToast();
@@ -79,7 +80,7 @@ export default function ResourcesPage() {
         <Link className="btn primary" href="/resources/new">{t('rs.configure')}</Link>
       </PageHead>
 
-      <Provenance slices={['agents', 'presets', 'ceilings', 'seats', 'engagements']} />
+      <Provenance slices={['agents', 'presets', 'ceilings', 'seats', 'engagements', 'usage']} />
 
       {bare.length > 0 && (
         <div className="notice warn">
@@ -183,6 +184,8 @@ export default function ResourcesPage() {
               const tier = tierOf(p);
               const left = remaining(a.name);
               const used = committed(a.name);
+              const consumption = usageLive.find((row) => row.agent === a.name);
+              const drawn = consumption?.tokensDrawn ?? null;
               // Percent-of-ceiling only means something when there is a ceiling.
               // Without one there is no denominator, so the meter is not drawn at
               // all rather than drawn empty — an empty bar reads as "0% used".
@@ -191,7 +194,7 @@ export default function ResourcesPage() {
                 <tr key={a.name}>
                   <td>
                     <div><Link href={`/agents/${a.name}`}>{a.name}</Link></div>
-                    <span className="dim">{`${a.framework} · ${a.transport}`}</span>
+                    <span className="dim">{`${a.framework} · ${transportLabel(a, t)}`}</span>
                   </td>
                   <td>
                     {p ? (
@@ -237,8 +240,12 @@ export default function ResourcesPage() {
                   </td>
                   {/* The whole column is a blank with one reason, because the
                       absence is systemic rather than per-row. */}
-                  <td><Blank why="rs.why.notMetered" t={t} /></td>
-                  <td><span className="dim">{runtimeStatusText(a)}</span></td>
+                  <td>{Number.isFinite(drawn)
+                    ? <span className="amount">{fmtTokens(drawn)}</span>
+                    : consumption?.tokensReason
+                      ? <span className="dim">{consumption.tokensReason}</span>
+                      : <Blank why="rs.why.notMetered" t={t} />}</td>
+                  <td><span className="dim">{runtimeLabel(a, t)}</span></td>
                 </tr>
               );
             })}

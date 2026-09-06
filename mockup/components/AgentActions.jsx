@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Toast, useToast } from '@/components/Toast';
 import { useT } from '@/components/Prefs';
@@ -23,7 +23,11 @@ export default function AgentActions({ agent }) {
   const [busy, setBusy] = useState(false);
   const [toast, say] = useToast();
   const router = useRouter();
-  const { refresh } = useData();
+  const { refresh, provenance } = useData();
+  const live = provenance?.agents === 'live';
+  const submitting = useRef(false);
+  const currentRecord = useRef(null);
+  currentRecord.current = { live, name: agent.name, typed, confirming };
 
   /*
    * REAL, as of now. Both of these were `setConfirming(null); say('ok', …)` — a toast and nothing
@@ -37,29 +41,40 @@ export default function AgentActions({ agent }) {
    * is the same trap in a different place.
    */
   async function removeAgent() {
+    const current = currentRecord.current;
+    if (!current.live || current.name !== agent.name || current.typed !== agent.name
+      || current.confirming !== 'remove' || submitting.current) return;
+    // The ref closes the same-render double-click window before React updates
+    // disabled state. Keep it held while the successful deletion is refreshed.
+    submitting.current = true;
     setBusy(true);
-    const res = await send(`agents/${encodeURIComponent(agent.name)}?force=true`, { method: 'DELETE' });
-    setBusy(false);
-    if (!res.ok) return say('fail', res.error);
-    if (res.body?.deleted !== true) {
-      // Refused to claim a deletion the backend did not confirm.
-      return say('fail', t('ag.removeNotConfirmed', { name: agent.name }));
+    try {
+      const res = await send(`agents/${encodeURIComponent(agent.name)}?force=true`, { method: 'DELETE' });
+      if (!res.ok) return say('fail', res.error);
+      if (res.body?.deleted !== true) {
+        // Refused to claim a deletion the backend did not confirm.
+        return say('fail', t('ag.removeNotConfirmed', { name: agent.name }));
+      }
+      setConfirming(null);
+      await refresh();
+      say('ok', t('ag.removed', { name: agent.name }));
+      // The agent's own page is now a 404; leaving the operator on it would be a dead end.
+      router.push('/workforce');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
-    setConfirming(null);
-    await refresh();
-    say('ok', t('ag.removed', { name: agent.name }));
-    // The agent's own page is now a 404; leaving the operator on it would be a dead end.
-    router.push('/workforce');
   }
 
   return (
     <>
       <div className="danger-zone">
         <span className="lbl">{t('ag.agentActions')}</span>
+        {!live && <span className="dim">{t('ag.actionsLiveOnly')}</span>}
         {confirming === null && (
           <>
-            <button className="btn warn" onClick={() => setConfirming('stop')}>{t('ag.stopAgent')}</button>
-            <button className="btn danger" onClick={() => { setConfirming('remove'); setTyped(''); }}>
+            <button className="btn warn" disabled={!live || busy} onClick={() => setConfirming('stop')}>{t('ag.stopAgent')}</button>
+            <button className="btn danger" disabled={!live || busy} onClick={() => { setConfirming('remove'); setTyped(''); }}>
               {t('ag.removeAgent')}
             </button>
           </>
@@ -91,6 +106,7 @@ export default function AgentActions({ agent }) {
           <div className="btn-row" style={{ marginTop: 10 }}>
             <input
               value={typed}
+              disabled={!live || busy}
               onChange={(e) => setTyped(e.target.value)}
               placeholder={agent.name}
               aria-label={t('ag.typeToConfirm', { name: agent.name })}
@@ -98,12 +114,12 @@ export default function AgentActions({ agent }) {
             />
             <button
               className="btn danger"
-              disabled={typed !== agent.name}
+              disabled={!live || busy || typed !== agent.name}
               onClick={removeAgent}
             >
               {t('ag.removePermanently')}
             </button>
-            <button className="btn" onClick={() => setConfirming(null)}>{t('act.cancel')}</button>
+            <button className="btn" disabled={busy} onClick={() => setConfirming(null)}>{t('act.cancel')}</button>
           </div>
         </div>
       )}

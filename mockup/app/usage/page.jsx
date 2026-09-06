@@ -14,15 +14,9 @@ import { InfoTip, InfoTipList } from '@/components/InfoTip';
  * ⑤ 用量 — L4, and the layer where this design is most honest about what it
  * cannot do.
  *
- * Task structure is real: lib/task-store.js has five statuses and the project
- * board rolls them up per member. So "what did my agent actually work on" is
- * answerable.
- *
- * Token consumption is NOT. Nothing in HAFleet meters tokens at any granularity —
- * every `usage`/`budget` match in lib/ and backend-v2.js is a CLI help string. So
- * the column that matters most to a contributor is the one that cannot be filled,
- * and the page says so ONCE, at the top, rather than printing a dash per row and
- * making the reader wonder whether it is a gap or a zero.
+ * Tasks and supported transcript token counts are measured per agent. The live
+ * usage endpoint does not attribute those measurements to projects, so project
+ * memberships and engagements cannot supply a division of the totals.
  *
  * What IS knowable, and worth separating: **allocated** is real. I know what I
  * promised even though I cannot see what was spent. The page keeps the two apart,
@@ -54,6 +48,7 @@ export default function UsagePage() {
   }, {});
 
   const configured = agents.filter((a) => a.presetId);
+  const activeEngagements = engagements.filter((e) => e.state === 'active');
 
   /*
    * Measured consumption across the fleet, and the count it was measured over.
@@ -80,9 +75,8 @@ export default function UsagePage() {
   const meteredReread = meteredAgents.reduce((n, r) => n + (r.tokensByKind?.cacheRead ?? 0), 0);
 
   /*
-   * Every series below is ALLOCATION — what I promised — because that is what is
-   * knowable. The one real measurement is the task count, and the one series a
-   * reader will look for (spend over time) is rendered as its own absence.
+   * The charts show current allocation and live per-agent task counts. The
+   * spend-over-time series remains unavailable despite per-agent token totals.
    */
   // Only agents whose preset carries a ceiling can be charted against one. The
   // rest are not drawn at 0% — a bar with no denominator is not an empty bar, it
@@ -96,16 +90,18 @@ export default function UsagePage() {
     }));
 
   const donutSlices = Object.entries(
-    engagements.filter((e) => e.state !== 'pending').reduce((acc, e) => {
+    activeEngagements.reduce((acc, e) => {
       acc[e.project] = (acc[e.project] ?? 0) + (e.allocatedTokens ?? 0);
       return acc;
     }, {}),
   ).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
 
-  const taskRows = Object.entries(byProject).map(([label, rows]) => ({
-    label,
-    done: rows.reduce((n, u) => n + u.tasksDone, 0),
-    open: rows.reduce((n, u) => n + u.tasksOpen, 0),
+  // The live endpoint counts tasks per agent. Project memberships and
+  // engagements do not establish task ownership, so never fan out these counts.
+  const taskRows = usageLive.map((r) => ({
+    label: r.agent,
+    done: r.tasksByStatus?.done ?? 0,
+    open: r.tasks - (r.tasksByStatus?.done ?? 0),
   }));
 
   return (
@@ -316,7 +312,7 @@ export default function UsagePage() {
           */}
         <div className="card">
           <div className="cap">{t('us.cEngagements')}</div>
-          <div className="val">{engagements.filter((e) => e.state === 'active').length}</div>
+          <div className="val">{activeEngagements.length}</div>
         </div>
         <div className="card">
           <div className="cap">{t('us.cAllocated')}</div>
@@ -327,7 +323,7 @@ export default function UsagePage() {
               * belonged to engagements that had already been revoked. "Allocated" has to mean
               * what is allocated now, or it is not a number a contributor can act on.
               */}
-            {fmtTokens(engagements.filter((e) => e.state === 'active').reduce((n, e) => n + (e.allocatedTokens ?? 0), 0))}
+            {fmtTokens(activeEngagements.reduce((n, e) => n + (e.allocatedTokens ?? 0), 0))}
           </div>
         </div>
         <div className="card">
@@ -362,7 +358,7 @@ export default function UsagePage() {
         <div className="card">
           <div className="cap">{t('us.cTasks')}</div>
           <div className="val">
-            {usageLive.reduce((n, r) => n + (r.tasksByStatus?.done ?? 0), 0)}
+            {taskRows.reduce((n, r) => n + r.done, 0)}
           </div>
         </div>
       </div>
@@ -392,7 +388,7 @@ export default function UsagePage() {
           <AllocationDonut slices={donutSlices} />
         </div>
         <div className="panel">
-          <h3 className="sub">{t('ch.taskTitle')}<span className="note">{t('ch.taskNote')}</span></h3>
+          <h3 className="sub">{t('ch.taskTitle')}<span className="note">{t('ch.taskAgentNote')}</span></h3>
           <TaskBars rows={taskRows} />
         </div>
         <div className="panel">
@@ -402,6 +398,9 @@ export default function UsagePage() {
       </div>
 
       <h2 className="sec">{t('us.byProject')}<span className="note">{t('us.byProjectNote')}</span></h2>
+      {Object.keys(byProject).length === 0 && (
+        <div className="notice">{t('us.noProjectUsage')}</div>
+      )}
       {Object.entries(byProject).map(([project, rows]) => (
         <div key={project}>
           <h3 className="sub">{project}</h3>

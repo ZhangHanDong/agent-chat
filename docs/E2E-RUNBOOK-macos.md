@@ -4,6 +4,17 @@
 
 ### 2026-09-06 macOS 实测校正
 
+#### Web Dashboard 补充验收
+
+- 当前贡献控制台是 `mockup/` 的 Next.js 应用，默认 `127.0.0.1:3100`；8084 是旧 web/queue 服务。运行 `npm ci --prefix mockup`、`npm --prefix mockup run build`，用仅服务端的 `HAFLEET_BACKEND=http://127.0.0.1:8090` 和本套 E2E 的 `HAFLEET_API_TOKEN` 启动。不要把令牌写进 URL 或 `NEXT_PUBLIC_*`。
+- 用 Computer Use 逐页检查 resources、workforce、capability、projects、engagements、usage、alerts、config、onboard 和两个真实 agent 详情；本地两名 agent 与样例五名 agent 必须能区分。记录页面来源标签和实际后端字段。
+- Config 添加预设/Agent 应打开真实向导。创建独立且不绑定 Agent 的测试预设，核对月额度/日额度、刷新持久化和后端记录，再精确清理该记录。既有预设、原有任务与 Herdr 会话须保留。
+- 对 headless agent，`runner.availability=ready` 表示可按需派发，`runner.activity` 来自持久 dispatch 账本；它们不等于常驻进程在线。空闲 runner 没有 tmux pane，不能报 `tmux-missing:auto`。显式 tmux/ACP agent 继续使用各自的存活证据。
+- 用量页任务图和总数读取同一份 per-agent 用量；当前承诺图只计 active engagement。未提供项目归属、实时日志、监管评估或保存接口时须明确说明，不能用样例、固定时间或成功 toast 填补。
+- 可见页面应每 15 秒同步状态，重新切回窗口应立即刷新；样例模式下预设删除及 Agent 写操作均应禁用。自动刷新和写后刷新不能让旧响应覆盖新状态。
+- `cgWindowNotFound` 时先确认桌面是否锁屏；本次 Chrome 初始 GUI 验收成功后，锁屏导致新版点击复测中断。保留已完成与未验证两类证据，不能以 HTTP/SSR 检查代替截图。
+- 自动化补验：根目录 `npm run test:dashboard`；mockup 目录生产构建与 `npm run check`。这些检查单列结果，不能替代真实 GUI 验收。Computer Use 的数字 spinbutton 如 `set_value` 被转换成 0，改用点击、全选、键盘输入，再核对显示值才提交。
+
 下列实测结果优先于本文后续的旧操作示例:
 
 - 本次 Palpo 和 PostgreSQL 均运行于隔离 Docker Compose 项目,Palpo 仅发布 `127.0.0.1:8008`。配置以仓库示例为准:当前监听器是 `[[listeners]]`,容器内配置与 appservice 目录使用容器路径。

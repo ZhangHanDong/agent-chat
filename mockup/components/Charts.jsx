@@ -9,11 +9,9 @@ import { fmtTokens } from '@/lib/mock-data';
  *
  * THE CHART A READER EXPECTS IS NOT HERE, and its absence is the point.
  *
- * A usage dashboard normally opens with spend over time. HAFleet meters no tokens
- * at any granularity, so that series does not exist and drawing it would be
- * fabricating the one number the contributor came for. Everything below charts
- * what is genuinely known — **allocation**, the budget I promised — and `/usage`
- * says once, at the top, that consumption is a gap rather than a zero.
+ * A usage dashboard normally opens with spend over time. Per-agent token totals
+ * do not supply a time series. These charts show current allocation and stored
+ * task counts while the missing series keeps its own explanation.
  *
  * Two rules every chart here follows:
  *
@@ -125,11 +123,11 @@ export function AllocationDonut({ slices }) {
 }
 
 /**
- * Tasks done against open, per project.
+ * Tasks done against open, per agent.
  *
  * This is the one series on the page that is a real measurement rather than a
- * commitment: `lib/task-store.js` has five statuses and the project board rolls
- * them up per member. Grouped rather than stacked, because done and open are not
+ * commitment: the live usage endpoint counts stored tasks by assignee. Grouped
+ * rather than stacked, because done and open are not
  * parts of a fixed whole — more work can arrive.
  */
 export function TaskBars({ rows }) {

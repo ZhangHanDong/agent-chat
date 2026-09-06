@@ -123,6 +123,7 @@ export function DataProvider({ children }) {
    * change undo itself.
    */
   const generation = useRef(0);
+  const inFlight = useRef(0);
 
   const load = async () => {
     const mine = ++generation.current;
@@ -150,6 +151,7 @@ export function DataProvider({ children }) {
       ));
       return;
     }
+    inFlight.current += 1;
     try {
       const { data, provenance, errors } = await fetchLive();
       if (stale()) return;
@@ -159,13 +161,29 @@ export function DataProvider({ children }) {
       // structural. Keep the fixture and say why rather than rendering nothing.
       if (stale()) return;
       setState((prev) => assemble(FIXTURE_DATA, { ...prev.provenance, __loading: false }, { all: e.message }, load));
+    } finally {
+      inFlight.current -= 1;
     }
   };
 
   useEffect(() => {
     let cancelled = false;
-    (async () => { if (!cancelled) await load(); })();
-    return () => { cancelled = true; };
+    void load();
+    // Automatic observations never overlap a load. Explicit refresh() still
+    // starts a newer generation, so a completed write can supersede old reads.
+    const refreshVisible = () => {
+      if (!cancelled && document.visibilityState === 'visible' && inFlight.current === 0) void load();
+    };
+    const timer = setInterval(refreshVisible, 15_000);
+    window.addEventListener('focus', refreshVisible);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      window.removeEventListener('focus', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshVisible);
+      generation.current += 1;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

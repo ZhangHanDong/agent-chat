@@ -1923,6 +1923,58 @@ function threadSessionAgentEligibility(agent) {
   return { ok: true, framework, serverId };
 }
 
+// Absence of a pane alone is not a runner declaration. Keep explicit legacy
+// transports (including unknown future transports) out of this projection.
+function isOnDemandThreadSessionAgent(agent) {
+  const absent = value => value == null || (typeof value === 'string' && !value.trim());
+  return THREAD_SESSIONS_ENABLED && isAgentRecord(agent)
+    && Boolean(normalizeAgentId(agent.agentId))
+    && absent(agent.transport)
+    && absent(agent.tmux)
+    && threadSessionAgentEligibility(agent).ok === true;
+}
+
+function serializeThreadSessionRunner(agent) {
+  if (!isOnDemandThreadSessionAgent(agent)) return null;
+  const model = agent.runtimeProfile?.primary?.model || null;
+  const result = {
+    mode: 'on-demand', availability: 'ready', reason: null,
+    framework: threadSessionFramework(agent), activity: 'idle',
+    activeDispatchCount: 0, queuedDispatchCount: 0, parkedDispatchCount: 0,
+    model, modelSource: model ? 'runtime-profile' : 'provider-default',
+  };
+  let reason = null;
+  if (agent.manualDown === true || isManualDownReason(agent.offlineReason)) reason = 'manual-stop';
+  else if (agent.offlineReason && agent.offlineReason !== 'tmux-missing:auto') reason = 'runtime-unavailable';
+  else if (!routerPumpAccepting) reason = 'router-stopping';
+  else if (!agentTokens.get(agent.name)) reason = 'credential-unavailable';
+  else if (agent.workspaceMode === 'worktree' && !normalizeWorkspacePath(agent.worktreesDir)) reason = 'workspace-unavailable';
+  else {
+    const workspace = normalizeWorkspacePath(agent.workdir || agent.homeDir);
+    try {
+      if (!workspace || !statSync(workspace).isDirectory()) reason = 'workspace-unavailable';
+    } catch { reason = 'workspace-unavailable'; }
+  }
+  if (reason) { result.availability = 'unavailable'; result.reason = reason; }
+  try {
+    const counts = routerStore.agentDispatchActivity(agent.agentId);
+    result.activeDispatchCount = counts.activeDispatchCount;
+    result.queuedDispatchCount = counts.queuedDispatchCount;
+    result.parkedDispatchCount = counts.parkedDispatchCount;
+    // Counts describe durable dispatches, not independently probed OS processes.
+    result.activity = counts.parkedDispatchCount > 0 ? 'parked'
+      : counts.activeDispatchCount > 0 ? 'running'
+        : counts.queuedDispatchCount > 0 ? 'queued' : 'idle';
+  } catch {
+    if (!reason) { result.availability = 'unknown'; result.reason = 'dispatch-state-unavailable'; }
+    result.activity = 'unknown';
+    result.activeDispatchCount = null;
+    result.queuedDispatchCount = null;
+    result.parkedDispatchCount = null;
+  }
+  return result;
+}
+
 function isFrontDeskAgent(agent) {
   return agentRole(agent) === 'architect';
 }
@@ -5983,6 +6035,13 @@ async function sweepLocalActivityDurations(paneMetadataSnapshotOverride = null) 
     if (!isLocalAgentServer(serverId, LOCAL_SERVER_ID)) continue;
     localRuntimeAgents.add(agent.name);
 
+    if (isOnDemandThreadSessionAgent(agent)) {
+      localTmuxMissingState.delete(agent.name);
+      localActivityState.delete(agent.name);
+      localCompactState.delete(agent.name);
+      continue;
+    }
+
     const manualDown = agent.manualDown === true;
     const configuredTmux = (typeof agent.tmux === 'string' && agent.tmux.trim()) ? agent.tmux.trim() : null;
     // An ACP agent is a subprocess, not a tmux session: there is no pane to
@@ -6089,6 +6148,11 @@ async function sweepLocalActivityDurations(paneMetadataSnapshotOverride = null) 
       let transitioned = false;
       // online driven by machine via syncAgentMachine below
       const prevOnline = agent.online;
+      // Retain the selected legacy transport when its pane disappears;
+      // otherwise a later sweep could mistake this same agent for on-demand.
+      if (agent.transport == null || (typeof agent.transport === 'string' && !agent.transport.trim())) {
+        agent.transport = 'tmux'; agentsChanged = true;
+      }
       if (agent.tmux !== null) { agent.tmux = null; agentsChanged = true; transitioned = true; }
       if (!wasManualDown && agent.offlineReason !== 'tmux-missing:auto') {
         agent.offlineReason = 'tmux-missing:auto';
@@ -6579,6 +6643,7 @@ function serializeAgent(agent) {
   const deliveryState = getAgentDeliveryState(agent.name);
   const runtime = ensureAgentRuntimeRecord(agent.name);
   const machine = getAgentMachine(agent.name);
+  const runner = serializeThreadSessionRunner(agent);
   return {
     ...agent,
     server: normalizeServer(agent.server),
@@ -6589,7 +6654,8 @@ function serializeAgent(agent) {
     serverOnline: deliveryState.serverOnline,
     lastSeen: deliveryState.lastSeen,
     serverLastSeen: deliveryState.serverLastSeen,
-    offlineReason: deliveryState.offlineReason,
+    offlineReason: runner && deliveryState.offlineReason === 'tmux-missing:auto' ? null : deliveryState.offlineReason,
+    runner,
     manualDown: agent.manualDown === true,
     blocked: runtime?.blocked === true,
     blockedReason: runtime?.blockedReason || null,

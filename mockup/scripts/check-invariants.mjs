@@ -297,8 +297,8 @@ for (const r of ROUTES) {
     'wz.step.': ['framework', 'model', 'reasoning', 'budget'],
     'ag.': ['runtime', 'activity', 'oversight', 'profile'],
     'sev.': ['critical', 'warning', 'info'],
-    'ob.st.': ['ready', 'needs_auth', 'needs_setup', 'absent',
-      'readyWhy', 'needs_authWhy', 'needs_setupWhy', 'absentWhy'],
+    'ob.st.': ['ready', 'needs_auth', 'needs_setup', 'unusable', 'absent',
+      'readyWhy', 'needs_authWhy', 'needs_setupWhy', 'unusableWhy', 'absentWhy'],
     'ob.step.': ['refuse', 'token', 'register', 'health'],
     'ob.pre.': ['codingFull', 'mcpServers', 'acpExtra', 'mcpExtra'],
     // The provenance banner names each data slice it reports on. Declared as a

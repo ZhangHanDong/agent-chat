@@ -2338,6 +2338,33 @@ export class RouterStore {
             throw error;
         }
     }
+    /** Small allowlisted projection, independent of the dashboard history limit. */
+    agentDispatchActivity(agentId) {
+        const rows = this.db.prepare(`SELECT d.state, COUNT(*) AS count FROM dispatches d
+       JOIN sessions s ON s.session_id = d.session_id
+       WHERE s.agent_id = ? GROUP BY d.state`).all(agentId);
+        const result = { activeDispatchCount: 0, queuedDispatchCount: 0, parkedDispatchCount: 0 };
+        for (const row of rows) {
+            switch (row.state) {
+                case 'queued':
+                    result.queuedDispatchCount += row.count;
+                    break;
+                case 'parked':
+                    result.parkedDispatchCount += row.count;
+                    result.activeDispatchCount += row.count;
+                    break;
+                case 'leased':
+                case 'started':
+                    result.activeDispatchCount += row.count;
+                    break;
+                case 'completed':
+                case 'cancelled_before_start':
+                case 'outcome_unknown': break;
+                default: throw new Error('unrecognized dispatch activity state');
+            }
+        }
+        return result;
+    }
     snapshot() {
         const meta = this.meta();
         const sessions = this.db.prepare('SELECT * FROM sessions ORDER BY last_active DESC').all().map((row) => ({

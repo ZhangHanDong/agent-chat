@@ -8,6 +8,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
+    "test:dashboard": "vitest run tests/dashboard-console.test.js tests/dashboard-runner-ui.test.js tests/dashboard-agent-detail.test.js tests/dashboard-usage-consistency.test.js tests/dashboard-refresh.test.js tests/dashboard-agent-actions.test.js",
     "dev": "node backend-v2.js",
     "start": "node backend-v2.js",
     "test": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --no-file-parallelism --maxWorkers=1",
