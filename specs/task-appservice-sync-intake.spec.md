@@ -40,16 +40,11 @@ duplicate suppression, and authentication.
   backoff — at-least-once, never at-most-once; the crash window between a
   successful handle and the cursor write is absorbed by the router's
   event-id dedup.
-- Bound retries of a poison batch with FAST-BREAK semantics: the retry
-  interval for a refusing batch is a FIXED 1s (no climb), and after
-  `MAX_DELIVERY_ATTEMPTS` (default 8) consecutive refusals — about 8
-  seconds — CIRCUIT-BREAK that side's collector: stop polling, warn
-  exactly once through the existing operator-warning convention, and
-  report TWO cursors in the warning: `heldCursor` (the current `since`,
-  the point a restart actually resumes from) and `failedNextBatch` (the
-  end of the batch that was never committed — NOT a recovery point).
-  Recovery is by restart or manual action; infinite head-of-line
-  blocking is forbidden, and so is stretching the window to minutes.
+- A retryable rejected batch holds its pre-batch cursor and retries automatically
+  with exponential delay capped at 300 seconds. A homeserver `Retry-After` or
+  `retry_after_ms` is respected as a minimum delay within that cap. There is no
+  attempt-count circuit break; logs name the attempt, delay, held cursor and failed
+  `next_batch` so prolonged head-of-line blocking remains observable.
 - Break the 401 loop: a 401 against a token minted in the CURRENT login
   generation goes straight to backoff; only a 401 against an older token
   triggers one re-login.
@@ -76,7 +71,7 @@ duplicate suppression, and authentication.
 
 - Must not persist the sync access token to disk.
 - Must not advance the cursor past a batch the router has not accepted.
-- Must not retry a poison batch without bound or without an operator warning.
+- Must not abandon a retryable batch or advance its cursor; retries remain observable in logs.
 - Must not run two intakes for the same side (post-normalization) in one
   bridge.
 - Must not filter out membership or invite sections.
@@ -84,16 +79,16 @@ duplicate suppression, and authentication.
 ## Acceptance Criteria
 
 Scenario: Cursor advances only on router success
-  Test: A: a router failure does NOT advance the cursor; retries are CAPPED and the collector stops
+  Test: A: a router failure holds the cursor and keeps retrying with capped exponential backoff
   Given a sync batch the router refuses
-  When the collector finishes its bounded retries
-  Then the cursor is unchanged and the collector stopped itself
+  When the collector reaches its retry delay cap
+  Then the cursor is unchanged and the collector remains able to retry
 
-Scenario: A poison batch circuit-breaks the side, holding the cursor
-  Test: A-cap: a poison batch circuit-breaks the collector, holds the cursor, warns once
-  Given the router refuses one batch eight consecutive times
-  When the circuit breaker fires
-  Then polling stops, the cursor is held, and the operator is warned exactly once
+Scenario: A retryable batch remains live at the backoff cap while holding the cursor
+  Test: A-cap: a refused batch reaches the delay cap without stopping or moving the cursor
+  Given the router continuously refuses one batch
+  When its retry delay reaches 300 seconds
+  Then polling continues, the cursor is held, and each retry logs the delay and both cursor positions
 
 Scenario: Invites are delivered on every poll; the first join timeline is not
   Test: logs in, swallows the initial sync, delivers timeline events through the router, and persists the cursor
