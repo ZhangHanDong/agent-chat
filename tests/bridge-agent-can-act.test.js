@@ -302,11 +302,11 @@ describe('the bot is not the only way in', () => {
     const body = /\n  async onAgentMessage\(msg\) \{[\s\S]*?\n  \}\n/.exec(src)?.[0] ?? '';
     // No-group pre-check still warns AND returns.
     expect(body).toMatch(/if \(!senderToken && !msg\.group\) \{\s*console\.warn\([\s\S]*?this\.postWarning\([\s\S]*?return;\s*\}/);
-    // The group block: resolve per room, refuse (warn + return) when even that finds nothing, and
-    // use the room-scoped sender for BOTH the body and the attachments — never the pre-check token.
+    // The group block: resolve per room, retain the refused delivery when even that finds nothing,
+    // and use the room-scoped sender for BOTH the body and attachments — never the pre-check token.
     const groupBlock = /\n    if \(msg\.group\) \{[\s\S]*?sendAttachmentsForMessage\([^)]*\)/.exec(body)?.[0] ?? '';
     expect(groupBlock).toMatch(/this\.agentSenderFor\(canonicalAgentName, roomId\) \?\? senderToken/);
-    expect(groupBlock).toMatch(/if \(!groupSender\) \{\s*console\.warn\([\s\S]*?this\.postWarning\([\s\S]*?return;\s*\}/);
+    expect(groupBlock).toMatch(/if \(!groupSender\) \{\s*console\.warn\([\s\S]*?this\.queuePendingMatrixRoute\(msg, 'sender_unavailable',[\s\S]*?return;\s*\}/);
     expect(groupBlock).toMatch(/this\.sendAsAgent\(\s*groupSender,/);
     expect(groupBlock).toMatch(/sendAttachmentsForMessage\(groupSender,/);
     expect(groupBlock).not.toMatch(/sendAttachmentsForMessage\(senderToken/);

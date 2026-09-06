@@ -3821,6 +3821,7 @@ function summarizeMsg(m) {
     trustLevel: m.trustLevel || null,
     fromId: m.fromId || null,
     matrixContext: m.matrixContext || null,
+    replyContext: m.replyContext || null,
     matrixDelivery: m.matrixDelivery || null,
   };
   const normalizedSchema = normalizeMessageSchema(m?.schema);
@@ -15092,6 +15093,26 @@ app.post('/api/messages', requireAgentToken(_tokenFromBody), async (req, res) =>
       eventId: sourceEventId,
       threadRootEventId,
     };
+  }
+  if (senderIsAgent && msg.reply_to) {
+    const repliedTo = messages.find((candidate) => candidate?.id === msg.reply_to);
+    const sourceContext = repliedTo?.source === 'matrix'
+      ? repliedTo?.matrixContext
+      : repliedTo?.matrixDelivery;
+    const eventId = repliedTo?.source === 'matrix'
+      ? sourceContext?.eventId
+      : sourceContext?.primaryEventId;
+    // Derived only from backend-owned history. It is a routing hint, not authority: the bridge
+    // still loads the replied-to record and verifies group + room before sending.
+    if (repliedTo?.group === msg.group
+      && typeof sourceContext?.roomId === 'string' && sourceContext.roomId
+      && typeof eventId === 'string' && eventId) {
+      msg.replyContext = {
+        roomId: sourceContext.roomId,
+        eventId,
+        threadRootEventId: sourceContext.threadRootEventId || null,
+      };
+    }
   }
   if (normalizedAttachments.length > 0) {
     msg.attachments = normalizedAttachments;

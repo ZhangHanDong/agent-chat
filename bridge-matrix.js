@@ -671,7 +671,7 @@ let stateWritesBlockedReason = null;
 
 function loadState() {
   const statePath = path.join(DATA_DIR, 'bridge-state.json');
-  const fresh = { botToken: null, agentTokens: {}, roomGroupMap: {}, groupRoomMap: {} };
+  const fresh = { botToken: null, agentTokens: {}, roomGroupMap: {}, groupRoomMap: {}, pendingMatrixRouteQueue: [] };
   try {
     const parsed = JSON.parse(readFileSync(statePath, 'utf-8'));
     /*
@@ -681,7 +681,11 @@ function loadState() {
      * malformed `agentTokens` yields `{}` here and cannot make the whole load fail — that path is
      * reserved for bytes this process could not parse at all, which is handled below.
      */
-    return { ...parsed, agentTokens: normalizeAgentCredentialMap(parsed?.agentTokens) };
+    return {
+      ...parsed,
+      agentTokens: normalizeAgentCredentialMap(parsed?.agentTokens),
+      pendingMatrixRouteQueue: Array.isArray(parsed?.pendingMatrixRouteQueue) ? parsed.pendingMatrixRouteQueue : [],
+    };
   } catch (error) {
     /*
      * ENOENT is the ONLY safe reason to start empty — there is no file, so there is nothing to
@@ -3312,6 +3316,7 @@ export class MatrixBridge {
     this.approvalDmMode = approvalDmMode;
     this.knownAgents = new Set(); // names of known agents
     this.knownAgentIndex = new Map(); // lower-case name -> canonical name
+    this.knownAgentSides = new Map(); // lower-case name -> backend-authoritative projectSide
     this.dmRooms = new Map(); // "agent:human" → roomId
     this.upgradedDmRooms = new Set(); // rooms already checked/upgraded this session
     this.recentBridgedIds = new Set(); // prevent echo loops
@@ -3511,6 +3516,61 @@ export class MatrixBridge {
   async lookupMessageSourceRoom(messageId) {
     const metadata = await this.lookupMessageRouteMetadata(messageId);
     return metadata?.sourceRoom || null;
+  }
+
+  async registeredSideForAgent(agentName) {
+    const canonical = this.resolveKnownAgentName(agentName) || this.normalizeName(agentName);
+    const key = this.nameKey(canonical);
+    if (!key) return null;
+    if (this.knownAgentSides.has(key)) return this.knownAgentSides.get(key);
+    try {
+      const record = await this.callBackendApi('GET', `/api/agents/${encodeURIComponent(canonical)}`);
+      const side = normalizeSideKey(record?.projectSide);
+      if (side) this.knownAgentSides.set(key, side);
+      return side || null;
+    } catch (error) {
+      console.warn(`[group-route] could not read registered side for ${canonical}: ${error?.message || error}`);
+      return null;
+    }
+  }
+
+  queuePendingMatrixRoute(msg, reason, detail = null) {
+    state.pendingMatrixRouteQueue = Array.isArray(state.pendingMatrixRouteQueue)
+      ? state.pendingMatrixRouteQueue
+      : [];
+    const existing = state.pendingMatrixRouteQueue.find((entry) => entry?.messageId === msg?.id);
+    if (existing) {
+      existing.reason = reason;
+      existing.detail = detail;
+      existing.lastRefusedAt = Date.now();
+      existing.attempts = Math.max(1, Number(existing.attempts) || 1) + 1;
+    } else {
+      state.pendingMatrixRouteQueue.push({
+        messageId: msg?.id ?? null,
+        message: msg,
+        reason,
+        detail,
+        queuedAt: Date.now(),
+        lastRefusedAt: Date.now(),
+        attempts: 1,
+      });
+    }
+    saveState();
+    this.postWarning(
+      `Matrix delivery ${msg?.id ?? '(unknown)'} was refused (${reason}) and retained for retry`,
+      { kind: 'matrix-route-queued', scope: msg?.group || msg?.to || 'unknown' },
+    );
+  }
+
+  async retryPendingMatrixRoutes() {
+    const pending = Array.isArray(state.pendingMatrixRouteQueue) ? [...state.pendingMatrixRouteQueue] : [];
+    state.pendingMatrixRouteQueue = [];
+    saveState();
+    for (const entry of pending) {
+      this.recentBridgedIds.delete(entry?.messageId);
+      await this.onAgentMessage(entry?.message);
+    }
+    return pending.length;
   }
 
   async lookupVerifiedDirectReplyRoom(messageId, { agentName, humanName } = {}) {
@@ -8870,7 +8930,10 @@ export class MatrixBridge {
       // F03: when the agent's message names its project side, route through the
       // SIDE-QUALIFIED key so a same-named group on another side cannot capture
       // it. Without a side (system/own-server agents) the legacy lookup applies.
-      const msgSide = this.agentSenderFor?.(canonicalAgentName, null)?.side?.id ?? null;
+      const sourceRoom = msg.replyContext?.roomId || msg.matrixContext?.roomId || msg.sourceRoom
+        || (msg.reply_to ? await this.lookupMessageSourceRoom(msg.reply_to) : null);
+      const senderSide = sourceRoom ? null : (this.agentSenderFor?.(canonicalAgentName, null)?.side?.id ?? null);
+      const msgSide = sourceRoom ? null : (senderSide || await this.registeredSideForAgent(canonicalAgentName));
       /*
        * 15-r2②: a side-UNKNOWN sender with MORE THAN ONE same-named mapping
        * must not be routed by first-match — that is a guess wearing a return
@@ -8880,21 +8943,24 @@ export class MatrixBridge {
       const prefix = `${msg.group}@`;
       const sameNamed = Object.entries(state.groupRoomMap)
         .filter(([k]) => k === msg.group || k.startsWith(prefix));
-      if (!msgSide && sameNamed.length > 1) {
+      if (!sourceRoom && !msgSide && sameNamed.length > 1) {
         console.warn(`[group-route] group "${msg.group}" maps to ${sameNamed.length} rooms across sides and the sender has no registered side — refusing to guess (ambiguous); message ${msg.id} from ${agentName} not bridged`);
-        this.postWarning(`Group "${msg.group}" is ambiguous across sides and agent ${agentName} has no side — message not bridged`);
+        this.queuePendingMatrixRoute(msg, 'ambiguous_group', { candidates: sameNamed.map(([, room]) => room) });
         return;
       }
-      const roomId = msgSide ? roomForGroup(msg.group, msgSide) : (sameNamed[0]?.[1] ?? null);
+      const roomId = sourceRoom || (msgSide ? roomForGroup(msg.group, msgSide) : (sameNamed[0]?.[1] ?? null));
       if (!roomId) {
         console.log(`No Matrix room for group "${msg.group}", skipping`);
         if (msg.group !== 'info') {
-          this.postWarning(`No Matrix room for group "${msg.group}" — message ${msg.id} from ${agentName} not bridged`);
+          this.queuePendingMatrixRoute(msg, 'group_room_missing');
         }
         return;
       }
       const thread = await this.resolveOutboundGroupRelation(msg, roomId);
-      if (!thread.ok) return;
+      if (!thread.ok) {
+        this.queuePendingMatrixRoute(msg, thread.reason || 'reply_context_rejected', { roomId });
+        return;
+      }
       /*
        * RE-ASKED NOW THAT THE ROOM IS KNOWN. The sender resolved above was chosen without a room, so for
        * an agent holding a token it is that token — correct for our own rooms and wrong for a project
@@ -8906,10 +8972,7 @@ export class MatrixBridge {
         : (this.agentSenderFor(canonicalAgentName, roomId) ?? senderToken);
       if (!groupSender) {
         console.warn(`No Matrix token or appservice sender for agent "${canonicalAgentName}" in ${roomId}, cannot bridge message ${msg.id}`);
-        this.postWarning(
-          `No way to send as agent "${canonicalAgentName}" into ${roomId} — no token, and no appservice credential `
-          + `for that room's side. Message ${msg.id} not bridged to Matrix.`,
-        );
+        this.queuePendingMatrixRoute(msg, 'sender_unavailable', { roomId });
         return;
       }
       const primaryEventId = await this.sendAsAgent(
@@ -8924,7 +8987,10 @@ export class MatrixBridge {
           threadRootEventId: thread.threadRootEventId,
         },
       );
-      if (!primaryEventId) return;
+      if (!primaryEventId) {
+        this.queuePendingMatrixRoute(msg, 'send_refused', { roomId });
+        return;
+      }
       await this.sendAttachmentsForMessage(groupSender, roomId, msg, thread.relation);
       // The reply is the end of the wait, so the typing notification ends with it.
       this.endAgentWork(agentName, roomId);
