@@ -47,20 +47,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@v4
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
+      - uses: actions/setup-node@v4
+        if: needs.changes.outputs.code == 'true'
         with:
           node-version: 22.22.0
-      - if: needs.changes.outputs.code == 'true'
-        run: npm ci
-      - if: needs.changes.outputs.code == 'true'
-        run: node --check backend-v2.js
-      - if: needs.changes.outputs.code == 'true'
-        run: node --check lib/mcp-server-core.js
-      - if: needs.changes.outputs.code == 'true'
-        run: npm run verify:ci
+      - run: npm ci
+        if: needs.changes.outputs.code == 'true'
+      - run: node --check backend-v2.js
+        if: needs.changes.outputs.code == 'true'
+      - run: node --check lib/mcp-server-core.js
+        if: needs.changes.outputs.code == 'true'
+      - run: npm run verify:ci
+        if: needs.changes.outputs.code == 'true'
 
       # Advisory ratchet. Blocking: existing transitive debt is recorded in
       # security/audit-baseline.json, so this fails only when a NEW advisory
@@ -75,21 +75,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@v4
-      - if: needs.changes.outputs.code == 'true'
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
+      - uses: actions/setup-node@v4
+        if: needs.changes.outputs.code == 'true'
         with:
           node-version: 22.22.0
-      - if: needs.changes.outputs.code == 'true'
-        run: npm ci
+      - run: npm ci
+        if: needs.changes.outputs.code == 'true'
       # `test:ci` is `npm test` plus a JSON reporter. The suite has a documented intermittent failure
       # class (docs/TESTING.md) that has now been seen on this runner as well as locally, which killed
       # the theory that our own long-lived processes were starving it. Four hypotheses have been
       # refuted, and every one was argued from a log that recorded no per-file timing or ordering.
       # This uploads that data so the NEXT sighting arrives with evidence instead of another guess.
-      - if: needs.changes.outputs.code == 'true'
-        run: npm run test:ci
+      - run: npm run test:ci
+        if: needs.changes.outputs.code == 'true'
 
       # ALWAYS, because the run that matters is the one that failed — `if: success()` would collect
       # exactly the runs nobody needs to investigate.
