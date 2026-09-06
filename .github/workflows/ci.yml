@@ -13,45 +13,87 @@ on:
       - stable
 
 jobs:
+  # Docs-only changes (Markdown, docs/, knowledge/) cannot affect lint or the test suite —
+  # verify:ci has no docs step. `lint` and `test` are REQUIRED status checks on master, so the
+  # workflow cannot simply be skipped with paths-ignore (a skipped run reports no check and the PR
+  # is blocked). Instead this job decides, and the required jobs still run but exit early as success.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: detect
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if ! git rev-parse --verify --quiet "$base" >/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "base unknown → run everything"; exit 0
+          fi
+          changed=$(git diff --name-only "$base"...HEAD)
+          echo "$changed"
+          non_docs=$(echo "$changed" | grep -vE '(^|/)[^/]+\.md$|^docs/|^knowledge/' || true)
+          if [ -z "$changed" ] || [ -n "$non_docs" ]; then echo "code=true" >> "$GITHUB_OUTPUT"; else echo "code=false" >> "$GITHUB_OUTPUT"; echo "docs-only change: lint/test exit early as success"; fi
+
   lint:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 22.22.0
-      - run: npm ci
-      - run: node --check backend-v2.js
-      - run: node --check lib/mcp-server-core.js
-      - run: npm run verify:ci
+      - if: needs.changes.outputs.code == 'true'
+        run: npm ci
+      - if: needs.changes.outputs.code == 'true'
+        run: node --check backend-v2.js
+      - if: needs.changes.outputs.code == 'true'
+        run: node --check lib/mcp-server-core.js
+      - if: needs.changes.outputs.code == 'true'
+        run: npm run verify:ci
 
       # Advisory ratchet. Blocking: existing transitive debt is recorded in
       # security/audit-baseline.json, so this fails only when a NEW advisory
       # appears. `npm run audit:deps` still fails outright against that debt
       # and is intentionally not wired here yet - see docs/SECURITY-DEBT.md.
       - name: Dependency advisory ratchet
+        if: needs.changes.outputs.code == 'true'
         run: npm run audit:baseline
 
   test:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 22.22.0
-      - run: npm ci
+      - if: needs.changes.outputs.code == 'true'
+        run: npm ci
       # `test:ci` is `npm test` plus a JSON reporter. The suite has a documented intermittent failure
       # class (docs/TESTING.md) that has now been seen on this runner as well as locally, which killed
       # the theory that our own long-lived processes were starving it. Four hypotheses have been
       # refuted, and every one was argued from a log that recorded no per-file timing or ordering.
       # This uploads that data so the NEXT sighting arrives with evidence instead of another guess.
-      - run: npm run test:ci
+      - if: needs.changes.outputs.code == 'true'
+        run: npm run test:ci
 
       # ALWAYS, because the run that matters is the one that failed — `if: success()` would collect
       # exactly the runs nobody needs to investigate.
-      - if: always()
+      - if: always() && needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ github.run_id }}-${{ github.run_attempt }}
