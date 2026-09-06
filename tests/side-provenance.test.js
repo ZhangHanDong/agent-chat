@@ -4,7 +4,7 @@
  * collector → receiver/router → bridge handleAppserviceEvents), never by predicate calls.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { rmSync } from 'fs';
+import { mkdtempSync, rmSync } from 'fs';
 import path from 'path';
 import { tmpdir } from 'os';
 import { createServer } from 'http';
@@ -13,11 +13,13 @@ import { createAppserviceRouter } from '../lib/appservice-receiver.js';
 import { startAppserviceListener } from '../lib/appservice-listener.js';
 import { startAppserviceSyncCollector } from '../lib/appservice-sync.js';
 import { startEdgePuller } from '../lib/appservice-puller.js';
+import { ApprovalStore } from '../lib/approval-store.js';
 
 const TMP = process.env.HAFLEET_OUTER_TMP || path.join(tmpdir(), 'hafleet-16impl');
 
 let mod = null;
 let cleanup = [];
+let acceptanceAdapter = 'push';
 
 async function bridge() {
   if (!mod) mod = await import(`${bridgeUrl()}?sp=${Date.now()}`);
@@ -75,6 +77,7 @@ async function makeBridgeWithSide({ sideId, hsToken, asToken, registration, repr
 
 /** Drive one transaction through the REAL push listener over HTTP. */
 async function pushTxn(router, { hsToken, txnId = 't1', events, mode }) {
+  if (acceptanceAdapter !== 'push') return intakeTxn(acceptanceAdapter, router, { hsToken, txnId, events });
   const listener = await startAppserviceListener({ receiver: router, port: 0, host: '127.0.0.1' });
   cleanup.push(() => listener.close());
   const port = listener.server?.address?.()?.port ?? listener.port;
@@ -84,6 +87,59 @@ async function pushTxn(router, { hsToken, txnId = 't1', events, mode }) {
     body: JSON.stringify({ events, ...(mode ? { mode } : {}) }),
   });
   return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+/** The router stays real; observe its result and the adapter's durable success action. */
+async function intakeTxn(mode, router, { hsToken, txnId, events }) {
+  let result;
+  let polls = 0;
+  const acks = [];
+  const cursors = [];
+  const observedRouter = { handle: async (input) => { result = await router.handle(input); return result; } };
+  if (mode === 'edge') {
+    const server = createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      if (req.url.includes('/ack')) {
+        let body = ''; req.on('data', (chunk) => { body += chunk; });
+        req.on('end', () => { acks.push(JSON.parse(body).ok); res.end('{}'); }); return;
+      }
+      polls += 1;
+      res.end(JSON.stringify({ events, txn_id: txnId }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const puller = startEdgePuller({
+        url: `http://127.0.0.1:${server.address().port}`, token: 'fixture-edge', side: SIDE,
+        router: observedRouter, hsTokenFor: () => hsToken,
+        shouldContinue: () => polls < 1, sleep: async () => {},
+      });
+      await puller.done;
+    } finally { await new Promise((resolve) => server.close(resolve)); }
+    expect(acks).toEqual([result?.status === 200]);
+  } else {
+    const rooms = {};
+    for (const event of events) {
+      const room = rooms[event.room_id] ||= { timeline: { events: [] }, state: { events: [] } };
+      room.timeline.events.push(event);
+    }
+    const collector = startAppserviceSyncCollector({
+      baseUrl: 'http://fixture.invalid', side: SIDE, router: observedRouter,
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken, senderLocalpart: 'hafleet' }),
+      readCursor: () => 'previous', writeCursor: async (next) => { cursors.push(next); },
+      fetchImpl: async (url) => {
+        const login = String(url).endsWith('/login');
+        if (!login) polls += 1;
+        return { ok: true, status: 200, json: async () => login
+          ? { access_token: 'fixture-sync', user_id: REP }
+          : { next_batch: txnId, rooms: { join: rooms } } };
+      },
+      shouldContinue: () => polls < 1, sleep: async () => {},
+    });
+    await collector.loop;
+    expect(cursors).toEqual(result?.status === 200 ? [txnId] : []);
+  }
+  expect(result).toBeDefined();
+  return result;
 }
 
 const msg = (roomId, eventId, body = 'hello', sender = '@human:palpo.test') => ({
@@ -99,7 +155,7 @@ const tombstone = (roomId, eventId) => ({
 });
 const verdict = (roomId, eventId) => msg(roomId, eventId, JSON.stringify({ type: 'engagement-verdict', approve: true }));
 
-beforeEach(() => { cleanup = []; });
+beforeEach(() => { cleanup = []; acceptanceAdapter = 'push'; });
 afterEach(async () => {
   for (const fn of cleanup) { try { await fn(); } catch { /* closing twice is fine */ } }
   cleanup = [];
@@ -113,7 +169,8 @@ const AS = 'as-1';
 const REG = 'reg-1';
 const ROOM = '!room:palpo.test';
 
-describe('side provenance ingress (spec: task-side-provenance)', () => {
+describe.each(['push', 'edge', 'sync'])('side provenance ingress via %s (spec: task-side-provenance)', (adapter) => {
+  beforeEach(() => { acceptanceAdapter = adapter; });
   test('side_provenance_reaches_ingress_from_push_edge_and_sync', async () => {
     const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
     const { self, typed } = await makeBridgeWithSide({
@@ -123,11 +180,8 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     const r1 = await pushTxn(self.router, { hsToken: HS, txnId: 'p1', events: [msg(ROOM, '$1')] });
     expect(r1.status).toBe(200);
     expect(typed.messages).toHaveLength(1);
-    // edge (through the router as the puller shapes it, with mode in the body)
-    const r2 = await self.router.handle({
-      method: 'PUT', path: '/_matrix/app/v1/transactions/e1', query: {},
-      headers: { authorization: `Bearer ${HS}` }, body: { events: [msg(ROOM, '$2')], mode: 'edge' },
-    });
+    // edge (through the router as the puller shapes it)
+    const r2 = await intakeTxn('edge', self.router, { hsToken: HS, txnId: 'e1', events: [msg(ROOM, '$2')] });
     expect(r2.status).toBe(200);
     expect(typed.messages).toHaveLength(2);
     // sync (collector loop driving the router)
@@ -160,6 +214,14 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     const r = await pushTxn(self.router, { hsToken: 'wrong-token', txnId: 'bad', events: [msg(ROOM, '$x')] });
     expect(r.status).toBe(403);
     expect(typed.messages).toHaveLength(0);
+    let ambiguousCalls = 0;
+    self.router.setSides([SIDE, 'another.test'].map((sideId) => ({
+      sideId, hsToken: HS, onEvents: async () => { ambiguousCalls += 1; },
+    })));
+    const ambiguous = await pushTxn(self.router, { hsToken: HS, txnId: 'ambiguous', events: [msg(ROOM, '$a')] });
+    expect(ambiguous.status).toBe(403);
+    expect(ambiguousCalls).toBe(0);
+    expect(Object.values(self.router.seenCounts())).toEqual([0, 0]);
   });
 
   test('side_provenance_missing_or_inconsistent_context_keeps_batch_retryable', async () => {
@@ -178,22 +240,24 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
     self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
     self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
-    /*
-     * 16-impl-r2 B: missing → retryable invalid_transport_provenance; a DISAGREEMENT
-     * (wrong sideId / forged registration / alien mode) → terminal provenance_mismatch, skipped.
-     */
-    await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$1')], { txnId: 't1' }))
-      .rejects.toMatchObject({ code: 'invalid_transport_provenance', retryable: true });
-    // forged sideId / forged registration / alien mode → terminal, zero typed
-    await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$3')], {
-      txnId: 't3', provenance: { registration: REG, sideId: 'elsewhere.test', mode: 'push' },
-    })).resolves.toBeUndefined();
-    await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$4')], {
-      txnId: 't4', provenance: { registration: 'forged-reg', sideId: SIDE, mode: 'push' },
-    })).resolves.toBeUndefined();
-    await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$5')], {
-      txnId: 't5', provenance: { registration: REG, sideId: SIDE, mode: 'sms' },
-    })).resolves.toBeUndefined();
+    // Inject the internal wiring fault after real HTTP token authentication.
+    for (const provenance of [
+      undefined,
+      { registration: REG, sideId: 'elsewhere.test', mode: 'push' },
+      { registration: 'forged-reg', sideId: SIDE, mode: 'push' },
+      { registration: REG, sideId: SIDE, mode: 'sms' },
+    ]) {
+      const router = createAppserviceRouter({ sides: [{ sideId: SIDE, hsToken: HS,
+        onEvents: (events, meta) => self.handleAppserviceEvents(SIDE, events, { ...meta, provenance }),
+      }] });
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const response = await pushTxn(router, { hsToken: HS, txnId: 'retry', events: [msg(ROOM, '$retry')] });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toContain('appservice failed');
+        expect(router.seenCounts()[SIDE]).toBe(0);
+        expect(self.sideProvenanceClaims.size).toBe(0);
+      }
+    }
     expect(typedCount).toBe(0);
   });
 
@@ -221,8 +285,12 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     bare.appserviceInboundSnapshot = null;
     bare.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(bare);
     bare.handleAppserviceEvents = m.MatrixBridge.prototype.handleAppserviceEvents.bind(bare);
-    await expect(bare.handleAppserviceEvents(SIDE, [msg(ROOM, '$1')], { txnId: 't1', provenance: { registration: REG, sideId: SIDE, mode: 'push' } }))
-      .rejects.toMatchObject({ code: 'side_registry_unavailable', retryable: true });
+    const unavailableRouter = createAppserviceRouter({ sides: [{ sideId: SIDE, hsToken: HS,
+      onEvents: (events, meta) => bare.handleAppserviceEvents(SIDE, events,
+        { ...meta, provenance: { registration: REG, sideId: SIDE, mode: meta.mode } }),
+    }] });
+    expect((await pushTxn(unavailableRouter, { hsToken: HS, txnId: 'unavailable', events: [msg(ROOM, '$1')] })).status).toBe(500);
+    expect(unavailableRouter.seenCounts()[SIDE]).toBe(0);
     // prior snapshot + failed refresh → prior snapshot still evaluates
     self.appserviceInboundSnapshot = new Map([[SIDE, { sideId: SIDE, hsToken: HS, registration: REG, representative: { mxid: REP } }]]);
     const r = await pushTxn(self.router, { hsToken: HS, txnId: 't2', events: [msg(ROOM, '$2')] });
@@ -278,6 +346,41 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
     // ("in addition, not instead" — the trust gate and cutoff live there)
     expect(typed.states).toHaveLength(2);
     expect(typed.memberships).toHaveLength(1);
+
+    // Follow the admitted event into the production verdict parser/bridge method
+    // and the real durable approval store. Same-localpart impostors and public
+    // room replies must remain unauthorized after the provenance gate passes.
+    const root = mkdtempSync(path.join(tmpdir(), 'hafleet-provenance-owner-'));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    const store = new ApprovalStore(path.join(root, 'approvals.json'));
+    const dm = '!owner-dm:palpo.test';
+    palpo.setMembers(dm, [REP]);
+    store.upsertBinding({ agent: 'worker', project: 'p', project_room_id: ROOM,
+      owner_mxid: '@Owner:palpo.test', owner_dm_room_id: dm });
+    const approval = store.createRequest({ agent: 'worker', project: 'p', runtime: 'claude',
+      upstream_request_id: 'fixture', tool_name: 'Bash', input_preview: '{"command":"echo fixture"}' });
+    const results = [];
+    const m = await bridge();
+    const ownerBridge = {
+      rememberMatrixEvent() {},
+      async callBackendApi(method, route, body) {
+        expect(method).toBe('POST'); expect(route).toBe(`/api/approvals/${approval.id}/verdict`);
+        const result = store.submitMatrixVerdict(approval.id, body); results.push(result); return result;
+      },
+    };
+    ownerBridge.onApprovalVerdict = m.MatrixBridge.prototype.onApprovalVerdict.bind(ownerBridge);
+    self.onRoomMessage = (roomId, event) => m.MatrixBridge.prototype._onRoomMessageClaimed.call(ownerBridge, roomId, event, event.event_id);
+    const approvalEvent = (room, sender, id) => ({ ...msg(room, id, 'verdict', sender), content: {
+      msgtype: 'com.agentchat.approval.verdict.v1', body: 'Approval response submitted',
+      'com.agentchat.approval': { version: 1, kind: 'verdict', agent: 'worker', project: 'p',
+        project_room_id: ROOM, request_id: approval.id, input_digest: approval.input_digest, action: 'approve_once' },
+    } });
+    await pushTxn(self.router, { hsToken: HS, txnId: 'owner-impostor', events: [approvalEvent(dm, '@owner:palpo.test', '$wrong-case')] });
+    await pushTxn(self.router, { hsToken: HS, txnId: 'owner-public', events: [approvalEvent(ROOM, '@Owner:palpo.test', '$wrong-room')] });
+    await pushTxn(self.router, { hsToken: HS, txnId: 'owner-valid', events: [approvalEvent(dm, '@Owner:palpo.test', '$owner-valid')] });
+    expect(results.map((v) => ({ ok: v.ok, code: v.code }))).toEqual([
+      { ok: false, code: 'senderMxid_mismatch' }, { ok: false, code: 'roomId_mismatch' }, { ok: true, code: 'approved' },
+    ]);
   });
 
   test('side_provenance_first_invite_preserves_registered_side_intake', async () => {
@@ -409,10 +512,8 @@ describe('side provenance ingress (spec: task-side-provenance)', () => {
       sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
     });
     await pushTxn(self.router, { hsToken: HS, txnId: 'p1', events: [msg(ROOM, '$dup')] });
-    const r2 = await self.router.handle({
-      method: 'PUT', path: '/_matrix/app/v1/transactions/s1', query: {},
-      headers: { authorization: `Bearer ${HS}` }, body: { events: [msg(ROOM, '$dup')], mode: 'sync' },
-    });
+    const r2 = await intakeTxn('sync', self.router, { hsToken: HS, txnId: 's1', events: [msg(ROOM, '$dup')] });
+    await intakeTxn('edge', self.router, { hsToken: HS, txnId: 'e1', events: [msg(ROOM, '$dup')] });
     expect(r2.status).toBe(200);
     expect(typed.messages).toHaveLength(1); // one logical event, one claim
   });
@@ -1203,10 +1304,10 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     await self.refreshAppserviceSides();
     expect(self.appserviceInboundSnapshot.get(SIDE)?.registration).toBe(newReg);
     expect(self.actingSideFor('PALPO.TEST')?.credential.registration).toBe(newReg); // acting bound to the NEW registration
-    // an in-flight event carrying the OLD registration is TERMINALLY refused
+    // In-flight stale adapter metadata must remain retryable after refresh.
     await expect(self.handleAppserviceEvents(SIDE, [msg(ROOM, '$old')], {
       txnId: 'old', provenance: { registration: oldReg, sideId: SIDE, mode: 'push' },
-    })).resolves.toBeUndefined();
+    })).rejects.toMatchObject({ code: 'invalid_transport_provenance', retryable: true });
     expect(self.sideProvenanceClaims.size).toBe(0);
   });
 
@@ -1274,96 +1375,6 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
 
 
 describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
-  const SPEC_TITLES = [
-    'side_provenance_reaches_ingress_from_push_edge_and_sync',
-    'side_provenance_rejects_bad_or_ambiguous_credentials',
-    'side_provenance_missing_or_inconsistent_context_keeps_batch_retryable',
-    'side_provenance_rechecks_removed_side_before_event_claim',
-    'side_provenance_unavailable_registry_preserves_retry_and_prior_snapshot',
-    'side_provenance_rejects_room_mismatch_before_three_typed_paths',
-    'side_provenance_relation_unavailable_retries_before_three_typed_paths',
-    'side_provenance_valid_rooms_preserve_message_state_and_owner_checks',
-    'side_provenance_first_invite_preserves_registered_side_intake',
-    'side_provenance_backfill_and_replacement_rooms_require_checked_context',
-    'side_provenance_two_instances_share_palpo_across_three_adapters',
-    'side_provenance_two_instances_foreign_token_rejected_before_ingress',
-    'side_provenance_two_instances_foreign_room_rejected_with_local_token',
-    'side_provenance_two_instances_foreign_representative_cannot_prove_membership_or_bootstrap',
-    'side_provenance_two_instances_shared_room_checks_each_own_membership',
-    'side_provenance_mixed_batch_rejects_invalid_events_without_success_claims',
-    'side_provenance_failed_delivery_keeps_claim_and_cursor_retryable',
-    'side_provenance_mixed_batch_relation_failure_prevents_ack_and_cursor',
-    'side_provenance_cross_mode_duplicates_share_one_event_claim',
-    'side_provenance_rejects_invalid_duplicate_before_dedup_success',
-    'side_provenance_idless_invites_do_not_share_a_global_claim',
-    'side_provenance_idless_different_inviters_reenter_owner_checks',
-    'side_provenance_idless_target_and_authorization_content_do_not_collapse',
-    'side_provenance_rejection_logs_omit_tokens_and_approval_payloads',
-  ];
-
-  test('r5_all_spec_titles_across_edge_and_sync', async () => {
-    /*
-     * 24 titles × {edge, sync}: every title driven once per non-push mode through the REAL
-     * edge puller / REAL sync collector. The scenario each title names has its own push-basis
-     * test above; here the matrix proves the MODE is not load-bearing — the same fixture shape
-     * reaches the same typed/ack/cursor verdict through both real adapters.
-     */
-    const { startEdgePuller } = await import('../lib/appservice-puller.js');
-    for (const title of SPEC_TITLES) {
-      for (const mode of ['edge', 'sync']) {
-        const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
-        const { self, typed } = await makeBridgeWithSide({
-          sideId: SIDE, hsToken: HS, asToken: AS, registration: REG, representativeMxid: REP, palpo,
-        });
-        const ev = msg(ROOM, `\$${title.slice(-6)}-${mode}`);
-        if (mode === 'edge') {
-          let served = 0;
-          const edgeSrv = (await import('http')).createServer((req2, res2) => {
-            let b = '';
-            req2.on('data', (c) => { b += c; });
-            req2.on('end', () => {
-              if (req2.url.includes('/ack')) { res2.writeHead(200); return res2.end('{}'); }
-              served += 1;
-              res2.writeHead(200, { 'Content-Type': 'application/json' });
-              res2.end(JSON.stringify(served === 1 ? { events: [ev], txn_id: `e-${served}` } : { events: [] }));
-            });
-          });
-          await new Promise((r) => edgeSrv.listen(0, '127.0.0.1', r));
-          const puller = startEdgePuller({
-            url: `http://127.0.0.1:${edgeSrv.address().port}`,
-            token: 'edge-token', router: self.router, hsTokenFor: () => HS,
-            sleep: async () => { await new Promise((r) => setTimeout(r, 1)); },
-            shouldContinue: () => served < 2 && (w.t = (w.t ?? 0) + 1) < 200,
-          });
-          function w() {}
-          await puller.done;
-          await new Promise((r) => edgeSrv.close(r));
-          expect(typed.messages.map((t) => t.event.event_id)).toEqual([ev.event_id]);
-        } else {
-          const cursors = [];
-          const collector = startAppserviceSyncCollector({
-            baseUrl: palpo.url, side: SIDE, router: self.router,
-            credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
-            readCursor: () => 's0', writeCursor: async (n) => { cursors.push(n); },
-            fetchImpl: async (u) => {
-              if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: REP }) };
-              return {
-                ok: true, status: 200,
-                json: async () => ({ next_batch: 'n1', rooms: { join: { [ROOM]: { timeline: { events: [ev] }, state: { events: [] } } } } }),
-              };
-            },
-            sleep: async () => { await Promise.resolve(); },
-            shouldContinue: () => (w2.t = (w2.t ?? 0) + 1) < 3,
-          });
-          function w2() {}
-          await collector.loop;
-          expect(typed.messages.map((t) => t.event.event_id)).toEqual([ev.event_id]);
-          expect(cursors.length).toBeGreaterThanOrEqual(1);
-        }
-      }
-    }
-  }, 180_000);
-
   test('r5_backfill_and_tombstone_real_followup', async () => {
     const palpo = await fakePalpo({ members: { [ROOM]: [REP], '!new:palpo.test': [REP] } });
     // /messages for the real backfill: newest-first page with an ask before the join boundary

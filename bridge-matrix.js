@@ -7,6 +7,7 @@ import {
 import { validateMasqueradeUserId, setMasqueradeUserParam } from './lib/matrix-representative.js';
 import { createHash } from 'crypto';
 import { createAppserviceRouter } from './lib/appservice-receiver.js';
+import { executeMatrixWork } from './lib/matrix-work-executor.js';
 import {
   createRoomOnSide, inviteToRoomOnSide, joinRoomOnSideAsAgent, joinRoomOnSideAsRepresentative,
   sendToRoomOnSide, namespaceAdmits,
@@ -4355,6 +4356,8 @@ export class MatrixBridge {
     // 9. Poll for new agents and humans.
     await this.pollRegistrations();
     setInterval(() => this.pollRegistrations(), 30_000);
+    await this.pollMatrixWork();
+    setInterval(() => this.pollMatrixWork(), 2_000);
 
     // 10. Inbound appservice traffic, if this deployment exposes a socket for it (ADR-016).
     await this.startAppserviceIntake();
@@ -4774,8 +4777,8 @@ export class MatrixBridge {
     if (membership !== 'invite') return;
     const acting = this.actingSideFor(sideId);
     if (!acting) return;
-    const representative = `@${String(acting.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
-    if (String(event?.state_key || '').toLowerCase() !== representative) return;
+    const representative = acting.side.representative?.mxid || `@${String(acting.credential?.senderLocalpart || '')}:${sideId}`;
+    if (String(event?.state_key || '') !== representative) return;
 
     /*
      * F10 (17-r1): the join goes through `joinRoomOnSideAsRepresentative`, which sets the masquerade
@@ -5017,7 +5020,7 @@ export class MatrixBridge {
     const row = this.actingCredentials?.get(String(serverNameValue || '').toLowerCase());
     if (!row) return null;
     return {
-      side: { apiBaseUrl: row.apiBaseUrl, serverName: row.serverName },
+      side: { apiBaseUrl: row.apiBaseUrl, serverName: row.serverName, representative: row.representative },
       credential: row.kind === 'appservice'
         ? {
           kind: 'appservice', asToken: row.asToken, senderLocalpart: row.senderLocalpart,
@@ -5254,6 +5257,7 @@ export class MatrixBridge {
        * sending it back over the wire would put a credential in flight for nothing.
        */
       this.edgePuller = startEdgePuller({
+        side: edge.side,
         url: edge.url,
         token: edge.token,
         router: this.appserviceRouter,
@@ -5309,7 +5313,9 @@ export class MatrixBridge {
            * already moved past it.
            */
           for (const roomId of roomIds) {
-            const representative = `@${String(this.actingSideFor(sideId)?.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
+            const acting = this.actingSideFor(sideId);
+            const representative = acting?.side?.representative?.mxid
+              || `@${String(acting?.credential?.senderLocalpart || '')}:${sideId}`;
             await this.backfillJoinedRoomOnSide(sideId, roomId, representative || null);
           }
         },
@@ -5378,6 +5384,41 @@ export class MatrixBridge {
       );
     }
     setInterval(() => this.refreshAppserviceSides(), APPSERVICE_SIDE_REFRESH_MS);
+  }
+
+  async pollMatrixWork() {
+    if (this.matrixWorkBusy) return;
+    this.matrixWorkBusy = true;
+    try {
+      for (let i = 0; i < 8; i++) {
+        const { job } = await this.callBackendApi('POST', '/api/matrix-work/claim', {}, 'context=matrix-work');
+        if (!job) break;
+        let outcome;
+        try {
+          outcome = await executeMatrixWork(job, {
+            readCredential: (name) => agentCredential(name),
+            saveCredential: (name, value) => {
+              const before = state.agentTokens[name];
+              if (value) state.agentTokens[name] = value;
+              else delete state.agentTokens[name];
+              // Keep an unsaved credential in memory on failure, but never ACK it
+              // until a retry has persisted it. A remote account cannot be rolled back.
+              try { saveState(); } catch (error) {
+                if (!value && before) state.agentTokens[name] = before;
+                throw error;
+              }
+            },
+          });
+          if (outcome.ok && job.action === 'identity') saveState();
+        } catch (error) {
+          console.error(`[matrix-work] ${job.id}: ${error.message}`);
+          outcome = { ok: false, code: 'bridge_operation_failed' };
+        }
+        await this.callBackendApi('POST', `/api/matrix-work/${job.id}/complete`,
+          { claimToken: job.claimToken, outcome }, 'context=matrix-work-complete');
+      }
+    } catch (error) { console.error(`[matrix-work] poll: ${error.message}`); }
+    finally { this.matrixWorkBusy = false; }
   }
 
   async pollRegistrations() {

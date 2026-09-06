@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -60,6 +60,82 @@ afterEach(() => {
 });
 
 describe('structured one-shot runners', () => {
+  test('uncertain descendant cleanup settles unknown and quarantines the workspace', async () => {
+    const { root, router, claim } = setup('claude');
+    const pidFile = path.join(root, 'escaped.pid');
+    try {
+      const completion = await runClaudeDispatch({ router, claim, cwd: root,
+        executable: path.join(fixtures, 'fake-claude-runner.mjs'),
+        env: { FAKE_CLAUDE_DESCENDANT_PID: pidFile, FAKE_CLAUDE_DESCENDANT_STDIO: 'inherit', FAKE_CLAUDE_DESCENDANT_ESCAPES: '1' },
+      });
+      expect(completion.state).toBe('outcome_unknown');
+      expect(router.inspectWorkspace('workspace')).toMatchObject({ dirty: true, quarantinedByDispatchId: claim.dispatchId });
+    } finally {
+      if (existsSync(pidFile)) { try { process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* already stopped */ } }
+      router.close();
+    }
+  });
+
+  test('approval arriving before a missing turn identity cannot escape as an unhandled rejection', async () => {
+    const { root, router, claim } = setup('codex');
+    try {
+      await expect(runCodexDispatch({ router, claim, cwd: root,
+        executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
+        env: { FAKE_CODEX_WITHHOLD_TURN_ID: '1' }, acknowledgementTimeoutMs: 300, approvalTimeoutMs: 1000,
+        requestOwnerApproval: async () => { throw new Error('must not request an owner verdict without a turn identity'); },
+      })).rejects.toThrow(/Codex turn/);
+      expect(router.inspectWorkspace('workspace')).toMatchObject({ dirty: true, quarantinedByDispatchId: claim.dispatchId });
+    } finally { router.close(); }
+  });
+  test.each(['ignore', 'inherit'])('guardian cleans up descendants when the runtime exits normally (%s stdio)', async (stdio) => {
+    const { root, router, claim } = setup('claude');
+    const pidFile = path.join(root, 'descendant.pid');
+    let pid;
+    try {
+      const completion = await runClaudeDispatch({
+        router, claim, cwd: root,
+        executable: path.join(fixtures, 'fake-claude-runner.mjs'),
+        env: { FAKE_CLAUDE_DESCENDANT_PID: pidFile, FAKE_CLAUDE_DESCENDANT_STDIO: stdio },
+      });
+      pid = Number(readFileSync(pidFile, 'utf8'));
+      expect(completion.state).toBe('completed');
+      expect(router.db.prepare('SELECT COUNT(*) count FROM resource_leases').get().count).toBe(0);
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      if (!pid && existsSync(pidFile)) pid = Number(readFileSync(pidFile, 'utf8'));
+      if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* already terminated */ } }
+      router.close();
+    }
+  });
+
+  test('completed Codex dispatch retains its lease until runtime termination', async () => {
+    const { root, router, claim } = setup('codex');
+    const shutdownLog = path.join(root, 'shutdown.log');
+    const releaseFile = path.join(root, 'release-shutdown');
+    const run = runCodexDispatch({
+      router, claim, cwd: root,
+      executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
+      env: { FAKE_CODEX_SHUTDOWN_LOG: shutdownLog, FAKE_CODEX_SHUTDOWN_RELEASE: releaseFile },
+      approvalTimeoutMs: 60_000, maxParkedRunners: 4,
+      requestOwnerApproval: async () => ({ decisionEventId: 'shutdown-approval', decision: 'allow' }),
+    });
+    try {
+      await expect.poll(() => existsSync(shutdownLog)).toBe(true);
+      expect(router.db.prepare('SELECT COUNT(*) count FROM resource_leases').get().count).toBe(1);
+      expect(router.db.prepare('SELECT state FROM dispatches WHERE dispatch_id=?').get(claim.dispatchId).state).toBe('started');
+      writeFileSync(releaseFile, 'finish');
+      expect((await run).state).toBe('completed');
+      expect(readFileSync(shutdownLog, 'utf8')).toContain('last write');
+      expect(router.db.prepare('SELECT COUNT(*) count FROM resource_leases').get().count).toBe(0);
+      const pid = Number(readFileSync(shutdownLog, 'utf8').split('\n')[0]);
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      writeFileSync(releaseFile, 'finish');
+      await run;
+      router.close();
+    }
+  });
+
   test('runner guardian terminates its runtime when backend ownership disappears', async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-runner-guardian-'));
     roots.push(root);

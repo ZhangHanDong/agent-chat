@@ -444,7 +444,7 @@ Scenario: Worktree mode allows genuinely isolated writers
   And each holds only its own workspace lease
 
 Scenario: Worktree bootstrap is operator-owned and secret-free
-  Test: runner workspace configuration requires operator authority
+  Test: runner workspace configuration is not settable through the agent API
   Given an agent token attempts to set runner workspace or bootstrap configuration
   When the agent registration API validates the request
   Then it refuses the change without an operator bearer token

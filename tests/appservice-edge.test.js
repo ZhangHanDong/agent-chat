@@ -279,7 +279,8 @@ describe('HAFleet collecting from an edge', () => {
      * the body's exact shape ({ events, mode }), and the events ARRAY itself untouched
      * (no mode injected into any event object — provenance stays outside the event body).
      */
-    expect(seen[0].body).toEqual({ events: [{ a: 1 }], mode: 'edge' });
+    expect(seen[0].body).toEqual({ events: [{ a: 1 }] });
+    expect(seen[0].transport.mode).toBe('edge');
     expect(seen[0].body.events).toEqual([{ a: 1 }]);
     expect(seen[0].body.events[0]).not.toHaveProperty('mode');
     expect(answered).toMatchObject({ status: 200 });

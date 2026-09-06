@@ -240,9 +240,10 @@ describe('matrix-Agent dispatch leases (Task 7)', () => {
     // a normal routed → release round-trip leaves zero active leases behind
     const dispatch = await request(context.app).post('/api/dispatch')
       .send({ role: 'coding', capability: 'medium', task: 'A', owner: 'dispatcher-a' });
+    expect(dispatch.body, JSON.stringify(dispatch.body)).toMatchObject({ status: 'routed', agent: 'cod1' });
     const release = await request(context.app).post('/api/dispatch/release')
       .send({ leaseId: dispatch.body.leaseId, agent: 'cod1', owner: 'dispatcher-a' });
-    expect(release.body.status).toBe('released');
+    expect(release.body, JSON.stringify(release.body)).toMatchObject({ status: 'released' });
     expect(context.internals.dispatchLeaseStoreForTest.size).toBe(0);
 
     const idlePool = await request(context.app).get('/api/pool?state=idle');

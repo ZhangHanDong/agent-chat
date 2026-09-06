@@ -144,6 +144,7 @@ describe('enforcement uses the drawn figure, not the parity total', () => {
   };
 
   const seedWith = (kinds) => ({
+    env: { HAFLEET_OWNER_MXID: '@owner:hq.example', HAFLEET_OWNER_DM_ROOM: '!owner-dm:hq.example' },
     agents: {
       a1: {
         name: 'a1', type: 'claude', kind: 'agent', server: 'local', online: true,

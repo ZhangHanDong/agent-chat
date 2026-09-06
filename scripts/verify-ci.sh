@@ -21,12 +21,12 @@ if [[ "${HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE:-0}" != "1" ]]; then
       timeout_bin="$(command -v gtimeout)"
     fi
   fi
-  if [[ -z "$timeout_bin" ]]; then
-    echo "verify:ci requires GNU timeout/gtimeout to enforce the ${VERIFY_CI_TIMEOUT_SEC}s wall-clock limit" >&2
-    exit 127
-  fi
   set +e
-  HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE=1 "$timeout_bin" --kill-after=5s "${VERIFY_CI_TIMEOUT_SEC}s" bash "$0" "$@"
+  if [[ -n "$timeout_bin" ]]; then
+    HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE=1 "$timeout_bin" --kill-after=5s "${VERIFY_CI_TIMEOUT_SEC}s" bash "$0" "$@"
+  else
+    HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE=1 node scripts/with-timeout.js "$VERIFY_CI_TIMEOUT_SEC" bash "$0" "$@"
+  fi
   status=$?
   set -e
   if [[ "$status" -eq 124 ]]; then
@@ -168,6 +168,7 @@ start_step "multi-tenancy (skips without a second homeserver)" npm run check:mul
 start_step "agent end-to-end (skips without a runtime)" npm run check:agent-e2e
 start_step "router type and artifact boundaries" bash -c 'npm run typecheck:router && npm run check:router-boundary && npm run check:router-build'
 start_step "Agent Operations canonical contract" npm run check:agent-ops-contract
+start_step "executable specification bindings" npm run check:spec-bindings
 
 failed=0
 for ((i = static_start_index; i < ${#step_pids[@]}; i++)); do

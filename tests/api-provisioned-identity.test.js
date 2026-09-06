@@ -295,7 +295,7 @@ describe('a federating side lets an existing identity be reused', () => {
       expect(flagged).toBe(true);
 
       const row = (await request(app).get(`/api/agents/${name}`).set('Authorization', `Bearer ${TOKEN}`)).body;
-      expect(row.matrixIdentity).toBe(`@ac_${name}:matrix.example.test`.toLowerCase());
+      expect(row.matrixIdentity.mxid).toBe(`@ac_${name}:matrix.example.test`.toLowerCase());
       // The probe happened; the mint did NOT. That is the whole optimization.
       expect(hs.seen.some((u) => u.includes('/profile/'))).toBe(true);
       expect(hs.seen.some((u) => u.includes('/whoami'))).toBe(false);

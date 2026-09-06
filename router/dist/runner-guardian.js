@@ -1,4 +1,8 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+// This guardian relies on POSIX process-group ownership. Refuse an unsupported
+// host instead of treating direct-child termination as whole-tree cleanup.
+if (process.platform === 'win32')
+    throw new Error('runner guardian requires POSIX process-group support');
 const executable = process.env.HAFLEET_GUARDIAN_EXECUTABLE?.trim() ?? '';
 if (!executable)
     throw new Error('runner guardian executable is missing');
@@ -22,21 +26,79 @@ const runtime = spawn(executable, args, {
     cwd: process.cwd(),
     env: childEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32',
+    detached: true,
 });
 let terminating = false;
 let killTimer = null;
+let cleanupPoll = null;
+let cleanupDeadline = null;
+let checking = false;
+let runtimeClosed = false;
+let runtimeExitCode = 1;
 function signalRuntime(signal) {
-    if (!runtime.pid || runtime.exitCode !== null || runtime.signalCode !== null)
+    if (!runtime.pid)
         return;
-    if (process.platform !== 'win32') {
-        try {
-            process.kill(-runtime.pid, signal);
-            return;
-        }
-        catch { /* fall through to direct child signaling */ }
+    try {
+        // The group outlives its leader. In particular, signal it after a normal
+        // runtime exit so background tools cannot keep writing after settlement.
+        process.kill(-runtime.pid, signal);
     }
-    runtime.kill(signal);
+    catch (error) {
+        if (error.code !== 'ESRCH') {
+            process.stderr.write(`runner guardian could not signal runtime group: ${String(error)}\n`);
+        }
+    }
+}
+async function hasLiveGroupMembers() {
+    if (!runtime.pid)
+        return false;
+    try {
+        process.kill(-runtime.pid, 0);
+    }
+    catch (error) {
+        if (error.code === 'ESRCH')
+            return false;
+        return true; // An unreadable group is not evidence of termination.
+    }
+    // An orphaned zombie may remain until the host's reaper runs. It cannot
+    // execute or write, and must not hold a completed dispatch forever.
+    return new Promise((resolve) => {
+        execFile('/bin/ps', ['-axo', 'pgid=,stat='], { encoding: 'utf8', timeout: 1_000 }, (error, stdout) => {
+            if (error)
+                return resolve(true);
+            resolve(stdout.split('\n').some((line) => {
+                const [group, state] = line.trim().split(/\s+/u);
+                return Number(group) === runtime.pid && !state?.startsWith('Z');
+            }));
+        });
+    });
+}
+async function finishWhenStopped() {
+    if (checking || !runtimeClosed)
+        return;
+    checking = true;
+    try {
+        if (await hasLiveGroupMembers())
+            return;
+        if (killTimer)
+            clearTimeout(killTimer);
+        if (cleanupPoll)
+            clearInterval(cleanupPoll);
+        if (cleanupDeadline)
+            clearTimeout(cleanupDeadline);
+        const finish = () => {
+            if (process.connected)
+                process.disconnect?.();
+            process.exit(runtimeExitCode);
+        };
+        if (process.connected && process.send)
+            process.send({ type: 'cleanup_complete' }, finish);
+        else
+            finish();
+    }
+    finally {
+        checking = false;
+    }
 }
 function terminate() {
     if (terminating)
@@ -44,7 +106,13 @@ function terminate() {
     terminating = true;
     signalRuntime('SIGTERM');
     killTimer = setTimeout(() => signalRuntime('SIGKILL'), 2_000);
-    killTimer.unref?.();
+    cleanupPoll = setInterval(() => { void finishWhenStopped(); }, 25);
+    cleanupDeadline = setTimeout(() => {
+        signalRuntime('SIGKILL');
+        process.stderr.write(`runner cleanup could not be confirmed for process group ${runtime.pid}; workspace requires inspection\n`);
+        // Reserved guardian status: the parent must quarantine, never release on this exit.
+        process.exit(125);
+    }, 5_000);
 }
 process.stdin.pipe(runtime.stdin);
 runtime.stdout.pipe(process.stdout);
@@ -56,13 +124,17 @@ runtime.once('spawn', () => {
 runtime.once('error', (error) => {
     process.stderr.write(`runner guardian failed to launch runtime: ${error.message}\n`);
 });
+runtime.stdin.on('error', () => { });
+runtime.once('exit', (code) => {
+    runtimeExitCode = code ?? 143;
+    // Use exit, not close: descendants can inherit stdout and keep close pending.
+    terminate();
+});
 runtime.once('close', (code) => {
-    if (killTimer)
-        clearTimeout(killTimer);
-    const exitCode = code ?? (terminating ? 143 : 1);
-    if (process.connected)
-        process.disconnect?.();
-    process.exit(exitCode);
+    runtimeExitCode = code ?? (terminating ? 143 : 1);
+    runtimeClosed = true;
+    terminate();
+    void finishWhenStopped();
 });
 process.on('disconnect', terminate);
 process.on('SIGTERM', terminate);

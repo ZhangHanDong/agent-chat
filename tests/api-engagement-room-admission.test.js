@@ -81,20 +81,23 @@ async function fakeHomeserver({
   return fake;
 }
 
-async function boot({ hs = null, credential = null, allocatedTokens = 5_000_000 } = {}) {
+async function boot({ hs = null, credential = null, allocatedTokens = 5_000_000, legacy = false } = {}) {
   context = await createBackendTestContext('engagement-room-admission-', {
     agents: {
       [AGENT]: {
         name: AGENT, type: 'agent', kind: 'agent', online: true, role: 'coding',
         // F10 (17-r4): the roster ruling requires the agent's authoritative side; the
         // admission tests exercise a room on SIDE, so that is the agent's home here.
-        projectSide: SIDE,
+        projectSide: legacy ? null : SIDE,
         runtimeProfile: { primary: { framework: 'claude', provider: 'anthropic', model: 'claude-opus-5' } },
       },
     },
-    env: { MATRIX_BRIDGE_SECRET: BRIDGE_SECRET, MATRIX_AGENT_PREFIX: 'ac_' },
+    env: { MATRIX_BRIDGE_SECRET: BRIDGE_SECRET, MATRIX_AGENT_PREFIX: 'ac_',
+      HAFLEET_OWNER_MXID: '@owner:palpo.test', HAFLEET_OWNER_DM_ROOM: '!owner-dm:palpo.test' },
   });
   const app = context.app;
+  context.internals.approvalStoreForTest.upsertBinding({ agent: AGENT, project: 'admission', project_room_id: ROOM,
+    owner_mxid: '@owner:palpo.test', owner_dm_room_id: '!owner-dm:palpo.test' });
   /*
    * A preset with a ceiling, because approval refuses `no_ceiling` before it ever reaches the room:
    * the contributor's own ceiling is the FIRST of ADR-016's two, and an agent lending nothing cannot
@@ -221,7 +224,7 @@ describe('an approved engagement puts the agent in the room', () => {
     expect(hs.seen.some((c) => c.url.includes('/join/'))).toBe(false);
   });
 
-  test('a registrationToken side is invited but NOT joined, because the agent has its own token', async () => {
+  test('a registrationToken join remains visibly pending when no bridge worker is available', async () => {
     const hs = await fakeHomeserver();
     const app = await boot({
       hs,
@@ -230,7 +233,9 @@ describe('an approved engagement puts the agent in the room', () => {
 
     const r = await approve(app);
     expect(r.body.roomAdmission).toMatchObject({ invited: true, joined: false, admitted: false });
-    expect(r.body.roomAdmission.reason).toMatch(/per-agent token and must use it/);
+    expect(r.body.roomAdmission.reason).toBe('bridge_work_pending');
+    const jobs = (await request(app).get('/api/matrix-work')).body.jobs;
+    expect(jobs).toContainEqual(expect.objectContaining({ action: 'join', agent: AGENT, state: 'pending' }));
     expect(hs.seen.some((c) => c.url.includes('/join/'))).toBe(false);
   });
 
@@ -240,7 +245,7 @@ describe('an approved engagement puts the agent in the room', () => {
      * already local to it. Reporting `no_project_side` distinguishes "nothing to do" from "we tried
      * and failed", which are the two things a half-done approval could mean.
      */
-    const app = await boot({ credential: null });
+    const app = await boot({ legacy: true, credential: null });
     const r = await approve(app, { room: '!local:contributor.example' });
     expect(r.status).toBe(200);
     expect(r.body.roomAdmission).toMatchObject({ admitted: false, reason: 'no_project_side' });
@@ -355,7 +360,7 @@ describe('a revoked engagement gives the room seat back', () => {
 
   test('a room on no configured side is reported, not attempted', async () => {
     const hs = await fakeHomeserver();
-    const app = await boot({ hs, credential: asCredential() });
+    const app = await boot({ legacy: true, hs, credential: asCredential() });
     // An engagement whose room is on the contributor's own server needs no seat given back.
     const created = await request(app).post('/api/engagements').send({
       project: 'local/thing', projectRoomId: '!local:hafleet.test', role: 'coding',
@@ -425,7 +430,7 @@ describe('the membership sweep lets an idle agent back in', () => {
 
   test('an engagement on no configured side is skipped without a call', async () => {
     const hs = await fakeHomeserver();
-    const app = await boot({ hs, credential: asCredential() });
+    const app = await boot({ legacy: true, hs, credential: asCredential() });
     await approve(app, { room: '!local:contributor.example' });
 
     const before = hs.seen.length;

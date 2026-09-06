@@ -136,7 +136,7 @@ Scenario: Owner DM receives structured actions
 
 Scenario: Multiple agents in one project room keep separate owner approval channels
   Tags: critical
-  Test: project room retains independent room-agent approval bindings
+  Test: one project room retains independent owner bindings for multiple local agents
   Given a project room already contains one managed agent and the bridge bot
   When the same trusted developer invites a second managed agent
   Then both room-agent ownership bindings remain active
@@ -172,7 +172,7 @@ Scenario: Missing one-time-key counts are reconciled without an upload loop
 
 Scenario: Access-token rotation cannot reuse another device's crypto store
   Tags: critical
-  Test: stale crypto store is archived before the token device starts syncing
+  Test: archives a stale crypto store before initializing the access-token device
   Given the active Matrix access token identifies a different device from the persisted bridge crypto store
   When the bridge starts its encrypted owner-approval client
   Then the stale crypto store is archived without deleting its private keys
@@ -217,7 +217,7 @@ Scenario: Empty owner has no administrator fallback
  Then hafleet denies it without creating an approvable request
 
 Scenario: Claude auto mode opens a relayable prompt for protected VCS operations
-  Test: launchers_keep_sandbox_defaults_and_wire_only_supported_adapters
+  Test: launchers keep sandbox defaults and wire only supported adapters
   Given a Claude agent uses auto mode and the owner permission channel
   When it invokes GitHub CLI or git push
   Then hafleet installs content-scoped ask rules in the agent-local Claude settings
@@ -260,7 +260,7 @@ Scenario: Codex hook changes invalidate previous trust
 
 Scenario: Repeated Codex startup keeps project trust parseable
   Tags: critical
-  Test: repairs_identical_duplicate_sections_before_codex_parses_the_file
+  Test: repairs identical duplicate sections before Codex parses the file
   Given a Codex project trust section already exists on a host without Python TOML support
   When hafleet prepares the same managed project again
   Then exactly one trusted project section remains

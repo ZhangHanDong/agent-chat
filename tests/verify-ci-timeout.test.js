@@ -67,4 +67,14 @@ describe('verify-ci timeout gate', () => {
     expect(error.code).toBe(124);
     expect(error.stderr).toContain('verify:ci exceeded 1s wall-clock timeout; optimization is needed.');
   });
+
+  test('the portable Node timeout stops a command that ignores SIGTERM', async () => {
+    let error;
+    try {
+      await execFileAsync(process.execPath, [path.join(repoRoot, 'scripts/with-timeout.js'), '1', process.execPath,
+        '-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { timeout: 9000 });
+    } catch (caught) { error = caught; }
+    expect(error?.code).toBe(124);
+    expect(error?.killed).toBe(false);
+  }, 10_000);
 });

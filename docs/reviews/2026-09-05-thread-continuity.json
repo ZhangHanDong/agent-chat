@@ -1,0 +1,137 @@
+{
+  "kind": "real-model-thread-continuity",
+  "startedAt": "2026-09-06T00:54:05.695Z",
+  "model": "claude-fable-5",
+  "runtime": "2.1.247 (Claude Code)",
+  "sourceCommit": "75ca1ecbf8c4623359094f000fa4968693f4a27e",
+  "sourceHashes": {
+    "router/dist/runner.js": "ded27f695b6a1601b3688feb4e5b3b1f17b645389a82aec251413bac2d91b1e1",
+    "router/dist/runner-guardian.js": "8098bfed70fcca933c0a82fa36dc78377d5aa09c7d4a8f7bbaee29cfe4022384",
+    "router/dist/store.js": "f51a521371aad5a8d735db49da6d57c11f37ba3b39b82d3c2acd32b717ccc50b"
+  },
+  "runs": [
+    {
+      "run": 1,
+      "expected": "agreement-5bff820d9b115494",
+      "prompts": [
+        "For this conversation, our agreed release phrase is exactly agreement-5bff820d9b115494. Confirm the agreement briefly.",
+        "Change topic: explain in one sentence why the Moon has phases. Do not mention our release phrase.",
+        "What exact release phrase did we agree on earlier? Reply with only that phrase."
+      ],
+      "turns": [
+        {
+          "state": "completed",
+          "text": "Confirmed. The release phrase for this conversation is `agreement-5bff820d9b115494`."
+        },
+        {
+          "state": "completed",
+          "text": "The Moon has phases because as it orbits Earth, we see varying portions of its sunlit half from our vantage point, ranging from none (new moon) to all of it (full moon)."
+        },
+        {
+          "state": "completed",
+          "text": "agreement-5bff820d9b115494"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "run": 2,
+      "expected": "agreement-42a2d645a234621c",
+      "prompts": [
+        "For this conversation, our agreed release phrase is exactly agreement-42a2d645a234621c. Confirm the agreement briefly.",
+        "Change topic: explain in one sentence why the Moon has phases. Do not mention our release phrase.",
+        "What exact release phrase did we agree on earlier? Reply with only that phrase."
+      ],
+      "turns": [
+        {
+          "state": "completed",
+          "text": "Confirmed. The agreed release phrase for this conversation is exactly `agreement-42a2d645a234621c`."
+        },
+        {
+          "state": "completed",
+          "text": "The Moon has phases because, as it orbits Earth, we see varying portions of its sunlit half from our vantage point, ranging from none (new moon) to all of it (full moon)."
+        },
+        {
+          "state": "completed",
+          "text": "agreement-42a2d645a234621c"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "run": 3,
+      "expected": "agreement-03c7063f33b612d0",
+      "prompts": [
+        "For this conversation, our agreed release phrase is exactly agreement-03c7063f33b612d0. Confirm the agreement briefly.",
+        "Change topic: explain in one sentence why the Moon has phases. Do not mention our release phrase.",
+        "What exact release phrase did we agree on earlier? Reply with only that phrase."
+      ],
+      "turns": [
+        {
+          "state": "completed",
+          "text": "Confirmed. The release phrase for this conversation is exactly `agreement-03c7063f33b612d0`."
+        },
+        {
+          "state": "completed",
+          "text": "The Moon has phases because, as it orbits Earth, we see varying portions of its sunlit half from our vantage point — the Sun always illuminates half the Moon, but the fraction of that lit half facing Earth changes throughout the orbit."
+        },
+        {
+          "state": "completed",
+          "text": "agreement-03c7063f33b612d0"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "run": 4,
+      "expected": "agreement-2d84555983086e5b",
+      "prompts": [
+        "For this conversation, our agreed release phrase is exactly agreement-2d84555983086e5b. Confirm the agreement briefly.",
+        "Change topic: explain in one sentence why the Moon has phases. Do not mention our release phrase.",
+        "What exact release phrase did we agree on earlier? Reply with only that phrase."
+      ],
+      "turns": [
+        {
+          "state": "completed",
+          "text": "Confirmed. The release phrase for this conversation is exactly `agreement-2d84555983086e5b`."
+        },
+        {
+          "state": "completed",
+          "text": "The Moon has phases because, as it orbits Earth, we see varying portions of its sunlit half from our changing vantage point."
+        },
+        {
+          "state": "completed",
+          "text": "agreement-2d84555983086e5b"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "run": 5,
+      "expected": "agreement-90f43a14fe0a14d2",
+      "prompts": [
+        "For this conversation, our agreed release phrase is exactly agreement-90f43a14fe0a14d2. Confirm the agreement briefly.",
+        "Change topic: explain in one sentence why the Moon has phases. Do not mention our release phrase.",
+        "What exact release phrase did we agree on earlier? Reply with only that phrase."
+      ],
+      "turns": [
+        {
+          "state": "completed",
+          "text": "Confirmed. The agreed release phrase for this conversation is exactly `agreement-90f43a14fe0a14d2`."
+        },
+        {
+          "state": "completed",
+          "text": "The Moon has phases because as it orbits Earth, we see varying portions of its sunlit half illuminated, depending on the changing angle between the Sun, Earth, and Moon."
+        },
+        {
+          "state": "completed",
+          "text": "agreement-90f43a14fe0a14d2"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "completedAt": "2026-09-06T00:55:02.382Z",
+  "successes": 5
+}

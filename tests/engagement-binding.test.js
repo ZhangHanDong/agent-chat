@@ -129,9 +129,10 @@ describe('a verdict that cannot resolve an owner does not report success', () =>
     const res = await request(ctx.app).post(`/api/engagements/${e.id}/verdict`)
       .send({ approve: true, allocatedTokens: 400_000 });
 
-    expect(res.body.binding.bound).toBe(false);
-    // Actionable, not merely negative: the operator is told which two settings to provide.
-    expect(res.body.binding.error).toMatch(/HAFLEET_OWNER_MXID/);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ ok: false, code: 'owner_unavailable',
+      engagement: { state: 'pending', allocatedTokens: null, bound: false } });
+    expect(res.body.error).toMatch(/owner.*unavailable/);
   });
 
   test('the failure is RECORDED on the engagement, not only returned', async () => {
@@ -272,7 +273,7 @@ describe('F04: the owner for an engagement comes from THIS project room\'s bindi
     const res = await request(ctx.app).post(`/api/engagements/${e.id}/verdict`)
       .send({ approve: true, allocatedTokens: 100_000 });
 
-    expect(res.body.binding?.bound ?? res.body.binding).toBeFalsy();
-    expect(res.body.binding?.error ?? '').toMatch(/no owner known for agent a1 in project room/);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ ok: false, code: 'owner_unavailable', engagement: { state: 'pending', bound: false } });
   });
 });

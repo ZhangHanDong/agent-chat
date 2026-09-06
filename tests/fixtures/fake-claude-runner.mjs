@@ -1,5 +1,16 @@
 #!/usr/bin/env node
 
+if (process.env.FAKE_CLAUDE_DESCENDANT_PID) {
+  const { spawn } = await import('node:child_process');
+  const { writeFileSync } = await import('node:fs');
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: process.env.FAKE_CLAUDE_DESCENDANT_STDIO === 'inherit' ? 'inherit' : 'ignore',
+    detached: process.env.FAKE_CLAUDE_DESCENDANT_ESCAPES === '1',
+  });
+  writeFileSync(process.env.FAKE_CLAUDE_DESCENDANT_PID, String(child.pid));
+  child.unref();
+}
+
 if (process.env.FAKE_CLAUDE_PID_FILE) {
   const { writeFileSync } = await import('node:fs');
   writeFileSync(process.env.FAKE_CLAUDE_PID_FILE, String(process.pid));

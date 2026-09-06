@@ -111,6 +111,19 @@ describe('it is LOOPBACK unless explicitly widened', () => {
 });
 
 describe('a real socket, end to end through the receiver', () => {
+  test('push listener cannot accept a body-selected intake mode', async () => {
+    const modes = [];
+    const { rec } = receiver({ onEvents: async (_events, meta) => modes.push(meta.mode) });
+    const base = await listen(rec);
+    for (const mode of ['sync', 'edge', 'invalid']) {
+      const response = await fetch(txnUrl(base, mode), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, transport: { mode }, events: [] }),
+      });
+      expect(response.status).toBe(200);
+    }
+    expect(modes).toEqual(['push', 'push', 'push']);
+  });
   test('a transaction with the token in the QUERY STRING is accepted', async () => {
     // The form Palpo actually sends, driven over TCP rather than through handle() directly.
     const { rec, seen } = receiver();

@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { execSync, spawn } from 'child_process';
+import { execFileSync, execSync, spawn } from 'child_process';
 import { mkdtempSync, readdirSync, statSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import http from 'http';
 import os from 'os';
 import path from 'path';
 
 const repoRoot = path.resolve('.');
+const tmuxBin = execFileSync('which', ['tmux'], { encoding: 'utf8' }).trim();
 
 function listen(handler) {
   return new Promise((resolve, reject) => {
@@ -51,12 +52,12 @@ describe('12-r2: --print-pane-target is zero-side-effect', () => {
     // Isolated tmux server with base-index 1 + PATH shim for `tmux`.
     const conf = path.join(runtimeDir, 'tmux.conf');
     writeFileSync(conf, 'set -g base-index 1\nset -g pane-base-index 1\n');
-    const sock = 'hafleet-12r2-test';
+    const sock = `hafleet-selfcheck-${path.basename(runtimeDir)}`;
     const binDir = path.join(runtimeDir, 'bin');
     spawnSyncSafe(`mkdir -p ${binDir}`);
-    writeFileSync(path.join(binDir, 'tmux'), `#!/usr/bin/env bash\nexec /usr/bin/tmux -L ${sock} "$@"\n`);
+    writeFileSync(path.join(binDir, 'tmux'), `#!/usr/bin/env bash\nexec ${tmuxBin} -L ${sock} "$@"\n`);
     spawnSyncSafe(`chmod +x ${path.join(binDir, 'tmux')}`);
-    spawnSyncSafe(`/usr/bin/tmux -L ${sock} -f ${conf} new-session -d -s t12 'sleep 8'`);
+    spawnSyncSafe(`${tmuxBin} -L ${sock} -f ${conf} new-session -d -s t12 'sleep 8'`);
 
     const before = snap(runtimeDir);
     const out = spawnSyncSafe(
@@ -73,7 +74,7 @@ describe('12-r2: --print-pane-target is zero-side-effect', () => {
     // and the backend saw NOTHING — no lifecycle, no registration, no heartbeat
     expect(requests).toEqual([]);
 
-    spawnSyncSafe(`/usr/bin/tmux -L ${sock} kill-server`);
+    spawnSyncSafe(`${tmuxBin} -L ${sock} kill-server`);
     server.close();
     rmSync(runtimeDir, { recursive: true, force: true });
   });

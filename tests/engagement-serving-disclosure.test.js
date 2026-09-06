@@ -30,6 +30,7 @@ const agent = (name, model, extra = {}) => ({
 
 /** A fleet with one strong agent and one that cannot reach the coding tier. */
 const seed = {
+  env: { HAFLEET_OWNER_MXID: '@owner:hq.example', HAFLEET_OWNER_DM_ROOM: '!owner-dm:hq.example' },
   agents: {
     'claude-agent': agent('claude-agent', 'claude-opus-5', { reasoning: 'high' }),
     'weak-agent': agent('weak-agent', 'claude-haiku-4-5'),

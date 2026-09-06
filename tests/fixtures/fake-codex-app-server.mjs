@@ -1,8 +1,20 @@
 #!/usr/bin/env node
 import readline from 'node:readline';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 
 if (process.env.FAKE_CODEX_EXIT_IMMEDIATELY === '1') process.exit(17);
+
+if (process.env.FAKE_CODEX_SHUTDOWN_LOG) {
+  process.on('SIGTERM', () => {
+    writeFileSync(process.env.FAKE_CODEX_SHUTDOWN_LOG, String(process.pid));
+    const poll = setInterval(() => {
+      if (!existsSync(process.env.FAKE_CODEX_SHUTDOWN_RELEASE)) return;
+      clearInterval(poll);
+      appendFileSync(process.env.FAKE_CODEX_SHUTDOWN_LOG, '\nlast write');
+      process.exit(0);
+    }, 10);
+  });
+}
 
 // When set, append every sandbox value the runner requests, one JSON line per
 // entry, so an effect test can assert what the runtime was actually launched
@@ -52,7 +64,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (message.method === 'turn/start') {
     recordSandbox('turn', message.params?.sandboxPolicy);
     turnRequestId = message.id;
-    send({ id: turnRequestId, result: { turn: { id: 'turn-fake', status: 'inProgress' } } });
+    if (process.env.FAKE_CODEX_WITHHOLD_TURN_ID !== '1') {
+      send({ id: turnRequestId, result: { turn: { id: 'turn-fake', status: 'inProgress' } } });
+    }
     send({
       id: approvalRequestId,
       method: 'item/commandExecution/requestApproval',

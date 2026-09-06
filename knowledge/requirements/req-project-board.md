@@ -7,6 +7,13 @@ liveness: auto
 tags: [dashboard, projects, agents, tasks, workflow]
 ---
 
+## Scope amendment — 2026-09-05
+
+ADR-017 records the already implemented operator decision to retire the old portal.
+The backend projection requirements remain accepted. REQ-PROJECT-BOARD-REFRESH and
+the old Dashboard page/Monitor presentation scenarios below are historical,
+withdrawn scope; they are not release gates for the replacement contribution console.
+
 ## Problem
 
 An operator can inspect agents, tasks, task graphs, and project-room groups on

@@ -216,13 +216,19 @@ describe('an appservice side registers nothing', () => {
     expect(impl.calls).toHaveLength(1);
   });
 
-  test('the sender localpart is lowercased into the masqueraded MXID', async () => {
-    // Matrix requires lowercase localparts; an operator typing `HAFleet` has made a typo.
-    const impl = fakeFetch([ok({ user_id: `@hafleet:${SERVER}` })]);
+  test('the sender localpart preserves exact Matrix identity case', async () => {
+    const impl = fakeFetch([ok({ user_id: `@HAFleet:${SERVER}` })]);
     await ensureRepresentative({
       side: SIDE, credential: asCred({ senderLocalpart: 'HAFleet' }), fetchImpl: impl,
     });
-    expect(impl.calls[0].url).toContain('%40hafleet%3A');
+    expect(impl.calls[0].url).toContain('%40HAFleet%3A');
+  });
+
+  test('a recorded representative MXID is used instead of reconstructing its localpart', async () => {
+    const impl = fakeFetch([ok({ room_id: '!new:palpo.test' })]);
+    await createRoomOnSide({ side: { ...SIDE, representative: { mxid: '@RecordedRep:palpo.test' } },
+      credential: asCred(), name: 'project', encrypted: false, fetchImpl: impl });
+    expect(new URL(impl.calls[0].url).searchParams.get('user_id')).toBe('@RecordedRep:palpo.test');
   });
 });
 

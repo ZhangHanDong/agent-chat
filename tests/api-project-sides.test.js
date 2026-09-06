@@ -560,7 +560,9 @@ describe('removal refuses to be the first step of a cascade', () => {
      * the transition IS the release, and there is no figure that can disagree with the state it came
      * from.
      */
+    const hs = await fakeHomeserver(() => [200, {}]);
     const app = await boot({
+      agents: { someone: { name: 'someone', kind: 'agent', type: 'claude', projectSide: SERVER } },
       rawDataFiles: {
         'engagements.json': JSON.stringify({
           version: 1,
@@ -579,13 +581,15 @@ describe('removal refuses to be the first step of a cascade', () => {
       },
     });
     await request(app).post('/api/project-sides')
-      .send({ server_name: SERVER, api_base_url: 'http://127.0.0.1:8008' });
+      .send({ server_name: SERVER, api_base_url: hs.baseUrl });
     await request(app).put(`/api/project-sides/${SERVER}/allocation`).send({ allocated_tokens: 1000000 });
 
     const before = await request(app).get(`/api/project-sides/${SERVER}/budget`);
     expect(before.body.committed).toBe(400000);
 
-    const r = await request(app).delete(`/api/project-sides/${SERVER}?force=true`);
+    await request(app).put(`/api/project-sides/${SERVER}/credential`).send({ credential: asCred() }).expect(200);
+    const r = await request(app).delete(`/api/project-sides/${SERVER}?force=true`).expect(200);
+    expect(hs.calls.some((c) => c.path.endsWith('/leave'))).toBe(true);
     expect(r.body.endedEngagements).toEqual(['live']);
 
     const rows = (await request(app).get('/api/engagements')).body.engagements;
@@ -604,7 +608,9 @@ describe('removal refuses to be the first step of a cascade', () => {
      * claiming the project can reach the agent - `listBindings` already filters `active !== false`, so
      * deactivation removes it from every read without anything learning a new state.
      */
+    const hs = await fakeHomeserver(() => [200, {}]);
     const app = await boot({
+      agents: { ag: { name: 'ag', kind: 'agent', type: 'claude', projectSide: SERVER } },
       env: { MATRIX_BRIDGE_SECRET: 'secret-for-binding-cascade' },
       rawDataFiles: {
         'approvals.json': JSON.stringify({
@@ -626,8 +632,10 @@ describe('removal refuses to be the first step of a cascade', () => {
       },
     });
     await request(app).post('/api/project-sides')
-      .send({ server_name: SERVER, api_base_url: 'http://127.0.0.1:8008' });
-    const r = await request(app).delete(`/api/project-sides/${SERVER}?force=true`);
+      .send({ server_name: SERVER, api_base_url: hs.baseUrl });
+    await request(app).put(`/api/project-sides/${SERVER}/credential`).send({ credential: asCred() }).expect(200);
+    const r = await request(app).delete(`/api/project-sides/${SERVER}?force=true`).expect(200);
+    expect(hs.calls.some((c) => c.path.endsWith('/leave'))).toBe(true);
     expect(r.body.deactivatedBindings).toEqual([`ag@!room:${SERVER}`]);
 
     // The record is still on disk - deactivated, not forgotten.

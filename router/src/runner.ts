@@ -234,6 +234,8 @@ function hasPipedStreams(child: ChildProcess): child is ChildProcessWithoutNullS
   return child.stdin !== null && child.stdout !== null && child.stderr !== null;
 }
 
+const confirmedCleanups = new WeakSet<ChildProcess>();
+const guardianCloses = new WeakMap<ChildProcess, Promise<{ code: number | null; signal: NodeJS.Signals | null }>>();
 function spawnVerified(executable: string, args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): Promise<ChildProcessWithoutNullStreams> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [fileURLToPath(new URL('./runner-guardian.js', import.meta.url))], {
@@ -244,6 +246,15 @@ function spawnVerified(executable: string, args: readonly string[], cwd: string,
         HAFLEET_GUARDIAN_ARGS_JSON: JSON.stringify([...args]),
       },
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+    });
+    // `exit` may precede the last IPC message. `close` follows drained stdio/IPC;
+    // install this before readiness so a fast guardian cannot outrun the waiter.
+    guardianCloses.set(child, new Promise((done) => {
+      child.once('close', (code, signal) => done({ code, signal }));
+    }));
+    child.on('message', (message: unknown) => {
+      if (message !== null && typeof message === 'object' && !Array.isArray(message)
+        && (message as { type?: unknown }).type === 'cleanup_complete') confirmedCleanups.add(child);
     });
     const onError = (error: Error): void => reject(error);
     child.once('error', onError);
@@ -274,36 +285,30 @@ function spawnVerified(executable: string, args: readonly string[], cwd: string,
   });
 }
 
-const terminationTimers = new WeakMap<ChildProcessWithoutNullStreams, NodeJS.Timeout>();
-
 function terminateChild(child: ChildProcessWithoutNullStreams): void {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill('SIGTERM');
-  if (terminationTimers.has(child)) return;
-  const timer = setTimeout(() => {
-    terminationTimers.delete(child);
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-  }, 2_000);
-  timer.unref?.();
-  terminationTimers.set(child, timer);
-  child.once('exit', () => {
-    const pending = terminationTimers.get(child);
-    if (pending) clearTimeout(pending);
-    terminationTimers.delete(child);
-  });
+  // The guardian escalates against the runtime group and exits only after
+  // cleanup. Killing the guardian on the same timer would orphan that group.
+}
+
+const terminationResults = new WeakMap<ChildProcessWithoutNullStreams, Promise<boolean>>();
+function terminateAndWait(child: ChildProcessWithoutNullStreams): Promise<boolean> {
+  const previous = terminationResults.get(child);
+  if (previous) return previous;
+  const exited = childExit(child);
+  terminateChild(child);
+  const result = withTimeout(exited, 8_000, 'runner cleanup')
+    .then(() => confirmedCleanups.has(child), () => false);
+  terminationResults.set(child, result);
+  return result;
 }
 
 function childExit(child: ChildProcessWithoutNullStreams): Promise<{
   code: number | null;
   signal: NodeJS.Signals | null;
 }> {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
-  }
-  return new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('exit', (code, signal) => resolve({ code, signal }));
-  });
+  return guardianCloses.get(child) ?? Promise.reject(new Error('runner has no owned close channel'));
 }
 
 async function settleUnknown(router: RouterStore, claim: ClaimSuccess, reason: string): Promise<void> {
@@ -356,7 +361,8 @@ export async function runClaudeDispatch(options: ClaudeRunnerOptions): Promise<R
     const acknowledged = options.router.acknowledgeRunnerEffect(capabilityInput(options.claim));
     if (!acknowledged.ok) throw refusalError(acknowledged);
     const exit = await withTimeout(exitPromise, executionTimeoutMs, 'Claude dispatch');
-    if (exit.code !== 0 || finalText === null) {
+    if (options.signal?.aborted) throw new Error('Claude dispatch was cancelled during runtime cleanup');
+    if (exit.code !== 0 || finalText === null || !confirmedCleanups.has(child)) {
       await settleUnknown(options.router, options.claim, `claude_runner_exit:${exit.code ?? exit.signal ?? 'unknown'}:${stderr.slice(-500)}`);
       return { dispatchId: options.claim.dispatchId, state: 'outcome_unknown', text: finalText ?? '', exitCode: exit.code };
     }
@@ -368,7 +374,7 @@ export async function runClaudeDispatch(options: ClaudeRunnerOptions): Promise<R
     if (!settled.ok) throw refusalError(settled);
     return { dispatchId: options.claim.dispatchId, state: 'completed', text: finalText, exitCode: exit.code };
   } catch (error) {
-    terminateChild(child);
+    await terminateAndWait(child);
     if (started) await settleUnknown(options.router, options.claim, `claude_runner_error:${error instanceof Error ? error.message : String(error)}`);
     throw error;
   } finally {
@@ -444,39 +450,39 @@ export async function runCodexDispatch(options: CodexRunnerOptions): Promise<Run
   const answerApproval = async (message: RpcMessage): Promise<void> => {
     if (message.id === undefined || !message.method || !message.params) return;
     const params = message.params;
-    const upstreamThreadId = typeof params.threadId === 'string' ? params.threadId : '';
-    const upstreamTurnId = typeof params.turnId === 'string' ? params.turnId : '';
-    const upstreamItemId = typeof params.itemId === 'string' ? params.itemId : '';
-    const upstreamRequestId = String(message.id);
-    if (!turnId && upstreamThreadId === threadId) {
-      await withTimeout(turnIdentityReady, acknowledgementTimeoutMs, 'Codex turn identity');
-    }
-    if (!threadId || !turnId || upstreamThreadId !== threadId || upstreamTurnId !== turnId || !upstreamItemId) {
-      await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) });
-      return;
-    }
-    const kind = message.method === 'item/commandExecution/requestApproval'
-      ? 'command'
-      : message.method === 'item/fileChange/requestApproval'
-        ? 'file_change'
-        : 'permissions';
-    const opDigest = operationDigest(message.method, params);
-    const approvalId = `tss_${randomUUID()}`;
-    const parked = options.router.parkForApproval({
-      ...capabilityInput(options.claim),
-      approvalId,
-      operationDigest: opDigest,
-      upstreamThreadId,
-      upstreamTurnId,
-      upstreamItemId,
-      upstreamRequestId,
-      maxParkedRunners: options.maxParkedRunners,
-    });
-    if (!parked.ok) {
-      await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) });
-      return;
-    }
     try {
+      const upstreamThreadId = typeof params.threadId === 'string' ? params.threadId : '';
+      const upstreamTurnId = typeof params.turnId === 'string' ? params.turnId : '';
+      const upstreamItemId = typeof params.itemId === 'string' ? params.itemId : '';
+      const upstreamRequestId = String(message.id);
+      if (!turnId && upstreamThreadId === threadId) {
+        await withTimeout(turnIdentityReady, acknowledgementTimeoutMs, 'Codex turn identity');
+      }
+      if (!threadId || !turnId || upstreamThreadId !== threadId || upstreamTurnId !== turnId || !upstreamItemId) {
+        await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) });
+        return;
+      }
+      const kind = message.method === 'item/commandExecution/requestApproval'
+        ? 'command'
+        : message.method === 'item/fileChange/requestApproval'
+          ? 'file_change'
+          : 'permissions';
+      const opDigest = operationDigest(message.method, params);
+      const approvalId = `tss_${randomUUID()}`;
+      const parked = options.router.parkForApproval({
+        ...capabilityInput(options.claim),
+        approvalId,
+        operationDigest: opDigest,
+        upstreamThreadId,
+        upstreamTurnId,
+        upstreamItemId,
+        upstreamRequestId,
+        maxParkedRunners: options.maxParkedRunners,
+      });
+      if (!parked.ok) {
+        await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) });
+        return;
+      }
       const ownerRequest: OwnerApprovalRequest = {
         approvalId,
         dispatchId: options.claim.dispatchId,
@@ -518,7 +524,7 @@ export async function runCodexDispatch(options: CodexRunnerOptions): Promise<Run
     } catch (error) {
       await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) }).catch(() => undefined);
       terminal = true;
-      terminateChild(child);
+      await terminateAndWait(child);
       await settleUnknown(options.router, options.claim, `approval_transport_failed:${error instanceof Error ? error.message : String(error)}`);
       rejectTurn?.(error instanceof Error ? error : new Error(String(error)));
     }
@@ -541,7 +547,10 @@ export async function runCodexDispatch(options: CodexRunnerOptions): Promise<Run
       || message.method === 'item/fileChange/requestApproval'
       || message.method === 'item/permissions/requestApproval'
     ) {
-      void answerApproval(message);
+      void answerApproval(message).catch((error: unknown) => {
+        terminal = true;
+        rejectTurn?.(error instanceof Error ? error : new Error(String(error)));
+      });
       return;
     }
     if (message.method === 'item/completed') {
@@ -630,18 +639,19 @@ export async function runCodexDispatch(options: CodexRunnerOptions): Promise<Run
       ? (completedTurn as Readonly<Record<string, unknown>>).status
       : null;
     if (completedStatus !== 'completed') throw new Error(`Codex turn ended with ${String(completedStatus)}`);
+    terminal = true;
+    if (!await terminateAndWait(child)) throw new Error('runner cleanup could not be confirmed; workspace requires inspection');
+    if (options.signal?.aborted) throw new Error('Codex dispatch was cancelled during runtime cleanup');
     const settled = options.router.settleAndRelease({
       ...capabilityInput(options.claim),
       outcome: 'completed',
       output: { text: finalText },
     });
     if (!settled.ok) throw refusalError(settled);
-    terminal = true;
-    terminateChild(child);
     return { dispatchId: options.claim.dispatchId, state: 'completed', text: finalText, exitCode: 0 };
   } catch (error) {
     terminal = true;
-    terminateChild(child);
+    await terminateAndWait(child);
     rejectRpcResponses(new Error('Codex runner terminated'));
     if (started) await settleUnknown(options.router, options.claim, `codex_runner_error:${error instanceof Error ? error.message : String(error)}:${stderr.slice(-500)}`);
     throw error;

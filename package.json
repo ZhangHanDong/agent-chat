@@ -18,6 +18,7 @@
     "check:router-build": "bash scripts/check-router-build.sh",
     "check:router-boundary": "node scripts/check-router-boundary.js",
     "check:agent-ops-contract": "node scripts/check-agent-ops-contract.js",
+    "check:spec-bindings": "node scripts/check-spec-bindings.js",
     "test:kernel": "bash scripts/run-kernel-tests.sh",
     "check:syntax": "bash scripts/check-syntax.sh",
     "check:cli-contract": "node scripts/check-cli-contract.js",

@@ -5,9 +5,9 @@
 > operator on 2026-08-13/14 on the local test deployment (per-thread context
 > isolation via independent nonce recall, reply thread-root correctness,
 > long-task parallelism across threads, and context rebuild from router.db
-> across a full backend restart). The five-run real-model continuity probe has
-> NOT been executed and remains a release blocker for any non-local
-> deployment; see "Rebuild continuity release gate" below.
+> across a full backend restart). On 2026-09-05, the five-run real-model continuity
+> probe passed 5/5 against the review-closure runtime build; see the evidence
+> below. This does not certify a deployed remote Mini/Palpo workflow.
 
 ## Pre-implementation verification
 
@@ -62,13 +62,19 @@ payload and must not wait for model text.
 
 ### Rebuild continuity release gate
 
-The required real-model continuity gate has not yet been executed for this
-assembler revision. Before enabling the feature, run five independent
-three-turn conversations in one session: turn 1 establishes a distinctive
-agreement, turn 2 changes topic, and turn 3 asks for that agreement. At least
-four runs must recover it verbatim or by an unambiguous reference. String-level
-assembler tests do not satisfy this gate. Record the model/runtime, prompt set,
-individual outcomes, and date here before canary enablement.
+Passed **5/5** on 2026-09-05 PDT (completed 2026-09-06 00:55 UTC), using
+Claude Code 2.1.247 with `claude-fable-5`. Each independent conversation used
+three fresh CLI processes: establish a random agreement, change topic, then
+recall the agreement. The router database was closed and reopened before recall.
+Every run returned the exact agreement. The threshold is four of five.
+
+The [full evidence](reviews/2026-09-05-thread-continuity.json) contains prompts,
+responses, timestamps, model/runtime and source hashes. The Git base commit is
+recorded separately from the hashes of the modified runtime being tested.
+Reproduce explicitly with `node scripts/probe-thread-continuity.mjs --live
+--output <absolute-report-directory>`. This operational probe uses the model
+service; deterministic Vitest tests do not. No deployed Matrix server or browser
+was part of this continuity gate.
 
 ## Implementation order
 
@@ -236,7 +242,7 @@ enable either path or permit fallback to legacy tmux delivery.
 - The clean-install acceptance test runs `npm ci`, builds the router, and
   verifies a committed WAL row across a fresh process restart on Node 22.
 
-`agent-spec` 1.2 validates the contract at quality 100% and checks structural
+`agent-spec` 1.4 validates the contract and checks structural
 boundaries, but it does not execute the Vitest selectors in this Node project;
 the exact Vitest suite is therefore run separately and must not be reported as
 an `agent-spec` execution result.

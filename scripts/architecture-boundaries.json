@@ -244,6 +244,18 @@
           "auth": "approval-bridge-secret"
         },
         {
+          "method": "POST",
+          "path": "/api/matrix-work/claim",
+          "owner": "matrix.bridge-command-execution",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/matrix-work/:id/complete",
+          "owner": "matrix.bridge-command-completion",
+          "auth": "approval-bridge-secret"
+        },
+        {
           "method": "PUT",
           "path": "/api/approval-bindings/membership",
           "owner": "approvals.membership-observer",
@@ -761,6 +773,12 @@
         }
       ],
       "sensitiveRoutes": [
+        {
+          "method": "GET",
+          "path": "/api/matrix-work",
+          "owner": "matrix.operator-recovery",
+          "auth": "bearer"
+        },
         {
           "method": "GET",
           "path": "/api/agents/:name/launch-env",

@@ -42,12 +42,13 @@ import { sessionPolicyFromEnv } from './lib/session-policy.js';
 import { getFramework, listFrameworks } from './lib/frameworks/index.js';
 import roleCapacity from './lib/role-capacity.json' with { type: 'json' };
 import { buildSeats, normalizeDeclaration, seatIdentity } from './lib/seat-store.js';
-import { createEngagementStore, routeRequest, EngagementError } from './lib/engagement-store.js';
+import { createEngagementStore, routeRequest, EngagementError, overCommitMessage } from './lib/engagement-store.js';
+import { createMatrixWorkStore, awaitMatrixWork } from './lib/matrix-work-store.js';
 import { ProjectSideStore, ProjectSideStoreError } from './lib/project-side-store.js';
 import { inboundCredentialsProjection, derivedRegistrationId } from './lib/project-side-inbound.js';
 import {
   canRepresentativeInvite, ensureRepresentative, inviteToRoomOnSide, joinRoomOnSideAsAgent,
-  leaveRoomOnSideAsAgent,
+  leaveRoomOnSideAsAgent, leaveRoomOnSideAsRepresentative,
   knockOnRoomOnSide, mintAgentIdentity, probeFederationFromSide, resolveAliasOnSide,
 } from './lib/matrix-representative.js';
 import {
@@ -1741,6 +1742,10 @@ const engagementStore = createEngagementStore({
   load: () => loadJsonSync('engagements.json', {}),
   persist: (state) => saveJson('engagements.json', state),
 });
+const matrixWorkStore = createMatrixWorkStore({
+  load: () => loadJsonSync('matrix-work.json', []),
+  persist: (rows) => saveJson('matrix-work.json', rows, { immediate: true }),
+});
 
 /*
  * Measured consumption, persisted, because the transcripts it is read from are not ours.
@@ -1905,6 +1910,9 @@ function threadSessionFramework(agent) {
 }
 
 function threadSessionAgentEligibility(agent) {
+  if (agent?.retiredAt || agent?.projectSide && !projectSideStore.getSide(agent.projectSide)?.active) {
+    return { ok: false, code: 'agent_retired', message: 'agent is retired or its project side is inactive' };
+  }
   const framework = threadSessionFramework(agent);
   if (framework !== 'claude' && framework !== 'codex') {
     return {
@@ -7696,6 +7704,32 @@ const requireApprovalBridgeSecret = (req, res, next) => {
   }
   return requireBridgeSecret(req, res, next);
 };
+app.post('/api/matrix-work/claim', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    const job = matrixWorkStore.claim();
+    if (!job) return res.json({ job: null });
+    const side = projectSideStore.getSide(job.sideId);
+    const credential = side && projectSideStore.credentialFor(side.id);
+    if (!side || !credential || credential.kind !== 'registrationToken'
+      || (!side.active && !['leave', 'logout', 'representative-logout'].includes(job.action))
+      || job.action !== 'representative-logout' && !isAgentRecord(agents[job.agent])
+      || !['leave', 'logout', 'representative-logout'].includes(job.action) && job.engagementId && engagementStore.get(job.engagementId)?.state === 'ended') {
+      matrixWorkStore.complete(job.id, job.claimToken, { ok: false, code: 'side_or_agent_unavailable' });
+      return res.json({ job: null });
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.json({ job: { ...job, side: { apiBaseUrl: side.apiBaseUrl, serverName: side.serverName },
+      credential: job.action === 'identity' ? { kind: credential.kind, registrationToken: credential.registrationToken }
+        : job.action === 'representative-logout' ? { representativeToken: credential.representativeToken } : null } });
+  } catch (error) { return res.status(503).json({ error: error.message }); }
+});
+app.post('/api/matrix-work/:id/complete', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    matrixWorkStore.complete(req.params.id, req.body?.claimToken, req.body?.outcome || {});
+    return res.json({ ok: true });
+  } catch (error) { return res.status(409).json({ error: error.message }); }
+});
+app.get('/api/matrix-work', requireBearer, (_req, res) => res.json({ jobs: matrixWorkStore.list() }));
 const requireRouterBridgeSecret = (req, res, next) => {
   if (!THREAD_SESSIONS_ENABLED) return res.status(404).json({ error: 'thread-session router is disabled' });
   if (!getBridgeSecret()) return res.status(503).json({ error: 'MATRIX_BRIDGE_SECRET is required for router outboxes' });
@@ -8820,9 +8854,11 @@ function raiseSideBudgetAlarm(sideId, { reason, act, budget, wanted }) {
   }
 }
 
-function refuseOverSideAllocation(res, { projectRoomId, tokens, act, requireSide = false, extra = {} }) {
+function refuseOverSideAllocation(res, { projectRoomId, tokens, act, requireSide = false, publicResult = false, extra = {} }) {
   const refuse = (reason, error, fields = {}) => {
-    res.status(409).json({ status: 'refused', reason, error, ...extra, ...fields });
+    res.status(409).json(publicResult
+      ? { status: 'refused', reason: 'contribution_unavailable', error: 'The contributor cannot accept this request; contact its operator.' }
+      : { status: 'refused', reason, error, ...extra, ...fields });
     return true;
   };
   const sideId = sideIdForRoom(projectRoomId);
@@ -9101,6 +9137,7 @@ app.get('/api/project-sides/acting-credentials', requireApprovalBridgeSecret, (r
           apiBaseUrl: side.apiBaseUrl,
           kind: 'appservice',
           asToken: credential.asToken,
+          representative: side.representative ?? null,
           senderLocalpart: credential.senderLocalpart,
           namespace: credential.namespace,
           /*
@@ -9117,6 +9154,7 @@ app.get('/api/project-sides/acting-credentials', requireApprovalBridgeSecret, (r
           apiBaseUrl: side.apiBaseUrl,
           kind: 'registrationToken',
           representativeToken: credential.representativeToken,
+          representative: side.representative ?? null,
         };
       }
       /*
@@ -9842,12 +9880,13 @@ app.post('/api/project-sides/:id/reactivate', requireBearer, (req, res) => {
  */
 function endEngagementsAndBindingsForSide(sideId, reason) {
   const endedEngagements = [];
-  for (const engagement of engagementStore.list({ state: 'active' })) {
+  for (const engagement of engagementStore.list().filter((e) => e.state !== 'ended')) {
     const room = typeof engagement.projectRoomId === 'string' ? engagement.projectRoomId : '';
     const at = room.indexOf(':');
     if (at <= 0 || room.slice(at + 1).toLowerCase() !== sideId) continue;
     try {
-      engagementStore.revoke({ engagementId: engagement.id, by: 'operator', reason });
+      if (engagement.state === 'pending') engagementStore.decide({ engagementId: engagement.id, approve: false, by: 'operator', reason });
+      else engagementStore.revoke({ engagementId: engagement.id, by: 'operator', reason });
       endedEngagements.push(engagement.id);
     } catch (error) {
       /*
@@ -9855,7 +9894,7 @@ function endEngagementsAndBindingsForSide(sideId, reason) {
        * must not leave the remaining ones active AND the side removed, which is the worst combination:
        * allocation held by records nothing can reach.
        */
-      console.warn(`[project-side] ${sideId}: could not end engagement ${engagement.id}: ${error?.message || error}`);
+      throw new Error(`could not end engagement ${engagement.id}: ${error?.message || error}`);
     }
   }
 
@@ -9869,7 +9908,7 @@ function endEngagementsAndBindingsForSide(sideId, reason) {
         deactivatedBindings.push(`${binding.agent}@${binding.projectRoomId}`);
       }
     } catch (error) {
-      console.warn(`[project-side] ${sideId}: could not deactivate binding for ${binding.agent}: ${error?.message || error}`);
+      throw new Error(`could not deactivate binding for ${binding.agent}: ${error?.message || error}`);
     }
   }
 
@@ -9878,15 +9917,20 @@ function endEngagementsAndBindingsForSide(sideId, reason) {
 
 function retireAgentsForSide(sideId) {
   const retired = [];
+  const snapshots = new Map();
   for (const agent of Object.values(agents)) {
     if (!isAgentRecord(agent) || agent.projectSide !== sideId) continue;
+    snapshots.set(agent.name, { ...agent });
     agent.tmux = null;
     agent.online = false;
     agent.offlineReason = `retired:project-side-removed:${sideId}`;
     agent.retiredAt = Date.now();
     retired.push(agent.name);
   }
-  if (retired.length) saveJson('agents.json', agents, { immediate: true });
+  if (retired.length && !saveJson('agents.json', agents, { immediate: true })) {
+    for (const [name, snapshot] of snapshots) agents[name] = snapshot;
+    throw new Error('agent retirement could not be persisted; side credentials retained');
+  }
   return retired;
 }
 
@@ -9902,7 +9946,7 @@ function retireAgentsForSide(sideId) {
  * An ACTIVE side is still refused (409): removing it drops the credential every earlier step needs.
  * `?force=true` overrides, matching `DELETE /api/agents/:name`.
  */
-app.delete('/api/project-sides/:id', requireBearer, (req, res) => {
+app.delete('/api/project-sides/:id', requireBearer, async (req, res) => {
   try {
     const existing = projectSideStore.getSide(req.params.id);
     if (!existing) return res.status(404).json({ error: 'project side not found' });
@@ -9933,10 +9977,65 @@ app.delete('/api/project-sides/:id', requireBearer, (req, res) => {
      * credential the last one destroys, and each later step is meaningless if an earlier one left a
      * live claim behind.
      */
+    // Deactivation gates new admission while remote withdrawals are in flight.
+    projectSideStore.deactivateSide(existing.id);
+    // A pending join must finish (and compensate on seeing deactivation) while
+    // its side credential still exists. No new fulfillment can pass admission.
+    await Promise.allSettled([...engagementFulfillments.entries()]
+      .filter(([id]) => sideIdForRoom(engagementStore.get(id)?.projectRoomId) === existing.id)
+      .map(([, work]) => work));
+    if (matrixWorkStore.unsettled(existing.id)) return res.status(409).json({
+      ok: false, code: 'cleanup_incomplete', error: 'Matrix bridge work is still pending; credentials are retained for retry.',
+      side: projectSideStore.getSide(existing.id),
+    });
+    const memberships = new Map();
+    for (const row of [...engagementStore.list(), ...approvalStore.listBindings({ includeInactive: true })]) {
+      if (row.agent && sideIdForRoom(row.projectRoomId) === existing.id
+        && (row.allocatedTokens > 0 || row.ownerMxid)) {
+        memberships.set(`${row.agent}\0${row.projectRoomId}`, { agent: row.agent, roomId: row.projectRoomId });
+      }
+    }
+    const withdrawals = [];
+    for (const membership of memberships.values()) {
+      withdrawals.push({ ...membership, ...await withdrawAgentFromProjectRoom(membership.agent, membership.roomId) });
+    }
+    const representativeRooms = new Set([
+      ...existing.projects.map((p) => p.roomId),
+      ...[...memberships.values()].map((m) => m.roomId),
+    ].filter(Boolean));
+    const credential = projectSideStore.credentialFor(existing.id);
+    if (existing.representative?.mxid && !matrixWorkStore.loggedOut(null, existing.id)) {
+      for (const roomId of representativeRooms) {
+        withdrawals.push({ agent: null, roomId, ...await leaveRoomOnSideAsRepresentative({ side: existing, credential, roomId }) });
+      }
+    }
+    const abandonUnreachable = req.query?.force === 'true' && req.query?.abandon_unreachable === 'true';
+    const terminalCleanupCodes = new Set(['agent_credential_unavailable', 'credential_side_mismatch', 'side_or_agent_unavailable']);
+    const blocking = (reason) => reason !== 'not_a_registered_agent' && !(abandonUnreachable && terminalCleanupCodes.has(reason));
+    if (withdrawals.some((w) => !w.left && blocking(w.reason))) return res.status(409).json({
+      ok: false, code: 'cleanup_incomplete', side: projectSideStore.getSide(existing.id), withdrawals,
+      error: 'Room withdrawal failed; credentials are retained. Repair the bridge credential and retry. Permanently unavailable credentials may be abandoned explicitly with force=true&abandon_unreachable=true.',
+    });
+    const revocations = [];
+    if (credential?.kind === 'registrationToken') {
+      for (const agent of Object.values(agents).filter((a) => isAgentRecord(a) && a.projectSide === existing.id)) {
+        const outcome = await runMatrixWork({ action: 'logout', agent: agent.name, sideId: existing.id, mxid: recordedAgentMxid(agent) });
+        revocations.push({ agent: agent.name, revoked: outcome.ok, reason: outcome.code });
+        if (!outcome.ok && blocking(outcome.code)) return res.status(409).json({ ok: false, code: 'cleanup_incomplete',
+          error: 'Agent token revocation failed; side credentials are retained for retry.' });
+      }
+      if (credential.representativeToken) {
+        const outcome = await runMatrixWork({ action: 'representative-logout', agent: null, sideId: existing.id });
+        revocations.push({ agent: null, revoked: outcome.ok, reason: outcome.code });
+        if (!outcome.ok && blocking(outcome.code)) return res.status(409).json({ ok: false, code: 'cleanup_incomplete',
+          error: 'Representative token revocation failed; side credentials are retained for retry.' });
+      }
+    }
     const { endedEngagements, deactivatedBindings } =
       endEngagementsAndBindingsForSide(existing.id, `project side ${existing.id} removed`);
     const retiredAgents = retireAgentsForSide(existing.id);
-    const side = projectSideStore.removeSide(req.params.id, { force: req.query?.force === 'true' });
+    const side = projectSideStore.removeSide(req.params.id, { force: req.query?.force === 'true',
+      cleanup: { withdrawals, revocations, abandonedUnreachable: abandonUnreachable } });
     if (!side) return res.status(404).json({ error: 'project side not found' });
         /*
      * TWO MORE STORES, and ADR-016 row 7 recorded that nothing outside the first three was swept.
@@ -9980,9 +10079,12 @@ app.delete('/api/project-sides/:id', requireBearer, (req, res) => {
     let resolvedAlerts = [];
     try {
       resolvedAlerts = [
-        ...alertStore.autoResolveByPrefix(`${SIDE_BUDGET_ALERT_KEY(removedSideId)}`),
-        ...alertStore.autoResolveByPrefix('agent_identity_unminted:'),
-      ].filter((entry) => JSON.stringify(entry ?? '').includes(removedSideId)).map((entry) => entry?.dedupeKey ?? entry);
+        ...[alertStore.autoResolve(SIDE_BUDGET_ALERT_KEY(removedSideId))].filter(Boolean),
+        ...alertStore.dump()
+          .filter((entry) => entry.dedupeKey?.startsWith('agent_identity_unminted:')
+            && entry.dedupeKey.endsWith(`:${removedSideId}`))
+          .map((entry) => alertStore.autoResolve(entry.dedupeKey)).filter(Boolean),
+      ].map((entry) => entry?.dedupeKey ?? entry);
     } catch (error) {
       console.warn(`[project-side] could not resolve alerts for ${removedSideId}: ${error?.message || error}`);
     }
@@ -9994,13 +10096,15 @@ return res.json({
       deactivatedBindings,
       declinedInvites,
       resolvedAlerts,
+      withdrawals,
+      revocations,
       /*
        * Reported as a list of what happened rather than a claim of completeness. "Complete" would be a
        * statement about everything in the system that could reference a side, which no single handler
        * can make — and this repository has already produced the failure that phrasing invites:
        * force-deleting an agent left three active bindings and a 250k commitment pointing at it.
        */
-      cascade: 'performed',
+      cascade: withdrawals.some((w) => !w.left) || revocations.some((r) => !r.revoked) ? 'partial' : 'performed',
       cascadeNote: 'engagements ended (releasing their commitments), bindings deactivated, agents '
         + 'retired, pending invitations declined, side-scoped alerts resolved — all records kept, since '
         + 'ended and inactive are history while active is a claim',
@@ -10518,7 +10622,7 @@ async function mintIdentityForProvisionedAgent(agentName, sideId) {
     const record = Object.values(agents).filter(isAgentRecord).find((a) => a.name === agentName);
     if (record) {
       record.reusedIdentity = true;
-      record.matrixIdentity = localIdentity;
+      record.matrixIdentity = { mxid: localIdentity, sideId, kind: 'federated' };
       saveAgents();
     }
     console.log(`[mint] ${agentName} reuses ${localIdentity} on ${sideId}: their server federates with ours`);
@@ -11069,7 +11173,7 @@ let dispatchTicketSeq = 0;
 const cellKey = (role, tier) => `${role}:${tier}`;
 const annotateBusy = (records) => records.map((a) => ({ ...a, busy: dispatchLeaseStore.isBusy(a.name) }));
 const poolRecords = () =>
-  annotateBusy(Object.values(agents).filter(isAgentRecord).map(serializeAgent));
+  annotateBusy(Object.values(agents).filter((a) => agentEligibleForRoom(a)).map(serializeAgent));
 
 const DISPATCH_LEASE_ERROR_STATUS = {
   missing_fields: 400,
@@ -12621,7 +12725,7 @@ app.get('/api/frameworks/detect', requireBearer, async (_req, res) => {
  */
 app.get('/api/capability', requireBearer, (_req, res) => {
   refreshServerLiveness();
-  const rows = Object.values(agents).filter(isAgentRecord).map(serializeAgent);
+  const rows = Object.values(agents).filter((a) => agentEligibleForRoom(a)).map(serializeAgent);
   const TIER_RANK = Object.fromEntries(
     [...CAPABILITY_TIERS].reverse().map((t, i) => [t, i]),
   );
@@ -12815,8 +12919,25 @@ function servingConfiguration(agentName) {
   };
 }
 
-function agentForRole(role) {
-  const rows = Object.values(agents).filter(isAgentRecord).map(serializeAgent);
+function agentEligibleForRoom(agent, projectRoomId = null, fulfillmentId = null) {
+  if (!isAgentRecord(agent) || agent.retiredAt || String(agent.offlineReason ?? '').startsWith('retired:')) return false;
+  if (agent.engagementProvisioningId && agent.engagementProvisioningId !== fulfillmentId
+    && engagementStore.get(agent.engagementProvisioningId)?.fulfillment?.phase !== 'complete') return false;
+  if (engagementStore.list({ state: 'pending' }).some((e) => e.fulfillment && e.agent === agent.name
+    && e.id !== fulfillmentId && e.fulfillment.phase !== 'failed')) return false;
+  const requestedSide = projectRoomId ? sideIdForRoom(projectRoomId) : null;
+  const side = requestedSide ? projectSideStore.getSide(requestedSide) : null;
+  if (side && !side.active) return false;
+  if (agent.projectSide) {
+    const ownSide = projectSideStore.getSide(agent.projectSide);
+    if (!ownSide?.active) return false;
+    if (requestedSide && agent.projectSide !== requestedSide) return false;
+  } else if (side) return false;
+  return true;
+}
+
+function agentForRole(role, projectRoomId = null) {
+  const rows = Object.values(agents).filter((a) => agentEligibleForRoom(a, projectRoomId)).map(serializeAgent);
   const TIER_RANK = Object.fromEntries([...CAPABILITY_TIERS].reverse().map((t, i) => [t, i]));
   const need = ROLE_DEFAULT_TIER[role];
   if (!need) return null;
@@ -12834,6 +12955,16 @@ function agentForRole(role) {
   return qualified[0].a.name;
 }
 
+function roleCrossFamilyAvailable(role, projectRoomId = null) {
+  if (!roleCapacity.roles[role]?.crossFamily) return true;
+  const rank = Object.fromEntries([...CAPABILITY_TIERS].reverse().map((tier, i) => [tier, i]));
+  const need = rank[ROLE_DEFAULT_TIER[role]];
+  const families = Object.values(agents).filter((a) => agentEligibleForRoom(a, projectRoomId))
+    .filter((a) => rank[modelTier(a.runtimeProfile)] >= need)
+    .map((a) => modelFamily(a.runtimeProfile)).filter(Boolean);
+  return new Set(families).size >= 2;
+}
+
 /**
  * What is left on the SEAT this agent occupies, or null if no quota is declared.
  *
@@ -12844,20 +12975,26 @@ function agentForRole(role) {
  * 8M committed against 6M. The seat page reported `overSubscribed: true` afterwards
  * and nothing had stopped it.
  */
-function seatRemainingFor(agentName) {
-  const rows = Object.values(agents).filter(isAgentRecord).map(serializeAgent);
+function seatRemainingFor(agentName, excludeEngagementId = null) {
+  const rows = Object.values(agents).filter(isAgentRecord);
   const target = rows.find((a) => a.name === agentName);
   if (!target) return null;
   const seatId = seatIdentity(target, { keyId: SEAT_KEY_ID, secret: SEAT_KEY_SECRET }).seatId;
-  const quota = Number(seatDeclarations[seatId]?.quotaTokens);
+  const declaration = seatDeclarations[seatId];
+  const quota = declaration?.quotaTokens;
+  const preset = frameworkPresets.find((p) => p.id === target.presetId);
+  if (!declaration?.period || declaration.period !== preset?.ceiling?.period) return null;
   // Undeclared quota is UNKNOWN, not unlimited. Returning null lets the caller
   // decide; returning Infinity here would silently reinstate the bug.
-  if (!Number.isFinite(quota) || quota <= 0) return null;
+  if (!Number.isFinite(quota) || quota < 0) return null;
 
   const sameSeat = rows.filter((a) => (
     seatIdentity(a, { keyId: SEAT_KEY_ID, secret: SEAT_KEY_SECRET }).seatId === seatId
   ));
-  const committed = sameSeat.reduce((n, a) => n + engagementStore.committedFor(a.name), 0);
+  const own = excludeEngagementId ? engagementStore.get(excludeEngagementId) : null;
+  const committed = sameSeat.reduce((n, a) => n + engagementStore.committedFor(a.name), 0)
+    + unprovisionedSeatCommitments(seatId)
+    - (own && sameSeat.some((a) => a.name === own.agent) && own.fulfillment?.phase !== 'failed' ? own.allocatedTokens || 0 : 0);
   return Math.max(0, quota - committed);
 }
 
@@ -12913,17 +13050,25 @@ function ceilingSpendFor(agentName) {
   };
 }
 
-function remainingFor(agentName) {
+function remainingFor(agentName, { forAutoJoin = false, excludeEngagementId = null } = {}) {
   const agent = Object.values(agents).filter(isAgentRecord).find((a) => a.name === agentName);
   if (!agent?.presetId) return null;
   const preset = frameworkPresets.find((p) => p.id === agent.presetId);
+  if (forAutoJoin) {
+    const seatId = seatIdentity(agent, { keyId: SEAT_KEY_ID, secret: SEAT_KEY_SECRET }).seatId;
+    const declaration = seatDeclarations[seatId];
+    if (declaration && (!Number.isFinite(declaration.quotaTokens)
+      || !declaration.period || declaration.period !== preset?.ceiling?.period)) return null;
+  }
   const ceiling = preset?.ceiling?.tokens;
-  const { reserved, spent } = ceilingSpendFor(agentName);
+  const { reserved: allReserved, spent } = ceilingSpendFor(agentName);
+  const own = excludeEngagementId ? engagementStore.get(excludeEngagementId) : null;
+  const reserved = allReserved - (own?.agent === agentName && own.fulfillment?.phase !== 'failed' ? own.allocatedTokens || 0 : 0);
   // An unknown spend cannot lower the figure; it also must not be read as zero, which is
   // why it falls back to the allocation rather than to `ceiling - 0`.
   const drawn = spent === null ? reserved : Math.max(reserved, spent);
   const byCeiling = Number.isFinite(ceiling) ? Math.max(0, ceiling - drawn) : null;
-  const bySeat = seatRemainingFor(agentName);
+  const bySeat = seatRemainingFor(agentName, excludeEngagementId);
   const limits = [byCeiling, bySeat].filter((v) => v !== null);
   return limits.length ? Math.min(...limits) : null;
 }
@@ -12950,11 +13095,12 @@ function remainingFor(agentName) {
 const REQUESTER_TOKEN = String(process.env.HAFLEET_REQUESTER_TOKEN || '').trim();
 
 function requireRequester(req, res, next) {
-  if (!REQUESTER_TOKEN) return requireBearer(req, res, next);
+  const bridgeSecret = getBridgeSecret();
+  if (bridgeSecret && req.headers['x-bridge-secret'] === bridgeSecret) { req.engagementCaller = 'matrix'; return next(); }
   const auth = req.headers.authorization || '';
-  if (auth === `Bearer ${REQUESTER_TOKEN}`) return next();
+  if (REQUESTER_TOKEN && auth === `Bearer ${REQUESTER_TOKEN}`) { req.engagementCaller = 'requester'; return next(); }
   // The operator may still submit; a requester may do nothing else.
-  return requireBearer(req, res, next);
+  return requireBearer(req, res, () => { req.engagementCaller = 'operator'; next(); });
 }
 
 /*
@@ -12999,12 +13145,16 @@ function resolveOwnerFor(agentName, projectRoomId = null) {
     const bindings = approvalStore.listBindings(
       projectRoomId ? { agent: agentName, projectRoomId } : { agent: agentName },
     );
-    const target = bindings[0];
+    const roomBindings = projectRoomId ? approvalStore.listBindings({ projectRoomId }) : [];
+    const roomOwners = new Set(roomBindings.map((b) => JSON.stringify([b.ownerMxid, b.ownerDmRoomId])));
+    const target = bindings[0] || (roomOwners.size === 1 ? roomBindings[0] : null);
     if (target?.ownerMxid && target?.ownerDmRoomId) {
       return { ownerMxid: target.ownerMxid, ownerDmRoomId: target.ownerDmRoomId, from: 'existing binding' };
     }
-  } catch { /* store unavailable: fall through to config */ }
-  if (OWNER_MXID && OWNER_DM_ROOM) {
+  } catch { return null; }
+  // ADR-016 makes the configured provider owner a bootstrap fallback only.
+  // A configured project side needs its own borrower binding or an explicit verdict owner.
+  if (!projectSideStore.getSide(sideIdForRoom(projectRoomId)) && OWNER_MXID && OWNER_DM_ROOM) {
     return { ownerMxid: OWNER_MXID, ownerDmRoomId: OWNER_DM_ROOM, from: 'HAFLEET_OWNER_MXID' };
   }
   return null;
@@ -13194,6 +13344,11 @@ async function withdrawAgentFromProjectRooms(agentName) {
  * `@ac_big:side`), server names compare case-insensitively. The authoritative MXID's server is
  * compared the same way, so a recorded `...@Palpo.Test` still matches the side's `palpo.test`.
  */
+function recordedAgentMxid(agent) {
+  const value = typeof agent?.matrixIdentity === 'string' ? agent.matrixIdentity : agent?.matrixIdentity?.mxid;
+  return typeof value === 'string' && /^@[^:\s]+:[^\s]+$/.test(value.trim()) ? value.trim() : null;
+}
+
 function backendRosterAdmits(mxid, sideId, agentsMap = agents, sideStore = projectSideStore) {
   const id = typeof mxid === 'string' ? mxid.trim() : '';
   const m = id.match(/^@([^:\s@]+):([^\s@]+)$/);
@@ -13201,14 +13356,14 @@ function backendRosterAdmits(mxid, sideId, agentsMap = agents, sideStore = proje
   const [, localpart, server] = m;
   if (!localpart.startsWith(MATRIX_AGENT_PREFIX_FOR_REGISTRATION)) return false;
   const agentName = localpart.slice(MATRIX_AGENT_PREFIX_FOR_REGISTRATION.length);
-  const agent = agentsMap[agentName];
+  const recordedMatches = Object.values(agentsMap).filter((a) => recordedAgentMxid(a) === id);
+  if (recordedMatches.length > 1) return false;
+  const agent = recordedMatches[0] || agentsMap[agentName];
   if (!isAgentRecord(agent)) return false;                                  // ①
   if (String(agent.projectSide ?? '') !== String(sideId ?? '')) return false; // ② missing ≠ admitted
   const side = sideStore.getSide(sideId);
   if (!side?.serverName) return false;                                      // no side, no composition
-  const recorded = typeof agent.matrixIdentity === 'string' && agent.matrixIdentity.trim().startsWith('@')
-    ? agent.matrixIdentity.trim()
-    : null;
+  const recorded = recordedAgentMxid(agent);
   const authoritative = recorded
     ?? `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
   const am = authoritative.match(/^@([^:\s@]+):([^\s@]+)$/);
@@ -13239,7 +13394,7 @@ async function withdrawAgentFromProjectRoom(agentName, roomId) {
    * one WE mint by, on the server the room id names, and `leaveRoomOnSideAsAgent` re-checks it against
    * the namespace the registration claimed before presenting any token.
    */
-  const agentMxid = `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+  const agentMxid = recordedAgentMxid(agents[agentName]) || `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
   /*
    * F10 (17-r5): THE SAME FIRST GATE as admission — before any external request. A leave for an
    * identity the fleet does not vouch for is an external side effect (the homeserver records the
@@ -13249,6 +13404,13 @@ async function withdrawAgentFromProjectRoom(agentName, roomId) {
   if (!backendRosterAdmits(agentMxid, sideId)) {
     console.warn(`[room-withdraw] REFUSED: ${agentMxid} is not a registered agent of this fleet on side ${sideId}`);
     return { roomId, left: false, reason: 'not_a_registered_agent', sideId, mxid: agentMxid };
+  }
+  if (credential.kind === 'registrationToken') {
+    if (matrixWorkStore.loggedOut(agentName, sideId)) return { roomId, mxid: agentMxid, left: true, reason: 'already_withdrawn_and_logged_out' };
+    try {
+      const result = await runMatrixWork({ action: 'leave', agent: agentName, sideId, roomId, mxid: agentMxid });
+      return { roomId, mxid: agentMxid, left: result.ok, reason: result.code };
+    } catch { return { roomId, mxid: agentMxid, left: false, reason: 'bridge_work_pending' }; }
   }
   const result = await leaveRoomOnSideAsAgent({
     side: { apiBaseUrl: side.apiBaseUrl, serverName: side.serverName },
@@ -13289,8 +13451,8 @@ async function admitAgentToProjectRoom(engagement) {
   }
   if (!credential) return { admitted: false, reason: 'no_credential', sideId };
 
-  const acting = { side: { apiBaseUrl: side.apiBaseUrl, serverName: side.serverName }, credential };
-  const agentMxid = `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+  const acting = { side, credential };
+  const agentMxid = recordedAgentMxid(agents[agentName]) || `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
 
   /*
    * F10 (17-r5): THE ROSTER GATE COMES FIRST — before the invite, before any external request at
@@ -13341,7 +13503,11 @@ async function admitAgentToProjectRoom(engagement) {
    * F10 (17-r3): same roster contract as the withdraw path — the backend's registry decides
    * which `@ac_` identities this fleet owns, and the single exit refuses a ghost.
    */
-  const join = await joinRoomOnSideAsAgent({
+  const join = credential.kind === 'registrationToken'
+    ? await Promise.resolve().then(() => runMatrixWork({ action: 'join', agent: agentName, sideId, roomId, mxid: agentMxid, engagementId: engagement.id }))
+      .then((result) => ({ joined: result.ok, reason: result.code }))
+      .catch(() => ({ joined: false, reason: 'bridge_work_pending' }))
+    : await joinRoomOnSideAsAgent({
     ...acting, roomId, agentUserId: agentMxid,
     // F10 (17-r4): sideId — the authoritative-home check lives in the ruling
     isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, sideId),
@@ -13357,11 +13523,11 @@ async function admitAgentToProjectRoom(engagement) {
   };
 }
 
-function bindEngagement(engagement) {
+function bindEngagement(engagement, resolvedOwner = null) {
   if (!engagement?.agent) {
     return { bound: false, error: 'engagement names no agent' };
   }
-  const owner = resolveOwnerFor(engagement.agent, engagement.projectRoomId ?? null);
+  const owner = resolvedOwner || resolveOwnerFor(engagement.agent, engagement.projectRoomId ?? null);
   if (!owner) {
     /*
      * F04: no binding for (agent, THIS room) and no accepted-source fallback.
@@ -13386,6 +13552,217 @@ function bindEngagement(engagement) {
     return { bound: true, ownerMxid: owner.ownerMxid, from: owner.from };
   } catch (error) {
     return { bound: false, error: error?.message ?? 'upsertBinding failed' };
+  }
+}
+
+function engagementResult(req, engagement, extras = {}) {
+  const internal = req.engagementCaller !== 'requester' && req.engagementCaller !== 'matrix';
+  if (internal) return { ok: true, engagement, ...extras };
+  const fields = ['id', 'requestId', 'idempotent', 'project', 'projectRoomId', 'role', 'requester',
+    'requestedTokens', 'ratePerDay', 'agent', 'createdAt', 'route', 'autoJoined', 'state',
+    'allocatedTokens', 'decidedAt', 'endedAt', 'bound'];
+  const safe = Object.fromEntries(fields.filter((key) => engagement?.[key] !== undefined).map((key) => [key, engagement[key]]));
+  const binding = extras.binding ? {
+    bound: extras.binding.bound === true,
+    ...(extras.binding.bound ? {} : { error: 'The agent could not be attached; the contributor must resolve its setup.' }),
+  } : undefined;
+  return { ok: true, engagement: safe, serving: extras.serving ?? servingConfiguration(engagement?.agent),
+    ...(binding ? { binding } : {}),
+    ...(extras.roomAdmission ? { roomAdmission: { admitted: extras.roomAdmission.admitted === true } } : {}),
+  };
+}
+
+const engagementFulfillments = new Map();
+function runMatrixWork(command) {
+  if (!getBridgeSecret()) throw new Error('Matrix bridge authorization is not configured');
+  const job = matrixWorkStore.enqueue(command);
+  return awaitMatrixWork(matrixWorkStore, job.id);
+}
+let launchEngagementAgent = async (agent) => {
+  // Thread runners are launched by dispatch, with their workspace lease already held.
+  if (THREAD_SESSIONS_ENABLED) {
+    if (!threadSessionAgentEligibility(agent).ok) throw new Error('agent is not eligible for thread dispatch');
+    return;
+  }
+  const rp = agent.runtimeProfile?.primary;
+  const env = { ...process.env, HAFLEET_LAUNCH_MODEL: rp?.model || '' };
+  if (rp?.apiBaseUrl && agent.type === 'claude') env.ANTHROPIC_BASE_URL = rp.apiBaseUrl;
+  if (rp?.apiKey && agent.type === 'claude') env.ANTHROPIC_API_KEY = rp.apiKey;
+  await execFileAsync(path.join(REPO_ROOT, 'bin', 'hafleet'), ['up-v1', agent.name, agent.type], {
+    cwd: REPO_ROOT, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024,
+  });
+};
+
+function resourceRemaining(preset, { forAutoJoin = false } = {}) {
+  if (!Number.isFinite(preset?.ceiling?.tokens)) return null;
+  const candidate = { type: preset.framework, server: LOCAL_SERVER_ID, runtimeProfile: runtimeProfileFromPreset(preset) };
+  const identity = (a) => seatIdentity(a, { keyId: SEAT_KEY_ID, secret: SEAT_KEY_SECRET }).seatId;
+  const seatId = identity(candidate);
+  const declaration = seatDeclarations[seatId];
+  const known = Number.isFinite(declaration?.quotaTokens) && declaration?.period === preset.ceiling.period;
+  if (forAutoJoin && declaration && !known) return null;
+  const committed = Object.values(agents).filter(isAgentRecord).filter((a) => identity(a) === seatId)
+    .reduce((sum, a) => sum + engagementStore.committedFor(a.name), 0)
+    + unprovisionedSeatCommitments(seatId);
+  return Math.max(0, Math.min(preset.ceiling.tokens - committed, known ? declaration.quotaTokens - committed : Infinity));
+}
+
+function unprovisionedSeatCommitments(seatId) {
+  return engagementStore.list({ state: 'pending' }).filter((e) => e.fulfillment
+    && e.fulfillment.phase !== 'failed' && !isAgentRecord(agents[e.agent]))
+    .reduce((sum, e) => {
+      const preset = frameworkPresets.find((p) => p.id === e.fulfillment.presetId);
+      if (!preset) return sum;
+      const candidate = { type: preset.framework, server: LOCAL_SERVER_ID, runtimeProfile: runtimeProfileFromPreset(preset) };
+      return sum + (seatIdentity(candidate, { keyId: SEAT_KEY_ID, secret: SEAT_KEY_SECRET }).seatId === seatId ? e.allocatedTokens : 0);
+    }, 0);
+}
+
+function fulfillEngagement(id, options = {}) {
+  if (engagementFulfillments.has(id)) {
+    const e = engagementStore.get(id);
+    if (options.allocatedTokens !== undefined && Number(options.allocatedTokens) !== e?.allocatedTokens
+      || options.owner && JSON.stringify(options.owner) !== JSON.stringify(e?.fulfillment?.owner)) {
+      return Promise.reject(new EngagementError('conflict', 'a different fulfillment decision is already in progress'));
+    }
+    return engagementFulfillments.get(id);
+  }
+  const work = fulfillEngagementOnce(id, options).finally(() => engagementFulfillments.delete(id));
+  engagementFulfillments.set(id, work);
+  return work;
+}
+
+async function fulfillEngagementOnce(id, { allocatedTokens, by = 'operator', reason, autoJoin = false, owner: suppliedOwner = null } = {}) {
+  let e = engagementStore.get(id);
+  if (!e) throw new EngagementError('not_found', 'engagement not found');
+  if (e.state === 'active') return { engagement: e };
+  if (e.state !== 'pending') throw new EngagementError('conflict', 'engagement is no longer pending');
+  if (!roleCrossFamilyAvailable(e.role, e.projectRoomId)) {
+    throw new EngagementError('cross_family_unavailable', 'this role requires qualifying agents from two model families on the project side');
+  }
+  const alloc = Number(allocatedTokens ?? e.allocatedTokens ?? e.requestedTokens);
+  if (!Number.isSafeInteger(alloc) || alloc <= 0) throw new EngagementError('bad_request', 'allocatedTokens must be a positive integer');
+  if (e.fulfillment && allocatedTokens !== undefined && alloc !== e.allocatedTokens) {
+    throw new EngagementError('conflict', 'retry must retain the reserved allocation; reject this request to release it');
+  }
+  if (suppliedOwner && (!/^@[^:\s]+:[^\s]+$/.test(suppliedOwner.ownerMxid)
+    || !/^![^:\s]+:[^\s]+$/.test(suppliedOwner.ownerDmRoomId))) {
+    throw new EngagementError('bad_request', 'owner requires a full MXID and a private Matrix room id');
+  }
+  const owner = suppliedOwner || e.fulfillment?.owner || resolveOwnerFor(e.agent, e.projectRoomId);
+  if (!owner) {
+    engagementStore.setBindingOutcome(id, { bound: false, error: 'project owner is unavailable' });
+    throw new EngagementError('owner_unavailable', 'project owner is unavailable; engagement remains pending');
+  }
+  const sideId = sideIdForRoom(e.projectRoomId);
+  const side = sideId ? projectSideStore.getSide(sideId) : null;
+  if (side && !side.active) throw new EngagementError('agent_unavailable', 'project side is deactivated');
+  const reserved = e.fulfillment && e.fulfillment.phase !== 'failed' ? e.allocatedTokens || 0 : 0;
+  const budget = side ? sideBudgetFor(sideId) : null;
+  if (budget && (budget.allocated === null || alloc > budget.remaining + reserved)) {
+    throw new EngagementError('over_allocation', 'project side has insufficient allocation');
+  }
+  const needsProvisioning = !e.agent || Boolean(e.fulfillment);
+  if (!needsProvisioning) {
+    if (!agentEligibleForRoom(agents[e.agent], e.projectRoomId)) throw new EngagementError('agent_unavailable', 'agent is no longer eligible for this project side');
+    const remaining = remainingFor(e.agent, { forAutoJoin: autoJoin });
+    if (remaining === null) throw new EngagementError('no_ceiling', 'cannot allocate without a known limit');
+    if (alloc > remaining) throw new EngagementError('over_commit', autoJoin
+      ? 'The contributor cannot accept this allocation.' : overCommitMessage(e, alloc, remaining, ceilingSpendFor(e.agent)));
+    const binding = bindEngagement(e, owner);
+    engagementStore.setBindingOutcome(id, binding);
+    if (!binding.bound) throw new EngagementError('owner_unavailable', 'project owner could not be bound');
+    e = engagementStore.decide({ engagementId: id, approve: true, allocatedTokens: alloc, remainingTokens: remaining, by, reason, autoJoin });
+    return { engagement: e, binding, roomAdmission: await admitAgentToProjectRoom(e) };
+  }
+  if (!side) throw new EngagementError('no_project_side', 'configure the project side before provisioning');
+  const credential = projectSideStore.credentialFor(sideId);
+  if (!['appservice', 'registrationToken'].includes(credential?.kind)
+    || credential.kind === 'registrationToken' && !getBridgeSecret()) {
+    throw new EngagementError('provision_unavailable', 'on-demand provisioning requires a side credential and its authenticated Matrix bridge');
+  }
+  const preset = e.fulfillment ? frameworkPresets.find((p) => p.id === e.fulfillment.presetId)
+    : resourcesForRole(e.role, ROLE_DEFAULT_TIER[e.role], frameworkPresets)
+      .map((r) => r.preset).find((p) => (resourceRemaining(p, { forAutoJoin: autoJoin }) ?? -1) >= alloc);
+  if (!preset || !['claude', 'codex'].includes(preset.framework)) throw new EngagementError('no_ceiling', 'no qualifying resource has sufficient capacity');
+  const agentName = e.agent || normalizeAgentName(`mx_${sideId.replace(/[^a-z0-9]/g, '_').slice(0, 24)}_${e.role}_${createHash('sha256').update(id).digest('hex').slice(0, 12)}`);
+  e = engagementStore.planFulfillment(id, { agent: agentName, allocatedTokens: alloc, presetId: preset.id, sideId, owner });
+  const assertPending = () => {
+    if (engagementStore.get(id)?.state !== 'pending' || !projectSideStore.getSide(sideId)?.active) {
+      throw new EngagementError('conflict', 'engagement was cancelled or its side deactivated during provisioning');
+    }
+  };
+  try {
+    if (!isAgentRecord(agents[agentName])) {
+      const { stdout } = await execFileAsync(process.execPath, [path.join(REPO_ROOT, 'scripts/provision-v1-agent-home.js'),
+        '--name', agentName, '--type', preset.framework], { cwd: REPO_ROOT, env: process.env, encoding: 'utf8', timeout: 120_000 });
+      assertPending();
+      const provisioned = JSON.parse(stdout);
+      if (!provisioned.ok || !provisioned.paths) throw new Error('provisioner returned no agent home');
+      const snapshot = snapshotAgentPersistenceState(agentName);
+      agents[agentName] = {
+        name: agentName, kind: 'agent', type: preset.framework, projectSide: sideId, presetId: preset.id,
+        engagementProvisioningId: id,
+        runtimeProfile: normalizeRuntimeProfile(runtimeProfileFromPreset(preset)), agentId: `agent_${agentName}`,
+        homeDir: provisioned.paths.homeDir, workdir: provisioned.paths.workdir, stateDir: provisioned.paths.stateDir,
+        server: LOCAL_SERVER_ID, tmux: null, online: false, offlineReason: 'provisioned', manualDown: false,
+        registeredAt: Date.now(), discoveredAt: Date.now(), lastSeen: Date.now(),
+      };
+      if (!saveAgentsOrRollback(agentName, snapshot)) throw new Error('agent persistence failed');
+      loadAgentTokens();
+    }
+    if (!agentEligibleForRoom(agents[agentName], e.projectRoomId, id)) throw new Error('provisioned agent is not eligible for this side');
+    engagementStore.setFulfillmentPhase(id, 'provisioned');
+    if (!recordedAgentMxid(agents[agentName])) {
+      const localpart = `${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}`;
+      const minted = credential.kind === 'registrationToken'
+        ? await runMatrixWork({ action: 'identity', agent: agentName, sideId, localpart, engagementId: id })
+          .then((result) => ({ minted: result.ok, mxid: result.mxid, kind: 'registrationToken', reason: result.code }))
+        : await mintAgentIdentity({ side, credential, localpart });
+      assertPending();
+      if (!minted.minted) throw new Error(minted.reason || 'Matrix identity could not be minted');
+      const snapshot = snapshotAgentPersistenceState(agentName);
+      agents[agentName].matrixIdentity = { mxid: minted.mxid, sideId, kind: minted.kind };
+      if (!saveAgentsOrRollback(agentName, snapshot)) throw new Error('identity persistence failed');
+    }
+    engagementStore.setFulfillmentPhase(id, 'identified');
+    const binding = bindEngagement(e, owner);
+    engagementStore.setBindingOutcome(id, binding);
+    if (!binding.bound) throw new Error('project owner could not be bound');
+    engagementStore.setFulfillmentPhase(id, 'bound');
+    const roomAdmission = await admitAgentToProjectRoom(e);
+    assertPending();
+    if (!roomAdmission.admitted) throw new Error(roomAdmission.reason || 'agent could not join the project room');
+    engagementStore.setFulfillmentPhase(id, 'joined');
+    if (!agents[agentName].online) {
+      engagementStore.setFulfillmentPhase(id, 'starting');
+      await launchEngagementAgent(agents[agentName]);
+      assertPending();
+    }
+    // Readiness must outlive the bounded engagement history. Do not require a
+    // completed agent to keep its original engagement row forever to be reused.
+    if (agents[agentName].engagementProvisioningId) {
+      const snapshot = snapshotAgentPersistenceState(agentName);
+      delete agents[agentName].engagementProvisioningId;
+      if (!saveAgentsOrRollback(agentName, snapshot)) throw new Error('agent readiness persistence failed');
+    }
+    const remaining = remainingFor(agentName, { forAutoJoin: autoJoin, excludeEngagementId: id });
+    e = engagementStore.decide({ engagementId: id, approve: true, allocatedTokens: alloc, remainingTokens: remaining, by, reason, autoJoin });
+    return { engagement: e, binding, roomAdmission };
+  } catch (error) {
+    // Keep the reservation while setup is incomplete. A verdict retries the same
+    // plan; rejection releases it. Releasing here could overbook a live partial agent.
+    const current = engagementStore.get(id);
+    if (current?.state !== 'pending' || !projectSideStore.getSide(sideId)?.active) {
+      // Rejection may have withdrawn while the in-flight join was still pending.
+      // Repeat the idempotent withdrawal after that join settles.
+      await detachEngagement(current).catch((cleanupError) => {
+        console.warn(`[engagements] cancellation cleanup ${id}: ${cleanupError.message}`);
+      });
+    }
+    if (current?.state === 'pending') engagementStore.setFulfillmentPhase(id, current.fulfillment.phase, 'setup incomplete; operator retry required');
+    console.error(`[engagements] fulfillment ${id}: ${error.message}`);
+    throw new EngagementError('fulfillment_incomplete', 'setup incomplete; retry the verdict or reject the engagement');
   }
 }
 
@@ -13498,10 +13875,12 @@ async function detachEngagement(engagement) {
   }
 }
 
-function respondEngagementError(res, error, fallback) {
+function respondEngagementError(res, error, fallback, extras = {}) {
   if (error instanceof EngagementError) {
-    const status = { bad_request: 400, not_found: 404, conflict: 409, over_commit: 409, no_ceiling: 409 }[error.code] ?? 500;
-    return res.status(status).json({ error: error.message, code: error.code });
+    const status = { bad_request: 400, not_found: 404, conflict: 409, over_commit: 409, no_ceiling: 409,
+      owner_unavailable: 409, agent_unavailable: 409, over_allocation: 409, no_project_side: 409,
+      provision_unavailable: 409, cross_family_unavailable: 409, fulfillment_incomplete: 503 }[error.code] ?? 500;
+    return res.status(status).json({ ...extras, ok: false, error: error.message, code: error.code });
   }
   console.error(`[engagements] ${fallback}:`, error?.message || error);
   return res.status(500).json({ error: fallback });
@@ -13537,6 +13916,8 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
     const b = req.body || {};
     const role = normalizeOptionalText(b.role, 64);
     if (!ROLES.includes(role)) return res.status(400).json({ error: `unknown role: ${role}` });
+    const replay = engagementStore.replayRequest({ ...b, role });
+    if (replay) return res.json(engagementResult(req, replay));
 
     /*
      * WHICH AGENT SERVES A ROLE IS NOT THE REQUESTER'S CHOICE.
@@ -13551,11 +13932,14 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
      * for the role. Anything else falls back to the capability model's own answer.
      */
     const requested = normalizeOptionalText(b.agent, 128);
-    let agent = agentForRole(role);
+    let agent = agentForRole(role, b.projectRoomId);
     if (requested) {
       const TIER_RANK = Object.fromEntries([...CAPABILITY_TIERS].reverse().map((t, i) => [t, i]));
       const row = Object.values(agents).filter(isAgentRecord).map(serializeAgent)
         .find((a) => a.name === requested);
+      if (row && !agentEligibleForRoom(agents[requested], b.projectRoomId)) {
+        return res.status(400).json({ error: 'requested agent is not eligible for this project side' });
+      }
       const tier = row ? modelTier(row.runtimeProfile) : null;
       const qualifies = tier && TIER_RANK[tier] >= TIER_RANK[ROLE_DEFAULT_TIER[role]];
       if (qualifies) agent = requested;
@@ -13616,10 +14000,11 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
      * the queue looking like a decision waiting to be made. The remedy is the allocation, and the
      * refusal says so.
      */
-    if (refuseOverSideAllocation(res, {
+    if (req.engagementCaller !== 'requester' && refuseOverSideAllocation(res, {
       projectRoomId: b.projectRoomId,
       tokens: b.requestedTokens,
       act: 'this engagement',
+      publicResult: req.engagementCaller === 'matrix',
     })) return undefined;
     const engagement = engagementStore.createRequest({
       project: b.project,
@@ -13639,7 +14024,11 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
        */
       requestId: b.requestId,
       agent,
-      remainingTokens: agent ? remainingFor(agent) : null,
+      remainingTokens: agent ? remainingFor(agent, { forAutoJoin: true })
+        : resourceRemaining(resourceForRole(role, ROLE_DEFAULT_TIER[role], frameworkPresets), { forAutoJoin: true }),
+      allowAutoJoin: req.engagementCaller !== 'requester',
+      crossFamilyOk: roleCrossFamilyAvailable(role, b.projectRoomId),
+      deferActivation: true,
     });
     /*
      * An auto-join goes straight to active, so it must bind here — the verdict
@@ -13651,29 +14040,16 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
      * and so a caller cannot end up displaying a role without its fulfilment.
      */
     const serving = servingConfiguration(engagement.agent);
-    if (engagement.state === 'active') {
-      const outcome = bindEngagement(engagement);
-      engagementStore.setBindingOutcome(engagement.id, outcome);
-      /*
-       * Awaited, not fired and forgotten. A borrower reading `ok: true` would otherwise be told the
-       * agent is theirs while it is not yet in the room — and the failure would surface as silence in
-       * a room on someone else's server, which is the hardest place for anyone here to look.
-       */
-      const roomAdmission = await admitAgentToProjectRoom(engagement);
-      return res.json({
-        ok: true,
-        engagement: engagementStore.get(engagement.id),
-        binding: outcome,
-        roomAdmission,
-        serving,
-        /*
-         * Omitted entirely when an agent WAS found — a null field on every normal response is noise that
-         * teaches readers to skip the object it appears in.
-         */
-        ...(provisionHint ? { provisionHint } : {}),
-      });
+    if (engagement.route === 'autoJoin') {
+      try {
+        const result = await fulfillEngagement(engagement.id, { by: 'auto', autoJoin: true });
+        return res.json(engagementResult(req, result.engagement, { ...result, serving: servingConfiguration(result.engagement.agent) }));
+      } catch (error) {
+        return respondEngagementError(res, error, 'failed to fulfill engagement',
+          engagementResult(req, engagementStore.get(engagement.id)));
+      }
     }
-    return res.json({ ok: true, engagement, serving, ...(provisionHint ? { provisionHint } : {}) });
+    return res.json(engagementResult(req, engagement, { serving, ...(provisionHint ? { provisionHint } : {}) }));
   } catch (e) {
     return respondEngagementError(res, e, 'failed to create engagement');
   }
@@ -13682,73 +14058,25 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
 app.post('/api/engagements/:id/verdict', requireBearer, async (req, res) => {
   try {
     const b = req.body || {};
-    const existing = engagementStore.get(req.params.id);
-    /*
-     * THE SAME CEILING, AT THE OTHER ADMISSION POINT — and the one that actually commits.
-     *
-     * An approval may allocate MORE than was requested (`allocatedTokens ?? requestedTokens`), and the
-     * side's remaining may have fallen since the request was made, so passing the request-time check is
-     * no evidence about this moment. This is the second of the two ceilings ADR-016 names: `decide()`
-     * already enforces the contributor's own (`remainingFor(agent)`); this is the borrower's allocation.
-     *
-     * Only on approval. A rejection releases nothing and commits nothing, and refusing to record one
-     * because a budget is exhausted would trap the engagement in `pending` with no way out.
-     */
-    if (b.approve === true && existing && refuseOverSideAllocation(res, {
-      projectRoomId: existing.projectRoomId,
-      tokens: b.allocatedTokens ?? existing.requestedTokens,
-      act: 'approving this engagement',
-      extra: { engagementId: existing.id },
-    })) return undefined;
-    const e = engagementStore.decide({
-      engagementId: req.params.id,
-      approve: b.approve === true,
-      allocatedTokens: b.allocatedTokens,
-      // Recomputed here rather than taken from the request: a client-supplied
-      // headroom would let any caller authorise the over-commitment the form
-      // prevents.
-      remainingTokens: existing?.agent ? remainingFor(existing.agent) : null,
-      /*
-       * The breakdown behind that number, so a refusal can say which draw is binding —
-       * committed allocations or measured spend. Recomputed here for the same reason as
-       * `remainingTokens`: it must describe the state the decision was made against.
-       */
-      spendContext: existing?.agent ? ceilingSpendFor(existing.agent) : null,
-      by: getRequestAgentName(req) || 'operator',
-      reason: b.reason,
-    });
-    if (e.state === 'active') {
-      const outcome = bindEngagement(e);
-      engagementStore.setBindingOutcome(e.id, outcome);
-      /*
-       * The binding outcome rides back with the verdict rather than being left for
-       * the caller to discover. An approval that allocated budget but could not
-       * attach the agent is a half-done thing, and the form that pressed Approve is
-       * the only place anyone will look.
-       */
-      /*
-       * `serving` rides back here for the same reason it rides with the request, and the argument
-       * is stronger at this end: the request only asks, the VERDICT is where the agent is actually
-       * granted. Omitting it meant the one response that says "you have it" did not say what you
-       * have, so a borrower had to make a second call to learn which agent and model they were
-       * given — the exact "role without its fulfilment" the request route refuses to serve.
-       * Disclosed, not concealed, per the 2026-08-11 transparency ruling.
-       */
-      const roomAdmission = await admitAgentToProjectRoom(e);
-      return res.json({
-        ok: true,
-        engagement: engagementStore.get(e.id),
-        binding: outcome,
-        // Beside `binding` for the reason stated above it: this is the other half of "the agent is
-        // yours", and an approval that granted budget but left the agent outside the room is exactly
-        // the half-done state that comment exists to surface.
-        roomAdmission,
-        serving: servingConfiguration(e.agent),
-      });
+    if (b.approve === true) {
+      const existing = engagementStore.get(req.params.id);
+      const reserved = existing?.fulfillment && existing.fulfillment.phase !== 'failed' ? existing.allocatedTokens || 0 : 0;
+      if (existing?.state === 'pending' && refuseOverSideAllocation(res, {
+        projectRoomId: existing.projectRoomId,
+        tokens: Number(b.allocatedTokens ?? existing.allocatedTokens ?? existing.requestedTokens) - reserved,
+        act: 'approving this engagement', extra: { engagementId: existing.id },
+      })) return undefined;
+      try {
+        const result = await fulfillEngagement(req.params.id, {
+          allocatedTokens: b.allocatedTokens, by: getRequestAgentName(req) || 'operator', reason: b.reason, owner: b.owner,
+        });
+        return res.json({ ok: true, ...result, serving: servingConfiguration(result.engagement.agent) });
+      } catch (error) {
+        return respondEngagementError(res, error, 'failed to fulfill engagement', { engagement: engagementStore.get(req.params.id) });
+      }
     }
-    // Rejected: nothing to attach, and anything already attached must go. No `serving` either —
-    // nothing was granted, and reporting a fulfilment for a refusal would be a lie in the
-    // direction that matters.
+    const e = engagementStore.decide({ engagementId: req.params.id, approve: false,
+      by: getRequestAgentName(req) || 'operator', reason: b.reason });
     const { roomWithdrawal } = await detachEngagement(e);
     return res.json({ ok: true, engagement: e, ...(roomWithdrawal ? { roomWithdrawal } : {}) });
   } catch (e) {
@@ -13814,9 +14142,10 @@ app.get('/api/offer-book', requireRequester, (req, res) => {
   const roles = engagementStore.listOffers()
     .filter((o) => o.published)
     .map((o) => {
-      const agent = agentForRole(o.role);
+      const agent = agentForRole(o.role, req.engagementCaller === 'requester' ? null : room);
       return {
         role: o.role,
+        crossFamilyOk: roleCrossFamilyAvailable(o.role, req.engagementCaller === 'requester' ? null : room),
         budgetCapPerEngagement: o.budgetCapPerEngagement ?? null,
         rateCap: o.rateCap ?? null,
         count: o.count ?? null,
@@ -13828,7 +14157,7 @@ app.get('/api/offer-book', requireRequester, (req, res) => {
          * `agentForRole` picks by most remaining headroom, so this answer moves as other
          * projects are served, and a borrower who read it as a promise would be wrong.
          */
-        serving: servingConfiguration(agent),
+        serving: roleCrossFamilyAvailable(o.role, req.engagementCaller === 'requester' ? null : room) ? servingConfiguration(agent) : null,
       };
     });
   return res.json({
@@ -13837,7 +14166,7 @@ app.get('/api/offer-book', requireRequester, (req, res) => {
      * Null rather than false when no room was named: false would assert that the caller's
      * room is not trusted, which is a claim about a room nobody identified.
      */
-    whitelisted: room ? engagementStore.isWhitelisted(room) : null,
+    whitelisted: room && req.engagementCaller !== 'requester' ? engagementStore.isWhitelisted(room) : null,
     projectRoomId: room || null,
   });
 });
@@ -13949,12 +14278,13 @@ app.get('/api/engagements/preview', requireBearer, (req, res) => {
   const role = normalizeOptionalText(req.query.role, 64);
   const projectRoomId = normalizeOptionalText(req.query.projectRoomId, 256);
   const requestedTokens = Number(req.query.requestedTokens) || 0;
-  const agent = agentForRole(role);
+  const agent = agentForRole(role, projectRoomId);
   const decision = routeRequest({
     request: { requestedTokens, ratePerDay: Number(req.query.ratePerDay) || null },
     whitelisted: engagementStore.isWhitelisted(projectRoomId),
     offer: engagementStore.getOffer(role),
-    remainingTokens: agent ? remainingFor(agent) : null,
+    remainingTokens: agent ? remainingFor(agent, { forAutoJoin: true }) : null,
+    crossFamilyOk: roleCrossFamilyAvailable(role, projectRoomId),
   });
   return res.json({ ...decision, agent, agentRemainingTokens: agent ? remainingFor(agent) : null });
 });
@@ -14257,7 +14587,7 @@ app.get('/api/usage', requireBearer, async (_req, res) => {
  */
 app.get('/api/seats', requireBearer, (_req, res) => {
   refreshServerLiveness();
-  const rows = Object.values(agents).filter(isAgentRecord).map(serializeAgent);
+  const rows = Object.values(agents).filter(isAgentRecord);
   const seats = buildSeats({
     agents: rows,
     presets: frameworkPresets,
@@ -14289,7 +14619,7 @@ app.put('/api/seats/:seatId', requireBearer, (req, res) => {
   // Refuse a declaration about a seat no agent occupies. Otherwise seats.json
   // accumulates beliefs about seats that never existed — usually a typo, and
   // indistinguishable afterwards from a seat whose agents were removed.
-  const rows = Object.values(agents).filter(isAgentRecord).map(serializeAgent);
+  const rows = Object.values(agents).filter(isAgentRecord);
   const known = new Set(rows.map((a) => seatIdentity(a, { keyId: SEAT_KEY_ID, secret: SEAT_KEY_SECRET }).seatId));
   if (!known.has(seatId)) {
     return res.status(404).json({ error: `no agent occupies seat ${seatId}` });
@@ -15985,6 +16315,7 @@ export const __backendV2TestInternals = {
   // 404 for agents that were definitely seeded. Exposed so a caller can check
   // rather than discover it as a mystery failure much later.
   runtimeRootForTest: RUNTIME_ROOT,
+  setEngagementLauncherForTest(fn) { launchEngagementAgent = fn; },
   setLocalRequestOverrideForTest,
   /*
    * What this module can actually SEE in the store it loaded, for the test helper's post-import check.

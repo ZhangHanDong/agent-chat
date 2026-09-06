@@ -623,14 +623,15 @@ describe('deleting an agent releases the budget it was holding', () => {
 
   let ctx;
   afterEach(async () => {
-    await ctx?.close?.();
+    await ctx?.cleanup?.();
     ctx = null;
   });
 
   async function bootWithAgent() {
     ctx = await createBackendTestContext('hafleet-agents-budget-release-', {
       agents: { [AGENT]: { name: AGENT, type: 'agent', kind: 'agent', capability: 'coding' } },
-      env: { API_TOKEN, MATRIX_BRIDGE_SECRET: 'secret-for-withdraw' },
+      env: { API_TOKEN, MATRIX_BRIDGE_SECRET: 'secret-for-withdraw',
+        HAFLEET_OWNER_MXID: '@owner:holder.test', HAFLEET_OWNER_DM_ROOM: '!private-dm:holder.test' },
     });
     return ctx.app;
   }
@@ -638,6 +639,8 @@ describe('deleting an agent releases the budget it was holding', () => {
   let PRESET_ID = null;
 
   async function withActiveEngagement(app) {
+    ctx.internals.approvalStoreForTest.upsertBinding({ agent: AGENT, project: 'holding', project_room_id: '!room:holder.test',
+      owner_mxid: '@owner:holder.test', owner_dm_room_id: '!private-dm:holder.test' });
     await request(app).post('/api/project-sides').set('Authorization', `Bearer ${API_TOKEN}`)
       .send({ server_name: 'holder.test', api_base_url: 'https://matrix.holder.test' });
     await request(app).put('/api/project-sides/holder.test/allocation')
@@ -653,6 +656,8 @@ describe('deleting an agent releases the budget it was holding', () => {
     await request(app).put(`/api/agents/${AGENT}/preset`).set('Authorization', `Bearer ${API_TOKEN}`)
       .send({ presetId: PRESET_ID });
 
+    await request(app).put(`/api/agents/${AGENT}/project-side`).set('Authorization', `Bearer ${API_TOKEN}`)
+      .send({ projectSide: 'holder.test' }).expect(200);
     const created = await request(app).post('/api/engagements').set('Authorization', `Bearer ${API_TOKEN}`)
       .send({
         agent: AGENT, role: 'documentation', project: 'holding', requester: '@op:holder.test',
@@ -660,7 +665,7 @@ describe('deleting an agent releases the budget it was holding', () => {
       });
     const id = created.body.engagement?.id;
     await request(app).post(`/api/engagements/${id}/verdict`).set('Authorization', `Bearer ${API_TOKEN}`)
-      .send({ approve: true, allocatedTokens: 50000 });
+      .send({ approve: true, allocatedTokens: 50000 }).expect(200);
     return id;
   }
 
@@ -702,43 +707,28 @@ describe('deleting an agent releases the budget it was holding', () => {
     expect(crew.members).toEqual(['someone-else']);   // the OTHER member stays
   });
 
-  test('a room reached through an ENGAGEMENT is withdrawn, with no binding anywhere', async () => {
-    /*
-     * THE CASE THAT MADE THE FIRST VERSION USELESS ON THE FLEET IT WAS WRITTEN FOR. Rooms were taken from
-     * bindings alone; an agent actually reaches a project room through `admitAgentToProjectRoom(engagement)`,
-     * and that deployment had NO bindings at all because its engagements were approved without a resolvable
-     * owner. Proved by running the whole sequence after deploying: the agent was still in the room.
-     *
-     * Every test passed both before and after that fix, which is the useful part of this one existing.
-     */
-    const app = await bootWithAgent();
+  test('a room reached through a historical ENGAGEMENT is withdrawn, with no binding anywhere', async () => {
+    // Preserve recovery coverage for records written before owner binding became mandatory.
+    ctx = await createBackendTestContext('hafleet-historical-engagement-', {
+      agents: { [AGENT]: { name: AGENT, type: 'claude', kind: 'agent', projectSide: 'gone.test' } },
+      env: { API_TOKEN, MATRIX_BRIDGE_SECRET: 'secret-for-withdraw' },
+      rawDataFiles: { 'engagements.json': JSON.stringify({ engagements: {
+        historical: { id: 'historical', state: 'active', agent: AGENT, createdAt: 1,
+          allocatedTokens: 10000, projectRoomId: '!viaengagement:gone.test' },
+      }, whitelist: {}, offers: {}, audit: [] }) },
+    });
+    const app = ctx.app;
     await request(app).post('/api/project-sides').set('Authorization', `Bearer ${API_TOKEN}`)
       .send({ server_name: 'gone.test', api_base_url: 'http://127.0.0.1:9' });
     await request(app).put('/api/project-sides/gone.test/credential')
       .set('Authorization', `Bearer ${API_TOKEN}`)
       .send({ credential: { kind: 'appservice', asToken: 'as_t', hsToken: 'hs_t', namespace: '@ac_.*', senderLocalpart: 'hafleet' } });
-    await request(app).put('/api/project-sides/gone.test/allocation')
-      .set('Authorization', `Bearer ${API_TOKEN}`).send({ allocatedTokens: 1000000 });
-
-    const preset = await request(app).post('/api/framework-presets')
-      .set('Authorization', `Bearer ${API_TOKEN}`)
-      .send({ name: 'wd', framework: 'claude', model: 'claude-sonnet-5', ceiling: { tokens: 500000, period: 'monthly' } });
-    await request(app).put(`/api/agents/${AGENT}/preset`).set('Authorization', `Bearer ${API_TOKEN}`)
-      .send({ presetId: preset.body.preset.id });
-    const created = await request(app).post('/api/engagements').set('Authorization', `Bearer ${API_TOKEN}`)
-      .send({
-        agent: AGENT, role: 'documentation', project: 'w', requester: '@op:gone.test',
-        requestedTokens: 10000, projectRoomId: '!viaengagement:gone.test',
-      });
-    await request(app).post(`/api/engagements/${created.body.engagement.id}/verdict`)
-      .set('Authorization', `Bearer ${API_TOKEN}`).send({ approve: true, allocatedTokens: 10000 });
-
-    // No binding exists — the approval could not resolve an owner, which is the live fleet's state.
     const res = await request(app).delete(`/api/agents/${AGENT}?force=true`)
-      .set('Authorization', `Bearer ${API_TOKEN}`);
+      .set('Authorization', `Bearer ${API_TOKEN}`).expect(200);
     const room = (res.body.leftProjectRooms ?? []).find((r) => r.roomId === '!viaengagement:gone.test');
-    expect(room).toBeTruthy();                              // the room was TRIED
+    expect(room).toBeTruthy();
     expect(room.mxid).toBe(`@ac_${AGENT}:gone.test`);
+
   });
 
   test("a customer's unreachable homeserver does NOT make the agent unremovable", async () => {
@@ -815,6 +805,8 @@ describe('deleting an agent releases the budget it was holding', () => {
       .send({ name: OTHER, role: 'documentation', identity: 'bystander' });
     await request(app).put(`/api/agents/${OTHER}/preset`).set('Authorization', `Bearer ${API_TOKEN}`)
       .send({ presetId: PRESET_ID });
+    await request(app).put(`/api/agents/${OTHER}/project-side`).set('Authorization', `Bearer ${API_TOKEN}`)
+      .send({ projectSide: 'holder.test' }).expect(200);
     const theirs = await request(app).post('/api/engagements').set('Authorization', `Bearer ${API_TOKEN}`)
       .send({
         agent: OTHER, role: 'documentation', project: 'holding', requester: '@op:holder.test',
@@ -823,7 +815,7 @@ describe('deleting an agent releases the budget it was holding', () => {
     const theirId = theirs.body.engagement?.id;
     expect(theirId).toBeTruthy();
     await request(app).post(`/api/engagements/${theirId}/verdict`).set('Authorization', `Bearer ${API_TOKEN}`)
-      .send({ approve: true, allocatedTokens: 30000 });
+      .send({ approve: true, allocatedTokens: 30000 }).expect(200);
 
     const res = await request(app).delete(`/api/agents/${AGENT}?force=true`)
       .set('Authorization', `Bearer ${API_TOKEN}`);
