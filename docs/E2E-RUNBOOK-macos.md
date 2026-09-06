@@ -12,7 +12,7 @@
 - 对 headless agent，`runner.availability=ready` 表示可按需派发，`runner.activity` 来自持久 dispatch 账本；它们不等于常驻进程在线。空闲 runner 没有 tmux pane，不能报 `tmux-missing:auto`。显式 tmux/ACP agent 继续使用各自的存活证据。
 - 用量页任务图和总数读取同一份 per-agent 用量；当前承诺图只计 active engagement。未提供项目归属、实时日志、监管评估或保存接口时须明确说明，不能用样例、固定时间或成功 toast 填补。
 - 可见页面应每 15 秒同步状态，重新切回窗口应立即刷新；样例模式下预设删除及 Agent 写操作均应禁用。自动刷新和写后刷新不能让旧响应覆盖新状态。
-- `cgWindowNotFound` 时先确认桌面是否锁屏；本次 Chrome 初始 GUI 验收成功后，锁屏导致新版点击复测中断。保留已完成与未验证两类证据，不能以 HTTP/SSR 检查代替截图。
+- `cgWindowNotFound` 时先确认桌面是否锁屏；本次锁屏导致新版点击复测中断，桌面恢复后已补测修复相关 GUI、双语/主题、样例操作禁用与无需重载的自动刷新。保留初始失败与后来补测证据，不能以 HTTP/SSR 检查代替截图。
 - 自动化补验：根目录 `npm run test:dashboard`；mockup 目录生产构建与 `npm run check`。这些检查单列结果，不能替代真实 GUI 验收。Computer Use 的数字 spinbutton 如 `set_value` 被转换成 0，改用点击、全选、键盘输入，再核对显示值才提交。
 
 下列实测结果优先于本文后续的旧操作示例:
