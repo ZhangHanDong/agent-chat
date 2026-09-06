@@ -1831,14 +1831,15 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
         { type: 'm.room.member', room_id: ROOM, state_key: REP, sender: '@a:palpo.test', content: { membership: 'invite' }, unsigned: { invite_room_state: [{ type: 'm.room.join_rules', state_key: '', content: { join_rule: 'invite' } }] } },
         { type: 'm.room.member', room_id: ROOM, state_key: '@elsewhere:palpo.test', sender: '@a:palpo.test', content: { membership: 'invite' } },
       ],
-      // BOTH events are bootstrap-shaped for SOMEBODY; the second targets another user, whose
-      // room has no membership evidence → retryable-unavailable for it, so the batch 500s with
-      // the first event already executed (at-least-once). The scenario's Then — the two facts do
-      // not collapse — is asserted by the push-basis test's claim-identity checks.
+      // BOTH events are bootstrap-shaped for SOMEBODY; the second targets another user. The fake
+      // homeserver answers its member read with M_FORBIDDEN, which r9 correctly treats as definitive
+      // non-membership (`room_side_mismatch`), not an unavailable read. The terminal sibling may be
+      // discarded while the first event executes. The scenario's Then — the two facts do not
+      // collapse — is asserted by the push-basis test's claim-identity checks.
       verdict: 'partial',
       allowPartialExecution: true,                 // per-event at-least-once: the first executes
       then: ({ status, typed }) => {
-        expect(status).toBe(500);                     // the second's evidence is unavailable
+        expect(status).toBe(200);                     // the second is terminal, so the batch completes
         expect(countOf(typed)).toBe(2);               // the first (bootstrap) already executed
       },
     },
