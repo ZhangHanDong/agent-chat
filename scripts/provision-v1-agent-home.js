@@ -4,6 +4,7 @@ import { execFileSync } from 'child_process';
 import { createHash, randomBytes } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { writeAgentProjectDocs } from '../lib/agent-project-docs.js';
 import {
   buildV1AgentPaths,
   defaultAgentchatHomeDir,
@@ -436,10 +437,7 @@ Initialize this v1 agent workspace and define the first executable task.
 1. Add project-specific task backlog.
 `);
   writeIfMissing(path.join(paths.docsDir, 'progress.md'), '');
-  writeIfMissing(path.join(paths.docsDir, 'projects.md'), `# Projects
-
-Track agent-owned project material under \`../projects/\`.
-`);
+  const projectsStatus = writeAgentProjectDocs(manifest);
 
   const template = loadWorkspaceClaudeTemplate();
   const renderedClaude = renderWorkspaceClaudeTemplate(template, manifest);
@@ -452,6 +450,7 @@ Track agent-owned project material under \`../projects/\`.
   const taskWriterStatus = writeManagedTaskWriterWrapper(paths.taskWriterPath, renderTaskWriterWrapper(path.join(__dirname, '..')));
   return {
     agentKnowledgeStatus: existsSync(path.join(paths.docsDir, 'agent-knowledge.md')) ? 'present' : 'missing',
+    projectsStatus,
     claudeRootStatus,
     agentsRootStatus,
     docsClaudeStatus,

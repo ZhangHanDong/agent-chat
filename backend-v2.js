@@ -105,6 +105,7 @@ import {
   findV1ManifestByName,
 } from './lib/agent-home-v1.js';
 import { approvalAdapterTimeoutMs, resolveApprovalTtlMs } from './lib/runtime-approval-client.js';
+import { codexPermissionRequestNeedsOwnerApproval } from './lib/codex-permission-hook.js';
 import { buildProjectBoardSnapshot } from './lib/project-board.js';
 import { createProjectInspector } from './lib/project-inspector.js';
 import {
@@ -2070,8 +2071,16 @@ function threadSessionDirectiveConfirmation(sessionInfo) {
 }
 
 function makePromotedTaskTitle(body) {
-  const withoutCommand = String(body || '').replace(/^\s*\/task\b/i, '').replace(/@[A-Za-z0-9_-]+/g, '').trim();
-  return (withoutCommand.split('\n').find((line) => line.trim()) || 'Matrix task').trim().slice(0, 255);
+  // Remove complete addressing tokens only at the start. A global @word
+  // replacement corrupts Matrix mention links, full MXIDs and email addresses.
+  let request = String(body || '').trim();
+  const addressing = /^(?:\[[^\]]*\]\(https:\/\/matrix\.to\/#\/(?:@|%40)[^)]*\)|@[\w.-]+(?::[^\s,]+)?)(?:[:,]?\s+|$)/i;
+  for (;;) {
+    const next = request.replace(/^\/task\b\s*/i, '').replace(addressing, '').trim();
+    if (next === request) break;
+    request = next;
+  }
+  return (request.split('\n').find((line) => line.trim()) || 'Matrix task').trim().slice(0, 255);
 }
 
 function shadowMatrixMessageToRouter(agentName, msg) {
@@ -2323,7 +2332,14 @@ async function requestThreadSessionOwnerApproval(agent, projectRoomId, request) 
     upstream_request_id: request.approvalId,
     tool_name: `app_server_${request.kind}`,
     description: request.reason || `${request.kind} permission request`,
-    input_preview: JSON.stringify({ command: request.command, cwd: request.cwd }).slice(0, 8192),
+    input_preview: JSON.stringify(request.mcp ? {
+      operationDigest: request.operationDigest,
+      upstreamThreadId: request.upstreamThreadId,
+      upstreamTurnId: request.upstreamTurnId,
+      upstreamItemId: request.upstreamItemId,
+      upstreamRequestId: request.upstreamRequestId,
+      ...request.mcp,
+    } : { command: request.command, cwd: request.cwd }).slice(0, 8192),
   });
   if (created.status === 'pending') {
     broadcastSSE('approval_requested', { request_id: created.id, agent: created.agent });
@@ -2425,6 +2441,7 @@ async function launchClaimedThreadSessionRunner(claim, signal) {
       effort: normalizedCodexEffort(agent.runtimeProfile?.primary?.reasoning),
       approvalTimeoutMs: APPROVAL_ADAPTER_TIMEOUT_MS,
       maxParkedRunners: MAX_PARKED_RUNNERS,
+      coordinationNeedsOwnerApproval: codexPermissionRequestNeedsOwnerApproval,
       mcpServer: {
         name: THREAD_SESSION_MCP_SERVER_NAME,
         command: process.execPath,
@@ -8122,6 +8139,22 @@ app.post('/api/router/tasks', requireAgentToken((req) => req.body?.agent || ''),
   return res.status(result.replayed ? 200 : 201).json({ ok: true, task: result });
 });
 
+app.post('/api/router/task-operations', requireAgentToken((req) => req.body?.agent || ''), (req, res) => {
+  if (!THREAD_SESSIONS_ENABLED) return res.status(404).json({ error: 'thread-session router is disabled' });
+  const owned = requireOwnedRunnerDescriptor(req, res);
+  if (!owned) return;
+  const result = routerStore.taskOperation({
+    ...owned.capability,
+    action: req.body?.action,
+    taskId: req.body?.task_id,
+    toolCallId: req.body?.tool_call_id,
+    patch: req.body?.patch,
+  });
+  if (!result.ok) return res.status(routerRefusalStatus(result)).json({ error: result.message, code: result.code });
+  if (!result.replayed && result.task && !['get', 'list'].includes(req.body?.action)) broadcastSSE('task_updated', result.task);
+  return res.json(result);
+});
+
 app.post('/api/router/approvals/claude', requireAgentToken((req) => req.body?.agent || ''), (req, res) => {
   if (!THREAD_SESSIONS_ENABLED) return res.status(404).json({ error: 'thread-session router is disabled' });
   const owned = requireOwnedRunnerDescriptor(req, res);
@@ -12250,7 +12283,7 @@ function notifyTaskAssignee(task) {
   }
 }
 
-app.post('/api/tasks', requireBearer, (req, res) => {
+app.post('/api/tasks', requireBearer, requireTaskReadAccess, (req, res) => {
   try {
     const task = taskStore.createTask(req.body || {});
     broadcastSSE('task_created', task);
@@ -12261,7 +12294,14 @@ app.post('/api/tasks', requireBearer, (req, res) => {
   }
 });
 
-app.get('/api/tasks', (req, res) => {
+function requireTaskReadAccess(req, res, next) {
+  if (THREAD_SESSIONS_ENABLED && !hasApiTokenAccess(req)) {
+    return res.status(403).json({ error: 'global task access requires operator authority; runners must use scoped task operations' });
+  }
+  return next();
+}
+
+app.get('/api/tasks', requireTaskReadAccess, (req, res) => {
   const filters = {};
   if (req.query.assignee) filters.assignee = req.query.assignee;
   if (req.query.status) filters.status = req.query.status;
@@ -12282,7 +12322,7 @@ app.get('/api/tasks', (req, res) => {
   return res.json(tasks);
 });
 
-app.get('/api/tasks/:id', (req, res) => {
+app.get('/api/tasks/:id', requireTaskReadAccess, (req, res) => {
   const task = taskStore.getTask(req.params.id);
   if (!task) return res.status(404).json({ error: 'task not found' });
   // Read-through: enrich health from supervisor snapshot store
@@ -12305,7 +12345,7 @@ app.get('/api/tasks/:id', (req, res) => {
   return res.json(enriched);
 });
 
-app.patch('/api/tasks/:id', requireBearer, (req, res) => {
+app.patch('/api/tasks/:id', requireBearer, requireTaskReadAccess, (req, res) => {
   try {
     const task = taskStore.updateTask(req.params.id, req.body || {});
     broadcastSSE('task_updated', task);
@@ -12315,7 +12355,18 @@ app.patch('/api/tasks/:id', requireBearer, (req, res) => {
   }
 });
 
-app.patch('/api/tasks/:id/execution', requireAgentToken(_tokenFromTaskAssignee), (req, res) => {
+function requireLegacyTaskAccess(req, res, next) {
+  if (THREAD_SESSIONS_ENABLED && !hasApiTokenAccess(req)) {
+    const task = taskStore.getTask(req.params.id);
+    const assignee = task?.assignee ? agents[task.assignee] : null;
+    if (isAgentRecord(assignee) && threadSessionAgentEligibility(assignee).ok) {
+      return res.status(403).json({ error: 'thread-session agents must use capability-scoped task operations', code: 'runner_capability_required' });
+    }
+  }
+  return next();
+}
+
+app.patch('/api/tasks/:id/execution', requireAgentToken(_tokenFromTaskAssignee), requireLegacyTaskAccess, (req, res) => {
   try {
     const task = taskStore.updateTaskExecution(req.params.id, req.body || {});
     broadcastSSE('task_updated', task);
@@ -12325,7 +12376,7 @@ app.patch('/api/tasks/:id/execution', requireAgentToken(_tokenFromTaskAssignee),
   }
 });
 
-app.delete('/api/tasks/:id', requireBearer, (req, res) => {
+app.delete('/api/tasks/:id', requireBearer, requireTaskReadAccess, (req, res) => {
   try {
     const task = taskStore.deleteTask(req.params.id);
     if (!task) return res.status(404).json({ error: 'task not found' });
@@ -12336,7 +12387,7 @@ app.delete('/api/tasks/:id', requireBearer, (req, res) => {
   }
 });
 
-app.post('/api/tasks/:id/accept', requireAgentToken(_tokenFromTaskAssignee), (req, res) => {
+app.post('/api/tasks/:id/accept', requireAgentToken(_tokenFromTaskAssignee), requireLegacyTaskAccess, (req, res) => {
   try {
     const task = taskStore.transitionTask(req.params.id, 'accepted');
     broadcastSSE('task_updated', task);
@@ -12346,7 +12397,7 @@ app.post('/api/tasks/:id/accept', requireAgentToken(_tokenFromTaskAssignee), (re
   }
 });
 
-app.post('/api/tasks/:id/transition', requireAgentToken(_tokenFromTaskAssignee), (req, res) => {
+app.post('/api/tasks/:id/transition', requireAgentToken(_tokenFromTaskAssignee), requireLegacyTaskAccess, (req, res) => {
   try {
     const status = (typeof req.body?.status === 'string') ? req.body.status.trim() : '';
     if (!status) return res.status(400).json({ error: 'status is required' });
@@ -12358,7 +12409,7 @@ app.post('/api/tasks/:id/transition', requireAgentToken(_tokenFromTaskAssignee),
   }
 });
 
-app.post('/api/tasks/:id/comments', requireBearer, (req, res) => {
+app.post('/api/tasks/:id/comments', requireBearer, requireTaskReadAccess, (req, res) => {
   try {
     const task = taskStore.addComment(req.params.id, req.body || {});
     broadcastSSE('task_updated', task);
@@ -12368,7 +12419,7 @@ app.post('/api/tasks/:id/comments', requireBearer, (req, res) => {
   }
 });
 
-app.get('/api/agents/:name/tasks', (req, res) => {
+app.get('/api/agents/:name/tasks', requireTaskReadAccess, (req, res) => {
   const name = normalizeAgentName(req.params.name);
   if (!name) return res.status(400).json({ error: 'invalid agent name' });
   const snapshot = supervisorSnapshotStore.getTarget(name);
@@ -14668,6 +14719,10 @@ app.get('/api/groups/:name', (req, res) => {
 app.post('/api/groups/:name/members', requireBridgeSecret, (req, res) => {
   const group = groups[req.params.name];
   if (!group) return res.status(404).json({ error: 'group not found' });
+  const matrixObservation = req.body.source === 'matrix';
+  if (matrixObservation && !getBridgeSecret()) {
+    return res.status(503).json({ error: 'MATRIX_BRIDGE_SECRET is required for Matrix membership observations' });
+  }
   const { add, remove } = req.body;
   const addList = [];
   const addSeen = new Set();
@@ -14716,7 +14771,10 @@ app.post('/api/groups/:name/members', requireBridgeSecret, (req, res) => {
     groups[req.params.name] = group;
     return res.status(503).json({ error: 'group persistence failed' });
   }
-  broadcastSSE('group_members', { name: nextGroup.name, members: nextGroup.members, added: addList, removed: removeList });
+  broadcastSSE('group_members', {
+    name: nextGroup.name, members: nextGroup.members, added: addList, removed: removeList,
+    ...(matrixObservation ? { source: 'matrix' } : {}),
+  });
   res.json({ ok: true, group: nextGroup });
 });
 

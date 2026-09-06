@@ -139,7 +139,7 @@ function heartbeatCalls(calls) {
   return calls.filter(call => call.method === 'POST' && call.url === '/api/agents/alpha/heartbeat');
 }
 
-function spawnMcpServer(apiBase, extraEnv = {}, coreFile = 'lib/mcp-server-core.js') {
+function spawnMcpServer(apiBase, extraEnv = {}, coreFile = 'lib/mcp-server-core.js', nodeArgs = []) {
   const stderr = [];
   const env = {
     ...process.env,
@@ -162,7 +162,7 @@ function spawnMcpServer(apiBase, extraEnv = {}, coreFile = 'lib/mcp-server-core.
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete env[key];
   }
-  const child = spawn(process.execPath, [path.join(repoRoot, coreFile)], {
+  const child = spawn(process.execPath, [...nodeArgs, path.join(repoRoot, coreFile)], {
     cwd: repoRoot,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -188,6 +188,47 @@ afterEach(async () => {
 // a pid file, killing it and waiting for cleanup is not reliably a 10s operation
 // on a loaded machine.
 describe('MCP backend heartbeat', () => {
+  test.each(['SIGTERM', 'SIGINT'])('cleans up its pid file when %s arrives during publication', async (signal) => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'hafleet-mcp-pid-signal-'));
+    tempDirs.add(tempRoot);
+    const preload = path.join(tempRoot, 'signal-on-pid-write.mjs');
+    // Deliver a real signal at the publication boundary, independent of the
+    // parent polling interval or OS scheduling. Only these test children load it.
+    writeFileSync(preload, `
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const writeFileSync = fs.writeFileSync;
+fs.writeFileSync = (file, ...args) => {
+  const result = writeFileSync(file, ...args);
+  if (String(file).endsWith('/mcp-server.pid')) process.kill(process.pid, '${signal}');
+  return result;
+};
+syncBuiltinESMExports();
+`);
+    for (const coreFile of coreFiles) {
+      const stateDir = path.join(tempRoot, coreFile.replaceAll('/', '-'), 'state');
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(path.join(stateDir, 'agent-token'), 'hb-token\n');
+      const running = await listen(createBackendHandler([]));
+      const mcp = spawnMcpServer(`http://127.0.0.1:${running.port}`, {
+        HAFLEET_AGENT_STATE_DIR: stateDir,
+        HAFLEET_HOMEDIR: path.join(tempRoot, 'hafleet-home'),
+        HOME: path.join(tempRoot, 'os-home'),
+      }, coreFile, ['--import', preload]);
+      const pidFile = path.join(stateDir, 'mcp-server.pid');
+      const diagnose = () => `${coreFile}: exitCode=${mcp.child.exitCode}, signalCode=${mcp.child.signalCode}\nchild stderr:\n${mcp.stderr()}`;
+      await waitFor(() => mcp.child.exitCode !== null || mcp.child.signalCode !== null, {
+        detail: `${signal} exit during PID publication for ${coreFile}`,
+        diagnose,
+      });
+
+      expect(existsSync(pidFile), diagnose()).toBe(false);
+      expect(mcp.child.exitCode, diagnose()).toBe(0);
+      expect(mcp.child.signalCode, diagnose()).toBeNull();
+      await closeServer(running.server);
+    }
+  });
+
   test('writes pid file under derived agent state dir when explicit state dir is missing', async () => {
     const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'hafleet-mcp-pid-'));
     tempDirs.add(tempRoot);
@@ -260,7 +301,7 @@ describe('MCP backend heartbeat', () => {
       await stopChild(mcp.child);
       await waitFor(() => !existsSync(pidFile), {
         detail: `explicit mcp pid cleanup for ${coreFile}`,
-        diagnose: () => `child stderr:\n${mcp.stderr()}`,
+        diagnose: () => `exitCode=${mcp.child.exitCode}, signalCode=${mcp.child.signalCode}\nchild stderr:\n${mcp.stderr()}`,
       });
       await closeServer(running.server);
     }

@@ -802,4 +802,23 @@ describe('thread-session backend integration', () => {
       quarantinedByDispatchId: null,
     });
   });
+  test('promoted task title removes complete Matrix mentions without corrupting text', async () => {
+    const cases = [
+      ['[@worker](https://matrix.to/#/@ac_worker:127.0.0.1:8008) Build the CLI', 'Build the CLI'],
+      ['[@worker](https://matrix.to/#/%40ac_worker%3Atest) /task Keep user@example.com intact', 'Keep user@example.com intact'],
+      ['/task @worker Build [docs](https://example.test/docs)', 'Build [docs](https://example.test/docs)'],
+      ['@ac_worker:127.0.0.1:8008 修复消息发送', '修复消息发送'],
+    ];
+    for (const [index, [body, title]] of cases.entries()) {
+      const accepted = await request(context.app).post('/api/messages').set('X-Bridge-Secret', 'router-bridge-secret').send({
+        from: 'alice', group: 'robrix2', type: 'human', source: 'matrix', summary: body, full: body,
+        mentions: ['worker'], source_room: '!title:test', source_event_id: `$title-${index}`, sender_mxid: '@alice:test',
+      });
+      expect(accepted.status).toBe(200);
+      const task = context.internals.routerStoreForTest.snapshot().tasks.find(row => row.threadRootEventId === `$title-${index}`);
+      expect(task?.title).toBe(title);
+    }
+  });
+
+
 });

@@ -10,7 +10,9 @@ import { RUNNER_RECOVERY_HARDENING_SCHEMA } from './migrations/005-runner-recove
 import { AGENT_OPS_CLIENT_SCHEMA } from './migrations/006-agent-ops-client.js';
 import { AGENT_OPS_SERVER_IDENTITY_SCHEMA } from './migrations/007-agent-ops-server-identity.js';
 import { SESSION_OVERRIDES_SCHEMA } from './migrations/008-session-overrides.js';
-const SCHEMA_VERSION = 8;
+import { TASK_OPERATIONS_SCHEMA } from './migrations/009-task-operations.js';
+import { applyTaskOperation } from './task-operations.js';
+const SCHEMA_VERSION = 9;
 const DEFAULT_EVENT_RETENTION = 10_000;
 function refusal(code, message) {
     return { ok: false, code, message };
@@ -216,6 +218,12 @@ export class RouterStore {
                 this.db.prepare('INSERT INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(8, this.now());
             });
             migrate();
+        }
+        if (!this.db.prepare('SELECT version AS id FROM router_schema_migrations WHERE version = ?').get(9)) {
+            this.db.transaction(() => {
+                this.db.exec(TASK_OPERATIONS_SCHEMA);
+                this.db.prepare('INSERT INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(9, this.now());
+            })();
         }
     }
     emit(kind, payload, audience = 'operator') {
@@ -2159,6 +2167,29 @@ export class RouterStore {
         }
         catch (error) {
             if (error instanceof RouterInputError)
+                return refusal('bad_request', error.message);
+            throw error;
+        }
+    }
+    taskOperation(input) {
+        try {
+            return this.db.transaction(() => {
+                const checked = this.validateCapability(input);
+                if ('ok' in checked)
+                    return checked;
+                if (checked.dispatch.state !== 'started')
+                    return refusal('invalid_transition', 'task operations require a currently started dispatch');
+                const result = applyTaskOperation(this, input, checked.dispatch.session_id, checked.dispatch.task_id);
+                if (result.ok && !result.replayed && !['get', 'list'].includes(input.action)) {
+                    this.emit('task.updated', { taskId: input.taskId, dispatchId: input.dispatchId, action: input.action, status: result.task?.status });
+                    if (input.action === 'transition' && result.task)
+                        this.enqueueTaskNotice(result.task.id, `task_operation:${input.dispatchId}:${input.toolCallId}`, `Task status: ${result.task.status}`);
+                }
+                return result;
+            })();
+        }
+        catch (error) {
+            if (error instanceof Error && 'code' in error && typeof error.code === 'string' && !error.code.startsWith('SQLITE_'))
                 return refusal('bad_request', error.message);
             throw error;
         }

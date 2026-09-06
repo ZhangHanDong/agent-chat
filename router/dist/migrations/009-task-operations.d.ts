@@ -1,0 +1,1 @@
+export declare const TASK_OPERATIONS_SCHEMA = "\nCREATE TABLE runner_task_operations (\n  dispatch_id TEXT NOT NULL REFERENCES dispatches(dispatch_id) ON DELETE CASCADE,\n  tool_call_id TEXT NOT NULL,\n  payload_digest TEXT NOT NULL,\n  response_json TEXT NOT NULL,\n  PRIMARY KEY (dispatch_id, tool_call_id)\n);\nUPDATE router_event_meta SET schema_version = 9 WHERE id = 1;\n";

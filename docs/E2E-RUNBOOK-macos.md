@@ -11,18 +11,36 @@
 - `verify-agent-e2e.sh` 实际验证 agent/preset/side/mint/budget/engagement;它不创建 project side、registration 或房间,也不证明聊天收发。`/api/matrix/reach` 返回配置和可达性结构,不能要求一个不存在的字面值 `flowing`。
 - 当前普通 tmux MCP 的 `create_task` 会拒绝 `create_task requires a thread-session runner capability`。E2E-3 必须按 `docs/THREAD-SESSIONS.md` 启用本地线程运行器:backend 与 bridge 同时设置 `HAFLEET_THREAD_SESSIONS=1`,backend 设置 `HAFLEET_ROUTER_TASK_CUTOVER=1`;通过 operator API 给 agent 设置稳定 `agentId` 和 worker role,并保留有效的 workspace/MCP 配置。任务存储切换前先备份;不要对已有生产任务库直接套用一次性测试配置。
 - worker 在主时间线被提及时,backend 自动创建任务和线程 outbox;Matrix 确认后才启动带 capability 的运行器。观察 `GET /api/router/snapshot`:如果始终为 `pending_thread`,检查 bridge 是否实际轮询 router outbox。该轮询必须在 bot 与 appservice 两种启动路径上均启动,不能依赖普通 bot 登录成功。
-- 线程运行器的旧 `post`、`get_task`、`accept_task`、`transition_task`、`comment_task`、`update_task_execution` MCP 路径目前不在 session-scoped 允许列表内。最终文本由运行器协议和 reply outbox 回到原线程;必须分别记录实现结果、dispatch 状态和 task 状态。不能把 `dispatch=completed` 当作 `task=done`,也不能手工改状态后声称 agent 生命周期通过。后文 §5 的旧 MCP 生命周期步骤应作为待验证缺口。
+- 线程运行器的任务工具现已通过 `/api/router/task-operations` 校验 agent token 和完整 dispatch capability。worker 启动时任务已是 `in_progress`,使用 `get_task`、`comment_task`、`update_task_execution` 和 `transition_task`;不要重复 accept/create。`list_tasks`/`get_task` 只读当前绑定任务和本 coordinator session 创建的任务;写操作只限当前绑定。旧 `post` 仍不可用,最终文本由 reply outbox 回到原线程。必须分别验收内环产物、独立验证、`task=done`、`dispatch=completed` 和 Matrix 送达,不能由完成文字推断任务状态。
 - Herdr 外环等待不能仅依赖黑板行数增加:内环可能替换现有 `ACK:` 占位行。应核对实际 ACK 内容、commit、测试和终端状态;`已完成` 与 `空闲` 都需要明确处理。
 - 本次 operator 要求仅 E2E agent 禁用 mempal。为 E2E 创建独立 Claude 启动包装器,用 `--strict-mcp-config` 只加载 HAFleet MCP,并通过 `--setting-sources project,local --settings <E2E settings copy>` 加载移除 mempal Stop hook 的配置副本;保留其他权限和钩子,不改全局配置。普通 tmux 会话也必须重启到同一包装器。仅写提示词不能阻止全局 Stop hook 覆盖任务最终回复。
 - Computer Use 的剪贴板 `-10005` 超时不代表粘贴失败。必须重新截图检查输入框,核对后再发送,避免重复粘贴;本次 `type_text` 也出现中文丢失。GUI 操作使用 Computer Use 技能提供的接口,后文旧的 osascript/cliclick 示例不适用于本次执行环境。
 - `herdr session attach hafleet-agents-e2e` 可查看本次内环 `w1:p1`。默认 `Ctrl+B` 后按 `Q` 只脱离界面,保留后台任务。F07 退房测试结束后应恢复测试 agent 的成员资格并在房间标注,避免 operator 把预期拒投警告误认为当前故障。
 - F07 的增量同步断档不能用 invite..join 补拉:本次初测 45 条仅 22 条到 backend。修复后先持久化断档的 `from`/`to` sync cursor,再按该区间正向分页,经既有 appservice router 投递消息;实际复验恢复 45/45。历史成员事件不重放,以免旧 leave 覆盖新 join。无边界的旧记录、畸形事件、分页超限、读取或投递失败均保留 pending。`/messages` 接受 sync token 作为 from/to 的协议依据见 [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3roomsroomidmessages)。补拉可能晚于已收到的 timeline 消息,本次未证明跨断档的整体顺序。
 - 自主监控必须实测:初次外环虽然启动等待,却漏认完成,需要 Codex 介入;后续 `E2EAUTOWATCH20260906A` 复验由房间 agent 自己修复监控,检查新 nonce JSON 内容和新增完成序号,独立测试后回报,没有 Codex 结束等待。两次结果应分别评级,不能用复验通过抹掉首次失败。
+- 修复复测 `E2EREPAIR20260906A`:真实 Claude 中层通过 `hafleet-inner-loop` 的 prepare/watch 流程委派 octoscode,自己处理实例锁冲突、独立验收 9 个测试及 CLI 行为,自行写评论并完成任务,最终回帖到原线程。该次由本地 Matrix API 发起;Computer Use 对 Robrix/Finder 返回 `cgWindowNotFound`,因此不能标为新的 GUI 通过。
+- 同一项目启动第二个 octoscode 可能遇到 `OCTOS_DATA_DIR_LOCKED`。保留旧 session,为新实例通过 `octos serve --instance-data-dir <独立控制目录>` 隔离运行数据,不要删锁或结束其他任务。Herdr 的 runtime 状态和当前 job 的 verified 状态分开记录;不能只凭 idle 或序号接受工作。
+- botless 成员变更应通过房间所属 side 的 appservice 身份执行,检查实际 HTTP 结果。项目 2 的初次 remove/add 虽即时读到 leave/join,几秒后却被迟到成员事件的 SSE 回声再次踢出,不能按稳定通过交付。必须区分 Matrix 成员观察和新的成员命令,拒绝旧事件覆盖当前状态,并在同步处理后复核成员仍保持。完整 MXID 必须对应已登记 agent,不能把 Claude/Codex 的 framework type 误判成非 agent。
+- 本次修复需要保持本地与 `remote/lib/mcp-server-core.js` 的源码镜像一致,因此该镜像文件随任务工具和 PID 清理修复同步;没有部署或运行远端服务。此项优先于下文旧的“不改 remote/”执行约束。
+- provision 创建的项目路径必须进入 `workdir/docs/projects.md`。当前生成器从 manifest 写入受管映射块,明确 `projects/` 相对于 workdir,并说明 copy/symlink 的编辑影响;项目增删会刷新映射并保留块外人工笔记。
+- 项目 2 的成员回声修复后,连续 60 秒共 31 次同时检查 Matrix 成员和 HAFleet 名单均保持正确,成员事件中没有再次踢人。Matrix 观察必须由 bridge 身份标记来源,后端保留该来源,SSE 消费端不再把观察当作新的邀请/踢人命令。
+- Codex 0.153.4 的原生 `mcpServer/elicitation/request` 可能先于 HAFleet MCP 调用出现,旧运行器未处理会卡住。当前适配器按活跃结构化 MCP item 关联身份和参数,复用已有的窄范围协调工具例外;其他支持的请求仍进入 owner 审批。未知、重复或失效请求显式拒绝,不能靠解析展示文字或放宽整个 sandbox 绕过。
+- 原生审批 E2E 需要代表实际加入 owner 审批房,且当前 agent/project 的 owner binding 和成员事实有效。本次 Codex 测试显式配置了这些前置条件;审批卡片和一次性 verdict 均经本地 Matrix 传递。这证明配置后的审批链,不等于证明 owner 房间和 binding 自动开通。
+- Codex 原生执行时限按整轮 wall clock 计算,包含 owner 审批和启动准备。本次 R1 在 20 分钟默认上限处进入 `outcome_unknown`;必须先检查工作区、下层进程和未完成工作,再用 outcome-inspection/resolve-outcome 正式恢复。R2 仅在隔离 E2E `.env` 设置 `HAFLEET_RUNNER_LEASE_MS=3600000`,源代码默认值和原生审批不变。不能修改任务为 done 来掩盖超时。
+
+
+- `E2EREPAIR20260906CODEX-R2` 复测最终通过:真实 Codex 中层保留监控并追补下层漏写的结果文件,独立纠正测试数量,验收提交 `b1309f6` 的 41 项 Rust/CLI 测试、26 个独立 CLI 场景及 fmt/clippy/build 后,自行完成任务;运行器完成,唯一最终回帖送达原线程。该链路包含已记录的正式恢复和 owner 一次性审批,不是“无需审批且首次即成功”。本次只实测下层 octoscode/kimi,不覆盖所有下层框架组合。
+- 修复后的完整 `npm run verify:ci` 为 502 tests / 45 files 通过,专项综合集另有 336 tests 通过。agent-spec 只通过边界检查,Node 场景仍是 skip,实际行为由对应 Vitest 和真实运行验证。最终报告位于 `~/.octos/outer/verify/e2e-repair-20260906/RESULT.md`;Computer Use 最后复查仍为 `cgWindowNotFound`,新 GUI 复测明确未验证。
 
 ---
 ## 0. 目标与三层验收(先读懂再动手)
 
 目标一句话:**用 palpo appservice 把本地 agent 组织进 Matrix 房间——不给每个 agent 注册账号;人在 robrix2 里聊需求,agent 在本地干活,结果回到房间。**
+
+产品流程分三层:Robrix2 ↔ HAFleet 负责组织管理;HAFleet 直接管理的
+Claude/Codex agent 负责需求分解、任务安排、监控和验收;Herdr + octoloop
+控制执行代码工作的下层 agent,可选 octoscode/Claude/Codex/Grok 等。
+以下 E2E-1/2/3 是测试分组,并不改变这三个产品层的职责。
 
 | 层 | 名称 | 证明什么 | 驱动方式 |
 |---|---|---|---|
@@ -125,14 +143,13 @@ tmux ls   # 期望看到 e2e-claude
 
 ---
 ## 5. E2E-3(agent 起 octoloop + 回报 + 可观测)
-现状(已核):agent 的 MCP 已有 `whoami send_message post check_inbox check_group create_task list_tasks get_task accept_task transition_task comment_task update_task_execution`;backend 有 `GET /api/agents/:name/pane`(tmux 屏幕捕获);缺的是 **agent 执行策略**(配置)、聊天→task 自动化(D1)、task→房间卡片(G2)。
-1. 给 agent 写执行策略 `~/.hafleet/e2e/agent-ws/CLAUDE.md`:
-   - `check_inbox` 收到任务文本 → `create_task` + `accept_task` → `post` "已接单 <task id>" 到房间;
-   - 在 herdr 新工作区 `hafleet-agents` 起 octoscode(`herdr pane split --cwd <ws> && herdr agent start <name> --kind octoscode --pane <id>`)跑 goal,自己当外环盯黑板;期间 `update_task_execution` 写进度/心跳;
-   - 完成:`comment_task` 结果摘要(diff/测试/PR 链接)+ `transition_task` 到 done + `post` 结果到房间。
-2. operator(或 codex 扮 alex)在 robrix 发任务:"在 agent-ws 的 demo 仓加一个 `hello` CLI,带单测"。
-3. 取证:房间出现 已接单 / 进行中 / 完成+结果;`GET /api/tasks/<id>` 的 execution 历史与 comments 一致;`GET /api/agents/e2e-claude/pane` 能截到 tmux 屏幕;herdr `hafleet-agents` 工作区可随时打开看 octoscode;`tmux attach -t e2e-claude` 直连。
-4. 缺口立单不阻塞:D1(聊天→task)、G2(task→房间卡片)、G3(v1 agent home 模板补执行策略)、G4(`hafleet peek <agent>` 一键打开 tmux/herdr;robrix2 agent_ops 面板显示 pane)、G5(owner 审批房目前**收不到审批卡**,只能 API 批)。
+
+1. 启用本地 thread sessions 和 task cutover,配置稳定 agentId、worker role、workspace 和 E2E-only mempal 隔离。通过 `hafleet-sync-skills` 安装 `hafleet-inner-loop`,或仅在 E2E workspace 的 `.claude/skills` / `.agents/skills` 链接整个技能目录,确保 `scripts/monitor.mjs` 可读取。
+2. 在 Robrix 点击 `@` 选择实际 agent,发送带唯一 nonce 的具体实现任务。backend 自动创建任务/线程,Matrix 确认后启动中层。另行用 API 发起的测试必须标为 API 驱动。
+3. 中层读取已经开始的任务,用评论分解验收条件。在明确授权的命名 Herdr session 选择真实下层,先准备 nonce job 和独立 verifier,启动受其管理的 watch,然后发送实现提示。等待期间保留监控句柄,定期更新任务 heartbeat;不要在下层未完成时结束 dispatch。
+4. 内环完成后,中层检查结果内容、提交或工作树、进程身份和独立 verifier 报告,必要时在独立 checkout 复验。验证通过才评论证据并显式 `transition_task` 到 done,然后返回最终文本供 HAFleet 回帖。不得直接编辑 backend 数据、把旧 ACK 当本次结果或让测试驱动代写实现。
+5. 取证分别核对 task 的 comments/heartbeat/done、dispatch completed、nonce report、真实内环提交和同一 Matrix thread 的回帖。普通 tmux pane 可能不是当前 headless runner;查看明确的 Herdr session 和 pane。`herdr session attach <name>` 打开内环 UI,默认 `Ctrl+B` 后 `Q` 只脱离 UI,不结束任务。
+6. 按实际组合记录覆盖范围。Claude→octoscode 通过不能代表 Codex/Grok 等全部组合通过;GUI、审批和 continuity gate 也须各自提供证据。
 
 ---
 ## 6. macOS 差异速查

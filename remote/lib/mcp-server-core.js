@@ -251,6 +251,7 @@ async function api(method, apiPath, body) {
       || (method === 'GET' && apiPath === '/api/agents?view=names')
       || (method === 'GET' && apiPath.startsWith(`/api/inbox/${encodeURIComponent(AGENT_NAME)}`))
       || (method === 'POST' && apiPath === '/api/router/tasks')
+      || (method === 'POST' && apiPath === '/api/router/task-operations')
       || (method === 'POST' && apiPath === '/api/router/approvals/claude')
       || (method === 'POST' && apiPath === '/api/router/approvals/claude/apply')
       || (method === 'GET' && /^\/api\/approvals\/[^/]+$/.test(apiPath))
@@ -1186,6 +1187,14 @@ server.tool(
   }
 );
 
+async function runnerTaskOperation(action, id, patch = {}, extra) {
+  const result = await api('POST', '/api/router/task-operations', {
+    agent: AGENT_NAME, action, task_id: id, patch,
+    tool_call_id: extra?.requestId === undefined ? undefined : String(extra.requestId),
+  });
+  return action === 'list' ? result.tasks : action === 'get' ? result.task : result;
+}
+
 // 7. list_tasks
 server.tool(
   'list_tasks',
@@ -1198,8 +1207,10 @@ server.tool(
     limit: z.number().int().positive().optional().describe('Max number of tasks to return.'),
     offset: z.number().int().nonnegative().optional().describe('Pagination offset.'),
   },
-  async ({ assignee, status, priority, label, limit, offset }) => {
+  async ({ assignee, status, priority, label, limit, offset }, extra) => {
     try {
+      if (EPHEMERAL_RUNNER) return text(await runnerTaskOperation('list', undefined,
+        { assignee, status, priority, label, limit, offset }, extra));
       const params = new URLSearchParams();
       const effectiveAssignee = assignee === undefined ? AGENT_NAME : assignee;
       if (effectiveAssignee && effectiveAssignee !== '*') params.set('assignee', effectiveAssignee);
@@ -1224,8 +1235,9 @@ server.tool(
   {
     id: z.string().describe('Task id, e.g. task_1779920622_6p6sr7'),
   },
-  async ({ id }) => {
+  async ({ id }, extra) => {
     try {
+      if (EPHEMERAL_RUNNER) return text(await runnerTaskOperation('get', id, {}, extra));
       const data = await api('GET', `/api/tasks/${encodeURIComponent(id)}`);
       return text(data);
     } catch (e) {
@@ -1241,8 +1253,9 @@ server.tool(
   {
     id: z.string().describe('Task id, e.g. task_1779920622_6p6sr7'),
   },
-  async ({ id }) => {
+  async ({ id }, extra) => {
     try {
+      if (EPHEMERAL_RUNNER) return text(await runnerTaskOperation('accept', id, {}, extra));
       const data = await api('POST', `/api/tasks/${encodeURIComponent(id)}/accept`);
       return text(data);
     } catch (e) {
@@ -1261,11 +1274,12 @@ server.tool(
     waiting_reason: z.string().optional().describe("Required when status='blocked'. Free-text reason the task is blocked."),
     waiting_until: z.string().optional().describe("Required when status='blocked'. ISO-8601 timestamp for when to revisit."),
   },
-  async ({ id, status, waiting_reason, waiting_until }) => {
+  async ({ id, status, waiting_reason, waiting_until }, extra) => {
     try {
       const body = { status };
       if (waiting_reason !== undefined) body.waiting_reason = waiting_reason;
       if (waiting_until !== undefined) body.waiting_until = waiting_until;
+      if (EPHEMERAL_RUNNER) return text(await runnerTaskOperation('transition', id, body, extra));
       const data = await api('POST', `/api/tasks/${encodeURIComponent(id)}/transition`, body);
       return text(data);
     } catch (e) {
@@ -1282,8 +1296,9 @@ server.tool(
     id: z.string().describe('Task id'),
     text: z.string().describe('Comment body, up to 4096 characters.'),
   },
-  async ({ id, text: commentText }) => {
+  async ({ id, text: commentText }, extra) => {
     try {
+      if (EPHEMERAL_RUNNER) return text(await runnerTaskOperation('comment', id, { text: commentText }, extra));
       const data = await api('POST', `/api/tasks/${encodeURIComponent(id)}/comments`, {
         author: AGENT_NAME,
         text: commentText,
@@ -1305,12 +1320,13 @@ server.tool(
     waiting_reason: z.string().optional().describe('Set or clear waiting reason (pass empty string to clear).'),
     waiting_until: z.string().optional().describe('Set or clear waiting until (pass empty string to clear).'),
   },
-  async ({ id, heartbeat, waiting_reason, waiting_until }) => {
+  async ({ id, heartbeat, waiting_reason, waiting_until }, extra) => {
     try {
       const body = {};
       if (heartbeat === true) body.heartbeat_at = true;
       if (waiting_reason !== undefined) body.waiting_reason = waiting_reason;
       if (waiting_until !== undefined) body.waiting_until = waiting_until;
+      if (EPHEMERAL_RUNNER) return text(await runnerTaskOperation('execution', id, body, extra));
       const data = await api('PATCH', `/api/tasks/${encodeURIComponent(id)}/execution`, body);
       return text(data);
     } catch (e) {
@@ -1323,10 +1339,7 @@ server.tool(
 const MCP_PID_FILE = (() => {
   const sd = resolveAgentStateDir(AGENT_NAME);
   if (!sd) return null;
-  const p = path.join(sd, 'mcp-server.pid');
-  try { mkdirSync(sd, { recursive: true }); } catch { /* dir may already exist */ }
-  try { writeFileSync(p, String(process.pid)); } catch { return null; }
-  return p;
+  return path.join(sd, 'mcp-server.pid');
 })();
 
 function removePidFile() {
@@ -1339,6 +1352,13 @@ function removePidFile() {
 process.on('exit', removePidFile);
 process.on('SIGTERM', () => { stopMcpHeartbeat(); removePidFile(); process.exit(0); });
 process.on('SIGINT', () => { stopMcpHeartbeat(); removePidFile(); process.exit(0); });
+
+// Once the PID is visible, another process can immediately send a signal.
+// Install cleanup before publishing it, including during the synchronous write.
+if (MCP_PID_FILE) {
+  try { mkdirSync(path.dirname(MCP_PID_FILE), { recursive: true }); } catch { /* dir may already exist */ }
+  try { writeFileSync(MCP_PID_FILE, String(process.pid)); } catch { /* PID tracking unavailable */ }
+}
 
 // ── Connect ───────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();

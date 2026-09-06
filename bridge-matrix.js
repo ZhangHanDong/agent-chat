@@ -2044,10 +2044,10 @@ const bridgeHealthState = { lastSuccessfulBackendDeliveryAtMs: null };
 
 /**
  * The retryable error onRoomEvent throws when a room's membership cannot be read at the moment a
- * group would be created from it. Named so a log reader and a test can tell it from a crash.
+ * group would be created or updated from it. Named so a reader can distinguish it from a crash.
  */
 export function membershipUnknownError(roomId, groupName, reason) {
-  const err = new Error(`membership of ${roomId} is unknown (${reason}); group "${groupName}" not created — retry`);
+  const err = new Error(`membership of ${roomId} is unknown (${reason}); group "${groupName}" not synchronized — retry`);
   err.code = 'membership_unknown';
   err.retryable = true;
   return err;
@@ -6739,12 +6739,19 @@ export class MatrixBridge {
 
       if (!memberName) return;
 
-      if (membership === 'join') {
-        await backendApi('POST', `/api/groups/${encodeURIComponent(groupName)}/members`, { add: [memberName] });
-        console.log(`Added ${memberName} to group ${groupName}`);
-      } else if (membership === 'leave' || membership === 'ban') {
-        await backendApi('POST', `/api/groups/${encodeURIComponent(groupName)}/members`, { remove: [memberName] });
-        console.log(`Removed ${memberName} from group ${groupName}`);
+      if (['join', 'leave', 'ban'].includes(membership)) {
+        // Sync can deliver an earlier leave after a later join has completed.
+        // Reconcile the current homeserver fact, not the delayed event's state.
+        const current = await this.joinedMembersOf(roomId);
+        if (!current.known || !Array.isArray(current.members)) {
+          throw membershipUnknownError(roomId, groupName, current.reason);
+        }
+        const joined = current.members.includes(targetUserId);
+        await backendApi('POST', `/api/groups/${encodeURIComponent(groupName)}/members`, {
+          [joined ? 'add' : 'remove']: [memberName],
+          source: 'matrix',
+        });
+        console.log(`${joined ? 'Added' : 'Removed'} ${memberName} ${joined ? 'to' : 'from'} group ${groupName} from current Matrix membership`);
       }
     }
 
@@ -6950,7 +6957,7 @@ export class MatrixBridge {
         await backendApi(
           'POST',
           `/api/groups/${encodeURIComponent(groupName)}/members`,
-          { add },
+          { add, source: 'matrix' },
           `context=reconcile:add-members group=${JSON.stringify(groupName)} room=${roomId} addCount=${add.length}`
         );
         console.log(`Reconciled group "${groupName}" from room ${roomId}: +[${add.join(', ')}]`);
@@ -8821,107 +8828,161 @@ export class MatrixBridge {
   }
 
   async onGroupMembersChanged(update) {
-    const roomId = roomForGroup(update.name);
+    // Roster observations still notify SSE consumers, but are not commands to
+    // repeat a Matrix join/kick. Reflecting a delayed leave can undo a restore.
+    if (update.source === 'matrix') return;
+    // SSE carries a group name, not a side. Never let insertion order select
+    // which customer's room receives a membership mutation.
+    const rooms = [...new Set(Object.entries(state.groupRoomMap)
+      .filter(([key]) => key === update.name || key.startsWith(`${update.name}@`))
+      .map(([, room]) => room))];
+    if (rooms.length > 1) throw new Error(`ambiguous Matrix room for group "${update.name}"`);
+    const roomId = rooms[0];
     if (!roomId) return;
-
-    // Get current room members to avoid re-inviting
-    let currentMembers = new Set();
-    try {
-      const members = await this.botClient.getJoinedRoomMembers(roomId);
-      currentMembers = new Set(members);
-    } catch (e) {
-      console.warn(`Failed to fetch current room members for ${update.name}/${roomId}: ${e.message}`);
+    const server = projectServerFromRoomId(roomId)?.toLowerCase();
+    let acting = server ? this.actingSideFor(server) : null;
+    if (!acting && server === MATRIX_SERVER_NAME.toLowerCase() && this.getBotToken()) {
+      acting = {
+        side: { serverName: server, apiBaseUrl: HOMESERVER },
+        credential: { kind: 'registrationToken', representativeToken: this.getBotToken() },
+      };
     }
+    const credential = acting?.credential;
+    const appservice = credential?.kind === 'appservice';
+    const actorToken = appservice ? credential.asToken : credential?.representativeToken;
+    if (!acting?.side?.apiBaseUrl || acting.side.serverName?.toLowerCase() !== server
+      || !actorToken || (appservice && !credential.senderLocalpart)
+      || !['appservice', 'registrationToken'].includes(credential?.kind)) {
+      throw new Error(`no same-side Matrix credential for group "${update.name}" in ${roomId}`);
+    }
+    const membership = await joinedMembersOnSide({ ...acting, roomId });
+    if (!membership.known) throw new Error(`membership unknown for ${roomId}: ${membership.reason}`);
+    const currentMembers = new Set(membership.members);
+    const result = { ok: true, roomId, added: [], removed: [] };
+    const isRegisteredAgent = (mxid) => this.isKnownAgentMxid(mxid);
 
-    // Invite newly added members
-    for (const m of (update.added || [])) {
-      // Check backend API to determine if member is an agent (avoids stale knownAgents race)
-      let canonicalAgent = this.resolveKnownAgentName(m);
-      let isAgent = Boolean(canonicalAgent);
-      if (!isAgent) {
+    // The representative helpers own invite/join checks. Kicks and token
+    // joins use the same explicit credential/base pair and check HTTP status.
+    const post = async (operation, url, token, body, asUserId = null) => {
+      if (asUserId) setMasqueradeUserParam(url, asUserId);
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(`${operation} failed with HTTP ${response.status}`);
+    };
+    const resolveMember = async (m) => {
+      const fullMxid = /^@[^:\s@]+:[^\s@]+$/.test(m);
+      const fullAgentMxid = fullMxid && isAgentUser(m);
+      const lookupName = fullAgentMxid ? agentNameFromUserId(m) : m;
+      let canonicalAgent = this.resolveKnownAgentName(m)
+        || (fullAgentMxid ? this.resolveKnownAgentName(lookupName) : null);
+      if (!canonicalAgent && (!fullMxid || fullAgentMxid)) {
         try {
-          const info = await backendApi('GET', `/api/agents/${encodeURIComponent(m)}`);
-          if (info && !info.error && info.type === 'agent') {
-            isAgent = true;
-            canonicalAgent = this.addKnownAgent(info.name || m);
+          const info = await backendApi('GET', `/api/agents/${encodeURIComponent(lookupName)}`);
+          // This endpoint returns only agent records. `type` names their
+          // runtime (claude/codex), not their record kind; older records may
+          // omit kind and are classified by the backend before this response.
+          if (!info || info.error || !this.sameName(info.name, lookupName)
+            || (info.kind && info.kind !== 'agent')) {
+            throw new Error(`invalid backend agent record for ${lookupName}`);
           }
-        } catch (e) {
-          console.warn(`Agent lookup failed for "${m}" while syncing group "${update.name}": ${e.message}`);
+          canonicalAgent = this.addKnownAgent(info.name);
+        } catch (error) {
+          // A confirmed missing agent can be a human; an unavailable roster
+          // or an explicit agent MXID cannot become a human substitute.
+          if (error.status !== 404 || fullAgentMxid) throw error;
         }
       }
-
-      // Ensure agent has a Matrix account. Non-fatal for the same reason as onGroupCreated: an
-      // unprovisioned agent is an expected state and must not abort the whole membership update.
-      if (isAgent) {
-        const ensuredName = canonicalAgent || this.normalizeName(m);
-        if (ensuredName && !this.getAgentToken(ensuredName)) {
-          try {
-            await ensureAgentAccount(ensuredName, { servedOtherwise: () => this.agentCanActOnMatrix(ensuredName) });
-            canonicalAgent = this.addKnownAgent(ensuredName) || ensuredName;
-          } catch (e) {
-            console.warn(`[agent-credential] group "${update.name}": ${ensuredName} has no Matrix identity: ${e.message}`);
-          }
-        }
-      }
-
-      let userId;
-      if (isAgent) {
-        const credential = this.getAgentCredential(canonicalAgent || m);
-        const token = credential?.accessToken || null;
-        if (token) {
-          userId = await getUserId(token, credential.homeserver);
-          if (currentMembers.has(userId)) continue; // already in room
-          // Also auto-join with agent token
-          await fetch(`${baseUrlForToken(token)}/_matrix/client/v3/join/${encodeURIComponent(roomId)}`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: '{}',
-          });
-        } else {
-          // Agent without token (ensureAgentAccount may have failed) — use ac_ prefix
-          userId = agentUserId(canonicalAgent || m);
-          if (currentMembers.has(userId)) continue;
-        }
-      } else {
-        // Human — use plain name
-        userId = humanUserId(m);
-        if (currentMembers.has(userId)) continue;
-      }
-      try {
-        await fetch(`${HOMESERVER}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${state.botToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId }),
+      if (canonicalAgent && appservice) {
+        const userId = fullMxid ? m : `@${AGENT_PREFIX}${canonicalAgent.toLowerCase()}:${server}`;
+        const allowed = validateMasqueradeUserId({
+          userId, namespace: credential.namespace, isRegisteredAgent, label: 'agent-join',
         });
-        console.log(`Invited ${m} (${userId}) to Matrix room for ${update.name}`);
-      } catch (e) {
-        console.error(`Failed to invite ${m} to ${update.name}:`, e.message);
-        // Report to info group
-        this.postWarning(`Failed to invite ${m} to Matrix room for group "${update.name}": ${e.message}`);
+        if (!credential.namespace || !allowed.ok || projectServerFromRoomId(userId)?.toLowerCase() !== server) {
+          throw new Error(allowed.reason || `agent ${userId} has no authorized namespace on ${server}`);
+        }
+        return { userId, agent: true };
+      }
+      if (canonicalAgent) {
+        let agentCredential = this.getAgentCredential(canonicalAgent);
+        if (!agentCredential?.accessToken && server === MATRIX_SERVER_NAME.toLowerCase()) {
+          await ensureAgentAccount(canonicalAgent);
+          agentCredential = this.getAgentCredential(canonicalAgent);
+        }
+        if (!agentCredential?.accessToken || !agentCredential.homeserver
+          || agentCredential.serverName?.toLowerCase() !== server) {
+          throw new Error(`no same-side agent credential for ${canonicalAgent} in ${roomId}`);
+        }
+        const userId = agentCredential.mxid || (await getMatrixAccessTokenSession(
+          agentCredential.accessToken, agentCredential.homeserver,
+        )).userId;
+        if (!/^@[^:\s@]+:[^\s@]+$/.test(userId) || (fullMxid && m !== userId)) {
+          throw new Error(`unknown Matrix identity for ${canonicalAgent}`);
+        }
+        return { userId, agent: true, credential: agentCredential };
+      }
+      const userId = humanUserId(m);
+      if (!/^@[^:\s@]+:[^\s@]+$/.test(userId)
+        || (!fullMxid && server !== MATRIX_SERVER_NAME.toLowerCase()
+          && projectServerFromRoomId(userId)?.toLowerCase() !== server)) {
+        throw new Error(`unknown complete human MXID for ${m} on ${server}`);
+      }
+      return { userId, agent: false };
+    };
+
+    for (const action of ['added', 'removed']) {
+      for (const m of (update[action] || [])) {
+        let operation = 'resolve member';
+        let userId = null;
+        try {
+          const member = await resolveMember(m);
+          userId = member.userId;
+          if (action === 'added') {
+            if (currentMembers.has(userId)) {
+              result.added.push({ member: m, userId, status: 'already_joined' });
+              continue;
+            }
+            operation = 'invite';
+            const invited = await inviteToRoomOnSide({ ...acting, roomId, userId });
+            if (!invited.invited && !invited.already) throw new Error(invited.reason);
+            if (invited.invited) console.log(`Invited ${m} (${userId}) to Matrix room for ${update.name}`);
+            if (member.agent && !invited.already) {
+              operation = 'join';
+              if (appservice) {
+                const joined = await joinRoomOnSideAsAgent({
+                  ...acting, roomId, agentUserId: userId, isRegisteredAgent,
+                });
+                if (!joined.joined && !joined.already) throw new Error(joined.reason);
+              } else {
+                await post('join', new URL(`${member.credential.homeserver}/_matrix/client/v3/join/${encodeURIComponent(roomId)}`),
+                  member.credential.accessToken, {});
+              }
+              console.log(`Joined ${m} (${userId}) to Matrix room for ${update.name}`);
+            }
+            if (member.agent || invited.already) currentMembers.add(userId);
+            result.added.push({ member: m, userId, status: member.agent || invited.already ? 'joined' : 'invited' });
+          } else {
+            operation = 'kick';
+            const base = acting.side.apiBaseUrl.replace(/\/+$/, '');
+            await post('kick', new URL(`${base}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/kick`),
+              actorToken, { user_id: userId, reason: 'Removed from hafleet group' },
+              appservice ? `@${credential.senderLocalpart.toLowerCase()}:${server}` : null);
+            currentMembers.delete(userId);
+            result.removed.push({ member: m, userId, status: 'kicked' });
+            console.log(`Kicked ${m} (${userId}) from Matrix room for ${update.name}`);
+          }
+        } catch (error) {
+          result.ok = false;
+          result[action].push({ member: m, userId, status: 'failed', operation, error: error.message });
+          const warning = `Failed to ${operation} ${m} for group "${update.name}" in ${roomId}: ${error.message}`;
+          console.error(warning);
+          this.postWarning(warning);
+        }
       }
     }
-
-    // Kick removed members
-    for (const m of (update.removed || [])) {
-      let userId;
-      const credential = this.isKnownAgentName(m) ? this.getAgentCredential(m) : null;
-      const token = credential?.accessToken || null;
-      if (token) {
-        userId = await getUserId(token, credential.homeserver);
-      } else {
-        userId = humanUserId(m);
-      }
-      try {
-        await fetch(`${HOMESERVER}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/kick`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${state.botToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId, reason: 'Removed from hafleet group' }),
-        });
-        console.log(`Kicked ${m} (${userId}) from Matrix room for ${update.name}`);
-      } catch (e) {
-        console.error(`Failed to kick ${m}:`, e.message);
-      }
-    }
+    return result;
   }
 
   async onAgentMessage(msg) {
