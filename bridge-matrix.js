@@ -4286,10 +4286,6 @@ export class MatrixBridge {
      * stay invisible until the project gave up and invited again.
      */
     await this.resyncPendingInvites();
-    if (THREAD_SESSIONS_ENABLED) {
-      await this.pollRouterOutboxes();
-      setInterval(() => this.pollRouterOutboxes(), ROUTER_OUTBOX_POLL_MS);
-    }
     setInterval(() => this.scanJoinedRooms(), MATRIX_ROOM_SCAN_POLL_MS);
     // Reaped on the room-scan cadence rather than its own timer: it walks the same
     // rooms, on a deliberately slow interval, behind the same rate-limit gate.
@@ -4428,6 +4424,14 @@ export class MatrixBridge {
     if (this.botUnavailable && !this.sseConnectedWithoutBot) {
       this.sseConnectedWithoutBot = true;
       this.connectSSE();
+    }
+
+    // Task acknowledgements and replies can send through an appservice identity.
+    // Starting this only in startBotSide stranded bot-less tasks in pending_thread.
+    // Credentials and the agent roster are ready on both startup paths here.
+    if (THREAD_SESSIONS_ENABLED) {
+      await this.pollRouterOutboxes();
+      setInterval(() => this.pollRouterOutboxes(), ROUTER_OUTBOX_POLL_MS);
     }
 
     console.log('Bridge running.');
@@ -5392,8 +5396,13 @@ export class MatrixBridge {
            * already moved past it.
            */
           for (const roomId of roomIds) {
-            const representative = `@${String(this.actingSideFor(sideId)?.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
-            await this.backfillJoinedRoomOnSide(sideId, roomId, representative || null);
+            const pending = state.appserviceSyncReconcile?.[sideId]?.[roomId];
+            if (pending?.kind === 'join') {
+              const representative = `@${String(this.actingSideFor(sideId)?.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
+              await this.backfillJoinedRoomOnSide(sideId, roomId, representative || null);
+            } else {
+              await this.backfillSyncGapOnSide(sideId, roomId, pending);
+            }
           }
         },
         /*
@@ -5405,12 +5414,23 @@ export class MatrixBridge {
          */
         onLeaves: (sideId, roomIds) => sweepLeftRoomsOnSides(sideId, roomIds),
         readPendingReconcile: () => Object.keys(state.appserviceSyncReconcile?.[sync.side] ?? {}),
-        writePendingReconcile: (roomId, verdict) => {
+        writePendingReconcile: (roomId, verdict, bounds) => {
           if (!state.appserviceSyncReconcile) state.appserviceSyncReconcile = {};
           const queue = state.appserviceSyncReconcile[sync.side]
             ?? (state.appserviceSyncReconcile[sync.side] = {});
           if (verdict === 'cleared') delete queue[roomId];
-          else queue[roomId] = Date.now();
+          else {
+            const previous = queue[roomId];
+            const unproven = previous !== undefined && previous?.kind !== 'gap' && previous?.kind !== 'join';
+            // Legacy timestamp-only entries have no lower bound. A new interval
+            // cannot prove that missing history was recovered, so keep them visible.
+            queue[roomId] = unproven ? previous : {
+              ...bounds,
+              // A later gap must not erase an earlier recovery that is still pending.
+              ...(previous?.kind === 'gap' ? { kind: 'gap', from: previous.from } : {}),
+              queuedAt: previous?.queuedAt ?? Date.now(),
+            };
+          }
           saveState();
         },
         onCredentialChanged: (sideId, detail) => {
@@ -7577,6 +7597,60 @@ export class MatrixBridge {
       + `boundary=${boundary} pages=${pages}`,
     );
     return delivered;
+  }
+
+  /** Recover one durable incremental /sync interval, never the room's unbounded history. */
+  async backfillSyncGapOnSide(sideId, roomId, bounds) {
+    if (bounds?.kind !== 'gap' || typeof bounds.from !== 'string' || !bounds.from
+      || typeof bounds.to !== 'string' || !bounds.to) {
+      throw new Error(`Sync gap ${roomId}: missing durable cursor bounds; recovery remains pending`);
+    }
+    const acting = this.actingSideFor(sideId);
+    const hsToken = this.appserviceSideTokens?.get(normalizeSideKey(sideId));
+    if (!acting || !hsToken || !this.appserviceRouter) {
+      throw new Error(`Sync gap ${roomId}: side credential or router unavailable`);
+    }
+    const events = [];
+    let from = bounds.from;
+    let complete = false;
+    let pages = 0;
+    const tokens = new Set([from]);
+    while (pages < MATRIX_JOIN_BACKFILL_PAGES && events.length < MATRIX_JOIN_BACKFILL_MAX_EVENTS) {
+      const limit = Math.min(MATRIX_JOIN_BACKFILL_LIMIT, MATRIX_JOIN_BACKFILL_MAX_EVENTS - events.length);
+      const page = await roomMessagesOnSide({
+        ...acting, roomId, from, to: bounds.to, dir: 'f', limit,
+        fetchImpl: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(30_000) }),
+      });
+      if (!page.known) throw new Error(`Sync gap ${roomId}: ${page.reason}`);
+      if (page.chunk.length > limit) throw new Error(`Sync gap ${roomId}: page exceeds event budget`);
+      if (page.chunk.some((event) => !event || typeof event !== 'object' || Array.isArray(event)
+        || typeof event.event_id !== 'string' || !event.event_id
+        || typeof event.type !== 'string' || !event.type
+        || typeof event.sender !== 'string' || !event.sender
+        || !event.content || typeof event.content !== 'object' || Array.isArray(event.content))) {
+        throw new Error(`Sync gap ${roomId}: malformed event in history page`);
+      }
+      pages += 1;
+      events.push(...page.chunk.map((event) => ({ ...event, room_id: roomId })));
+      if (!page.end || page.end === bounds.to) { complete = true; break; }
+      if (tokens.has(page.end)) throw new Error(`Sync gap ${roomId}: stalled pagination`);
+      tokens.add(page.end);
+      from = page.end;
+    }
+    if (!complete) throw new Error(`Sync gap ${roomId}: pagination budget exhausted; recovery remains pending`);
+    // Sync state and its latest timeline already reconciled membership. Replaying
+    // an older missed leave here could undo a newer join whose event is deduplicated.
+    const messages = events.filter((event) => event.type === 'm.room.message');
+    if (messages.length) {
+      const txn = `sync-gap-${createHash('sha256').update(JSON.stringify([sideId, roomId, bounds.from, bounds.to])).digest('hex')}`;
+      const handled = await this.appserviceRouter.handle({
+        method: 'PUT', path: `/_matrix/app/v1/transactions/${txn}`, query: {},
+        headers: { authorization: `Bearer ${hsToken}` }, body: { events: messages, mode: 'sync' },
+      });
+      if (handled?.status !== 200) throw new Error(`Sync gap ${roomId}: router answered ${handled?.status ?? 'no status'}`);
+    }
+    console.log(`Sync gap recovered (side) ${roomId}: side=${sideId} from=${bounds.from} to=${bounds.to} fetched=${events.length} messages=${messages.length} pages=${pages}`);
+    return messages.length;
   }
 
   installBotInviteHandler() {

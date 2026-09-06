@@ -2,6 +2,23 @@
 
 面向:在 macOS 机器上由 codex(CLI,可用 shell + 看图)独立搭起 palpo + HAFleet + robrix2 + 本地 agent,并跑完三层 E2E,产出可核对的证据。本文基于 2026-09-02~06 在 Linux 上跑通的同一套(OLP 黑板 #8–#17、E2E-1/2/3),命令均为实际用过的形状;macOS 差异单列。配套:`docs/TESTING.md`(测试纪律)、`scripts/verify-agent-e2e.sh`(一键序列)。
 
+### 2026-09-06 macOS 实测校正
+
+下列实测结果优先于本文后续的旧操作示例:
+
+- 本次 Palpo 和 PostgreSQL 均运行于隔离 Docker Compose 项目,Palpo 仅发布 `127.0.0.1:8008`。配置以仓库示例为准:当前监听器是 `[[listeners]]`,容器内配置与 appservice 目录使用容器路径。
+- Robrix 的实际数据目录为 `~/Library/Application Support/org.robius.robrix`。必须隔离旧配置,在登录页确认本地 URL。点输入框工具栏的 `@`,从成员列表选择 agent;发送后验证 `m.mentions.user_ids`,不能只用粘贴 MXID 代替此项 GUI 验收。
+- `verify-agent-e2e.sh` 实际验证 agent/preset/side/mint/budget/engagement;它不创建 project side、registration 或房间,也不证明聊天收发。`/api/matrix/reach` 返回配置和可达性结构,不能要求一个不存在的字面值 `flowing`。
+- 当前普通 tmux MCP 的 `create_task` 会拒绝 `create_task requires a thread-session runner capability`。E2E-3 必须按 `docs/THREAD-SESSIONS.md` 启用本地线程运行器:backend 与 bridge 同时设置 `HAFLEET_THREAD_SESSIONS=1`,backend 设置 `HAFLEET_ROUTER_TASK_CUTOVER=1`;通过 operator API 给 agent 设置稳定 `agentId` 和 worker role,并保留有效的 workspace/MCP 配置。任务存储切换前先备份;不要对已有生产任务库直接套用一次性测试配置。
+- worker 在主时间线被提及时,backend 自动创建任务和线程 outbox;Matrix 确认后才启动带 capability 的运行器。观察 `GET /api/router/snapshot`:如果始终为 `pending_thread`,检查 bridge 是否实际轮询 router outbox。该轮询必须在 bot 与 appservice 两种启动路径上均启动,不能依赖普通 bot 登录成功。
+- 线程运行器的旧 `post`、`get_task`、`accept_task`、`transition_task`、`comment_task`、`update_task_execution` MCP 路径目前不在 session-scoped 允许列表内。最终文本由运行器协议和 reply outbox 回到原线程;必须分别记录实现结果、dispatch 状态和 task 状态。不能把 `dispatch=completed` 当作 `task=done`,也不能手工改状态后声称 agent 生命周期通过。后文 §5 的旧 MCP 生命周期步骤应作为待验证缺口。
+- Herdr 外环等待不能仅依赖黑板行数增加:内环可能替换现有 `ACK:` 占位行。应核对实际 ACK 内容、commit、测试和终端状态;`已完成` 与 `空闲` 都需要明确处理。
+- 本次 operator 要求仅 E2E agent 禁用 mempal。为 E2E 创建独立 Claude 启动包装器,用 `--strict-mcp-config` 只加载 HAFleet MCP,并通过 `--setting-sources project,local --settings <E2E settings copy>` 加载移除 mempal Stop hook 的配置副本;保留其他权限和钩子,不改全局配置。普通 tmux 会话也必须重启到同一包装器。仅写提示词不能阻止全局 Stop hook 覆盖任务最终回复。
+- Computer Use 的剪贴板 `-10005` 超时不代表粘贴失败。必须重新截图检查输入框,核对后再发送,避免重复粘贴;本次 `type_text` 也出现中文丢失。GUI 操作使用 Computer Use 技能提供的接口,后文旧的 osascript/cliclick 示例不适用于本次执行环境。
+- `herdr session attach hafleet-agents-e2e` 可查看本次内环 `w1:p1`。默认 `Ctrl+B` 后按 `Q` 只脱离界面,保留后台任务。F07 退房测试结束后应恢复测试 agent 的成员资格并在房间标注,避免 operator 把预期拒投警告误认为当前故障。
+- F07 的增量同步断档不能用 invite..join 补拉:本次初测 45 条仅 22 条到 backend。修复后先持久化断档的 `from`/`to` sync cursor,再按该区间正向分页,经既有 appservice router 投递消息;实际复验恢复 45/45。历史成员事件不重放,以免旧 leave 覆盖新 join。无边界的旧记录、畸形事件、分页超限、读取或投递失败均保留 pending。`/messages` 接受 sync token 作为 from/to 的协议依据见 [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3roomsroomidmessages)。补拉可能晚于已收到的 timeline 消息,本次未证明跨断档的整体顺序。
+- 自主监控必须实测:初次外环虽然启动等待,却漏认完成,需要 Codex 介入;后续 `E2EAUTOWATCH20260906A` 复验由房间 agent 自己修复监控,检查新 nonce JSON 内容和新增完成序号,独立测试后回报,没有 Codex 结束等待。两次结果应分别评级,不能用复验通过抹掉首次失败。
+
 ---
 ## 0. 目标与三层验收(先读懂再动手)
 
