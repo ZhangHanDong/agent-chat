@@ -4,6 +4,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, un
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { findV1ManifestByName, readV1AgentManifest } from '../lib/agent-home-v1.js';
+import { writeAgentProjectDocs } from '../lib/agent-project-docs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -245,6 +246,7 @@ function commandRemove(argv) {
   };
   writeManifest(manifest.agentJsonPath, next);
   syncLegacyMeta(homeRootFromManifest(manifest), next);
+  writeAgentProjectDocs(next);
 
   console.log(`Removed project ${projectName} from ${manifest.name}`);
   console.log(`fileAction\t${fileAction}`);

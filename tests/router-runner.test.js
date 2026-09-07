@@ -80,10 +80,23 @@ describe('structured one-shot runners', () => {
         guardian.once('error', reject);
         guardian.once('message', resolve);
       });
-      for (let attempt = 0; attempt < 100 && !existsSync(pidFile); attempt += 1) {
+      let runtimePid = 0;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        // The fixture creates the file before writeFileSync publishes its PID.
+        // Readiness requires a complete PID for a live process, not just a path.
+        try {
+          const pidText = readFileSync(pidFile, 'utf8').trim();
+          const candidate = Number(pidText);
+          if (/^[1-9]\d*$/.test(pidText) && Number.isSafeInteger(candidate)) {
+            process.kill(candidate, 0);
+            runtimePid = candidate;
+            break;
+          }
+        } catch (error) {
+          if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error;
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      const runtimePid = Number.parseInt(readFileSync(pidFile, 'utf8'), 10);
       expect(runtimePid).toBeGreaterThan(0);
       guardian.disconnect();
       await new Promise((resolve) => guardian.once('exit', resolve));

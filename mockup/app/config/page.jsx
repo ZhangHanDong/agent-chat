@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
 import { Toast, useToast } from '@/components/Toast';
@@ -8,6 +7,7 @@ import { Blank } from '@/components/Blank';
 import { useT } from '@/components/Prefs';
 import { useData, Provenance } from '@/components/Data';
 import { send } from '@/lib/api';
+import { runtimeLabel, transportLabel } from '@/lib/agent-detail';
 
 /*
  * Config — three sections separated by blast radius, not by data type.
@@ -21,7 +21,6 @@ export default function ConfigPage() {
   const { presets, agents, detected, provenance, refresh } = useData();
   const live = provenance.presets === 'live';
   const [toast, say] = useToast();
-  const [removing, setRemoving] = useState(null);
 
   return (
     <>
@@ -47,8 +46,9 @@ export default function ConfigPage() {
                 <td>
                   <button
                     className="btn"
+                    disabled={!live}
                     onClick={async () => {
-                      if (!live) return say('ok', t('cf.presetDeleted', { name: p.name }));
+                      if (!live) return;
                       const res = await send(`framework-presets/${p.id}`, { method: 'DELETE' });
                       if (!res.ok) return say('fail', res.error);
                       await refresh();
@@ -64,9 +64,9 @@ export default function ConfigPage() {
         </table>
       </div>
       <div className="btn-row" style={{ marginTop: 10 }}>
-        <button className="btn primary" onClick={() => say('ok', t('cf.presetForm'))}>
+        <Link className="btn primary" href="/resources/new">
           {t('cf.addPreset')}
-        </button>
+        </Link>
       </div>
 
       <h2 className="sec">
@@ -155,19 +155,14 @@ export default function ConfigPage() {
               <tr key={a.name}>
                 <td><Link href={`/agents/${a.name}`}>{a.name}</Link></td>
                 <td className="dim">{a.framework}</td>
-                <td className="dim">{a.transport}</td>
+                <td className="dim">{transportLabel(a, t)}</td>
                 <td>
                   <span className={`badge${a.activeNow ? ' ok' : ''}`}>
-                    {t(a.activeNow ? 'cf.active' : 'cf.idle')}
+                    {runtimeLabel(a, t)}
                   </span>
                 </td>
                 <td>
-                  <div className="btn-row">
-                    <button className="btn warn" onClick={() => say('ok', t('cf.stopped', { name: a.name }))}>
-                      {t('cf.stop')}
-                    </button>
-                    <button className="btn danger" onClick={() => setRemoving(a.name)}>{t('cf.remove')}</button>
-                  </div>
+                  <Link className="btn" href={`/agents/${encodeURIComponent(a.name)}`}>{t('cf.manageAgent')}</Link>
                 </td>
               </tr>
             ))}
@@ -175,20 +170,8 @@ export default function ConfigPage() {
         </table>
       </div>
       <div className="btn-row" style={{ marginTop: 10 }}>
-        <button className="btn" onClick={() => say('ok', t('cf.agentForm'))}>{t('cf.newAgent')}</button>
+        <Link className="btn" href="/onboard">{t('cf.newAgent')}</Link>
       </div>
-
-      {removing && (
-        <div className="notice warn" style={{ marginTop: 14, borderColor: 'var(--bad)', color: 'var(--bad)', background: 'var(--bad-soft)' }}>
-          {t('cf.removeConfirm', { name: removing })}
-          <div className="btn-row" style={{ marginTop: 10 }}>
-            <button className="btn danger" onClick={() => { say('ok', t('cf.removed', { name: removing })); setRemoving(null); }}>
-              {t('cf.removePermanently')}
-            </button>
-            <button className="btn" onClick={() => setRemoving(null)}>{t('act.cancel')}</button>
-          </div>
-        </div>
-      )}
 
       <Toast toast={toast} />
     </>

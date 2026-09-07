@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Toast, useToast } from '@/components/Toast';
-import { agentLog, runtimeStatusText, fmtTokens } from '@/lib/mock-data';
+import { agentLog, runtimeStatusText } from '@/lib/mock-data';
+import { hasLivePane, isOnDemand, runnerActivityLabel, runnerAvailabilityLabel, transportLabel } from '@/lib/agent-detail';
 import { useData } from '@/components/Data';
 import { useT } from '@/components/Prefs';
 
@@ -31,10 +31,8 @@ import { useT } from '@/components/Prefs';
 const TABS = ['runtime', 'activity', 'oversight', 'profile'];
 
 export default function AgentTabs({ agent }) {
-  const { presets, presetOf, tierOf } = useData();
   const t = useT();
   const [active, setActive] = useState('activity');
-  const [toast, say] = useToast();
   const refs = useRef([]);
 
   // Selection mirrors the hash so a link and the Back button both work.
@@ -88,159 +86,86 @@ export default function AgentTabs({ agent }) {
 
       <div role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
         {active === 'activity' && <Activity agent={agent} />}
-        {active === 'profile' && <Profile agent={agent} onSay={say} />}
-        {active === 'runtime' && <Runtime agent={agent} onSay={say} />}
+        {active === 'profile' && <Profile agent={agent} />}
+        {active === 'runtime' && <Runtime agent={agent} />}
         {active === 'oversight' && <Oversight agent={agent} />}
       </div>
 
-      <Toast toast={toast} />
     </>
   );
 }
 
-/* ── Activity ─────────────────────────────────────────────────────────────
- * Three sources, because there is no single one:
- *   tmux  -> GET /api/tmux/capture/:session      (exists today)
- *   acp   -> tail of the supervisor's per-agent log   (file exists; needs one endpoint)
- *   none  -> empty state naming why
- *
- * Round 1 designed a Terminal tab for agents with no pane. Round 2 replaced it with
- * an "ACP session stream" that also does not exist — the ACP host runs no HTTP
- * server. This is the honest third answer.
- */
-function Activity({ agent }) {
+/* Activity logs have no live endpoint. Samples must never be joined to a live
+ * agent by name, even when that name happens to match an offline fixture. */
+export function Activity({ agent }) {
   const t = useT();
-  const [showFramework, setShowFramework] = useState(false);
-  const src = agentLog[agent.name] ?? { source: 'none', lines: [] };
-  const isPane = src.source === 'pane';
-  /*
-   * WHETHER A PANE EXISTS IS READ FROM THE AGENT, not inferred from this fixture.
-   *
-   * `agentLog` is fixture data keyed by name. An agent absent from it fell through to a notice that
-   * ASSERTED "this agent has no terminal pane" — a fact the panel never checked. For BigLittle,
-   * which has pane `BigLittle:0.0` and captures fine, the page stated the opposite of the truth.
-   * Same defect as the guidance panel that reported a subconscious state it never read.
-   */
-  const hasPane = Boolean(agent.tmux);
-
+  const { provenance } = useData();
+  const sample = provenance.agents === 'fixture';
+  const src = sample ? agentLog[agent.name] : null;
   return (
     <>
-      <div className="notice">
-        {isPane
-          ? t('ag.paneNotice', { s: agent.tmux })
-          : t(hasPane ? 'ag.logNoticeHasPane' : 'ag.logNotice', { s: agent.tmux ?? '' })}
-      </div>
-
-      {isPane ? (
+      {sample ? <div className="notice">{t('ag.fixtureActivity')}</div>
+        : <PaneSection agent={agent} />}
+      {src?.lines?.length ? (
         <div className="log" style={{ marginTop: 12 }}>
-          <div className="dim">
-            {'$ '}hafleet · pane {agent.tmux}
-          </div>
-          <div className="faint" style={{ marginTop: 8 }}>{t('ag.paneStub')}</div>
-        </div>
-      ) : src.lines.length === 0 ? (
-        <div className="empty">
-          <div className="big">{t('ag.noActivity')}</div>
-          <p className="small">{t('ag.noActivityNote')}</p>
+          {src.lines.map((line, i) => (
+            <div className="log-row" key={i}>
+              <span className="t">{line.at}</span>
+              <span className={`k ${line.kind}`}>{line.kind}</span>
+              <span>{line.text}</span>
+            </div>
+          ))}
         </div>
       ) : (
-        <div className="log" style={{ marginTop: 12 }}>
-          {src.lines.map((l, i) =>
-            l.kind === 'framework' ? (
-              <div key={i}>
-                <button className="log-fold" onClick={() => setShowFramework((v) => !v)}
-                  aria-expanded={showFramework}>
-                  {`${showFramework ? '▾' : '▸'} ${t('ag.frameworkLines', { n: l.collapsed })}`}
-                </button>
-                {showFramework && (
-                  <div className="faint" style={{ paddingLeft: 18 }}>
-                    {'INFO connection: calling LLM iteration=3'}<br />
-                    {'INFO connection: LLM response received iteration=3'}<br />
-                    {'INFO connection: all tools in batch completed'}<br />
-                    <span style={{ opacity: 0.7 }}>{t('ag.moreStripped', { n: 9 })}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="log-row" key={i}>
-                <span className="t">{l.at}</span>
-                <span className={`k ${l.kind}`}>{l.kind}</span>
-                <span>{l.text}</span>
-              </div>
-            ),
-          )}
+        <div className="empty">
+          <div className="big">{t('ag.activityUnavailable')}</div>
+          <p className="small">{t('ag.activityUnavailableNote')}</p>
         </div>
       )}
     </>
   );
 }
 
-function Profile({ agent, onSay }) {
+export function Profile({ agent }) {
   const t = useT();
   return (
     <>
-      <div className="panel">
+      <div className="notice">{t('ag.profileReadOnly')}</div>
+      <div className="panel" style={{ marginTop: 12 }}>
         <h3>{t('ag.identity')}</h3>
         <dl className="kv">
           <dt>{t('ag.name')}</dt><dd>{agent.name}</dd>
-          <dt>{t('ag.environment')}</dt><dd>{agent.environment}</dd>
-          <dt>{t('ag.createdOn')}</dt><dd className="dim">2026-08-02</dd>
+          <dt>{t('ag.environment')}</dt><dd>{agent.environment || t('ag.notProvided')}</dd>
+          <dt>{t('ag.createdOn')}</dt><dd className="dim">{agent.createdAt || t('ag.notProvided')}</dd>
         </dl>
       </div>
       <div className="panel">
         <h3>{t('ag.guidance')}</h3>
-        {/* key={} forces a remount when the language changes, because defaultValue is
-            only read on mount — without it the guidance text would stay in whichever
-            language the panel first rendered in. */}
-        <textarea
-          key={t('ag.guidanceText')}
-          rows={4}
-          defaultValue={t('ag.guidanceText')}
-          style={{
-            width: '100%', font: '400 12.5px var(--sans)', padding: 8,
-            border: '1px solid var(--line)', borderRadius: 5, resize: 'vertical',
-          }}
-        />
-        <p className="faint" style={{ fontSize: 11 }}>{t('ag.dirtyPanelNote')}</p>
+        <p className="dim">{t('ag.guidanceUnavailable')}</p>
       </div>
       <div className="panel">
         <h3>{t('ag.ownership')}</h3>
         <dl className="kv">
-          <dt>{t('ag.owner')}</dt><dd>{t('ag.operator')}</dd>
-          <dt>{t('ag.escalation')}</dt><dd className="dim">{t('ag.noneConfigured')}</dd>
+          <dt>{t('ag.owner')}</dt><dd className="dim">{t('ag.notProvided')}</dd>
+          <dt>{t('ag.escalation')}</dt><dd className="dim">{t('ag.notProvided')}</dd>
         </dl>
-      </div>
-      <div className="btn-row" style={{ marginTop: 12 }}>
-        <button className="btn primary" onClick={() => onSay('ok', t('ag.profileSaved'))}>
-          {t('ag.saveProfile')}
-        </button>
-        <span className="faint" style={{ fontSize: 11.5 }}>{t('ag.oneSaveNote')}</span>
       </div>
     </>
   );
 }
 
-/* ── Runtime — how it is launched, and what shapes it ──────────────────── */
-function Runtime({ agent, onSay }) {
+function PaneSection({ agent }) {
+  const { provenance } = useData();
   const t = useT();
-  /*
-   * `presets` was a FREE VARIABLE here — destructured in another component in this same file, never
-   * in this one — so opening any agent's Runtime tab threw
-   * `ReferenceError: presets is not defined` and the page crashed. Reported as "click agent 运行时,
-   * crashed"; nothing server-side could see it, because the crash is in the browser.
-   *
-   * And `presetOf`, not a framework match: `presets.find(p => p.framework === agent.framework)`
-   * returns ANY preset for that framework, so with two codex presets it would have shown the wrong
-   * one's model and called it the effective runtime. The agent's own `presetId` is the only correct
-   * key, which is what `presetOf` uses.
-   */
-  const { presetOf } = useData();
-  const preset = presetOf(agent);
-  /*
-   * The live pane. Polled rather than streamed: a capture is one cheap call and the backend returns
-   * a hash, so an unchanged screen costs a comparison instead of a re-render. Read-only on purpose —
-   * this shows what the agent is doing, it does not type into it.
-   */
+  if (hasLivePane(agent, provenance.agents)) return <LivePane key={`${agent.name}:${agent.tmux}`} agent={agent} />;
+  return <div className="notice">{t(isOnDemand(agent) ? 'ag.headlessPaneNote'
+    : agent.transport === 'acp' ? 'ag.noPaneAcp' : 'ag.paneNotReported')}</div>;
+}
+
+/* Poll only a reported pane from the live roster. Unmounting the active tab stops
+ * its timer; a sample roster must not start requests against similarly named agents. */
+function LivePane({ agent }) {
+  const t = useT();
   const [pane, setPane] = useState({ state: 'loading', text: '', hash: null, reason: null });
   useEffect(() => {
     let stop = false;
@@ -253,15 +178,10 @@ function Runtime({ agent, onSay }) {
         const body = await res.json().catch(() => null);
         if (stop) return;
         if (res.ok && body?.ok) {
-          setPane((prev) => (prev.hash === body.hash
+          setPane((prev) => (prev.state === 'live' && prev.hash === body.hash
             ? prev
             : { state: 'live', text: body.text || '', hash: body.hash, reason: null }));
         } else {
-          /*
-           * The REASON is kept, not flattened to "unavailable": 501 means this runtime has no pane
-           * at all, 409 means the agent is offline or its session is gone, and an operator needs to
-           * tell those apart before deciding whether something is broken.
-           */
           setPane({ state: 'unavailable', text: '', hash: null, reason: body?.error || `HTTP ${res.status}` });
         }
       } catch (e) {
@@ -271,40 +191,53 @@ function Runtime({ agent, onSay }) {
     };
     tick();
     return () => { stop = true; if (timer) clearTimeout(timer); };
-  }, [agent.name]);
+  }, [agent.name, agent.tmux]);
+  return (
+    <div className="panel">
+      <h3>{t('ag.livePane')}<span className="note">{t('ag.livePaneNote')}</span></h3>
+      {pane.state === 'live' ? (
+        <pre className="log" style={{ maxHeight: 320, overflow: 'auto', whiteSpace: 'pre' }}>{pane.text || t('ag.livePaneEmpty')}</pre>
+      ) : pane.state === 'loading' ? (
+        <p className="dim">{t('ag.livePaneLoading')}</p>
+      ) : (
+        <div className="notice warn">{t('ag.livePaneUnavailable', { why: pane.reason ?? '' })}</div>
+      )}
+    </div>
+  );
+}
+
+/* Runtime configuration comes from the resolved profile for this agent. A preset
+ * can change after launch, so it cannot override the observed runtime profile. */
+export function Runtime({ agent }) {
+  const t = useT();
+  const { presetOf } = useData();
+  const preset = presetOf(agent);
+  const onDemand = isOnDemand(agent);
+  const model = onDemand ? agent.runner.model : agent.runtimeProfile ? agent.runtimeProfile.model : preset?.model;
+  const modelText = model || (onDemand || agent.runtimeProfile ? t('ag.providerDefault') : t('ag.notProvided'));
   return (
     <>
-      <div className="panel">
-        <h3>{t('ag.livePane')}<span className="note">{t('ag.livePaneNote')}</span></h3>
-        {pane.state === 'live' ? (
-          <pre className="log" style={{ maxHeight: 320, overflow: 'auto', whiteSpace: 'pre' }}>{pane.text || t('ag.livePaneEmpty')}</pre>
-        ) : pane.state === 'loading' ? (
-          <p className="dim">{t('ag.livePaneLoading')}</p>
-        ) : (
-          <div className="notice warn">{t('ag.livePaneUnavailable', { why: pane.reason ?? '' })}</div>
-        )}
-      </div>
-
+      <PaneSection agent={agent} />
       <div className="panel">
         <h3>{t('ag.effectiveRuntime')}</h3>
         <dl className="kv">
-          <dt>{t('col.framework')}</dt><dd>{agent.framework}</dd>
-          <dt>{t('col.transport')}</dt><dd>{agent.transport}</dd>
-          <dt>{t('ag.pane')}</dt><dd>{agent.tmux ?? <span className="dim">{t('ag.noPaneAcp')}</span>}</dd>
-          <dt>{t('col.model')}</dt><dd>{preset?.model ?? <span className="dim">{t('ag.providerDefault')}</span>}</dd>
-          {/* The real path, or nothing. This was `~/${name.replace('-agent','')}-ws` — a guess
-              derived from the agent's name, which reads exactly like a fact. */}
-          <dt>{t('ag.workspace')}</dt>
-          <dd className={agent.workdir ? '' : 'dim'}>
-            {agent.workdir ?? t('ag.workdirUnknown')}
-          </dd>
+          <dt>{t('col.framework')}</dt><dd>{agent.framework || t('ag.notProvided')}</dd>
+          <dt>{t('col.transport')}</dt><dd>{transportLabel(agent, t)}</dd>
+          <dt>{t('ag.pane')}</dt><dd>{onDemand ? t('ag.headlessPaneNote')
+            : agent.tmux || t(agent.transport === 'acp' ? 'ag.noPaneAcp' : 'ag.paneNotReported')}</dd>
+          {onDemand && <>
+            <dt>{t('ag.runnerAvailability')}</dt><dd>{runnerAvailabilityLabel(agent.runner, t)}</dd>
+            <dt>{t('ag.runnerActivity')}</dt><dd>{runnerActivityLabel(agent.runner, t)}</dd>
+          </>}
+          <dt>{t('ag.declaredModel')}</dt><dd>{modelText}</dd>
+          <dt>{t('ag.workspace')}</dt><dd className={agent.workdir ? '' : 'dim'}>{agent.workdir || t('ag.workdirUnknown')}</dd>
         </dl>
       </div>
       <div className="panel">
         <h3>{t('ag.frameworkPreset')}</h3>
         <dl className="kv">
-          <dt>{t('ag.applied')}</dt><dd>{preset?.name ?? <span className="dim">{t('common.none')}</span>}</dd>
-          <dt>{t('ag.resolvedModel')}</dt><dd>{preset?.model ?? '—'}</dd>
+          <dt>{t('ag.applied')}</dt><dd>{preset?.name || t('ag.presetUnreported')}</dd>
+          <dt>{t('ag.declaredModel')}</dt><dd>{modelText}</dd>
         </dl>
         <p className="faint" style={{ fontSize: 11.5, marginTop: 8 }}>
           {t('ag.presetNote')} <Link href="/config">{t('nav.config')}</Link>
@@ -312,28 +245,29 @@ function Runtime({ agent, onSay }) {
       </div>
       <div className="panel">
         <h3>{t('ag.roles')}</h3>
-        <dl className="kv">
-          <dt>{t('ag.primary')}</dt><dd>{t('ag.engineer')}</dd>
-          <dt>{t('ag.supervisor')}</dt><dd className="dim">{t('ag.notSupervisor')}</dd>
-        </dl>
+        <p className="dim">{t('ag.rolesUnavailable')}</p>
       </div>
       <div className="panel">
         <h3>{t('ag.supervisorControl')}</h3>
-        <dl className="kv">
-          <dt>{t('ag.enabled')}</dt><dd>{t('ag.yes')}</dd>
-          <dt>{t('ag.cadence')}</dt><dd>{t('ag.every15m')}</dd>
-        </dl>
+        <p className="dim">{t('ag.supervisionUnavailable')}</p>
       </div>
     </>
   );
 }
 
 /* ── Oversight — read only. No controls. ──────────────────────────────── */
-function Oversight({ agent }) {
+export function Oversight({ agent }) {
   const t = useT();
+  const { provenance } = useData();
+  if (provenance.agents !== 'fixture') return (
+    <div className="empty">
+      <div className="big">{t('ag.oversightUnavailable')}</div>
+      <p className="small">{t('ag.oversightUnavailableNote')}</p>
+    </div>
+  );
   return (
     <>
-      <div className="notice">{t('ag.readOnlyNote')}</div>
+      <div className="notice">{t('ag.fixtureOversight')}</div>
 
       <div className="panel" style={{ marginTop: 12 }}>
         <h3>{t('ag.assessment')}</h3>

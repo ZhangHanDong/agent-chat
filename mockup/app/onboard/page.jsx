@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import PageHead from '@/components/PageHead';
 import { Toast, useToast } from '@/components/Toast';
 import { useT } from '@/components/Prefs';
-import { detectState, onboardable, onboardCommand, onboardSteps } from '@/lib/mock-data';
+import { detectState, onboardable, onboardCommand, onboardSteps, fmtSpanSec } from '@/lib/mock-data';
 import { useData, Provenance } from '@/components/Data';
 import { send } from '@/lib/api';
 
@@ -29,10 +29,10 @@ import { send } from '@/lib/api';
  * lies for two of the five frameworks.
  */
 
-const STATES = ['ready', 'needs_auth', 'needs_setup', 'absent'];
+const STATES = ['ready', 'needs_auth', 'needs_setup', 'unusable', 'absent'];
 
 function StateBadge({ state, t }) {
-  const cls = { ready: ' ok', needs_auth: ' attention', needs_setup: ' attention', absent: '' }[state];
+  const cls = { ready: ' ok', needs_auth: ' attention', needs_setup: ' attention', unusable: ' warn-b', absent: '' }[state] ?? '';
   return (
     <span className={`badge${cls}`} title={t(`ob.st.${state}Why`)}>
       {t(`ob.st.${state}`)}
@@ -50,7 +50,7 @@ export default function OnboardPage() {
    * frameworks that cannot start.
    */
   const {
-    detected, detectCaveat, agents, presets, tierOf, roleCapacity, refresh,
+    detected, detectedAt, detectCaveat, agents, presets, tierOf, roleCapacity, refresh,
   } = useData();
   const [toast, say] = useToast();
   const [name, setName] = useState('');
@@ -184,10 +184,14 @@ export default function OnboardPage() {
   }
 
 
+  const scannedAt = detectedAt ? new Date(detectedAt).getTime() : NaN;
+  const scanLabel = Number.isFinite(scannedAt)
+    ? t('ob.sub', { n: fmtSpanSec(Math.max(0, Math.floor((Date.now() - scannedAt) / 1000))) })
+    : t('ob.scanUnknown');
   return (
     <>
-      <PageHead title={t('ob.title')} sub={t('ob.sub', { n: '9s' })}>
-        <button className="btn" onClick={() => say('ok', t('ob.rescanned', { n: detected.length }))}>
+      <PageHead title={t('ob.title')} sub={scanLabel}>
+        <button className="btn" onClick={async () => { await refresh(); }}>
           {t('ob.rescan')}
         </button>
       </PageHead>

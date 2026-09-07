@@ -45,6 +45,9 @@ an executable task contract.
 - lib/**
 - router/**
 - tests/**
+- mockup/**
+- README.md
+- .github/workflows/ci.yml
 - bin/hafleet-sync-skills
 - tsconfig*.json
 - scripts/check-router-build.sh

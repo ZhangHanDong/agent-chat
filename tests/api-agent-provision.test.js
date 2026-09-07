@@ -17,6 +17,8 @@
 
 import { afterEach, describe, expect, test } from 'vitest';
 import request from 'supertest';
+import { readFileSync, realpathSync } from 'node:fs';
+import path from 'node:path';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
 const API_TOKEN = 'operator-provision-token';
@@ -48,6 +50,20 @@ describe('POST /api/agents/:name/provision', () => {
     const res = await provision(ctx, EXISTING, { framework: 'codex' });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/already exists/);
+  });
+
+  test('API provisioning writes the selected project mapping for bootstrap', async () => {
+    ctx = await createBackendTestContext('provision-project-map-', seed());
+    const project = path.join(ctx.runtimeDir, 'codex-demo');
+    const res = await provision(ctx, 'project-agent', { framework: 'codex', project });
+    expect(res.status).toBe(201);
+    const editPath = path.join(res.body.paths.workdir, 'projects', 'codex-demo');
+    expect(realpathSync(editPath)).toBe(realpathSync(project));
+    const content = readFileSync(path.join(res.body.paths.workdir, 'docs', 'projects.md'), 'utf8');
+    const block = content.match(/```json\n([\s\S]*?)\n```/);
+    expect(block, content).not.toBeNull();
+    expect(JSON.parse(block[1])).toEqual([{ name: 'codex-demo', workdirPath: 'projects/codex-demo',
+      path: editPath, source: 'symlink', originPath: project }]);
   });
 
   test('refuses a framework it cannot launch', async () => {

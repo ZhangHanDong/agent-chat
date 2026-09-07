@@ -11,6 +11,8 @@ import { RUNNER_RECOVERY_HARDENING_SCHEMA } from './migrations/005-runner-recove
 import { AGENT_OPS_CLIENT_SCHEMA } from './migrations/006-agent-ops-client.js';
 import { AGENT_OPS_SERVER_IDENTITY_SCHEMA } from './migrations/007-agent-ops-server-identity.js';
 import { SESSION_OVERRIDES_SCHEMA } from './migrations/008-session-overrides.js';
+import { TASK_OPERATIONS_SCHEMA } from './migrations/009-task-operations.js';
+import { applyTaskOperation, type TaskOperationInput, type TaskOperationResult } from './task-operations.js';
 import type {
   ActivationResult,
   ActiveTaskBinding,
@@ -55,7 +57,7 @@ import type {
   TaskIntentResult,
 } from './types.js';
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 const DEFAULT_EVENT_RETENTION = 10_000;
 
 interface SessionRow {
@@ -504,6 +506,12 @@ export class RouterStore {
         ).run(8, this.now());
       });
       migrate();
+    }
+    if (!this.db.prepare<[number], IdRow>('SELECT version AS id FROM router_schema_migrations WHERE version = ?').get(9)) {
+      this.db.transaction(() => {
+        this.db.exec(TASK_OPERATIONS_SCHEMA);
+        this.db.prepare<[number, number]>('INSERT INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(9, this.now());
+      })();
     }
   }
 
@@ -3028,6 +3036,26 @@ export class RouterStore {
     }
   }
 
+  taskOperation(input: TaskOperationInput): TaskOperationResult {
+    try {
+      return this.db.transaction((): TaskOperationResult => {
+        const checked = this.validateCapability(input);
+        if ('ok' in checked) return checked;
+        if (checked.dispatch.state !== 'started') return refusal('invalid_transition', 'task operations require a currently started dispatch');
+        const result = applyTaskOperation(this, input, checked.dispatch.session_id, checked.dispatch.task_id);
+        if (result.ok && !result.replayed && !['get', 'list'].includes(input.action)) {
+          this.emit('task.updated', { taskId: input.taskId, dispatchId: input.dispatchId, action: input.action, status: result.task?.status });
+          if (input.action === 'transition' && result.task) this.enqueueTaskNotice(result.task.id,
+            `task_operation:${input.dispatchId}:${input.toolCallId}`, `Task status: ${result.task.status}`);
+        }
+        return result;
+      })();
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && typeof error.code === 'string' && !error.code.startsWith('SQLITE_')) return refusal('bad_request', error.message);
+      throw error;
+    }
+  }
+
   checkInbox(input: CapabilityInput): readonly SessionInboxMessage[] | Refusal {
     const checked = this.validateCapability(input);
     if ('ok' in checked) return checked;
@@ -3196,6 +3224,36 @@ export class RouterStore {
       if (error instanceof RouterInputError) return refusal('bad_request', error.message);
       throw error;
     }
+  }
+
+  /** Small allowlisted projection, independent of the dashboard history limit. */
+  agentDispatchActivity(agentId: string): {
+    activeDispatchCount: number;
+    queuedDispatchCount: number;
+    parkedDispatchCount: number;
+  } {
+    const rows = this.db.prepare<[string], { state: string; count: number }>(
+      `SELECT d.state, COUNT(*) AS count FROM dispatches d
+       JOIN sessions s ON s.session_id = d.session_id
+       WHERE s.agent_id = ? GROUP BY d.state`,
+    ).all(agentId);
+    const result = { activeDispatchCount: 0, queuedDispatchCount: 0, parkedDispatchCount: 0 };
+    for (const row of rows) {
+      switch (row.state) {
+        case 'queued': result.queuedDispatchCount += row.count; break;
+        case 'parked':
+          result.parkedDispatchCount += row.count;
+          result.activeDispatchCount += row.count;
+          break;
+        case 'leased':
+        case 'started': result.activeDispatchCount += row.count; break;
+        case 'completed':
+        case 'cancelled_before_start':
+        case 'outcome_unknown': break;
+        default: throw new Error('unrecognized dispatch activity state');
+      }
+    }
+    return result;
   }
 
   snapshot(): RouterSnapshot {

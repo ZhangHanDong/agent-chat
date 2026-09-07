@@ -9,7 +9,8 @@ import { useData, Provenance } from '@/components/Data';
 import { InfoTip } from '@/components/InfoTip';
 // Pure formatters only. Everything data-dependent arrives through useData(), so
 // the fixture and the live backend reach this page through one implementation.
-import { fmtTokens, runtimeStatusText } from '@/lib/mock-data';
+import { fmtTokens } from '@/lib/mock-data';
+import { runtimeLabel, transportLabel, isOnDemand } from '@/lib/agent-detail';
 
 /*
  * 员工名册 — the workforce roster, PRD 6.4 R12 read through ADR-013.
@@ -231,7 +232,7 @@ export default function WorkforcePage() {
                 <tr key={a.name}>
                   <td>
                     <div><Link href={`/agents/${a.name}`}>{a.name}</Link></div>
-                    <span className="dim">{`${a.framework} · ${a.transport}`}</span>
+                    <span className="dim">{`${a.framework} · ${transportLabel(a, t)}`}</span>
                   </td>
 
                   {/* L2 — roles outward, the agent behind them already known to the
@@ -424,17 +425,17 @@ export default function WorkforcePage() {
                         wire value, so it is not translated and not recoloured into
                         something friendlier. */}
                     <div>
-                      <span className={`badge${a.alive ? ' ok' : ''}`}>{a.state ?? (a.alive ? 'online' : 'offline')}</span>
+                      <span className={`badge${a.alive ? ' ok' : ''}`}>{isOnDemand(a) ? runtimeLabel(a, t) : (a.state ?? (a.alive ? 'online' : 'offline'))}</span>
                       {a.blocked && <span className="badge blocked">{t('wf.blocked')}</span>}
                     </div>
-                    <span className="dim">{runtimeStatusText(a)}</span>
+                    {!isOnDemand(a) && <span className="dim">{runtimeLabel(a, t)}</span>}
                     {a.blocked && a.blockedReason && <span className="dim">{a.blockedReason}</span>}
-                    {!a.online && a.offlineReason && (
+                    {!isOnDemand(a) && !a.online && a.offlineReason && (
                       <span className="dim mono-s">{a.offlineReason}</span>
                     )}
                     {/* The disagreement the roster row usually collapses: up, and
                         reporting itself unwell. */}
-                    {a.online && !a.healthy && <span className="dim">{t('wf.condUnhealthy')}</span>}
+                    {!isOnDemand(a) && a.online && !a.healthy && <span className="dim">{t('wf.condUnhealthy')}</span>}
                   </td>
 
                   <td>

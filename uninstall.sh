@@ -197,6 +197,21 @@ remove_skills() {
   remove_skill_dir_if_owned "$HOME/.codex/skills/agent-message"
   remove_skill_dir_if_owned "$HOME/.claude/skills/hafleet"
   remove_skill_dir_if_owned "$HOME/.codex/skills/hafleet"
+  local client target resolved expected
+  expected="$(readlink -f "$INSTALL_DIR/skills/hafleet-inner-loop" 2>/dev/null || true)"
+  for client in .claude .codex; do
+    target="$HOME/$client/skills/hafleet-inner-loop"
+    if [ -L "$target" ]; then
+      resolved="$(readlink -f "$target" 2>/dev/null || true)"
+      if [ -n "$expected" ] && [ "$resolved" = "$expected" ]; then
+        run rm "$target"
+        continue
+      fi
+    fi
+    if [ -e "$target" ] || [ -L "$target" ]; then
+      log "Preserving non-owned skill directory: $target"
+    fi
+  done
 }
 
 remove_sudoers() {
