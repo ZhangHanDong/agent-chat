@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -60,15 +60,63 @@ afterEach(() => {
 });
 
 describe('structured one-shot runners', () => {
+  test('explicit YOLO changes both native policies while default and unleased dispatches stay confined', async () => {
+    for (const { yolo, mayWrite } of [{ yolo: true, mayWrite: true }, { yolo: false, mayWrite: true }, { yolo: true, mayWrite: false }]) {
+      const { root, router, claim } = mayWrite ? setup('codex') : setupFrontDesk('codex');
+      const threadLog = path.join(root, 'thread.json'), turnLog = path.join(root, 'turn.json');
+      try {
+        const completion = await runCodexDispatch({ router, claim, cwd: root, mayWrite, yolo,
+          executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
+          env: { FAKE_CODEX_THREAD_START_LOG: threadLog, FAKE_CODEX_TURN_START_LOG: turnLog, FAKE_CODEX_ACTIVITY: '1' },
+          approvalTimeoutMs: 5000, maxParkedRunners: 4,
+          requestOwnerApproval: async () => { throw new Error('No native approval was requested'); },
+        });
+        expect(completion.state).toBe('completed');
+        const thread = JSON.parse(readFileSync(threadLog)), turn = JSON.parse(readFileSync(turnLog));
+        const unconfined = yolo && mayWrite;
+        expect(thread.approvalPolicy).toBe(unconfined ? 'never' : 'on-request');
+        expect(turn.approvalPolicy).toBe(thread.approvalPolicy);
+        expect(thread.sandbox).toBe(unconfined ? 'danger-full-access' : mayWrite ? 'workspace-write' : 'read-only');
+        expect(turn.sandboxPolicy).toEqual(unconfined ? { type: 'dangerFullAccess' }
+          : mayWrite ? { type: 'workspaceWrite', writableRoots: [realpathSync(root)], networkAccess: false } : { type: 'readOnly' });
+      } finally { router.close(); }
+    }
+  });
+  test('runner asks for explicit task completion and a successful turn keeps the task open', async () => {
+    const { root, router, claim } = setup('codex');
+    const promptLog = path.join(root, 'prompt.json');
+    try {
+      const completion = await runCodexDispatch({ router, claim, cwd: root,
+        executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
+        env: { FAKE_CODEX_PROMPT_LOG: promptLog },
+        approvalTimeoutMs: 5000, maxParkedRunners: 4,
+        requestOwnerApproval: async () => ({ decisionEventId: 'prompt-approval', decision: 'allow' }),
+      });
+      expect(completion.state).toBe('completed');
+      const task = router.db.prepare('SELECT task_id,status,completed_at FROM tasks').get();
+      const prompt = JSON.parse(readFileSync(promptLog, 'utf8'))[0].text;
+      expect(prompt).toContain(`Your canonical task is ${task.task_id}`);
+      expect(prompt).toContain('required checks pass');
+      expect(prompt).toContain('transition_task');
+      expect(prompt).toContain('update_task_execution');
+      expect(prompt).not.toContain('or run ./task-writer done');
+      expect(prompt).toContain('Do not mark a task done just because this turn is ending');
+      expect(task).toMatchObject({ status: 'in_progress', completed_at: null });
+    } finally { router.close(); }
+  });
+
   test('uncertain descendant cleanup settles unknown and quarantines the workspace', async () => {
     const { root, router, claim } = setup('claude');
     const pidFile = path.join(root, 'escaped.pid');
+    const cleanupProofs = [];
     try {
       const completion = await runClaudeDispatch({ router, claim, cwd: root,
         executable: path.join(fixtures, 'fake-claude-runner.mjs'),
         env: { FAKE_CLAUDE_DESCENDANT_PID: pidFile, FAKE_CLAUDE_DESCENDANT_STDIO: 'inherit', FAKE_CLAUDE_DESCENDANT_ESCAPES: '1' },
+        onCleanup: (confirmed) => cleanupProofs.push(confirmed),
       });
       expect(completion.state).toBe('outcome_unknown');
+      expect(cleanupProofs).toEqual([false]);
       expect(router.inspectWorkspace('workspace')).toMatchObject({ dirty: true, quarantinedByDispatchId: claim.dispatchId });
     } finally {
       if (existsSync(pidFile)) { try { process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* already stopped */ } }
@@ -90,15 +138,18 @@ describe('structured one-shot runners', () => {
   test.each(['ignore', 'inherit'])('guardian cleans up descendants when the runtime exits normally (%s stdio)', async (stdio) => {
     const { root, router, claim } = setup('claude');
     const pidFile = path.join(root, 'descendant.pid');
+    const cleanupProofs = [];
     let pid;
     try {
       const completion = await runClaudeDispatch({
         router, claim, cwd: root,
         executable: path.join(fixtures, 'fake-claude-runner.mjs'),
         env: { FAKE_CLAUDE_DESCENDANT_PID: pidFile, FAKE_CLAUDE_DESCENDANT_STDIO: stdio },
+        onCleanup: (confirmed) => cleanupProofs.push(confirmed),
       });
       pid = Number(readFileSync(pidFile, 'utf8'));
       expect(completion.state).toBe('completed');
+      expect(cleanupProofs).toEqual([true]);
       expect(router.db.prepare('SELECT COUNT(*) count FROM resource_leases').get().count).toBe(0);
       expect(() => process.kill(pid, 0)).toThrow();
     } finally {
@@ -169,6 +220,43 @@ describe('structured one-shot runners', () => {
     }
   });
 
+  test('sandboxed lifecycle guidance uses MCP while shell task writer still requires owner approval', async () => {
+    const { root, router, claim } = setup('codex');
+    const startLog = path.join(root, 'thread-start.json');
+    const argvLog = path.join(root, 'argv.json');
+    const command = "/bin/zsh -lc './task-writer done'";
+    const requests = [];
+    try {
+      const result = await runCodexDispatch({ router, claim, cwd: root, mayWrite: true,
+        executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
+        env: { FAKE_CODEX_THREAD_START_LOG: startLog, FAKE_CODEX_APPROVAL_COMMAND: command, FAKE_CODEX_ARGV_LOG: argvLog },
+        mcpServer: { name: 'hafleet', command: process.execPath, args: ['/opt/hafleet/mcp-server.js'], envVars: [] },
+        approvalTimeoutMs: 5000, maxParkedRunners: 4,
+        requestOwnerApproval: async (request) => {
+          requests.push(request);
+          expect(router.snapshot().dispatches[0].state).toBe('parked');
+          return { decisionEventId: 'owner-denies-shell', decision: 'deny' };
+        },
+      });
+      const start = JSON.parse(readFileSync(startLog, 'utf8'));
+      expect(start).toMatchObject({ sandbox: 'workspace-write', approvalPolicy: 'on-request' });
+      expect(start.developerInstructions).toContain('update_task_execution');
+      expect(start.developerInstructions).toContain('transition_task');
+      expect(start.developerInstructions).toContain('./task-writer');
+      expect(start.developerInstructions).toContain('Do not request shell network escalation');
+      const argv = JSON.parse(readFileSync(argvLog, 'utf8'));
+      expect(argv).toContain('mcp_servers.hafleet.required=true');
+      expect(argv.filter(arg => arg.includes('approval_mode='))).toEqual([
+        'list_tasks', 'get_task', 'accept_task', 'transition_task', 'comment_task', 'update_task_execution', 'read_conversation', 'send_file', 'get_file_delivery', 'receive_file',
+      ].map(tool => `mcp_servers.hafleet.tools.${tool}.approval_mode="approve"`));
+      expect(argv.join(' ')).not.toContain('default_tools_approval_mode');
+      expect(requests).toHaveLength(1);
+      expect(requests[0].command).toBe(command);
+      expect(result.state).toBe('completed');
+      expect(router.db.prepare('SELECT status FROM tasks').get().status).toBe('in_progress');
+    } finally { router.close(); }
+  });
+
   test('Codex native approval is durably applied before the exact request resumes', async () => {
     const { root, router, queued, claim } = setup('codex');
     const ownerRequests = [];
@@ -202,6 +290,79 @@ describe('structured one-shot runners', () => {
     const reply = router.claimReplyCommand();
     expect(reply).toMatchObject({ dispatchId: queued.dispatchId, roomId: '!room:test', threadRootEventId: '$root', body: 'approved result' });
     router.close();
+  });
+
+  test('Codex MCP elicitation parks for owner approval and returns a protocol verdict', async () => {
+    for (const decision of ['allow', 'deny']) {
+      const { root, router, claim } = setup('codex');
+      const log = path.join(root, 'approval.json');
+      let calls = 0;
+      try {
+        const completion = await runCodexDispatch({ router, claim, cwd: root,
+          executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
+          env: { FAKE_CODEX_ELICITATION: 'confirmation', FAKE_CODEX_ELICITATION_NO_TURN: '1', FAKE_CODEX_APPROVAL_LOG: log },
+          mcpServer: { name: 'hafleet', command: process.execPath, args: [], envVars: [] },
+          approvalTimeoutMs: 1000, maxParkedRunners: 1,
+          requestOwnerApproval: async (approval) => {
+            calls += 1;
+            expect(router.listAgentDispatches('agent-id')[0].state).toBe('parked');
+            expect(approval).toMatchObject({ kind: 'mcp_tool', upstreamThreadId: 'thread-fake', upstreamTurnId: 'turn-fake', upstreamItemId: 'mcp:91' });
+            expect(JSON.parse(approval.inputPreview)._meta.tool_params.assignee).toBe('peer');
+            return { decisionEventId: `owner-${decision}`, decision };
+          },
+        });
+        expect(calls).toBe(1);
+        expect(completion).toMatchObject({ state: 'completed', text: decision === 'allow' ? 'approved result' : 'denied result' });
+        expect(JSON.parse(readFileSync(log, 'utf8')).result).toEqual({ action: decision === 'allow' ? 'accept' : 'decline', content: decision === 'allow' ? {} : null });
+      } finally { router.close(); }
+    }
+  });
+
+  test('Codex can deny then freshly allow identical MCP parameters in one dispatch', async () => {
+    const { root, router, claim } = setup('codex');
+    const ownerRequests = [];
+    const log = path.join(root, 'retry-approval.json');
+    try {
+      const completion = await runCodexDispatch({ router, claim, cwd: root,
+        executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
+        env: { FAKE_CODEX_ELICITATION: 'confirmation', FAKE_CODEX_RETRY_DENIED_ELICITATION: '1', FAKE_CODEX_APPROVAL_LOG: log },
+        mcpServer: { name: 'hafleet', command: process.execPath, args: [], envVars: [] },
+        approvalTimeoutMs: 1000, maxParkedRunners: 1,
+        requestOwnerApproval: async (approval) => {
+          ownerRequests.push(approval);
+          expect(router.listAgentDispatches('agent-id')[0].state).toBe('parked');
+          const previous = router.db.prepare('SELECT decision FROM approval_waits ORDER BY rowid').all();
+          expect(previous.map((row) => row.decision)).toEqual(ownerRequests.length === 1 ? [null] : ['deny', null]);
+          return { decisionEventId: `retry-owner-${ownerRequests.length}`, decision: ownerRequests.length === 1 ? 'deny' : 'allow' };
+        },
+      });
+      expect(completion).toMatchObject({ state: 'completed', text: 'approved result' });
+      expect(ownerRequests).toHaveLength(2);
+      expect(ownerRequests.map((request) => request.upstreamRequestId)).toEqual(['0', '1']);
+      expect(ownerRequests[1].approvalId).not.toBe(ownerRequests[0].approvalId);
+      expect(ownerRequests[1].operationDigest).toBe(ownerRequests[0].operationDigest);
+      expect(ownerRequests[1].inputPreview).toBe(ownerRequests[0].inputPreview);
+      expect(router.db.prepare('SELECT decision FROM approval_waits ORDER BY rowid').all()).toEqual([{ decision: 'deny' }, { decision: 'allow' }]);
+      expect(router.db.prepare('SELECT COUNT(*) count FROM approval_inbox').get().count).toBe(2);
+      expect(JSON.parse(readFileSync(log, 'utf8'))).toEqual({ id: 1, result: { action: 'accept', content: {} } });
+    } finally { router.close(); }
+  });
+
+  test('Codex refuses foreign-thread and unsupported form elicitation without fabricating input', async () => {
+    for (const env of [{ FAKE_CODEX_ELICITATION: 'input' }, { FAKE_CODEX_ELICITATION: 'confirmation', FAKE_CODEX_WRONG_THREAD: '1' }]) {
+      const { root, router, claim } = setup('codex');
+      let calls = 0;
+      try {
+        const result = await runCodexDispatch({ router, claim, cwd: root,
+          executable: path.join(fixtures, 'fake-codex-app-server.mjs'), env,
+          mcpServer: { name: 'hafleet', command: process.execPath, args: [], envVars: [] },
+          approvalTimeoutMs: 1000, maxParkedRunners: 1,
+          requestOwnerApproval: async () => { calls += 1; return { decisionEventId: 'unexpected', decision: 'allow' }; },
+        });
+        expect(calls).toBe(0);
+        expect(result).toMatchObject({ state: 'completed', text: 'denied result' });
+      } finally { router.close(); }
+    }
   });
 
   test('Codex approval with a mismatched upstream thread fails closed without owner forwarding', async () => {

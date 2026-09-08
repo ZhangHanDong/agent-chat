@@ -205,6 +205,17 @@ describe('!offer — the read that precedes the ask', () => {
     expect(body).toMatch(/1 of 2 running/);
   });
 
+  test('offer replies distinguish a qualifying resource from an existing agent', async () => {
+    global.fetch = bookReply({ ...oneRole, roles: [{ ...oneRole.roles[0],
+      serving: { ...oneRole.roles[0].serving, agent: null, provisioningRequired: true },
+    }] });
+    const { bot, replies } = harness();
+    await bot.cmdOffer(ROOM);
+    expect(replies.at(-1).body).toContain('claude-opus-5');
+    expect(replies.at(-1).body).toContain('new agent required');
+    expect(replies.at(-1).body).not.toContain('nothing currently qualifies');
+  });
+
   test('a not-whitelisted room is told its request will wait', async () => {
     // The most actionable line in the reply: auto-join or a decision.
     global.fetch = bookReply(oneRole);

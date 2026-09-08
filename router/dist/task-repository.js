@@ -203,6 +203,9 @@ export function createRouterTaskStore(router) {
         return task;
     };
     const store = {
+        getExecutionEpoch(id) {
+            return router.db.prepare('SELECT execution_epoch FROM tasks WHERE task_id = ?').get(id)?.execution_epoch ?? null;
+        },
         createTask(body) {
             const title = text(body.title, 255);
             if (!title)

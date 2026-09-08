@@ -79,6 +79,29 @@ describe('an approval attaches the agent to the project room', () => {
   let ctx;
   afterEach(async () => { await ctx?.cleanup?.(); ctx = null; });
 
+  test.each([
+    ['public project room', OWNER, ROOM],
+    ['reserved agent identity', '@ac_worker:hq.example', OWNER_DM],
+    ['recorded agent identity', '@custom-worker:HQ.EXAMPLE', OWNER_DM],
+    ['project representative', '@representative:HQ.EXAMPLE', OWNER_DM],
+  ])('engagement verdict refuses a %s as private owner authority before reserving capacity', async (_kind, ownerMxid, ownerDmRoomId) => {
+    const initial = seed();
+    initial.agents.a1.matrixIdentity = { mxid: '@custom-worker:hq.example' };
+    initial.agents.a1.projectSide = 'hq.example';
+    initial.rawDataFiles = { 'project-sides.json': JSON.stringify({ version: 1, audit: [], sides: {
+      'hq.example': { id: 'hq.example', serverName: 'hq.example', apiBaseUrl: 'http://127.0.0.1:1',
+        active: true, createdAt: 1, updatedAt: 1, allocatedTokens: 5_000_000, projects: {},
+        representative: { mxid: '@representative:hq.example' } },
+    } }) };
+    ctx = await createBackendTestContext('bind-private-owner-', initial);
+    const e = await pendingEngagement(ctx, '$bind-private-owner');
+    const result = await request(ctx.app).post(`/api/engagements/${e.id}/verdict`)
+      .send({ approve: true, allocatedTokens: 400_000, owner: { ownerMxid, ownerDmRoomId } });
+    expect(result.status).toBe(400);
+    expect(result.body).toMatchObject({ ok: false, code: 'bad_request', engagement: { state: 'pending', allocatedTokens: null } });
+    expect(await bindingsFor(ctx, 'a1')).toEqual([]);
+  });
+
   test('with an owner configured, the verdict binds and says so', async () => {
     ctx = await createBackendTestContext('bind-ok-', seed({
       HAFLEET_OWNER_MXID: OWNER, HAFLEET_OWNER_DM_ROOM: OWNER_DM,
@@ -241,6 +264,26 @@ describe('F04: the owner for an engagement comes from THIS project room\'s bindi
       });
     expect(res.status).toBe(200);
   }
+
+  test('pending approval owner readiness follows only the current project binding', async () => {
+    ctx = await createBackendTestContext('owner-readiness-', seed());
+    const e = await pendingEngagement(ctx, '$owner-readiness');
+    const current = async () => {
+      const res = await request(ctx.app).get('/api/engagements');
+      expect(res.status).toBe(200);
+      return res.body.engagements.find(row => row.id === e.id);
+    };
+    expect(await current()).toMatchObject({ ownerBindingRequired: true, state: 'pending' });
+    await putBinding(ctx.app, 'a1', ROOM_A, '@other:hq.example', '!otherdm:hq.example');
+    expect(await current()).toMatchObject({ ownerBindingRequired: true });
+    await putBinding(ctx.app, 'a1', ROOM, OWNER, OWNER_DM);
+    expect(await current()).toMatchObject({ ownerBindingRequired: false });
+    const removed = await request(ctx.app).delete(`/api/approval-bindings/a1/${encodeURIComponent(ROOM)}`)
+      .set('X-Bridge-Secret', BRIDGE_SECRET);
+    expect(removed.status).toBe(200);
+    expect(await current()).toMatchObject({ ownerBindingRequired: true });
+    expect(JSON.stringify(await current())).not.toContain(OWNER_DM);
+  });
 
   test('same agent, two projects, two owners: accepting the SECOND engagement leaves BOTH owners intact', async () => {
     /*

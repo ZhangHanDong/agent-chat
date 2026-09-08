@@ -1,5 +1,37 @@
+import { ConversationStore } from './conversations.js';
+import { type ActivityEvent } from './activity.js';
+import { type FileReplyManifest, type FileReplyResult } from './files.js';
 import type { ActivationResult, ActiveTaskBinding, ApprovalDecisionEvent, AttachInputsResult, AttachTaskInputsInput, AuthenticatedMessageInput, CapabilityInput, ClaimDispatchInput, ClaimResult, CreateTaskIntentInput, EnqueueDispatchInput, EnqueueResult, EventPage, IngestResult, MatrixCommand, MatrixDeliveryFailure, MatrixDeliveryReceipt, LaunchDescriptor, OutcomeInspectionResult, OutcomeResolutionResult, ParkDispatchInput, ReconcileReport, Refusal, ReplyCommand, RouterOptions, RouterSnapshot, ResolveOutcomeUnknownInput, RunnerEffectInput, SessionInboxMessage, SessionView, SetSessionOverridesInput, SettleDispatchInput, SettleSuccess, StartedPayload, StoredMessageResult, TaskDeliveryResult, TaskDispatchFailureResult, TaskIntentResult } from './types.js';
+interface DispatchRow {
+    dispatch_id: string;
+    session_id: string;
+    task_id: string | null;
+    state: 'queued' | 'leased' | 'started' | 'parked' | 'completed' | 'cancelled_before_start' | 'outcome_unknown';
+    framework: string;
+    payload_json: string;
+    payload_digest: string;
+    may_write: number;
+    workspace_mode: 'shared' | 'worktree';
+    workspace_resource_id: string | null;
+    named_resources_json: string;
+    fence_generation: number;
+    runner_id: string | null;
+    lease_until: number | null;
+    effect_ack_at: number | null;
+    started_at: number | null;
+    parked_at: number | null;
+    settled_at: number | null;
+    terminal_reason: string | null;
+    output_json: string | null;
+    fenced_output_json: string | null;
+    created_at: number;
+    launch_failures: number;
+    available_at: number | null;
+    last_launch_error: string | null;
+}
 export declare class RouterStore {
+    readonly conversations: ConversationStore;
+    private readonly activity;
     readonly dbPath: string;
     private readonly now;
     private readonly randomBytes;
@@ -58,6 +90,38 @@ export declare class RouterStore {
     private validateCapability;
     takePayload(input: CapabilityInput): StartedPayload | Refusal;
     private buildRunnerContext;
+    readConversation(input: CapabilityInput, offset?: number): Refusal | {
+        messages: never[];
+        next: null;
+        totalMessages: number;
+        totalParts: number;
+        roomId?: never;
+        ok: true;
+    } | {
+        roomId: string;
+        messages: {
+            eventId: string;
+            sender: string;
+            timestamp: number;
+            threadRoot: string | null;
+            part: number;
+            parts: number;
+            attachment?: {
+                eventId: string;
+                name: unknown;
+                mime: unknown;
+                size: unknown;
+                errorCode?: {};
+                error?: unknown;
+                instruction: string;
+            };
+            body: string;
+        }[];
+        next: number | null;
+        totalMessages: number;
+        totalParts: number;
+        ok: true;
+    };
     acknowledgeRunnerEffect(input: RunnerEffectInput): {
         ok: true;
     } | Refusal;
@@ -125,6 +189,51 @@ export declare class RouterStore {
     } | Refusal;
     private settleUnknownInternal;
     private enqueueThreadNotice;
+    recordRunnerActivity(input: CapabilityInput & {
+        event: ActivityEvent;
+    }): {
+        ok: true;
+    } | Refusal;
+    authorizeFileReply(input: CapabilityInput): {
+        ok: true;
+    } | Refusal;
+    receiveFile(input: CapabilityInput & {
+        eventId: string;
+    }): {
+        ok: true;
+        file: Readonly<Record<string, unknown>>;
+    } | Refusal;
+    findFileReply(input: CapabilityInput & {
+        requestKey: string;
+        requestDigest: string;
+    }): {
+        ok: true;
+        delivery: FileReplyResult | null;
+    } | Refusal;
+    queueFileReply(input: CapabilityInput & {
+        requestKey: string;
+        requestDigest: string;
+        file: FileReplyManifest;
+        body: string;
+    }): {
+        ok: true;
+        delivery: FileReplyResult | null;
+    } | Refusal;
+    readFileReply(input: CapabilityInput & {
+        commandId: string;
+    }): {
+        ok: true;
+        delivery: FileReplyResult;
+    } | Refusal;
+    prepareFileReply(input: {
+        commandId: string;
+        claimToken: string;
+        content: Readonly<Record<string, unknown>>;
+    }): {
+        ok: true;
+        content: Readonly<Record<string, unknown>>;
+    } | Refusal;
+    private updateActivity;
     private enqueueTaskNotice;
     private insertNotice;
     private recordNoticeDelivery;
@@ -137,9 +246,43 @@ export declare class RouterStore {
     } | Refusal;
     checkInbox(input: CapabilityInput): readonly SessionInboxMessage[] | Refusal;
     checkInboxForAgent(input: CapabilityInput, agentNameInput: string): readonly SessionInboxMessage[] | Refusal;
+    listAgentDispatches(agentIdInput: string): readonly {
+        dispatchId: string;
+        sessionId: string;
+        state: DispatchRow['state'];
+        createdAt: number;
+        startedAt: number | null;
+    }[];
+    authorizeTaskFromDispatch(input: CapabilityInput & {
+        taskId: string;
+        write?: boolean;
+    }): {
+        ok: true;
+    } | Refusal;
+    deliverPeerMessageFromDispatch(input: CapabilityInput & {
+        recipientAgentId: string;
+        recipientAgentName: string;
+        targetTaskId?: string;
+        toolCallId: string;
+        body: string;
+    }): (IngestResult & {
+        taskId?: string;
+        threadRootEventId?: string;
+    });
+    listPendingPeerTaskInputs(): readonly {
+        messageId: string;
+        sessionId: string;
+        taskId: string;
+        roomId: string;
+        threadRootEventId: string;
+        recipientAgentId: string;
+        recipientAgentName: string;
+        senderAgentId: string;
+        senderAgentName: string;
+    }[];
     createTaskFromDispatch(input: CapabilityInput & {
         toolCallId: string;
-        rootMessageId: string;
+        rootMessageId?: string;
         inputMessageIds: readonly string[];
         task: {
             title: string;
@@ -164,3 +307,4 @@ export declare class RouterStore {
     reconcileOnStart(): ReconcileReport;
 }
 export declare function openRouter(options: RouterOptions): RouterStore;
+export {};

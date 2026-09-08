@@ -5,13 +5,20 @@ import {
   SimpleFsStorageProvider,
 } from 'matrix-bot-sdk';
 import { validateMasqueradeUserId, setMasqueradeUserParam } from './lib/matrix-representative.js';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { createAppserviceRouter } from './lib/appservice-receiver.js';
+import { MatrixDirectChats, sendDirectEvent } from './lib/matrix-direct-chat.js';
+import { prepareMatrixFile, receiveMatrixFile, encryptedRoom, MatrixFileError } from './lib/matrix-file.js';
+import { matrixMarkdownContent } from './lib/matrix-markdown.js';
+import { isMatrixActivity, matrixActivityContent } from './lib/matrix-activity.js';
+import { reconcileAgentDisplayName } from './lib/matrix-agent-profile.js';
+import { createFleetProtocol, FLEET_PROBE_EVENT, FLEET_REQUEST_EVENT } from './lib/fleet-protocol.js';
+import { projectSideAgentPrefix, projectSideAgentMxid } from './lib/matrix-agent-identity.js';
 import { executeMatrixWork } from './lib/matrix-work-executor.js';
 import {
   createRoomOnSide, inviteToRoomOnSide, joinRoomOnSideAsAgent, joinRoomOnSideAsRepresentative,
   sendToRoomOnSide, namespaceAdmits,
-  joinedMembersOnSide, roomMessagesOnSide,
+  joinedMembersOnSide, roomMessagesOnSide, roomNameOnSide,
 } from './lib/matrix-representative.js';
 import { resolveAppserviceListenerConfig, startAppserviceListener } from './lib/appservice-listener.js';
 import {
@@ -36,6 +43,7 @@ function logProvenanceVerdict({ code, kind, provenance = {}, sideId, roomId, ref
 }
 import { resolveEdgeLinkConfig, startEdgePuller } from './lib/appservice-puller.js';
 import { resolveAppserviceSyncConfig, startAppserviceSyncCollector } from './lib/appservice-sync.js';
+import { startRepresentativeSyncCollector, reconcileRepresentativeTimeline } from './lib/representative-sync.js';
 import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { execFile } from 'child_process';
 import os from 'os';
@@ -93,6 +101,13 @@ export class ReliableMatrixClient extends MatrixClient {
       }
       return this.emit(eventName, ...payload);
     });
+  }
+
+  async doSync(_uncommittedToken) {
+    // matrix-bot-sdk advances its local loop token before processSync succeeds.
+    // Always poll from the durable token, which is written only after every
+    // awaited handler succeeds; a failed binding read must retry the same batch.
+    return super.doSync(await this.storage.getSyncToken());
   }
 
   async doRequest(method, endpoint, query = null, body = null, ...rest) {
@@ -1086,8 +1101,6 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const AGENT_PREFIX_RE = escapeRegex(AGENT_PREFIX);
-
 if (!BOT_PASSWORD) {
   console.warn('MATRIX_BOT_PASSWORD is not set. Bridge can run with cached token, but re-login will fail if token expires.');
 }
@@ -1157,8 +1170,12 @@ function agentUserId(name) {
  * ownership was recorded, and every later approval failed `owner_binding_missing`. That was a
  * case difference. A wrong SERVER is the same mechanism with a larger error.
  */
-function agentMxid(name) {
-  return agentCredential(name)?.mxid || agentUserId(name);
+function agentMxid(name, bridge = null) {
+  const recorded = agentCredential(name)?.mxid;
+  if (recorded) return recorded;
+  const acting = bridge?.actingSideFor?.(MATRIX_SERVER_NAME);
+  return acting?.credential?.kind === 'appservice'
+    ? projectSideAgentMxid(name, acting, AGENT_PREFIX) : agentUserId(name);
 }
 
 function humanUserId(name) {
@@ -2210,6 +2227,7 @@ function sweepLeftRoomsOnSides(sideId, roomIds) {
     if (state.trustedManagedRooms?.[roomId]) {
       delete state.trustedManagedRooms[roomId];
     }
+    delete state.roomAgentBindings?.[roomId];
     const unmappedKey = unmapRoom(roomId);
     console.log(
       `[appservice-sync] side ${sideId}: left ${roomId} — trust cleared (${wasTrusted})`
@@ -2535,9 +2553,19 @@ export function buildOwnerApprovalRequest(approval) {
     expires_at: Number(approval?.expires_at || 0),
     actions: [
       { id: 'approve_once', label: 'Approve once', style: 'primary' },
+      ...(approval?.reusable_scope?.task_id ? [{ id: 'approve_task', label: 'Allow for this task', style: 'secondary' }] : []),
+      ...(approval?.reusable_scope ? [{ id: 'approve_always', label: 'Always allow this operation', style: 'secondary' }] : []),
       { id: 'deny', label: 'Deny', style: 'danger' },
     ],
   };
+  if (approval?.reusable_scope) {
+    const scope = approval.reusable_scope;
+    detail.reusable_scope = scope;
+    detail.description += `\nAuthorization scope for ${detail.agent} in project ${detail.project}:\n${scope.description}`
+      + `\nWorkspace: ${scope.workspace}`
+      + (scope.task_id ? `\nThis task: ${scope.task_id}` : '')
+      + '\nAlways allow saves this exact rule for this Agent and project. Revoke it in HAFleet → Agent → Execution permissions.';
+  }
   const lines = [
     `Approval required for ${detail.agent}`,
     `Project: ${detail.project}`,
@@ -2546,7 +2574,8 @@ export function buildOwnerApprovalRequest(approval) {
     detail.description ? `Description: ${detail.description}` : null,
     detail.input_preview ? `Input: ${detail.input_preview}` : null,
     `Expires: ${new Date(detail.expires_at).toISOString()}`,
-    'Use the Approve once or Deny button. Text replies are not approval.',
+    approval?.reusable_scope ? 'Choose an approval button for the scope shown above. Text replies are not approval.'
+      : 'Use the Approve once or Deny button. Text replies are not approval.',
   ].filter(Boolean);
   return {
     msgtype: APPROVAL_REQUEST_MSGTYPE,
@@ -2575,7 +2604,7 @@ export function parseApprovalVerdictEvent(roomId, event) {
   }
   if (!detail || detail.version !== 1 || detail.kind !== 'verdict') return null;
   if (!detail || detail.version !== 1 || detail.kind !== 'verdict') return null;
-  const action = detail.action === 'approve_once' || detail.action === 'deny' ? detail.action : null;
+  const action = ['approve_once', 'approve_task', 'approve_always', 'deny'].includes(detail.action) ? detail.action : null;
   const senderMxid = typeof event?.sender === 'string' ? event.sender.trim() : '';
   const requestId = typeof detail.request_id === 'string' ? detail.request_id.trim() : '';
   const agent = typeof detail.agent === 'string' ? detail.agent.trim() : '';
@@ -2982,9 +3011,13 @@ function renderMarkdownToMatrixHtml(raw) {
 }
 
 // ── Extract agent name from Matrix user ID ───────────────────────────
-function agentNameFromUserId(userId) {
+function agentNameFromUserId(userId, bridge = null) {
   // @ac_agentname:<server> → agentname
-  const match = userId.match(new RegExp(`^@${AGENT_PREFIX}([^:]+):`));
+  if (typeof userId !== 'string') return null;
+  const server = userId.slice(userId.indexOf(':') + 1).toLowerCase();
+  const acting = bridge?.actingSideFor?.(server);
+  const prefix = projectSideAgentPrefix(acting ?? {}, AGENT_PREFIX);
+  const match = userId.match(new RegExp(`^@${escapeRegex(prefix)}([^:]+):`));
   return match ? match[1] : null;
 }
 
@@ -3031,21 +3064,24 @@ function humanNameFromUserId(userId) {
   return match[1];
 }
 
-function isAgentUser(userId) {
-  return userId.includes(`:`) && userId.startsWith(`@${AGENT_PREFIX}`);
+function isAgentUser(userId, bridge = null) {
+  return agentNameFromUserId(userId, bridge) !== null;
 }
 
 // ── Parse mentions from Matrix message ───────────────────────────────
-function parseMentions(content, plainBody = null) {
+function parseMentions(content, plainBody = null, bridge = null, roomId = null) {
   const mentions = [];
+  const server = typeof roomId === 'string' ? roomId.slice(roomId.indexOf(':') + 1).toLowerCase() : null;
+  const prefix = projectSideAgentPrefix(bridge?.actingSideFor?.(server) ?? {}, AGENT_PREFIX);
+  const prefixRegex = escapeRegex(prefix);
 
   // 1. Parse m.mentions.user_ids (modern Matrix spec)
   if (content['m.mentions']?.user_ids) {
     for (const userId of content['m.mentions'].user_ids) {
       // @ac_agentname:<server> → agentname
-      const agentMatch = userId.match(new RegExp(`^@${AGENT_PREFIX}([^:]+):`));
-      if (agentMatch) {
-        mentions.push(agentMatch[1]);
+      const agentName = agentNameFromUserId(userId, bridge);
+      if (agentName) {
+        mentions.push(agentName);
       } else {
         // @username:<server> → username (human or other)
         const userMatch = userId.match(/^@([^:]+):/);
@@ -3056,7 +3092,7 @@ function parseMentions(content, plainBody = null) {
 
   // 2. Fallback: parse HTML pills from formatted_body
   if (!mentions.length && content.formatted_body) {
-    const hrefRegex = new RegExp(`matrix\\.to/#/@(?:${AGENT_PREFIX_RE})?([a-z0-9_-]+):`, 'gi');
+    const hrefRegex = new RegExp(`matrix\\.to/#/@(?:${prefixRegex})?([a-z0-9_-]+):`, 'gi');
     let match;
     while ((match = hrefRegex.exec(content.formatted_body)) !== null) {
       mentions.push(match[1]);
@@ -3066,7 +3102,7 @@ function parseMentions(content, plainBody = null) {
   // 3. Fallback: plain text @mentions in body
   const body = typeof plainBody === 'string' ? plainBody : content.body;
   if (!mentions.length && body) {
-    const atRegex = new RegExp(`@(?:${AGENT_PREFIX_RE})?([a-z0-9_-]+)`, 'gi');
+    const atRegex = new RegExp(`@(?:${prefixRegex})?([a-z0-9_-]+)`, 'gi');
     let match;
     while ((match = atRegex.exec(body)) !== null) {
       mentions.push(match[1]);
@@ -3690,9 +3726,9 @@ export class MatrixBridge {
   }
 
   managedAgentBotInviteTrust(roomId, inviterMxid) {
-    if (!inviterMxid || !isAgentUser(inviterMxid)) return null;
+    if (!inviterMxid || !isAgentUser(inviterMxid, this)) return null;
 
-    const inviterAgent = agentNameFromUserId(inviterMxid);
+    const inviterAgent = agentNameFromUserId(inviterMxid, this);
     const canonicalAgent = this.resolveKnownAgentName(inviterAgent);
     const managedBinding = findRoomAgentBinding(roomId, canonicalAgent);
     if (!canonicalAgent || !managedBinding) return null;
@@ -3700,7 +3736,7 @@ export class MatrixBridge {
     // Do not trust an agent-looking account from another homeserver, nor a
     // different local agent. The room became managed only after a trusted
     // developer invited this exact local puppet and it successfully joined.
-    if (inviterMxid !== agentMxid(canonicalAgent)) return null;
+    if (inviterMxid !== agentMxid(canonicalAgent, this)) return null;
     return { trusted: true, reason: 'managed_agent' };
   }
 
@@ -3820,10 +3856,8 @@ export class MatrixBridge {
    * match the namespace regex.
    */
   isKnownAgentMxid(mxid) {
-    const local = String(mxid || '').slice(1, String(mxid).indexOf(':'));
-    if (!local) return false;
-    if (!local.startsWith(AGENT_PREFIX)) return false;
-    return this.isKnownAgentName(local.slice(AGENT_PREFIX.length));
+    const name = agentNameFromUserId(mxid, this);
+    return Boolean(name && this.isKnownAgentName(name));
   }
 
   /*
@@ -3879,7 +3913,7 @@ export class MatrixBridge {
     for (const serverName of this.actingCredentials?.keys() ?? []) {
       const acting = this.actingSideFor(serverName);
       if (acting?.credential?.kind !== 'appservice') continue;
-      const mxid = `@${AGENT_PREFIX}${canonical}:${acting.side.serverName}`.toLowerCase();
+      const mxid = projectSideAgentMxid(canonical, acting, AGENT_PREFIX);
       /*
        * `=== true`, NOT truthiness. `namespaceAdmits` returns `true` on success and a REASON STRING on
        * failure — and a non-empty string is truthy, so `if (namespaceAdmits(...))` admitted every
@@ -4304,7 +4338,9 @@ export class MatrixBridge {
      * ONE decision, read once: hasConfiguredInboundPath consults the same three resolvers the intake
      * itself opens, so start() never carries its own reading of "is there an inbound path".
      */
-    const hasInboundPath = hasConfiguredInboundPath(process.env);
+    const hasInboundPath = hasConfiguredInboundPath(process.env)
+      || [...(this.actingCredentials?.values() ?? [])].some(row => row.kind === 'registrationToken'
+        && row.representativeToken && row.representative?.mxid && row.registration);
     try {
       await this.startBotSide();
     } catch (error) {
@@ -4355,6 +4391,22 @@ export class MatrixBridge {
 
     // 9. Poll for new agents and humans.
     await this.pollRegistrations();
+    this.directChats = new MatrixDirectChats({
+      directory: path.join(DATA_DIR, 'direct-agents'), Client: ReliableMatrixClient,
+      backend: (...args) => this.callBackendApi(...args),
+      onMessage: (roomId, event) => this.onRoomMessage(roomId, event),
+      onBinding: binding => {
+        state.trustedManagedRooms ??= {};
+        state.trustedManagedRooms[binding.roomId] = { ...state.trustedManagedRooms[binding.roomId],
+          dm: binding.mode !== 'group', directChat: true, agent: binding.agent, humanMxid: binding.humanMxid,
+          projectRoomId: binding.projectRoomId,
+          projectSide: binding.projectRoomId.slice(binding.projectRoomId.indexOf(':') + 1),
+          addedAt: state.trustedManagedRooms[binding.roomId]?.addedAt ?? Date.now() };
+        saveState();
+      },
+      warning: message => this.postWarning(message, { kind: 'agent-direct-chat' }),
+    });
+    await this.refreshDirectChats();
     setInterval(() => this.pollRegistrations(), 30_000);
     await this.pollMatrixWork();
     setInterval(() => this.pollMatrixWork(), 2_000);
@@ -4422,7 +4474,8 @@ export class MatrixBridge {
      * ① REGISTRATION RECHECK against the loaded snapshot — per event, never the wiring-time
      * closure. Absent snapshot (refresh never succeeded) is UNAVAILABLE, not empty.
      */
-    const snapshot = this.appserviceInboundSnapshot;
+    const snapshot = meta?.representativeSync === true
+      ? this.representativeInboundSnapshot : this.appserviceInboundSnapshot;
     if (!snapshot) {
       throw new SideProvenanceError(
         'side_registry_unavailable',
@@ -4647,6 +4700,20 @@ export class MatrixBridge {
         continue;
       }
       try {
+        // Dedicated agent devices own direct-room sync and encryption. Verify
+        // transport identity before coalescing AS copies; these rooms do not
+        // contain the project representative and must not block its AS queue.
+        const directEntry = this.directChats?.entryForRoom(roomId);
+        const directInvite = this.directChats?.clients.has(event.state_key) && event.type === 'm.room.member' && event.content?.membership === 'invite'
+          && this.isKnownAgentMxid(event.state_key);
+        if (directEntry || directInvite) {
+          const registered = this.appserviceInboundSnapshot?.get(normalizeSideKey(sideId));
+          if (registered) {
+            assertTransportProvenanceConsistency({ provenance: meta?.provenance, authenticatedSideId: sideId, snapshotEntry: registered });
+            if (directEntry ? directEntry.sender.side.serverName === normalizeSideKey(sideId)
+              : namespaceAdmits(this.actingSideFor(sideId)?.credential?.namespace, event.state_key)) continue;
+          }
+        }
         /*
          * F06 L3 — THE PROVENANCE GATE, before any typed path and before any dedup claim.
          * Fixed order (board release note): ①registration rechecked against the loaded registry
@@ -4683,7 +4750,10 @@ export class MatrixBridge {
           if (settled?.state === 'completed') continue;
           if (outcome?.ok === false) {
             await this.executeTypedForClaim(verdict.claimKey, async () => {
-              if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
+              if ([FLEET_PROBE_EVENT, FLEET_REQUEST_EVENT].includes(event.type)
+                && await this.fleetProtocolForBridge().recordEvent({ sideId, registration: meta?.provenance?.registration,
+                event, mode: meta?.mode })) return;
+              if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event, meta);
               if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
               else await this.onRoomEvent(roomId, event);
             });
@@ -4733,7 +4803,10 @@ export class MatrixBridge {
          * releases it (the redelivery re-enters the typed path) and propagates for the 500.
          */
         await this.executeTypedForClaim(verdict.claimKey, async () => {
-          if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
+          if ([FLEET_PROBE_EVENT, FLEET_REQUEST_EVENT].includes(event.type)
+            && await this.fleetProtocolForBridge().recordEvent({ sideId, registration: meta?.provenance?.registration,
+            event, mode: meta?.mode })) return;
+          if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event, meta);
           if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
           else await this.onRoomEvent(roomId, event);
         });
@@ -4772,7 +4845,7 @@ export class MatrixBridge {
    * around them. An invite for anyone else (an agent, a human, the bot) is left to the paths that own
    * those.
    */
-  async onAppserviceMembership(sideId, roomId, event) {
+  async onAppserviceMembership(sideId, roomId, event, meta = {}) {
     const membership = event?.content?.membership;
     if (membership !== 'invite') return;
     const acting = this.actingSideFor(sideId);
@@ -4858,9 +4931,16 @@ export class MatrixBridge {
        * surfaced to the operator as "the join failed", which is the opposite of what happened.
        */
       try {
-        await this.backfillJoinedRoomOnSide(sideId, roomId, representative);
+        if (meta.provenance) {
+          await this.backfillJoinedRoomOnSide(sideId, roomId, representative, {
+            provenance: meta.provenance, representativeSync: meta.representativeSync === true,
+          });
+        } else {
+          await this.backfillJoinedRoomOnSide(sideId, roomId, representative);
+        }
       } catch (error) {
         console.warn(`[appservice] ${sideId}: join backfill failed for ${roomId}: ${error?.message || error}`);
+        if (meta.provenance) throw error;
       }
     } catch (error) {
       /*
@@ -4945,6 +5025,99 @@ export class MatrixBridge {
     const gone = [...(this.actingCredentials?.keys() ?? [])].filter((sideId) => !next.has(sideId));
     this.actingCredentials = next;
     if (gone.length) this.forgetRoomsOnSides(gone);
+    if (this.representativeIntakeReady) this.refreshRepresentativeCollectors();
+    if (this.directChats) {
+      try { await this.refreshDirectChats(); }
+      catch (error) { this.postWarning(`Private chat refresh awaits backend recovery: ${error.message}`, { kind: 'agent-direct-chat' }); }
+    }
+  }
+
+  async refreshDirectChats() {
+    const payload = await this.callBackendApi('GET', '/api/matrix/direct-agents');
+    if (!Array.isArray(payload.agents)) throw new Error('direct agent roster unavailable');
+    const senders = payload.agents.map(name => this.agentSenderFor(name)).filter(sender => sender?.kind === 'appservice');
+    await this.directChats.refresh(senders);
+  }
+
+  /** Keep one ordinary-token collector per verified representative generation. */
+  refreshRepresentativeCollectors() {
+    this.representativeCollectors ??= new Map();
+    const next = new Map([...(this.actingCredentials ?? new Map())].filter(([, row]) =>
+      row.kind === 'registrationToken' && row.representativeToken && row.registration
+      && /^@[^:\s]+:[^\s]+$/.test(row.representative?.mxid || '')));
+    this.representativeInboundSnapshot = next;
+    for (const [sideId, entry] of this.representativeCollectors) {
+      const row = next.get(sideId);
+      if (!row || row.registration !== entry.registration || row.apiBaseUrl !== entry.baseUrl
+          || row.representative.mxid !== entry.mxid) {
+        entry.collector.stop();
+        this.representativeCollectors.delete(sideId);
+      }
+    }
+    for (const [sideId, row] of next) {
+      if (this.representativeCollectors.has(sideId)) continue;
+      state.representativeSync ??= {};
+      let stored = state.representativeSync[sideId];
+      if (stored?.registration !== row.registration) {
+        stored = state.representativeSync[sideId] = { registration: row.registration, cursor: null, pending: {} };
+        saveState();
+      }
+      const start = this.startRepresentativeCollector ?? startRepresentativeSyncCollector;
+      const collector = start({
+        side: sideId, baseUrl: row.apiBaseUrl, accessToken: row.representativeToken, registration: row.registration,
+        representativeMxid: row.representative.mxid,
+        shouldContinue: () => this.representativeInboundSnapshot?.get(sideId)?.registration === row.registration,
+        onEvents: (events, meta) => this.handleAppserviceEvents(sideId, events, { ...meta, representativeSync: true }),
+        readCursor: () => stored.cursor,
+        writeCursor: async cursor => { stored.cursor = cursor; saveState(); },
+        readPendingReconcile: () => Object.keys(stored.pending ?? {}),
+        writePendingReconcile: async (roomId, verdict, detail) => {
+          stored.pending ??= {};
+          if (verdict === 'cleared') delete stored.pending[roomId];
+          else if (!stored.pending[roomId]) stored.pending[roomId] = {
+            from: detail?.from ?? null, knownEventIds: [...(stored.observed?.[roomId] ?? [])],
+          };
+          saveState();
+        },
+        onObservedTimeline: async events => {
+          stored.observed ??= {};
+          for (const event of events) {
+            if (!event.room_id || !event.event_id) continue;
+            const previous = stored.observed[event.room_id] ?? [];
+            stored.observed[event.room_id] = [...new Set([...previous, event.event_id])].slice(-512);
+          }
+          saveState();
+        },
+        onReconcile: roomId => reconcileRepresentativeTimeline({
+          ...stored.pending[roomId],
+          readPage: from => {
+            const acting = this.actingSideFor(sideId);
+            if (acting?.credential?.registration !== row.registration) throw new Error('sync gap credential generation changed');
+            return roomMessagesOnSide({ ...acting, roomId, from, dir: 'b', limit: MATRIX_JOIN_BACKFILL_LIMIT });
+          },
+          onEvents: events => this.handleAppserviceEvents(sideId, events.map(event => ({ ...event, room_id: roomId })), {
+            provenance: buildSideProvenance({ sideId, registration: row.registration, mode: 'sync' }),
+            representativeSync: true, txnId: 'gap-reconcile',
+          }),
+        }),
+        onLeaves: roomIds => sweepLeftRoomsOnSides(sideId, roomIds),
+        onReconcileBlocked: (roomId, reason) => {
+          stored.pending[roomId].blockedReason = reason;
+          saveState();
+          this.postWarning(`representative sync gap recovery is blocked for side ${sideId} in ${roomId}: ${reason}. `
+            + 'The gap remains recorded; no historical events were guessed or replayed. Restarting intake retries recovery.',
+          { kind: 'representative_sync_gap', scope: `${sideId}:${roomId}` });
+        },
+        onCircuitBreak: detail => this.postWarning(
+          `representative sync intake circuit-broke for side ${sideId} after ${detail.attempts} failed deliveries; cursor remains held`,
+          { kind: 'representative_sync', scope: `side:${sideId}` },
+        ),
+      });
+      this.representativeCollectors.set(sideId, {
+        registration: row.registration, baseUrl: row.apiBaseUrl, mxid: row.representative.mxid, collector,
+      });
+      console.log(`[representative-sync] collecting side ${sideId} as its recorded representative`);
+    }
   }
 
   /**
@@ -4980,6 +5153,7 @@ export class MatrixBridge {
     for (const roomId of Object.keys(state.trustedManagedRooms || {})) {
       if (!onGoneSide(roomId)) continue;
       delete state.trustedManagedRooms[roomId];
+      delete state.roomAgentBindings?.[roomId];
       dropped.trustedManagedRooms += 1;
     }
     for (const [group, roomId] of Object.entries(state.groupRoomMap || {})) {
@@ -5020,7 +5194,7 @@ export class MatrixBridge {
     const row = this.actingCredentials?.get(String(serverNameValue || '').toLowerCase());
     if (!row) return null;
     return {
-      side: { apiBaseUrl: row.apiBaseUrl, serverName: row.serverName, representative: row.representative },
+      side: { id: row.sideId, apiBaseUrl: row.apiBaseUrl, serverName: row.serverName, representative: row.representative },
       credential: row.kind === 'appservice'
         ? {
           kind: 'appservice', asToken: row.asToken, senderLocalpart: row.senderLocalpart,
@@ -5032,7 +5206,8 @@ export class MatrixBridge {
            */
           registration: row.registration ?? null,
         }
-        : { kind: 'registrationToken', representativeToken: row.representativeToken, registrationToken: null },
+        : { kind: 'registrationToken', representativeToken: row.representativeToken, registrationToken: null,
+          registration: row.registration ?? null },
     };
   }
 
@@ -5112,6 +5287,47 @@ export class MatrixBridge {
    * reset a deduplication window — which matters because this runs on a timer and a refresh landing
    * between a transaction and its retry would otherwise double-deliver it.
    */
+  fleetProtocolForBridge() {
+    if (this.fleetProtocol) return this.fleetProtocol;
+    this.fleetProtocol = createFleetProtocol({
+      load: () => state.fleetProtocol ?? {},
+      save: next => {
+        const previous = state.fleetProtocol;
+        state.fleetProtocol = next;
+        try { saveState(); } catch (error) { state.fleetProtocol = previous; throw error; }
+      },
+      sideFor: sideId => {
+        const snapshot = this.appserviceInboundSnapshot?.get(normalizeSideKey(sideId));
+        const acting = this.actingSideFor(sideId);
+        if (!snapshot || acting?.credential?.kind !== 'appservice'
+          || acting.credential.registration !== snapshot.registration) return null;
+        return { ...snapshot, representativeMxid: snapshot.representative?.mxid,
+          credential: acting.credential };
+      },
+      approvalBotMxid: () => this.botUserId || null,
+      backend: async body => {
+        const result = await this.callBackendApi('POST', '/api/fleet-control', body, 'context=fleet-protocol');
+        if (result.ok === false) throw Object.assign(new Error(result.error), { code: result.code, status: result.status ?? 409 });
+        return result;
+      },
+      readRoom: async (side, roomId, suffix, options = {}) => {
+        const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/${suffix}`;
+        if (options.privateOwner) {
+          if (!this.botClient) throw new Error('private approval bot unavailable');
+          return this.botClient.doRequest('GET', endpoint);
+        }
+        const url = new URL(`${String(side.apiBaseUrl).replace(/\/+$/, '')}${endpoint}`);
+        url.searchParams.set('user_id', side.representativeMxid);
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${side.credential.asToken}` },
+          signal: AbortSignal.timeout(15_000) });
+        if (options.optional && response.status === 404) return null;
+        if (!response.ok) throw new Error(`Matrix authority read failed (${response.status})`);
+        return response.json();
+      },
+    });
+    return this.fleetProtocol;
+  }
+
   async refreshAppserviceSides() {
     if (!this.appserviceRouter) return;
     let payload;
@@ -5177,6 +5393,8 @@ export class MatrixBridge {
     this.appserviceRouter.setSides(wirable.map((side) => ({
       sideId: normalizeSideKey(side.sideId),
       hsToken: side.hsToken,
+      onFleetRequest: request => this.fleetProtocolForBridge().handle({ ...request,
+        sideId: side.sideId, registration: side.registration }),
       onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, {
         ...meta,
         /*
@@ -5192,7 +5410,9 @@ export class MatrixBridge {
           mode: meta?.mode ?? 'push',
         }),
       }),
-      onUserQuery: async (userId) => Boolean(findCaseInsensitiveKey(state.agentTokens || {}, String(userId))) || String(userId).startsWith(`@${AGENT_PREFIX}`),
+      onUserQuery: async (userId) => Boolean(findCaseInsensitiveKey(state.agentTokens || {}, String(userId)))
+        || Boolean(agentNameFromUserId(userId, this)
+          && String(userId).slice(String(userId).indexOf(':') + 1).toLowerCase() === side.serverName.toLowerCase()),
     })));
     const ids = this.appserviceRouter.sideIds();
     console.log(`[appservice] serving ${ids.length} project side(s)${ids.length ? `: ${ids.join(', ')}` : ''}`);
@@ -5206,6 +5426,8 @@ export class MatrixBridge {
    * reason is logged rather than hidden so `doctor`-style questions have an answer.
    */
   async startAppserviceIntake() {
+    this.representativeIntakeReady = true;
+    this.refreshRepresentativeCollectors?.();
     /*
      * TWO WAYS IN, and a deployment may use either, both, or neither.
      *
@@ -5434,6 +5656,10 @@ export class MatrixBridge {
         if (canonicalName && !this.getAgentToken(canonicalName)) {
           await this.ensureAgentToken(canonicalName, 'registration_poll');
         }
+        if (canonicalName) {
+          try { await this.reconcileAgentProfile(canonicalName); }
+          catch (error) { console.warn(`[profile] ${canonicalName}: ${error.message}`); }
+        }
         if (!wasKnown) {
           console.log(`Discovered new agent: ${agentName}`);
         }
@@ -5474,7 +5700,72 @@ export class MatrixBridge {
     };
   }
 
+  async reconcileAgentProfile(agentName) {
+    this.agentProfileCheckedAt ??= new Map();
+    if (Date.now() - (this.agentProfileCheckedAt.get(agentName) || 0) < 300_000) return;
+    const info = await this.callBackendApi('GET', `/api/agents/${encodeURIComponent(agentName)}`);
+    const displayName = info?.displayName || info?.projectAgentDefinition?.name;
+    if (!displayName) return;
+    const sender = this.agentSenderFor(agentName);
+    if (!sender) return;
+    const mxid = sender.kind === 'appservice' ? sender.agentUserId : this.getAgentCredential(agentName)?.mxid;
+    if (!mxid) return;
+    if (info.matrixIdentity?.mxid && info.matrixIdentity.mxid !== mxid) throw new Error('profile identity differs from provisioned Matrix identity');
+    if (sender.kind === 'appservice' && !namespaceAdmits(sender.credential.namespace, mxid)) throw new Error('profile identity is outside registered namespace');
+    await reconcileAgentDisplayName({ agentName, displayName, mxid,
+      baseUrl: sender.kind === 'appservice' ? sender.side.apiBaseUrl : baseUrlForToken(sender.token),
+      token: sender.kind === 'appservice' ? sender.credential.asToken : sender.token,
+      asUserId: sender.kind === 'appservice' ? mxid : null });
+    this.agentProfileCheckedAt.set(agentName, Date.now());
+  }
+
+  async fileRoomContext(agentName, roomId, content) {
+    const sender = this.agentSenderFor(agentName, roomId);
+    if (!sender) throw new MatrixFileError('file_sender_unavailable', 'Agent sender is unavailable');
+    const entry = this.directChats?.entryForRoom(roomId, agentName);
+    let client;
+    if (entry) {
+      await this.directChats.verify(entry, entry.rooms[roomId]);
+      this.directChats.assertReplyScope(entry, roomId, content);
+      client = entry.client;
+    } else {
+      const mxid = sender.agentUserId || this.getAgentCredential(agentName)?.mxid;
+      const room = await this.refreshRepresentativeRoomBindings(roomId, mxid);
+      if (!room?.agents?.has(agentName) || room.rejected) throw new MatrixFileError('file_room_not_admitted', 'Agent is not admitted to this room');
+      client = this.directChats?.clients.get(mxid)?.client;
+      if (!client && sender.kind === 'token') client = new MatrixClient(baseUrlForToken(sender.token), sender.token);
+      if (!client) throw new Error('Agent media device is not ready');
+    }
+    const state = await client.getRoomState(roomId);
+    return { sender, client, encrypted: encryptedRoom(state), invited: Boolean(entry) };
+  }
+
+  async deliverRouterFile(command) {
+    const relation = command.threadRootEventId ? this.routerThreadRelation(command.threadRootEventId) : null;
+    let content = command.file.preparedContent;
+    let context = await this.fileRoomContext(command.senderAgentName, command.roomId,
+      content || (relation ? { 'm.relates_to': relation } : {}));
+    if (!content) {
+      content = await prepareMatrixFile({ file: command.file, caption: command.body, relation,
+        encrypted: context.encrypted, crypto: context.client.crypto,
+        upload: (bytes, mime) => context.client.uploadContent(bytes, mime) });
+      const prepared = await this.callBackendApi('POST', `/api/router/reply-outbox/${encodeURIComponent(command.commandId)}/prepared-file`,
+        { claim_token: command.claimToken, content });
+      if (!prepared?.ok || !prepared.content) throw new Error('Uploaded file was not durably prepared');
+      content = prepared.content;
+    }
+    context = await this.fileRoomContext(command.senderAgentName, command.roomId, content);
+    if (context.encrypted !== Boolean(content.file)) throw new MatrixFileError('file_encryption_changed', 'Room encryption changed; resend the file');
+    const eventId = context.encrypted && !context.invited
+      ? await sendDirectEvent(context.client, command.roomId, content, command.transactionId)
+      : await this.sendAsAgentContent(context.sender, command.roomId, content, null, { transactionId: command.transactionId, throwOnFailure: true });
+    if (!eventId) throw new Error('Matrix file send returned no event id');
+    await this.callBackendApi('POST', `/api/router/reply-outbox/${encodeURIComponent(command.commandId)}/delivered`,
+      { claim_token: command.claimToken, event_id: eventId });
+  }
+
   async deliverRouterCommand(kind, command) {
+    if (command.file) return this.deliverRouterFile(command);
     const agentName = this.normalizeName(command?.senderAgentName);
     if (!agentName) throw new Error('router command has no valid sender agent');
     let token = this.getAgentToken(agentName);
@@ -5485,8 +5776,8 @@ export class MatrixBridge {
     const root = typeof command.threadRootEventId === 'string' && command.threadRootEventId.trim()
       ? command.threadRootEventId.trim()
       : null;
-    const content = { msgtype: 'm.text', body: String(command.body || '') };
-    if (root) content['m.relates_to'] = this.routerThreadRelation(root);
+    const content = command.activity ? matrixActivityContent(command, root ? this.routerThreadRelation(root) : null)
+      : { msgtype: 'm.text', body: String(command.body || ''), ...(root ? { 'm.relates_to': this.routerThreadRelation(root) } : {}) };
     const eventId = await this.sendAsAgentContent(token, command.roomId, content, null, {
       transactionId: command.transactionId,
       throwOnFailure: true,
@@ -5501,6 +5792,7 @@ export class MatrixBridge {
   }
 
   isPermanentRouterMatrixFailure(error) {
+    if (error?.permanent === true) return true;
     const text = String(error?.message || error);
     return /M_FORBIDDEN|M_BAD_JSON|M_NOT_FOUND|HTTP 40[013456789]\b/i.test(text);
   }
@@ -5521,7 +5813,7 @@ export class MatrixBridge {
         await this.callBackendApi(
           'POST',
           `/api/router/${kind}-outbox/${encodeURIComponent(command.commandId)}/failed`,
-          { claim_token: command.claimToken, error_code: 'matrix_permanent_rejection' },
+          { claim_token: command.claimToken, error_code: error?.code || 'matrix_permanent_rejection' },
           `context=router-${kind}-failure`,
         );
       } else {
@@ -5607,7 +5899,7 @@ export class MatrixBridge {
       const name = match[1];
 
       // Skip agents, bot, system accounts, underscore-prefixed
-      if (name.startsWith(AGENT_PREFIX)) continue;
+      if (isAgentUser(user.user_id, this)) continue;
       if (name.startsWith('_')) continue;
       if (SKIP_USERS.has(name)) continue;
 
@@ -5835,6 +6127,15 @@ export class MatrixBridge {
    * side we hold an acting credential for, the representative is who speaks there. Falls back to the bot for
    * our own rooms, which is every other caller of this.
    */
+  /** Read the label with the identity already admitted to this trusted room. */
+  async roomNameOf(roomId) {
+    const sideId = state.trustedManagedRooms?.[roomId]?.side;
+    const acting = sideId ? this.actingSideFor(sideId) : null;
+    if (acting) return roomNameOnSide({ ...acting, roomId });
+    const content = await this.botClient?.getRoomStateEvent?.(roomId, 'm.room.name', '');
+    return typeof content?.name === 'string' ? content.name : null;
+  }
+
   /**
    * Who is joined to a room, asked of whichever identity can see it.
    *
@@ -5875,16 +6176,14 @@ export class MatrixBridge {
   async sayInRoom(roomId, content, { txnSeed = null } = {}) {
     const at = String(roomId || '').indexOf(':');
     const server = at > 0 ? String(roomId).slice(at + 1).toLowerCase() : '';
-    /*
-     * A SEED THAT IS STABLE PER ANSWER, not per clock tick. `sendToRoomOnSide` deduplicates on a
-     * transaction id derived from this, so a retry after a timeout must reuse it or the customer gets the
-     * answer twice.
-     */
+    // Durable callers supply the input/work identity for retry deduplication.
+    // An unkeyed call is a new send: identical text is not evidence of a retry.
+    const sendSeed = txnSeed || `say:${roomId}:${randomUUID()}`;
     const asRepresentative = () => sendToRoomOnSide({
       ...this.actingSideFor(server),
       roomId,
       content,
-      txnSeed: txnSeed || `say:${roomId}:${content?.body ?? ''}`,
+      txnSeed: sendSeed,
     });
 
     // A room on somebody else's server is the representative's territory outright.
@@ -6179,7 +6478,217 @@ export class MatrixBridge {
     }
   }
 
+  /** Backend admission owns these bindings; the representative only proves reachability. */
+  async refreshRepresentativeRoomBindings(roomId, senderId) {
+    const meta = state.trustedManagedRooms?.[roomId];
+    if (!meta?.side || meta.approvalDm || meta.dm || meta.botDm) return null;
+    const acting = this.actingSideFor(meta.side);
+    const representative = acting?.side?.representative?.mxid;
+    if (!representative) throw new Error('project representative identity is unavailable');
+    const membership = await joinedMembersOnSide({ ...acting, roomId });
+    if (!membership.known) throw new Error(membership.reason || 'project membership is unavailable');
+    if (!membership.members.includes(representative) || !membership.members.includes(senderId)) {
+      return { rejected: 'project_sender_or_representative_not_joined' };
+    }
+    const payload = await this.callBackendApi('GET', `/api/approval-bindings?project=${encodeURIComponent(roomId)}`);
+    if (!Array.isArray(payload?.bindings)) throw new Error('project approval bindings are unavailable');
+    const candidates = new Map();
+    const identities = new Map();
+    const conflicts = new Set();
+    for (const binding of payload.bindings) {
+      if (binding?.active === false || binding?.projectRoomId !== roomId) continue;
+      const agent = this.resolveKnownAgentName(binding.agent);
+      let mxid = agent && this.getAgentCredential(agent)?.mxid;
+      if (agent && acting.credential.kind === 'appservice') {
+        // AS agents have no per-agent credential. Select the actual joined identity
+        // from the namespace we own, rather than requiring a nonexistent token row.
+        const joinedIdentities = membership.members.filter(member =>
+          member.slice(member.indexOf(':') + 1).toLowerCase() === acting.side.serverName.toLowerCase()
+          && namespaceAdmits(acting.credential.namespace, member) === true
+          && this.sameName(agentNameFromUserId(member, this), agent));
+        mxid = joinedIdentities.length === 1 ? joinedIdentities[0] : null;
+      }
+      if (!agent || !mxid || !membership.members.includes(mxid)
+          || !/^@[^:\s]+:[^\s]+$/.test(binding.ownerMxid || '')
+          || isAgentUser(binding.ownerMxid, this) || binding.ownerMxid === representative
+          || !/^![^:\s]+:\S+$/.test(binding.ownerDmRoomId || '')) continue;
+      const existing = candidates.get(agent);
+      if (existing && (existing.ownerMxid !== binding.ownerMxid || existing.ownerDmRoomId !== binding.ownerDmRoomId)) {
+        conflicts.add(agent);
+      }
+      candidates.set(agent, binding);
+      identities.set(agent, mxid);
+    }
+    const accepted = new Set();
+    for (const [agent, binding] of candidates) {
+      if (conflicts.has(agent)) continue;
+      const stored = upsertRoomAgentBinding(roomId, agent, binding.ownerMxid, { approvalDmRoomId: binding.ownerDmRoomId });
+      if (stored) {
+        stored.binding.source = 'backend_admission';
+        accepted.add(agent);
+      }
+    }
+    for (const [agent, binding] of roomAgentBindingEntries(roomId)) {
+      if (binding.source === 'backend_admission' && !accepted.has(agent)) delete state.roomAgentBindings[roomId][agent];
+    }
+    saveState();
+    return { agents: accepted, agentMxids: identities, members: membership.members, representative };
+  }
+
+  isAgentActivity(event, roomId) {
+    if (!isMatrixActivity(event, true)) return false;
+    const name = agentNameFromUserId(event.sender, this);
+    if (!name || !this.isKnownAgentName(name)) return false;
+    const sender = this.agentSenderFor(name, roomId);
+    const mxid = sender?.kind === 'appservice' ? sender.agentUserId : this.getAgentCredential(name)?.mxid;
+    return isMatrixActivity(event, event.sender === mxid);
+  }
+
+  async archiveConversationEvent(roomId, event, parsed) {
+    let attachment;
+    if (['m.image', 'm.file'].includes(event.content?.msgtype)) {
+      let access;
+      for (const entry of this.directChats?.entriesForRoom(roomId) || []) {
+        try {
+          await this.directChats.verify(entry, entry.rooms[roomId]);
+          access = { baseUrl: entry.client.homeserverUrl, token: entry.client.accessToken };
+          break;
+        } catch (error) { if (!/403|not_authorized|not joined/.test(error.message)) throw error; }
+      }
+      if (!access) {
+        const acting = this.actingSideFor(state.trustedManagedRooms?.[roomId]?.side);
+        if (!acting) throw new Error('attachment room credential unavailable');
+        access = { baseUrl: acting.side.apiBaseUrl,
+          token: acting.credential.kind === 'appservice' ? acting.credential.asToken : acting.credential.representativeToken,
+          asUserId: acting.credential.kind === 'appservice' ? acting.side.representative.mxid : null };
+      }
+      try { attachment = await receiveMatrixFile({ ...access, content: event.content, directory: MEDIA_DIR }); }
+      catch (error) {
+        if (!error.permanent) throw error;
+        attachment = { name: String(event.content.filename || event.content.body || 'attachment').slice(0, 240),
+          errorCode: error.code, error: error.message };
+      }
+    }
+    return this.callBackendApi('POST', '/api/matrix/conversations/events', {
+      roomId, eventId: event.event_id, senderMxid: event.sender, body: parsed.body,
+      timestamp: Number.isSafeInteger(event.origin_server_ts) ? event.origin_server_ts : Date.now(),
+      threadRoot: parsed.threadRootEventId || null, ...(attachment ? { attachment } : {}),
+    });
+  }
+
+  async archiveProjectDiscussion(roomId, room) {
+    this.discussionBackfills ??= new Map();
+    if (this.discussionBackfills.has(roomId)) return this.discussionBackfills.get(roomId);
+    const backfill = (async () => {
+      const acting = this.actingSideFor(state.trustedManagedRooms?.[roomId]?.side);
+      if (!acting) throw new Error('discussion history credential unavailable');
+      const collected = []; let from = null; const cursors = new Set();
+      do {
+        const history = await roomMessagesOnSide({ ...acting, roomId, from, limit: 100 });
+        if (!history.known) throw new Error(history.reason || 'discussion history unavailable');
+        collected.push(...history.chunk);
+        if (!history.chunk.length || !history.end) break;
+        if (cursors.has(history.end)) throw new Error('discussion history pagination repeated a cursor');
+        cursors.add(history.end); from = history.end;
+      } while (from);
+      for (const event of collected.reverse()) {
+        if (event.type !== 'm.room.message') continue;
+        if (this.isAgentActivity(event, roomId)) continue;
+        const parsed = parseInboundTextMessage(event.content);
+        if (parsed.skip || !event.event_id) continue;
+        await this.archiveConversationEvent(roomId, event, parsed);
+      }
+    })();
+    this.discussionBackfills.set(roomId, backfill);
+    try { await backfill; } catch (error) { this.discussionBackfills.delete(roomId); throw error; }
+  }
+
+  async onInvitedAgentRoomMessage(roomId, event) {
+    if (this.isAgentActivity(event, roomId)) return { ignored: true, reason: 'agent_activity' };
+    const parsed = parseInboundTextMessage(event.content);
+    if (parsed.skip || !event.event_id) return;
+    const entries = this.directChats.entriesForRoom(roomId);
+    if (!entries.length) return;
+    let first;
+    for (const entry of entries) {
+      try { first = await this.directChats.verify(entry, entry.rooms[roomId]); break; }
+      catch (error) { if (!/403|not_authorized|not joined/.test(error.message)) throw error; }
+    }
+    if (!first) return { ignored: true, reason: 'room_has_no_active_agent' };
+    if (!first.members.includes(event.sender)) return { ignored: true, reason: 'room_sender_not_joined' };
+    const senderIsAgent = isAgentUser(event.sender, this);
+    const knownMentions = parseMentions(event.content, parsed.body, this, roomId)
+      .map(name => this.resolveKnownAgentName(name)).filter(Boolean);
+    const recipients = [];
+    for (const entry of entries) {
+      if (!first.members.includes(entry.sender.agentUserId)) continue;
+      try {
+        const current = await this.directChats.verify(entry, entry.rooms[roomId], senderIsAgent ? null : event.sender);
+        if (!senderIsAgent && (current.mode === 'direct' || knownMentions.includes(entry.sender.agentName))) recipients.push(entry.sender.agentName);
+      } catch (error) {
+        if (!/403|not_authorized|not joined/.test(error.message)) throw error;
+      }
+    }
+    // An addressed Agent may still be accepting its invite. Let its device's
+    // backfill retry this event instead of permanently consuming half the targets.
+    if (knownMentions.some(name => !entries.some(e => e.sender.agentName === name)
+      && first.members.some(mxid => agentNameFromUserId(mxid, this) === name))) throw new Error('room Agent invitation is still being admitted');
+    try {
+      await this.archiveConversationEvent(roomId, event, parsed);
+    } catch (error) { if (/403/.test(error.message)) return { ignored: true, reason: 'room_sender_not_authorized' }; throw error; }
+    let body = parsed.body;
+    if (!senderIsAgent && ['m.image', 'm.file'].includes(event.content?.msgtype)) {
+      body = `${body}\nAttachment event: ${event.event_id}. Use receive_file(event_id) to read it.`;
+    }
+    let cmdBody = body.trim();
+    if (!cmdBody.startsWith('!') && /^<a\s+href="https:\/\/matrix\.to\/#\/@[^"]+">.*?<\/a>\s*:\s*!/i.test(event.content?.formatted_body || '')) {
+      const cmdIdx = cmdBody.indexOf('!');
+      if (cmdIdx > 0) cmdBody = cmdBody.slice(cmdIdx).trim();
+    }
+    if (!senderIsAgent && !['m.file', 'm.image'].includes(event.content?.msgtype) && cmdBody.startsWith('!')) {
+      await this.commands.handle(roomId, event.sender, cmdBody, { groupName: null,
+        targetAgent: recipients.length === 1 ? recipients[0] : null, approvalRoom: false, eventId: event.event_id });
+      this.rememberMatrixEvent(event.event_id);
+      return;
+    }
+    if (!recipients.length) return { ignored: true, reason: senderIsAgent ? 'agent_background' : 'group_unaddressed' };
+    const result = await this.submitHumanMessage(roomId, {
+      from: humanNameFromUserId(event.sender), to: recipients[0], target_type: 'agent', type: 'human',
+      summary: body, full: '', mentions: first.mode === 'direct' ? [] : recipients, room_agent_targets: recipients,
+      source: 'matrix', source_room: roomId, source_event_id: event.event_id, sender_mxid: event.sender,
+      ...(parsed.threadRootEventId ? { thread_root_event_id: parsed.threadRootEventId } : {}),
+    });
+    if (!result?.id) throw new Error('backend Matrix acceptance did not return a message id');
+    this.checkpointMatrixEvent(event.event_id, result.id);
+    for (const name of recipients) this.beginAgentWork(name, roomId, event.event_id);
+    return result;
+  }
+
   async _onRoomMessageClaimed(roomId, event, eventId) {
+    if (this.isAgentActivity(event, roomId)) return { ignored: true, reason: 'agent_activity' };
+    if (state.trustedManagedRooms?.[roomId]?.directChat && this.directChats?.entryForRoom(roomId)) {
+      return this.onInvitedAgentRoomMessage(roomId, event);
+    }
+    // The representative's own receipts can contain full agent addresses and
+    // command examples. They are fleet output, not new borrower instructions.
+    const roomOrigin = typeof roomId === 'string' && roomId.includes(':')
+      ? roomId.slice(roomId.indexOf(':') + 1).toLowerCase() : null;
+    const representative = roomOrigin && this.actingSideFor?.(roomOrigin)?.side?.representative?.mxid;
+    // Agent/public service replies are discussion context too, but can never
+    // trigger another agent. Archive them before the existing loop-prevention
+    // returns, and only through the same admitted project membership gate.
+    if (eventId && (event.sender === representative || isAgentUser(event.sender, this))
+      && state.trustedManagedRooms?.[roomId]?.side && getRoomTrust(roomId).trusted) {
+      const room = await this.refreshRepresentativeRoomBindings(roomId, event.sender);
+      const parsed = parseInboundTextMessage(event.content);
+      if (room?.agents?.size && !room.rejected && !parsed.skip) {
+        await this.archiveProjectDiscussion(roomId, room);
+        await this.archiveConversationEvent(roomId, event, parsed);
+      }
+    }
+    if (representative && event.sender === representative) {
+      return { ignored: true, reason: 'representative_message' };
+    }
     const agentOpsControl = parseAgentOpsClientControlEvent(roomId, event);
     if (agentOpsControl) {
       if (agentOpsControl.invalid || !agentOpsClientFeatureEnabled()) {
@@ -6200,7 +6709,7 @@ export class MatrixBridge {
     const senderId = event.sender;
 
     // Ignore messages from our agent accounts (prevent loops)
-    if (isAgentUser(senderId)) return;
+    if (isAgentUser(senderId, this)) return;
     if (senderId === this.botUserId) return;
     if (MATRIX_IGNORED_SENDER_MXIDS.has(senderId)) return;
 
@@ -6210,17 +6719,34 @@ export class MatrixBridge {
       roomTrustLog('message-ingress', roomId, msgTrust, `sender=${senderId}`);
       if (MATRIX_TRUST_MODE === 'enforce') return;
     }
+    const representativeRoom = await this.refreshRepresentativeRoomBindings?.(roomId, senderId);
+    if (representativeRoom?.rejected) {
+      this.rememberMatrixEvent(eventId);
+      return { ignored: true, reason: representativeRoom.rejected };
+    }
+    const directMeta = state.trustedManagedRooms?.[roomId]?.directChat ? state.trustedManagedRooms[roomId] : null;
+    if (directMeta) {
+      const entry = this.directChats?.entryForRoom(roomId);
+      if (!entry || senderId !== directMeta.humanMxid) return { ignored: true, reason: 'direct_sender_not_admitted' };
+      await this.directChats.verify(entry, entry.rooms[roomId]);
+    }
+    if ((representativeRoom?.agents?.size || directMeta) && eventId) {
+      if (representativeRoom?.agents?.size) await this.archiveProjectDiscussion(roomId, representativeRoom);
+      await this.archiveConversationEvent(roomId, event, parsed);
+    }
 
-    const groupName = groupForRoom(roomId);
+    const groupName = directMeta ? null : groupForRoom(roomId);
     const humanName = humanNameFromUserId(senderId);
     let body = parsed.body;
     if (event.content?.msgtype === 'm.image' || event.content?.msgtype === 'm.file') {
-      const localPath = await this.cacheInboundMediaToLocal(event.content);
-      if (localPath) {
-        body = `${body}\nLocalPath: ${localPath}`;
+      if (representativeRoom?.agents?.size || directMeta) {
+        body = `${body}\nAttachment event: ${event.event_id}. Use receive_file(event_id) to read it.`;
+      } else {
+        const localPath = await this.cacheInboundMediaToLocal(event.content);
+        if (localPath) body = `${body}\nLocalPath: ${localPath}`;
       }
     }
-    const mentions = parseMentions(event.content, body);
+    const mentions = parseMentions(event.content, body, this, roomId);
     const replyTo = this.resolveReplyToMessageId(parsed.replyEventId);
     let effectiveMentions = [...new Set(mentions
       // Matrix rooms may also contain Octos or other external bot pills.
@@ -6228,7 +6754,7 @@ export class MatrixBridge {
       .map(name => this.resolveKnownAgentName(name))
       .filter(Boolean))];
 
-    if (groupName && replyTo) {
+    if (groupName && replyTo && !representativeRoom) {
       const inferred = await this.inferReplyMention({
         groupName,
         humanName,
@@ -6242,7 +6768,7 @@ export class MatrixBridge {
     }
 
     // Check if this is a DM room (bot-DM or agent-DM)
-    let targetAgent = null;
+    let targetAgent = directMeta?.agent || null;
     let isBotDm = false;
     let agentMembers = [];
     try {
@@ -6251,32 +6777,49 @@ export class MatrixBridge {
        * a member: the read threw, the catch below logged a warning, and the room was classified as a group —
        * so a customer's DM with one agent was treated as a broadcast and reached nobody by name.
        */
-      const membership = await this.joinedMembersOf(roomId);
+      const membership = directMeta ? { known: true, members: [directMeta.humanMxid, this.directChats.entryForRoom(roomId).sender.agentUserId] } : representativeRoom
+        ? { known: true, members: representativeRoom.members }
+        : await this.joinedMembersOf(roomId);
       if (!membership.known) throw new Error(membership.reason || 'membership unreadable');
       const members = membership.members;
-      const nonBot = members.filter(m => m !== this.botUserId);
-      agentMembers = nonBot.filter(m => isAgentUser(m));
-      const humanMembers = nonBot.filter(m => !isAgentUser(m));
+      const nonBot = members.filter(m => m !== this.botUserId && m !== representativeRoom?.representative);
+      agentMembers = nonBot.filter(m => isAgentUser(m, this));
+      const humanMembers = nonBot.filter(m => !isAgentUser(m, this));
 
-      if (agentMembers.length === 1 && humanMembers.length >= 1 && !isAgentUser(senderId)) {
+      if (!representativeRoom && agentMembers.length === 1 && humanMembers.length >= 1 && !isAgentUser(senderId, this)) {
         // 1 agent + 1-2 humans + bot → agent DM
-        targetAgent = agentNameFromUserId(agentMembers[0]);
-      } else if (agentMembers.length === 0 && humanMembers.length === 1) {
+        targetAgent = agentNameFromUserId(agentMembers[0], this);
+      } else if (!representativeRoom && agentMembers.length === 0 && humanMembers.length === 1) {
         // Exactly 1 human + bot in room → bot command DM
         isBotDm = true;
       }
     } catch (e) {
       console.warn(`Failed to inspect room members for ${roomId}: ${e.message}`);
     }
+    if (representativeRoom) {
+      const mentionedMxids = event.content?.['m.mentions']?.user_ids;
+      effectiveMentions = effectiveMentions.filter(name => representativeRoom.agents.has(name)
+        && (!Array.isArray(mentionedMxids) || !mentionedMxids.length
+          || mentionedMxids.includes(representativeRoom.agentMxids.get(name))));
+    }
     if (!targetAgent && state.trustedManagedRooms?.[roomId]) {
       const managedAgents = roomAgentBindingEntries(roomId)
         .map(([agentName]) => this.resolveKnownAgentName(agentName) || this.normalizeName(agentName))
-        .filter(Boolean);
+        .filter(name => name && (!representativeRoom || representativeRoom.agents.has(name)));
       const explicitlyMentioned = managedAgents
         .filter(agentName => effectiveMentions.some(name => this.sameName(name, agentName)));
       if (explicitlyMentioned.length === 1) {
         [targetAgent] = explicitlyMentioned;
-      } else if (!groupName && managedAgents.length > 0) {
+      } else if (representativeRoom && !mentions.length && parsed.threadRootEventId && !body.trim().startsWith('!')) {
+        // ADR-023: project discussion, including ordinary thread replies, is
+        // retained above. Only a mention wakes a worker; direct rooms are the
+        // continuous no-mention conversation surface.
+        this.rememberMatrixEvent(eventId);
+        return { ignored: true, reason: 'managed_thread_unaddressed' };
+      }
+      if (!targetAgent && !groupName && (managedAgents.length > 0 || representativeRoom)
+          && !body.trim().startsWith('!')
+          && !/^<a\s+href="https:\/\/matrix\.to\/#\/@[^"]+">.*?<\/a>\s*:\s*!/i.test(event.content?.formatted_body || '')) {
         // A trusted agent-managed room is not necessarily a DM. Until the bot
         // has joined and mapped the room, fail closed instead of treating every
         // message in a potentially-public project room as direct agent input.
@@ -6300,7 +6843,7 @@ export class MatrixBridge {
         }
       }
     }
-    if (cmdBody.startsWith('!')) {
+    if (!['m.file', 'm.image'].includes(event.content?.msgtype) && cmdBody.startsWith('!')) {
       const context = {
         groupName,
         targetAgent,
@@ -6320,7 +6863,7 @@ export class MatrixBridge {
     const route = resolveInboundRoute({ groupName, targetAgent, isBotDm });
     if (route === 'bot-dm') {
       // Non-command text in bot DM
-      await this.commands.handle(roomId, senderId, body, {});
+      await this.commands.handle(roomId, senderId, body, { eventId });
       /*
        * RECORDED, LIKE ITS THREE SIBLINGS — and it was the one branch that acted without recording.
        *
@@ -6346,7 +6889,7 @@ export class MatrixBridge {
       // recipient behavior with MATRIX_DEFAULT_WAKE=auto.
       let matrixDefaultRecipient = null;
       if (effectiveMentions.length === 0 && matrixDefaultWakeEnabled()) {
-        const defaultRecipient = pickDefaultGroupRecipient(agentMembers, agentNameFromUserId);
+        const defaultRecipient = pickDefaultGroupRecipient(agentMembers, mxid => agentNameFromUserId(mxid, this));
         if (defaultRecipient) {
           effectiveMentions = [defaultRecipient];
           matrixDefaultRecipient = defaultRecipient;
@@ -6449,7 +6992,7 @@ export class MatrixBridge {
       }
       projectRoomId = control.projectRoomId;
     }
-    const expectedMembers = new Set([this.botUserId, control.senderMxid, agentUserId(canonicalAgent)]);
+    const expectedMembers = new Set([this.botUserId, control.senderMxid, agentMxid(canonicalAgent, this)]);
     const joinedMembers = await this.botClient.getJoinedRoomMembers(control.roomId);
     if (joinedMembers.length !== expectedMembers.size || joinedMembers.some((member) => !expectedMembers.has(member))) {
       this.rememberMatrixEvent(control.eventId);
@@ -6571,9 +7114,9 @@ export class MatrixBridge {
             throw membershipUnknownError(roomId, name, membership.reason);
           }
           const joinedMembers = membership.members;
-          const members = joinedMembers.filter(m => isAgentUser(m)).map(m => agentNameFromUserId(m)).filter(Boolean);
+          const members = joinedMembers.filter(m => isAgentUser(m, this)).map(m => agentNameFromUserId(m, this)).filter(Boolean);
           const humanMembers = joinedMembers
-            .filter(m => !isAgentUser(m) && m !== this.botUserId)
+            .filter(m => !isAgentUser(m, this) && m !== this.botUserId)
             .map(m => humanNameFromUserId(m))
             .filter(Boolean);
           this._bridgeCreatedGroups.add(name);
@@ -6605,9 +7148,9 @@ export class MatrixBridge {
             throw membershipUnknownError(roomId, name, membership.reason);
           }
           const joinedMembers = membership.members;
-            const members = joinedMembers.filter(m => isAgentUser(m)).map(m => agentNameFromUserId(m)).filter(Boolean);
+            const members = joinedMembers.filter(m => isAgentUser(m, this)).map(m => agentNameFromUserId(m, this)).filter(Boolean);
             const humanMembers = joinedMembers
-              .filter(m => !isAgentUser(m) && m !== this.botUserId)
+              .filter(m => !isAgentUser(m, this) && m !== this.botUserId)
               .map(m => humanNameFromUserId(m))
               .filter(Boolean);
             this._bridgeCreatedGroups.add(name);
@@ -6675,8 +7218,8 @@ export class MatrixBridge {
       if (this.recentlyCreatedRooms.has(roomId)) return;
 
       let memberName;
-      if (isAgentUser(targetUserId)) {
-        memberName = agentNameFromUserId(targetUserId);
+      if (isAgentUser(targetUserId, this)) {
+        memberName = agentNameFromUserId(targetUserId, this);
       } else if (targetUserId !== this.botUserId) {
         memberName = humanNameFromUserId(targetUserId);
       }
@@ -6855,9 +7398,9 @@ export class MatrixBridge {
         return;
       }
       const joinedMembers = membership.members;
-      const agentMembers = joinedMembers.filter(m => isAgentUser(m)).map(m => agentNameFromUserId(m)).filter(Boolean);
+      const agentMembers = joinedMembers.filter(m => isAgentUser(m, this)).map(m => agentNameFromUserId(m, this)).filter(Boolean);
       const humanMembers = joinedMembers
-        .filter(m => !isAgentUser(m) && m !== this.botUserId)
+        .filter(m => !isAgentUser(m, this) && m !== this.botUserId)
         .map(m => humanNameFromUserId(m))
         .filter(Boolean);
       const matrixMembers = [...new Set([...agentMembers, ...humanMembers].filter(Boolean))];
@@ -6954,9 +7497,9 @@ export class MatrixBridge {
             throw membershipUnknownError(roomId, name, membership.reason);
           }
           const joinedMembers = membership.members;
-        const agentMembers = joinedMembers.filter(m => isAgentUser(m)).map(m => agentNameFromUserId(m)).filter(Boolean);
+        const agentMembers = joinedMembers.filter(m => isAgentUser(m, this)).map(m => agentNameFromUserId(m, this)).filter(Boolean);
         const humanMembers = joinedMembers
-          .filter(m => !isAgentUser(m) && m !== this.botUserId)
+          .filter(m => !isAgentUser(m, this) && m !== this.botUserId)
           .map(m => humanNameFromUserId(m))
           .filter(Boolean);
         this._bridgeCreatedGroups.add(name);
@@ -7145,7 +7688,7 @@ export class MatrixBridge {
            * every later approval fails `owner_binding_missing`. Fixing agentUserId() alone did not
            * help while this copy existed, which is the argument for having one.
            */
-          const expectedStateKey = agentMxid(agentName);
+          const expectedStateKey = agentMxid(agentName, this);
           const inviter = inviteState.find(e => e.type === 'm.room.member' && e.state_key === expectedStateKey)?.sender || null;
           const trust = getRoomTrust(roomId, { inviterMxid: inviter, requireTrustedInviter: true });
           roomTrustLog('agent-invite', roomId, trust, `agent=${agentName} inviter=${inviter}`);
@@ -7228,7 +7771,7 @@ export class MatrixBridge {
              * the agent would join with NO binding and every later approval would fail
              * `owner_binding_missing`. Refusing the trust promotion says so instead.
              */
-            if (trust.trusted && isAgentUser(inviter)) {
+            if (trust.trusted && isAgentUser(inviter, this)) {
               console.warn(
                 `Agent invite poll: refusing to bind ${agentName} in ${roomId} — inviter `
                 + `${inviter} is an agent, not a human owner`,
@@ -7486,10 +8029,11 @@ export class MatrixBridge {
    * than missing it. Both outcomes are logged, because a silently empty backfill is indistinguishable
    * from one that never ran, and that ambiguity has already misled me once on this path.
    */
-  async backfillJoinedRoomOnSide(sideId, roomId, representative) {
+  async backfillJoinedRoomOnSide(sideId, roomId, representative, { provenance = null, representativeSync = false } = {}) {
     const acting = this.actingSideFor(sideId);
     if (!acting || !representative) {
       console.warn(`Join backfill (side) ${roomId}: no acting credential for ${sideId}; routed nothing`);
+      if (provenance) throw new Error('representative backfill credential is unavailable');
       return 0;
     }
     let chunk = [];
@@ -7524,10 +8068,21 @@ export class MatrixBridge {
       console.warn(
         `Join backfill (side) ${roomId}: ${unreadable}; routed nothing rather than guess a boundary`,
       );
+      if (provenance) throw new Error(unreadable);
       return 0;
     }
     const { events: pending, boundary } = pendingJoinBackfill(chunk, { botUserId: representative });
-    const { delivered, alreadySeen } = await this.routeBackfilledEvents(roomId, pending);
+    let delivered = 0;
+    let alreadySeen = 0;
+    if (provenance) {
+      for (const event of pending) {
+        if (this.isDuplicateMatrixEvent(event.event_id)) { alreadySeen += 1; continue; }
+        await this.handleAppserviceEvents(sideId, [{ ...event, room_id: roomId }], { provenance, representativeSync, txnId: 'join-backfill' });
+        delivered += 1;
+      }
+    } else {
+      ({ delivered, alreadySeen } = await this.routeBackfilledEvents(roomId, pending));
+    }
     if (boundary === 'unproven') {
       console.warn(
         `Join backfill (side) ${roomId}: could not locate ${representative}'s invite within `
@@ -7859,7 +8414,7 @@ export class MatrixBridge {
 
   async ensureApprovalDmRoom(agentName, ownerMxid) {
     const canonicalAgent = this.resolveKnownAgentName(agentName) || this.normalizeName(agentName);
-    if (!canonicalAgent || !/^@[^:\s]+:[^\s]+$/.test(ownerMxid) || isAgentUser(ownerMxid)) {
+    if (!canonicalAgent || !/^@[^:\s]+:[^\s]+$/.test(ownerMxid) || isAgentUser(ownerMxid, this)) {
       return { ok: false, ready: false, reason: 'invalid_owner_binding' };
     }
     const baseKey = approvalDmKey(canonicalAgent, ownerMxid);
@@ -7886,7 +8441,7 @@ export class MatrixBridge {
         topic: plaintextTest
           ? 'UNENCRYPTED TEST ONLY. Private UI approval diagnostics; text replies do not authorize execution.'
           : 'Private, UI-only coding-agent approval requests. Text replies do not authorize execution.',
-        invite: [ownerMxid, agentMxid(canonicalAgent)],
+        invite: [ownerMxid, agentMxid(canonicalAgent, this)],
         power_level_content_override: approvalRoomPowerLevels(this.botUserId),
         initial_state: plaintextTest ? [] : [{
           type: 'm.room.encryption',
@@ -7911,7 +8466,7 @@ export class MatrixBridge {
     // Keep the local agent visibly attached to its approval room. The bridge bot
     // remains the E2EE sender and authorization service; the agent token is never
     // used to submit a verdict.
-    const agentRoomMxid = agentMxid(canonicalAgent);
+    const agentRoomMxid = agentMxid(canonicalAgent, this);
     let members = await this.botClient.getJoinedRoomMembers(roomId);
     if (!members.includes(agentRoomMxid)) {
       try { await this.botClient.inviteUser(agentRoomMxid, roomId); } catch {}
@@ -8169,7 +8724,7 @@ export class MatrixBridge {
      * null, and a room-agent binding with no owner is exactly the `owner_binding_missing` dead
      * end this whole change exists to remove — it would look accepted and work for nothing.
      */
-    if (!record.inviter || !/^@[^:\s]+:[^\s]+$/.test(record.inviter) || isAgentUser(record.inviter)) {
+    if (!record.inviter || !/^@[^:\s]+:[^\s]+$/.test(record.inviter) || isAgentUser(record.inviter, this)) {
       return { ok: false, reason: 'invite_names_no_human_inviter' };
     }
     const canonicalAgent = this.resolveKnownAgentName(agentName) || this.normalizeName(agentName);
@@ -8262,11 +8817,12 @@ export class MatrixBridge {
     const meta = state.trustedManagedRooms?.[projectRoomId];
     const stored = findRoomAgentBinding(projectRoomId, agentName);
     if (!meta || meta.approvalDm || !stored) return { ok: false, reason: 'not_agent_project_room' };
+    if (stored.binding.source === 'backend_admission') return { ok: true, reason: 'backend_owned_binding' };
     const canonicalAgent = this.resolveKnownAgentName(stored.agentName) || this.normalizeName(stored.agentName);
     const ownerMxid = typeof stored.binding.ownerMxid === 'string'
       ? stored.binding.ownerMxid
       : stored.binding.inviter;
-    if (!canonicalAgent || !/^@[^:\s]+:[^\s]+$/.test(ownerMxid || '') || isAgentUser(ownerMxid)) {
+    if (!canonicalAgent || !/^@[^:\s]+:[^\s]+$/.test(ownerMxid || '') || isAgentUser(ownerMxid, this)) {
       return { ok: false, reason: 'missing_trusted_owner' };
     }
     const dm = await this.ensureApprovalDmRoom(canonicalAgent, ownerMxid);
@@ -8769,7 +9325,7 @@ export class MatrixBridge {
           });
         } else {
           // Agent without token (ensureAgentAccount may have failed) — use ac_ prefix
-          userId = agentUserId(canonicalAgent || m);
+          userId = agentMxid(canonicalAgent || m, this);
           if (currentMembers.has(userId)) continue;
         }
       } else {
@@ -9261,7 +9817,7 @@ export class MatrixBridge {
     const otherName = agentName === resolvedFromName ? resolvedToName : resolvedFromName;
     const otherIsAgent = agentName === resolvedFromName ? toIsAgent : fromIsAgent;
     const toUserId = otherIsAgent
-      ? agentMxid(otherName)
+      ? agentMxid(otherName, this)
       : humanUserId(otherName);
 
     const invite = [toUserId, this.botUserId];
@@ -9582,7 +10138,7 @@ export class MatrixBridge {
       return false;
     }
     if (!token) return false;
-    const userId = agentMxid(agentName);
+    const userId = agentMxid(agentName, this);
     try {
       const res = await fetch(
         `${baseUrlForToken(token)}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(userId)}`,
@@ -9776,23 +10332,25 @@ export class MatrixBridge {
      */
     const side = roomId ? this.sideForRoom(roomId) : null;
     if (side) {
-      const mxid = `@${AGENT_PREFIX}${canonical}:${side.side.serverName}`.toLowerCase();
+      const mxid = projectSideAgentMxid(canonical, side, AGENT_PREFIX);
       return { kind: 'appservice', ...side, agentUserId: mxid, agentName: canonical };
     }
 
     const token = this.getAgentToken(canonical);
     if (token) return { kind: 'token', token, agentName: canonical };
 
-    const mxid = agentMxid(canonical);
+    const mxid = agentMxid(canonical, this);
     const server = typeof mxid === 'string' && mxid.includes(':')
       ? mxid.slice(mxid.indexOf(':') + 1).toLowerCase()
       : null;
     const acting = server ? this.actingSideFor(server) : null;
     if (!acting || acting.credential?.kind !== 'appservice') return null;
-    return { kind: 'appservice', ...acting, agentUserId: mxid.toLowerCase(), agentName: canonical };
+    return { kind: 'appservice', ...acting,
+      agentUserId: this.getAgentCredential?.(canonical)?.mxid || projectSideAgentMxid(canonical, acting, AGENT_PREFIX), agentName: canonical };
   }
 
   async sendAsAgentContent(tokenOrSender, roomId, content, sourceMsgId = null, delivery = null) {
+    content = matrixMarkdownContent(content);
     const sender = MatrixBridge.normalizeSender(tokenOrSender);
     if (!sender) {
       /*
@@ -9835,6 +10393,13 @@ export class MatrixBridge {
       : `${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
     const txnId = suppliedTxnId || `bridge_${createHash('sha256').update(txnSeed).digest('hex').slice(0, 32)}`;
     const doSend = async () => {
+      if (state.trustedManagedRooms?.[roomId]?.directChat) {
+        const senderName = sender.agentName || Object.keys(state.agentTokens || {}).find(name => this.getAgentToken(name) === token);
+        const eventId = await this.directChats.send(roomId, content, txnId, senderName);
+        this.rememberMatrixEvent(eventId, sourceMsgId);
+        this.endAgentWork(sender.agentName, roomId);
+        return eventId;
+      }
       /*
        * The token's OWN side, not this deployment's server. `sendAsAgentContent` is the choke point for
        * every outbound agent message, so reading the constant here sent a project side's token to our

@@ -60,6 +60,16 @@ event**, known before task creation. The agent acknowledgement returned by
 Matrix is a separate `thread_anchor_event_id`; it is proof that the thread
 reply was sent, not the root itself.
 
+For a task derived from a human follow-up already in a thread, the authenticated
+stored `m.thread` root is the task's root. The follow-up remains the original
+source input; its event id must not become a nested thread root. Different
+assignees may share this Matrix root while retaining distinct task/session
+identities. Caller-supplied replacement roots and known nested targets are
+refused. This clarifies the main-timeline case above according to the
+[Matrix threading rules](https://spec.matrix.org/v1.19/client-server-api/#threading),
+which require thread relations to address a top-level event. Existing bindings
+and Matrix history are not rewritten by this clarification.
+
 Activation crosses Matrix through a durable outbox, not a database fiction.
 One router transaction records the existing task record, its pending execution
 binding, immutable inputs, and an idempotent Matrix command. The bridge sends

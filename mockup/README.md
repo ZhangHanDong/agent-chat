@@ -60,8 +60,13 @@ and is it healthy" is not answerable from any single layer.
 | `/engagements` | Inbound requests, the routing that decided them, and the whitelist |
 | `/usage` | What ran, for whom, and the metering gap |
 | `/agents/[name]` | One agent: what it contributes, its ceiling, who it serves |
-| `/onboard` | What this host can employ, and bringing one up with a preset |
+| `/onboard` | Compatibility redirect to `/resources`; approved requests provision Agents |
 | `/alerts`, `/config` | Incidents; fleet-wide policy and the destructive things |
+
+The provider workflow is Resource configuration → request approval → automatic
+Agent provisioning → Agent management. Resource configurations can exist before
+any Agent instance. There is no separate web Create Agent step. The controlled
+browser regression is `BASE=http://127.0.0.1:13203 node scripts/check-resource-first.mjs`.
 
 ## Decisions you can see working
 
@@ -155,7 +160,7 @@ Never as data a backend would return. In dependency order:
    `usage`/`budget` match in `lib/` and `backend-v2.js` is a CLI help string. Without it,
    ceilings are decoration and `/usage` is empty.
 2. **A token ceiling on a preset** — `{ tokens, period, rateCapPerDay }`.
-3. **`GET /api/frameworks/detect`**, which `/onboard` is drawn against.
+3. **`GET /api/frameworks/detect`**, used when configuring a Resource.
 4. **Inbound engagement requests**, plus approve/reject writing a per-agent allocation.
    `lib/approval-store.js` is the pattern: durable, audited, terminal states, TTL.
 5. **The standing offer** and **the whitelist**, both with an audit trail.

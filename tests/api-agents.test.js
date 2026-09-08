@@ -278,6 +278,7 @@ describe('backend agents API', () => {
     expect(second.status).toBe(409);
     expect(second.body.error).toContain('already online');
     expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(spawnMock.mock.calls[0][2].env.HAFLEET_LAUNCH_ENV_READY).toBe('1');
 
     const agent = await request(context.app).get('/api/agents/starter');
     expect(agent.status).toBe(200);
@@ -322,7 +323,7 @@ describe('backend agents API', () => {
     expect(res.body.sessionKilled).toBe(false);
   });
 
-  test('a launcher that exits non-zero takes the optimistic online back', async () => {
+  test.each([false, true])('launcher exit preserves its failure reason after the session sweep already marked it offline: %s', async (alreadyOffline) => {
     /*
      * The claim above is OPTIMISTIC — /start marks the agent starting before the launcher has done
      * anything, because the heartbeat is what confirms it. That is fine while the launcher works.
@@ -347,6 +348,11 @@ describe('backend agents API', () => {
 
     // The launcher now dies the way the real one did.
     expect(exitHandler, 'no exit handler was attached').toBeTypeOf('function');
+    if (alreadyOffline) {
+      const offline = await request(context.app).post('/api/agents/failer/offline')
+        .send({ reason: 'tmux-missing:auto', manualDown: false });
+      expect(offline.status).toBe(200);
+    }
     exitHandler(1, null);
 
     const after = await request(context.app).get('/api/agents/failer');

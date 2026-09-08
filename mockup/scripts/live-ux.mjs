@@ -526,47 +526,9 @@ suites.wizard = async (page) => {
 // ── /onboard ────────────────────────────────────────────────────────────────
 suites.onboard = async (page) => {
   const errors = await open(page, '/onboard');
-  const probe = await api('frameworks/detect');
-  check('/onboard renders with no page error', errors.length === 0, errors.slice(0, 2).join(' | '));
-  const body = await text(page, 'main');
-  check('no NaN on /onboard', !/NaN/.test(body));
-  check('no literal "null" on /onboard', !/\\bnull\\b/.test(body));
-
-  /*
-   * The page must show the HOST PROBE, not the manifest list and not the fixture.
-   *
-   * Two bugs hid here simultaneously and neither was visible from the markup: the
-   * page called `onboardable()` bare, which defaults to the fixture's list, and its
-   * sort memo had an empty dependency array, so it captured the fixture default and
-   * never recomputed when the probe arrived. The provenance banner said LIVE while
-   * the table listed octos 2.0.2 and hermes 0.9.4 — neither of which is installed
-   * on this host at all.
-   *
-   * Asserted on the VERSIONS, because they are the values a fixture cannot guess.
-   */
-  const versions = probe.frameworks.map((f) => f.version).filter(Boolean);
-  const missingV = versions.filter((v) => !body.includes(v));
-  check('every probed version string is on the page', missingV.length === 0, missingV.join(' | '));
-
-  const absent = probe.frameworks.filter((f) => !f.onPath);
-  if (absent.length > 0) {
-    check('a framework that is not on PATH is reported as such, not as ready',
-      /not installed|not on PATH|未安装|不在 PATH/i.test(body),
-      absent.map((f) => f.id).join(' '));
-    // The specific failure this replaces: the fixture asserted octos and hermes
-    // were ready with versions. If the page shows a version for something absent,
-    // it is reading the fixture again.
-    const fixtureOnlyVersions = fixture.detected
-      .filter((f) => absent.some((a) => a.id === f.id) && f.version)
-      .map((f) => f.version);
-    const leaked = fixtureOnlyVersions.filter((v) => body.includes(v));
-    check('and carries no fixture version for it', leaked.length === 0, leaked.join(' '));
-  }
-
-  // The probe cannot know whether a login is valid, only that a directory exists.
-  // Saying otherwise would tell a contributor they are ready when auth will fail.
-  check('the credential caveat is disclosed',
-    /directory exists|不代表|目录存在/i.test(body) || Boolean(probe.caveat));
+  check('old creation URL enters Resource workflow', new URL(page.url()).pathname === '/resources');
+  check('redirect has no page error', errors.length === 0, errors.slice(0, 2).join(' | '));
+  check('the console has no manual Agent creation link', await page.locator('a[href="/onboard"]').count() === 0);
 };
 
 // ── /usage ──────────────────────────────────────────────────────────────────

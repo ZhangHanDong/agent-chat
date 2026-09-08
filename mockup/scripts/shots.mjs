@@ -37,7 +37,6 @@ const SHOTS = [
   ['agent-en-dark', '/agents/claude-agent', 'en', 'dark'],
   ['agent-bare-en-light', '/agents/codex-acp-agent', 'en', 'light'],
   ['alerts-en-light', '/alerts', 'en', 'light'],
-  ['onboard-en-light', '/onboard', 'en', 'light'],
 ];
 
 mkdirSync(OUT, { recursive: true });

@@ -4,8 +4,153 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
+import { createRouterTaskStore } from '../router/dist/index.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
+
+describe('canonical mentionless thread addressing', () => {
+  test('thread recipient lookup requires one active bound task for the exact room root and requester', async () => {
+    const context = await createBackendTestContext('thread-recipient-', {
+      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'thread-lookup-bridge' },
+      agents: Object.fromEntries(['worker', 'peer'].map(name => [name, { name, agentId: `agent_${name}`,
+        type: 'codex', kind: 'agent', workdir: process.cwd(), online: true }])),
+    });
+    const router = context.internals.routerStoreForTest;
+    context.internals.stopRouterPumpForTest();
+    const room = '!project:test';
+    const requester = '@borrower:test';
+    const root = '$canonical-root';
+    const lookup = (query = {}) => request(context.app).get('/api/approval-bindings')
+      .set('X-Bridge-Secret', 'thread-lookup-bridge')
+      .query({ project: room, thread_root_event_id: root, requester_mxid: requester, ...query });
+    const makeTask = (agent, activate = true) => {
+      const input = 'canonical-source';
+      router.ingestMessage({ messageId: input, roomId: room, matrixEventId: root,
+        senderMxid: requester, senderName: 'borrower', recipientAgentId: `agent_${agent}`,
+        recipientAgentName: agent, normalizedBody: 'Work in this thread' });
+      const task = router.createTaskIntent({ requestScope: 'test', requestKey: agent, roomId: room,
+        rootMessageId: input, threadRootEventId: root, inputMessageIds: [input],
+        task: { title: 'Scoped work', assigneeAgentId: `agent_${agent}`, assigneeName: agent, createdBy: requester } });
+      expect(task.ok, JSON.stringify(task)).toBe(true);
+      if (activate) {
+        const command = router.claimMatrixCommand();
+        expect(router.recordMatrixDelivery({ commandId: command.commandId, claimToken: command.claimToken, eventId: `$anchor-${agent}` }).ok).toBe(true);
+      }
+      return task;
+    };
+    try {
+      for (const agent of ['worker', 'peer']) await request(context.app).put('/api/approval-bindings')
+        .set('X-Bridge-Secret', 'thread-lookup-bridge').send({ agent, project: room, project_room_id: room,
+          owner_mxid: requester, owner_dm_room_id: `!private-${agent}:test` }).expect(200);
+      const own = makeTask('worker');
+      expect((await lookup()).body.threadLookup).toEqual({ v: 1, roomId: room, threadRootEventId: root,
+        requesterMxid: requester, target: { agent: 'worker', taskId: own.taskId } });
+      for (const query of [{ project: '!foreign:test' }, { thread_root_event_id: '$unknown' },
+        { requester_mxid: '@borrower:foreign.test' }, { requester_mxid: '@different:test' }]) {
+        expect((await lookup(query)).body.threadLookup.target).toBeNull();
+      }
+      await lookup({ requester_mxid: 'borrower' }).expect(400);
+      await request(context.app).get('/api/approval-bindings').query({ project: room, thread_root_event_id: root,
+        requester_mxid: requester }).expect(403);
+      makeTask('peer');
+      expect((await lookup()).body.threadLookup.target).toBeNull();
+      await request(context.app).delete(`/api/approval-bindings/peer/${encodeURIComponent(room)}`)
+        .set('X-Bridge-Secret', 'thread-lookup-bridge').expect(200);
+      expect((await lookup()).body.threadLookup.target).toMatchObject({ agent: 'worker', taskId: own.taskId });
+    } finally { router.close(); await context.cleanup(); }
+  });
+});
+
+describe('Matrix task display titles', () => {
+  async function expectTitle(source, title) {
+    const context = await createBackendTestContext('matrix-title-', {
+      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'title-bridge' },
+      agents: { worker_native: {
+        name: 'worker_native', agentId: 'agent_worker_native', type: 'codex', role: 'coding',
+        kind: 'agent', workdir: process.cwd(), workspaceMode: 'shared', online: true,
+      } },
+    });
+    try {
+      await request(context.app).post('/api/messages').set('X-Bridge-Secret', 'title-bridge').send({
+        from: 'alice', to: 'worker_native', target_type: 'agent', type: 'human', source: 'matrix',
+        summary: source, full: source, mentions: ['worker_native'],
+        source_room: '!native-title:test', source_event_id: '$native-human-root', sender_mxid: '@alice:test',
+      }).expect(200);
+      const snapshot = context.internals.routerStoreForTest.snapshot();
+      expect(snapshot.tasks).toHaveLength(1);
+      expect(snapshot.tasks[0]).toMatchObject({ title, assignee: 'worker_native', threadRootEventId: '$native-human-root' });
+      const task = await request(context.app).get(`/api/tasks/${snapshot.tasks[0].taskId}`).expect(200);
+      expect(task.body.description).toBe(source);
+      const claimed = await request(context.app).post('/api/router/matrix-outbox/claim')
+        .set('X-Bridge-Secret', 'title-bridge').send({ claim_ms: 30000 }).expect(200);
+      expect(claimed.body.command).toMatchObject({
+        roomId: '!native-title:test', threadRootEventId: '$native-human-root', senderAgentName: 'worker_native',
+        body: `Task created for @worker_native: ${title}`,
+      });
+      expect(snapshot.dispatches).toHaveLength(0);
+    } finally {
+      context.internals.routerStoreForTest.close();
+      await context.cleanup();
+    }
+  }
+
+  test('native Markdown mentions produce readable task titles without changing source input', async () => {
+    const pill = '[@ac\\_worker\\_native](https://matrix.to/#/@ac_worker_native:test)';
+    await expectTitle(`${pill}  /task Build tally(labels).\nKeep this source unchanged.`, 'Build tally(labels).');
+    await expectTitle(`/task ${pill} Build tally(labels).`, 'Build tally(labels).');
+  });
+
+  test('task title normalization preserves interior mentions links email and code', async () => {
+    const title = 'Document @reviewer, dev@example.test, `@scope/pkg` and [profile](https://example.test/@alice).';
+    await expectTitle(`/task @worker_native ${title}`, title);
+  });
+});
+
+test('authenticated Matrix follow-up executes after its prior task completes', async () => {
+  const context = await createBackendTestContext('completed-matrix-followup-', {
+    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'followup-bridge' },
+    agents: { worker: { name: 'worker', agentId: 'agent_worker', type: 'codex', role: 'coding',
+      kind: 'agent', workdir: process.cwd(), workspaceMode: 'shared', online: true } },
+  });
+  const router = context.internals.routerStoreForTest;
+  context.internals.stopRouterPumpForTest();
+  const send = (event, body, thread = null) => request(context.app).post('/api/messages')
+    .set('X-Bridge-Secret', 'followup-bridge').send({ from: 'alice', to: 'worker', target_type: 'agent',
+      type: 'human', source: 'matrix', summary: body, full: body, mentions: ['worker'],
+      source_room: '!followup:test', source_event_id: event, sender_mxid: '@alice:test', thread_root_event_id: thread });
+  const take = runnerId => {
+    const claimed = router.claimDispatch({ runnerId, leaseMs: 60000, capabilityTtlMs: 60000, maxLiveRunners: 3 });
+    expect(claimed?.ok).toBe(true);
+    const started = router.takePayload(claimed); expect(started.ok).toBe(true);
+    return { claimed, started };
+  };
+  try {
+    await send('$sum-root', '@worker Write sum.js').expect(200);
+    const command = router.claimMatrixCommand();
+    const activated = router.recordMatrixDelivery({ commandId: command.commandId, claimToken: command.claimToken, eventId: '$sum-anchor' });
+    expect(activated.ok).toBe(true);
+    router.registerWorkspace({ resourceId: 'followup-test-workspace', safeLabel: 'worker', backendPath: process.cwd() });
+    expect(router.enqueueDispatch({ sessionId: activated.sessionId, taskId: activated.taskId, framework: 'codex',
+      localServerId: 'local', workspaceResourceId: 'followup-test-workspace', mayWrite: true, payload: {} }).ok).toBe(true);
+    const first = take('first-runner');
+    expect(createRouterTaskStore(router).getExecutionEpoch(activated.taskId)).toBe(0);
+    createRouterTaskStore(router).transitionTask(activated.taskId, 'done');
+    expect(createRouterTaskStore(router).getExecutionEpoch(activated.taskId)).toBe(1);
+    router.settleAndRelease({ ...first.claimed, outcome: 'completed', output: { text: 'sum.js tests passed' } });
+    await send('$python-followup', '@worker 改写为python版本', '$sum-root').expect(200);
+    expect(router.snapshot().tasks).toHaveLength(1);
+    expect(router.snapshot().dispatches.filter(d => d.state === 'queued')).toHaveLength(1);
+    const second = take('second-runner');
+    expect(second.started).toMatchObject({ taskId: activated.taskId, sessionId: activated.sessionId });
+    expect(second.started.inbox.map(m => m.body)).toEqual(['@worker 改写为python版本']);
+    expect(second.started.context.messages.map(m => m.body)).toContain('sum.js tests passed');
+    expect((await request(context.app).get(`/api/tasks/${activated.taskId}`).expect(200)).body.status).toBe('in_progress');
+    expect(createRouterTaskStore(router).getExecutionEpoch(activated.taskId)).toBe(1);
+    expect(router.sessionById(activated.sessionId).threadRootEventId).toBe('$sum-root');
+    await send('$python-followup', '@worker 改写为python版本', '$sum-root').expect(200);
+    expect(router.snapshot().dispatches).toHaveLength(2);
+  } finally { router.close(); await context.cleanup(); }
+});
 
 describe('thread-session backend integration', () => {
   let context;
@@ -139,7 +284,13 @@ describe('thread-session backend integration', () => {
         .post('/api/router/reply-outbox/claim')
         .set('X-Bridge-Secret', 'router-bridge-secret')
         .send({ claim_ms: 30_000 });
-      if (response.status === 200) reply = response.body.command;
+      if (response.status === 200 && response.body.command.activity) {
+        const status = response.body.command;
+        expect(status).toMatchObject({ roomId: '!robrix2:test', threadRootEventId: '$human-root', senderAgentName: 'worker' });
+        await request(context.app).post(`/api/router/reply-outbox/${status.commandId}/delivered`)
+          .set('X-Bridge-Secret', 'router-bridge-secret')
+          .send({ claim_token: status.claimToken, event_id: `$status-${attempt}` });
+      } else if (response.status === 200) reply = response.body.command;
       else await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(reply).toMatchObject({
@@ -331,13 +482,15 @@ describe('thread-session backend integration', () => {
       status: 'pending', project: 'room-a', project_room_id: '!approval-room-a:test',
       owner_mxid: '@owner-a:test', owner_dm_room_id: '!owner-a:test',
     });
+    expect(context.internals.approvalStoreForTest.getRequest(approval.id, { matrix: true }).reusable_scope)
+      .toMatchObject({ task_id: delivered.body.activation.taskId, description: expect.stringContaining('/bin/echo safe') });
     const verdict = await request(context.app)
       .post(`/api/approvals/${approval.id}/verdict`)
       .set('X-Bridge-Secret', 'router-bridge-secret')
       .send({
         sender_mxid: '@owner-a:test', room_id: '!owner-a:test', agent: 'multiroom_worker',
         project: 'room-a', project_room_id: '!approval-room-a:test',
-        input_digest: approval.input_digest, action: 'approve_once', event_id: '$multiroom-verdict',
+        input_digest: approval.input_digest, action: 'approve_always', event_id: '$multiroom-verdict',
       });
     expect(verdict.status).toBe(200);
 
@@ -360,6 +513,31 @@ describe('thread-session backend integration', () => {
     ).get(delivered.body.activation.taskId)).toMatchObject({
       room_id: '!approval-room-a:test', thread_root_event_id: '$multiroom-root', body: 'approved result',
     });
+    const sendFollowup = event => request(context.app).post('/api/messages').set('X-Bridge-Secret', 'router-bridge-secret')
+      .send({ from: 'alice', to: 'multiroom_worker', target_type: 'agent', type: 'human', source: 'matrix',
+        summary: 'repeat protected operation', full: 'repeat protected operation', mentions: ['multiroom_worker'],
+        source_room: '!approval-room-a:test', source_event_id: event, sender_mxid: '@alice:test', thread_root_event_id: '$multiroom-root' });
+    await sendFollowup('$multiroom-followup').expect(200);
+    let reused;
+    for (let attempt = 0; attempt < 150; attempt++) {
+      reused = context.internals.approvalStoreForTest.listRequests().find(r => r.agent === 'multiroom_worker' && r.id !== approval.id);
+      if (reused?.status === 'consumed') break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    expect(reused).toMatchObject({ status: 'consumed', decision: 'allow', authorization_action: 'approve_always' });
+    await request(context.app).delete(`/api/agents/multiroom_worker/execution-grants/${reused.grant_id}`)
+      .set('Authorization', 'Bearer router-api-token').expect(200);
+    await sendFollowup('$multiroom-after-revoke').expect(200);
+    let pending;
+    for (let attempt = 0; attempt < 150; attempt++) {
+      pending = context.internals.approvalStoreForTest.listRequests({ status: 'pending' }).find(r => r.agent === 'multiroom_worker');
+      if (pending) break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    expect(pending?.id).toBeTruthy();
+    await request(context.app).post(`/api/approvals/${pending.id}/verdict`).set('X-Bridge-Secret', 'router-bridge-secret')
+      .send({ sender_mxid: '@owner-a:test', room_id: '!owner-a:test', agent: 'multiroom_worker', project: 'room-a',
+        project_room_id: '!approval-room-a:test', input_digest: pending.input_digest, action: 'deny', event_id: '$after-revoke-deny' }).expect(200);
   });
 
   test('confirmed task with unavailable workspace stays visible and never becomes a Matrix delivery failure', async () => {

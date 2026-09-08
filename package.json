@@ -42,11 +42,14 @@
     "check:undef": "eslint ."
   },
   "dependencies": {
+    "@matrix-org/matrix-sdk-crypto-nodejs": "^0.4.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "another-json": "0.2.0",
     "better-sqlite3": "13.0.2",
     "express": "^4.21.0",
+    "markdown-it": "^15.0.1",
     "matrix-bot-sdk": "^0.8.0",
+    "sanitize-html": "^2.17.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {

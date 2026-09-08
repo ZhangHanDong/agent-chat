@@ -155,6 +155,67 @@ test('accepted engagement provisions a resource without a preexisting agent', as
   expect(launches).toHaveLength(1);
 });
 
+test('a new role request provisions a fresh agent after operator Stop without rewriting old admission', async () => {
+  await homeserver();
+  await boot({ agents: {}, env: { ...ownerEnv, HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1' } });
+  ctx.internals.stopRouterPumpForTest();
+  const launches = [];
+  ctx.internals.setEngagementLauncherForTest(async (row) => { launches.push(row.name); });
+  await auto();
+  const original = (await ask().expect(200)).body.engagement;
+  expect(original).toMatchObject({ state: 'active', fulfillment: { phase: 'complete' } });
+  const oldName = original.agent;
+  const binding = ctx.internals.approvalStoreForTest.listBindings({ agent: oldName });
+  expect(binding).toHaveLength(1);
+  expect((await request(ctx.app).post(`/api/agents/${oldName}/stop`).expect(200)).body.stopped).toBe(true);
+
+  const capability = (await request(ctx.app).get('/api/capability').expect(200)).body;
+  expect(capability.roles.find((row) => row.role === 'coding')).toMatchObject({ able: [], fillable: 1 });
+  const offers = (await request(ctx.app).get(`/api/offer-book?projectRoomId=${encodeURIComponent(ROOM)}`).expect(200)).body;
+  expect(offers.roles.find((row) => row.role === 'coding').serving).toMatchObject({ agent: null, provisioningRequired: true });
+  await ask({ requestId: '$stopped-hint', agent: oldName }).expect(400);
+
+  const fresh = (await ask({ requestId: '$fresh-after-stop' }).expect(200)).body.engagement;
+  expect(fresh).toMatchObject({ state: 'active', fulfillment: { phase: 'complete', presetId: 'p1' } });
+  expect(fresh.agent).not.toBe(oldName);
+  expect(launches).toEqual([oldName, fresh.agent]);
+  const oldRow = (await request(ctx.app).get(`/api/agents/${oldName}`).expect(200)).body;
+  const freshRow = (await request(ctx.app).get(`/api/agents/${fresh.agent}`).expect(200)).body;
+  expect(oldRow).toMatchObject({ manualDown: true, offlineReason: 'operator-stopped' });
+  expect(freshRow).toMatchObject({ manualDown: false, online: false, offlineReason: 'provisioned' });
+  expect(freshRow.workdir).not.toBe(oldRow.workdir);
+  expect(ctx.internals.approvalStoreForTest.listBindings({ agent: oldName })).toEqual(binding);
+  expect((await ask().expect(200)).body.engagement).toEqual(original);
+
+  // An idle provisioned home is usable: lack of a currently running model is
+  // different from the operator's durable stop/cleanup fences.
+  const reused = (await ask({ requestId: '$reuse-idle-fresh' }).expect(200)).body.engagement;
+  expect(reused).toMatchObject({ state: 'active', agent: fresh.agent });
+  expect(launches).toEqual([oldName, fresh.agent]);
+});
+
+test('unconfirmed cleanup excludes an agent from new admission even without manualDown', async () => {
+  await homeserver();
+  await boot({ agents: { fenced: agent('fenced', SIDE, {
+    online: false, manualDown: false, stopUnconfirmedDispatches: ['unconfirmed-old-dispatch'],
+  }) } });
+  const launches = [];
+  ctx.internals.setEngagementLauncherForTest(async (row) => { launches.push(row.name); });
+  await auto();
+  const capability = (await request(ctx.app).get('/api/capability').expect(200)).body;
+  expect(capability.roles.find((row) => row.role === 'coding').able).toEqual([]);
+  expect((await request(ctx.app).get(`/api/engagements/preview?role=coding&projectRoomId=${encodeURIComponent(ROOM)}`)
+    .expect(200)).body.agent).toBeNull();
+  await ask({ requestId: '$unconfirmed-hint', agent: 'fenced' }).expect(400);
+  const fresh = (await ask().expect(200)).body.engagement;
+  expect(fresh).toMatchObject({ state: 'active', fulfillment: { phase: 'complete', presetId: 'p1' } });
+  expect(fresh.agent).not.toBe('fenced');
+  expect(launches).toEqual([fresh.agent]);
+  expect(JSON.parse(readFileSync(`${ctx.runtimeDir}/data/agents.json`, 'utf8')).fenced).toMatchObject({
+    manualDown: false, stopUnconfirmedDispatches: ['unconfirmed-old-dispatch'],
+  });
+});
+
 test('partial provisioning retains its allocation and retries the same identity', async () => {
   await homeserver(); await boot({ agents: {}, allocation: 1000 });
   ctx.internals.setEngagementLauncherForTest(async () => {});

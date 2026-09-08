@@ -131,6 +131,24 @@
       "mutationRoutes": [
         {
           "method": "POST",
+          "path": "/api/matrix/direct-rooms",
+          "owner": "matrix.direct-room-admission",
+          "auth": "bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/matrix/conversations/events",
+          "owner": "matrix.conversation-archive",
+          "auth": "bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/router/conversation",
+          "owner": "router.conversation-reader",
+          "auth": "agent-token"
+        },
+        {
+          "method": "POST",
           "path": "/api/agents",
           "owner": "agent-runtime.self-report",
           "auth": "agent-token"
@@ -197,6 +215,12 @@
         },
         {
           "method": "POST",
+          "path": "/api/agents/:name/stop",
+          "owner": "operator.local-agent-control",
+          "auth": "bearer-and-local"
+        },
+        {
+          "method": "POST",
           "path": "/api/agents/:name/supervisor",
           "owner": "operator.local-agent-control",
           "auth": "bearer-and-local"
@@ -245,6 +269,12 @@
         },
         {
           "method": "POST",
+          "path": "/api/fleet-control",
+          "owner": "matrix.fleet-reception-protocol",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "POST",
           "path": "/api/matrix-work/claim",
           "owner": "matrix.bridge-command-execution",
           "auth": "approval-bridge-secret"
@@ -272,6 +302,18 @@
           "path": "/api/approvals",
           "owner": "approvals.request-ingress",
           "auth": "agent-token"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/agents/:name/execution-policy",
+          "owner": "approvals.contributor-execution-policy",
+          "auth": "bearer"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/agents/:name/execution-grants/:id",
+          "owner": "approvals.contributor-grant-revocation",
+          "auth": "bearer"
         },
         {
           "method": "POST",
@@ -647,6 +689,32 @@
         },
         {
           "method": "POST",
+          "path": "/api/router/session-task",
+          "owner": "router.runner-session-task",
+          "auth": "agent-token",
+          "note": "Also requires the authenticated live dispatch descriptor and per-task dispatch authorization for reads, transitions, and comments."
+        },
+        {
+          "method": "POST",
+          "path": "/api/router/files",
+          "owner": "router.runner-session-files",
+          "auth": "agent-token"
+        },
+        {
+          "method": "POST",
+          "path": "/api/router/reply-outbox/:id/prepared-file",
+          "owner": "router.reply-outbox",
+          "auth": "router-bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/router/messages",
+          "owner": "router.runner-session-coordination",
+          "auth": "agent-token",
+          "note": "Also requires the authenticated live dispatch descriptor and admitted peer in its project scope; callers cannot select a room."
+        },
+        {
+          "method": "POST",
           "path": "/api/router/approvals/claude",
           "owner": "router.claude-approval-park",
           "auth": "agent-token"
@@ -770,6 +838,30 @@
           "path": "/api/agent-ops/v1/commands/resolve-outcome",
           "owner": "agent-ops.scoped-mutation-adapter",
           "auth": "agent-ops-session-proof"
+        },
+        {
+          "method": "POST",
+          "path": "/api/framework-presets/:id/agents",
+          "owner": "operator.resource-agents",
+          "auth": "bearer"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/framework-presets/:id/agents/:definitionId",
+          "owner": "operator.resource-agents",
+          "auth": "bearer"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/framework-presets/:id/agents/:definitionId",
+          "owner": "operator.resource-agents",
+          "auth": "bearer"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/framework-presets/:id/catalog",
+          "owner": "operator.resource-agents",
+          "auth": "bearer"
         }
       ],
       "sensitiveRoutes": [
@@ -868,6 +960,12 @@
           "path": "/api/groups/:name/messages",
           "owner": "groups.member-read",
           "auth": "agent-credential"
+        },
+        {
+          "method": "GET",
+          "path": "/api/engagements/:id/candidates",
+          "owner": "operator.resource-agents",
+          "auth": "bearer"
         }
       ]
     },

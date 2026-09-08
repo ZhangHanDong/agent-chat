@@ -45,10 +45,17 @@ an executable task contract.
 - lib/**
 - router/**
 - tests/**
+- mockup/**
+- bin/hafleet-up
+- bin/hafleet-up-v1
+- bin/hafleet-down
 - bin/hafleet-sync-skills
 - tsconfig*.json
 - scripts/check-router-build.sh
+- scripts/write-v1-agent-task.js
+- scripts/probe-task-maintenance.mjs
 - scripts/check-architecture-boundaries.js
+- scripts/architecture-boundaries.json
 - scripts/verify-ci.sh
 - remote/lib/mcp-server-core.js
 - remote/lib/push-relay-core.js

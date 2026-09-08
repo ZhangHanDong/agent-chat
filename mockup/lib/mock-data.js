@@ -353,9 +353,17 @@ export function fmtSpanSec(sec) {
 
 /** The same string the live monitor's runtimeStatusText() produces. */
 export function runtimeStatusText(a) {
+  if (a.state === 'waiting_approval' || a.state === 'parked') return 'WAITING APPROVAL';
+  if (a.state === 'blocked' || a.blocked) return 'BLOCKED';
+  if (a.state === 'starting') return 'STARTING';
+  if (a.state === 'stopping') return 'STOPPING';
+  if (a.state === 'queued') return 'QUEUED';
+  if (a.state === 'stopped' || a.state === 'offline') return 'OFFLINE';
+  const duration = a.activeNow ? a.activeDurationSec : a.idleDurationSec;
+  const suffix = duration == null ? '' : ` ${fmtSpanSec(duration)}`;
   return a.activeNow
-    ? `ACTIVE ${fmtSpanSec(a.activeDurationSec)}`
-    : `IDLE ${fmtSpanSec(a.idleDurationSec)}`;
+    ? `ACTIVE${suffix}`
+    : `IDLE${suffix}`;
 }
 
 /**

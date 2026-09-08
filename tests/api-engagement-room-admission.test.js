@@ -12,7 +12,7 @@
  * them produces a room containing the wrong account while reporting success.
  */
 
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createServer } from 'http';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
@@ -26,6 +26,7 @@ let context = null;
 let fake = null;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   context?.cleanup();
   context = null;
   if (fake) { await new Promise((r) => fake.server.close(r)); fake = null; }
@@ -130,6 +131,51 @@ const asCredential = (over = {}) => ({
 });
 
 let seq = 0;
+
+test('manual approval durably queues a public result and verdict replay does not allocate twice', async () => {
+  const hs = await fakeHomeserver();
+  const app = await boot({ hs, credential: asCredential() });
+  const result = await approve(app);
+  expect(result.status).toBe(200);
+  const e = result.body.engagement;
+  expect(e.approvalNotice).toMatchObject({ state: 'pending' });
+  const claim = await request(app).post('/api/matrix-work/claim').set('X-Bridge-Secret', BRIDGE_SECRET).send({}).expect(200);
+  const job = claim.body.job;
+  expect(job).toMatchObject({ action: 'engagement-approved', engagementId: e.id, roomId: ROOM });
+  expect(job.content.body).toContain('100000');
+  expect(job.content.body).toContain(`@ac_${AGENT}:${SIDE}`);
+  expect(job.content.body).toContain('claude-opus-5');
+  expect(JSON.stringify(job.content)).not.toMatch(/owner-dm|@owner|as_secret|hs_secret|workdir|apiBaseUrl/);
+  expect(job.credential).toMatchObject({ kind: 'appservice', asToken: 'as_secret_never_logged' });
+  const jobs = await request(app).get('/api/matrix-work').expect(200);
+  expect(JSON.stringify(jobs.body)).not.toMatch(/as_secret|hs_secret/);
+  await request(app).post(`/api/matrix-work/${job.id}/complete`).set('X-Bridge-Secret', BRIDGE_SECRET)
+    .send({ claimToken: job.claimToken, outcome: { ok: true, eventId: '$approved-result' } }).expect(200);
+  const replay = await request(app).post(`/api/engagements/${e.id}/verdict`).send({ approve: true, allocatedTokens: 100_000 }).expect(200);
+  expect(replay.body.engagement).toMatchObject({ state: 'active', allocatedTokens: 100_000,
+    approvalNotice: { state: 'delivered', eventId: '$approved-result' } });
+  const next = await request(app).post('/api/matrix-work/claim').set('X-Bridge-Secret', BRIDGE_SECRET).send({}).expect(200);
+  expect(next.body.job).toBeNull();
+});
+
+test('a revoked engagement cannot claim its old approval notice', async () => {
+  const started = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started);
+  const hs = await fakeHomeserver();
+  const app = await boot({ hs, credential: asCredential() });
+  const approved = await approve(app);
+  expect(approved.status).toBe(200);
+  const first = await request(app).post('/api/matrix-work/claim').set('X-Bridge-Secret', BRIDGE_SECRET).send({}).expect(200);
+  expect(first.body.job.action).toBe('engagement-approved');
+  // The bridge stopped before sending. Its lease expires after revocation.
+  await request(app).post(`/api/engagements/${approved.body.engagement.id}/revoke`).send({}).expect(200);
+  clock.mockReturnValue(started + 90_001);
+  const claim = await request(app).post('/api/matrix-work/claim').set('X-Bridge-Secret', BRIDGE_SECRET).send({}).expect(200);
+  expect(claim.body.job).toBeNull();
+  const jobs = await request(app).get('/api/matrix-work').expect(200);
+  expect(jobs.body.jobs.find(j => j.id === first.body.job.id)).toMatchObject({ state: 'complete',
+    outcome: { ok: false, code: 'engagement_notice_unavailable' } });
+});
 
 /** Approve an engagement on the side's room, which is the point the agent must be let in. */
 async function approve(app, { tokens = 100_000, room = ROOM } = {}) {

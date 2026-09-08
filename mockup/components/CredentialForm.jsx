@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useT } from '@/components/Prefs';
 import { send } from '@/lib/api';
+import { parseFleetCredentialImport } from '@/lib/fleet-credential-import';
 
 /*
  * ENTERING A PROJECT SIDE'S CREDENTIAL — the half of ADR-016 decision 8 that did not exist.
@@ -41,13 +42,30 @@ export default function CredentialForm({ side, live, onDone }) {
   const [fields, setFields] = useState(EMPTY[side.credentialKind ?? 'appservice']);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [importScope, setImportScope] = useState(null);
 
   const [touched, setTouched] = useState(false);
   const set = (name, value) => {
     setTouched(true);
+    setImportScope(null);
     setFields((f) => ({ ...f, [name]: value }));
   };
-  const pick = (next) => { setKind(next); setFields(EMPTY[next]); setError(null); };
+  const pick = (next) => { setKind(next); setFields(EMPTY[next]); setError(null); setImportScope(null); };
+
+  async function importRegistration(event) {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    setError(null);
+    try {
+      if (file.size > 65536) throw new Error('cr.importInvalid');
+      const imported = parseFleetCredentialImport(await file.text(), side);
+      const { kind: importedKind, ...values } = imported.credential;
+      setKind(importedKind); setFields(values); setTouched(true);
+      setImportScope({ fleetId: imported.fleetId, serverName: imported.serverName, agentPrefix: imported.agentPrefix });
+    } catch (error) { setError(t(error.message)); }
+    finally { input.value = ''; }
+  }
 
   /*
    * Required means required HERE, not just server-side. The backend refuses an incomplete credential
@@ -73,6 +91,7 @@ export default function CredentialForm({ side, live, onDone }) {
      * for no reason.
      */
     setFields(EMPTY[kind]);
+    setImportScope(null);
     setOpen(false);
     await onDone?.();
   }
@@ -125,6 +144,14 @@ export default function CredentialForm({ side, live, onDone }) {
       <div className="notice">{t('cr.transitWarning')}</div>
 
       <label className="cred-row">
+        <span>{t('cr.importJson')}</span>
+        <input type="file" accept="application/json,.json" disabled={!live || busy} onChange={importRegistration} />
+      </label>
+      {importScope && <p className="why-inline" role="status">
+        {t('cr.importScope', importScope)}
+      </p>}
+
+      <label className="cred-row">
         <span>{t('cr.kind')}</span>
         <select value={kind} onChange={(e) => pick(e.target.value)}>
           {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
@@ -168,7 +195,7 @@ export default function CredentialForm({ side, live, onDone }) {
           type="button"
           className="btn-s"
           disabled={busy}
-          onClick={() => { setFields(EMPTY[kind]); setOpen(false); setError(null); }}
+          onClick={() => { setFields(EMPTY[kind]); setOpen(false); setError(null); setImportScope(null); }}
         >
           {t('cr.cancel')}
         </button>

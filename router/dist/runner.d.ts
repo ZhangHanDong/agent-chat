@@ -5,14 +5,19 @@ export interface OwnerApprovalRequest {
     dispatchId: string;
     operationDigest: string;
     framework: 'codex';
-    kind: 'command' | 'file_change' | 'permissions';
+    kind: 'command' | 'file_change' | 'permissions' | 'mcp_tool';
     reason: string | null;
     command: string | null;
     cwd: string | null;
+    inputPreview?: string;
     upstreamThreadId: string;
     upstreamTurnId: string;
     upstreamItemId: string;
     upstreamRequestId: string;
+    nativeRequest?: {
+        method: string;
+        params: Readonly<Record<string, unknown>>;
+    };
 }
 export interface OwnerApprovalVerdict {
     decisionEventId: string;
@@ -27,6 +32,8 @@ export interface RunnerBaseOptions {
     acknowledgementTimeoutMs?: number;
     executionTimeoutMs?: number;
     signal?: AbortSignal;
+    /** Host-owned process cleanup evidence, independent of dispatch settlement. */
+    onCleanup?: (confirmed: boolean) => void;
     /**
      * Whether this dispatch holds the workspace lease. Defaults to `false` so
      * that a caller which forgets to pass it gets the confined runtime rather
@@ -41,6 +48,8 @@ export interface CodexRunnerOptions extends RunnerBaseOptions {
     approvalTimeoutMs: number;
     maxParkedRunners: number;
     requestOwnerApproval: OwnerApprovalHandler;
+    /** Contributor-owned setting; never sourced from a task/message payload. */
+    yolo?: boolean;
     mcpServer?: {
         name: string;
         command: string;

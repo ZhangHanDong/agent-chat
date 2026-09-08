@@ -36,6 +36,7 @@ const READS = [
   /^agents$/,
   /^agents\/[A-Za-z0-9._-]+$/,
   /^agents\/[A-Za-z0-9._-]+\/tasks$/,
+  /^agents\/[A-Za-z0-9._-]+\/execution-policy$/,
   /*
    * The agent's live pane. A read, and the reason it is admitted: the console could describe an
    * agent's runtime but never show what it was actually doing, so "is it stuck?" had no answer
@@ -53,6 +54,7 @@ const READS = [
   /^project-board$/,
   /^engagements$/,
   /^engagements\/[A-Za-z0-9._-]+$/,
+  /^engagements\/[A-Za-z0-9._-]+\/candidates$/,
   /^offers$/,
   /^whitelist$/,
   /^usage$/,
@@ -132,7 +134,10 @@ const READS = [
  * and the proxy should not be the place that first allows one.
  */
 const WRITES = [
+  { method: 'PUT', re: /^agents\/[A-Za-z0-9._-]+\/execution-policy$/ },
+  { method: 'DELETE', re: /^agents\/[A-Za-z0-9._-]+\/execution-grants\/grant_[0-9a-f]{32}$/ },
   { method: 'POST', re: /^framework-presets$/ },
+  { method: 'PUT', re: /^framework-presets\/[A-Za-z0-9._-]+\/catalog$/ },
   { method: 'PUT', re: /^framework-presets\/[A-Za-z0-9._-]+$/ },
   { method: 'DELETE', re: /^framework-presets\/[A-Za-z0-9._-]+$/ },
   { method: 'POST', re: /^alerts\/[A-Za-z0-9._-]+\/transition$/ },
@@ -177,6 +182,7 @@ const WRITES = [
    */
   { method: 'POST', re: /^agents\/[A-Za-z0-9._-]+\/provision$/ },
   { method: 'POST', re: /^agents\/[A-Za-z0-9._-]+\/start$/ },
+  { method: 'POST', re: /^agents\/[A-Za-z0-9._-]+\/stop$/ },
   /*
    * Removing an agent. The console's own Remove button used to be a toast and nothing else — it
    * said "removed" and made no request, which is why an operator reported "remove agent ui worked
@@ -229,6 +235,7 @@ const WRITES = [
    */
   { method: 'POST', re: /^matrix\/callback-check$/ },
   { method: 'POST', re: /^project-sides$/ },
+  { method: 'PUT', re: /^project-sides\/[A-Za-z0-9._:-]+\/allocation$/ },
   { method: 'PUT', re: /^project-sides\/[A-Za-z0-9._:-]+\/credential$/ },
   { method: 'POST', re: /^project-sides\/[A-Za-z0-9._:-]+\/verify$/ },
   /*

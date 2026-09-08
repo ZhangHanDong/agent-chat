@@ -1,4 +1,5 @@
 import express from 'express';
+import { resolveDirectAdmission } from './lib/matrix-direct-admission.js';
 import {
   describeMatrixReach, diagnoseEdgeInbound, discoverBaseUrl, originFor, probeHomeserver,
   verifyCallbackFromHomeserver,
@@ -42,12 +43,19 @@ import { sessionPolicyFromEnv } from './lib/session-policy.js';
 import { getFramework, listFrameworks } from './lib/frameworks/index.js';
 import roleCapacity from './lib/role-capacity.json' with { type: 'json' };
 import { buildSeats, normalizeDeclaration, seatIdentity } from './lib/seat-store.js';
+import { holdsAllocation, resourceAllocationBudget, usesResourcePool } from './lib/resource-allocation-budget.js';
 import { createEngagementStore, routeRequest, EngagementError, overCommitMessage } from './lib/engagement-store.js';
+import { createResourceAgentDefinitions } from './lib/resource-agent-definitions.js';
+import { normalizeExecutionPolicy } from './lib/execution-authorization.js';
 import { createMatrixWorkStore, awaitMatrixWork } from './lib/matrix-work-store.js';
+import { engagementApprovalContent } from './lib/engagement-notice.js';
+import { fleetIdForSender, fleetRequestContext, fleetRequestKey, verifyFleetTarget } from './lib/fleet-protocol.js';
+import { publicResourceId, projectAgentRuntimeName } from './lib/project-agent-definition.js';
+import { projectSideAgentPrefix } from './lib/matrix-agent-identity.js';
 import { ProjectSideStore, ProjectSideStoreError } from './lib/project-side-store.js';
 import { inboundCredentialsProjection, derivedRegistrationId } from './lib/project-side-inbound.js';
 import {
-  canRepresentativeInvite, ensureRepresentative, inviteToRoomOnSide, joinRoomOnSideAsAgent,
+  canRepresentativeInvite, ensureRepresentative, inviteToRoomOnSide, joinRoomOnSideAsAgent, joinedMembersOnSide,
   leaveRoomOnSideAsAgent, leaveRoomOnSideAsRepresentative,
   knockOnRoomOnSide, mintAgentIdentity, probeFederationFromSide, resolveAliasOnSide,
 } from './lib/matrix-representative.js';
@@ -95,6 +103,7 @@ import { createSseAdapter } from './lib/backend/sse-adapter.js';
 import { createJsonStorage } from './lib/backend/storage-adapter.js';
 import { createSupervisorLifecycleManager, killTmuxSession as killSupervisorTmux } from './lib/supervisor-lifecycle-manager.js';
 import { provisionSupervisorAgent, buildSupervisorAgentRecord } from './lib/supervisor-provisioning.js';
+import { ClaudeRuntimeConfigurationError, prepareClaudeThreadRuntime, claudeThreadModel } from './lib/claude-thread-runtime.js';
 import { AgentStateMachine, deriveStateFromLegacy, agentExpectsMcp } from './lib/agent-state.js';
 import { assertRuntimeDir, isLocalAgentServer, resolveLocalServerId } from './lib/runtime-dir-guard.js';
 import { enforceStartupConfig, resolveBindHost } from './lib/startup-config.js';
@@ -106,6 +115,7 @@ import {
   findV1ManifestByName,
 } from './lib/agent-home-v1.js';
 import { approvalAdapterTimeoutMs, resolveApprovalTtlMs } from './lib/runtime-approval-client.js';
+import { snapshotSessionFile, SessionFileError } from './lib/session-file.js';
 import { buildProjectBoardSnapshot } from './lib/project-board.js';
 import { createProjectInspector } from './lib/project-inspector.js';
 import {
@@ -1742,6 +1752,12 @@ const engagementStore = createEngagementStore({
   load: () => loadJsonSync('engagements.json', {}),
   persist: (state) => saveJson('engagements.json', state),
 });
+const resourceAgentDefinitions = createResourceAgentDefinitions({
+  presets: frameworkPresets, save: saveFrameworkPresets, agents: () => agents,
+  engagements: () => engagementStore.list(),
+  qualifies: (preset, role) => ['claude', 'codex'].includes(preset.framework)
+    && ROLES.includes(role) && resourcesForRole(role, ROLE_DEFAULT_TIER[role], [preset]).length > 0,
+});
 const matrixWorkStore = createMatrixWorkStore({
   load: () => loadJsonSync('matrix-work.json', []),
   persist: (rows) => saveJson('matrix-work.json', rows, { immediate: true }),
@@ -1848,6 +1864,9 @@ const alertStore = createAlertStore({
 });
 const approvalStore = new ApprovalStore(path.join(DATA_DIR, 'approvals.json'), {
   ttlMs: APPROVAL_TTL_MS,
+  isTaskActive: id => Boolean(id && ['open', 'accepted', 'in_progress', 'waiting', 'blocked'].includes(taskStore.getTask(id)?.status)),
+  getTaskEpoch: id => taskStore.getExecutionEpoch?.(id) ?? null,
+  isAgentCurrent: (name, id) => isAgentRecord(agents[name]) && executionAgentIdentity(agents[name]) === id,
 });
 /*
  * 项目方 — the project sides HAFleet is registered with (ADR-016 decision 1).
@@ -1863,6 +1882,11 @@ const projectSideStore = new ProjectSideStore(path.join(DATA_DIR, 'project-sides
  * accounts `ac_<name>`, so `@ac_.*` describes today's fleet instead of requiring a rename.
  */
 const MATRIX_AGENT_PREFIX_FOR_REGISTRATION = (process.env.MATRIX_AGENT_PREFIX || 'ac_').trim();
+function agentPrefixOnSide(side, credential = undefined) {
+  return projectSideAgentPrefix({ side,
+    credential: credential === undefined && side?.id ? projectSideStore.credentialFor(side.id) : credential,
+  }, MATRIX_AGENT_PREFIX_FOR_REGISTRATION);
+}
 const agentOpsService = AGENT_OPS_CLIENT_ENABLED ? new AgentOpsService(routerStore) : null;
 const agentOpsServerIdentity = AGENT_OPS_CLIENT_ENABLED
   ? loadAgentOpsServerIdentity(path.join(DATA_DIR, 'agent-ops-server-identity.json'))
@@ -1910,6 +1934,7 @@ function threadSessionFramework(agent) {
 }
 
 function threadSessionAgentEligibility(agent) {
+  if (agent?.manualDown || agent?.stopUnconfirmedDispatches?.length) return { ok: false, code: 'agent_stopped', message: 'agent was stopped by its operator' };
   if (agent?.retiredAt || agent?.projectSide && !projectSideStore.getSide(agent.projectSide)?.active) {
     return { ok: false, code: 'agent_retired', message: 'agent is retired or its project side is inactive' };
   }
@@ -2078,8 +2103,19 @@ function threadSessionDirectiveConfirmation(sessionInfo) {
 }
 
 function makePromotedTaskTitle(body) {
-  const withoutCommand = String(body || '').replace(/^\s*\/task\b/i, '').replace(/@[A-Za-z0-9_-]+/g, '').trim();
-  return (withoutCommand.split('\n').find((line) => line.trim()) || 'Matrix task').trim().slice(0, 255);
+  let title = String(body || '').trim();
+  // Only remove leading address/command syntax from this display projection.
+  // Native clients may place an escaped Markdown mention before /task; deleting
+  // @tokens globally corrupts its URL and unrelated email, code and prose.
+  let previous;
+  do {
+    previous = title;
+    title = title
+      .replace(/^\/task(?=\s|$)\s*/i, '')
+      .replace(/^\[(?:\\.|[^\]\\])*\]\(https:\/\/matrix\.to\/#\/(?:@|%40)[^)\s]+\)(?:\s*:\s*|\s+|$)/i, '')
+      .replace(/^@[A-Za-z0-9_-]+(?::[A-Za-z0-9.-]+(?::[0-9]+)?)?(?:\s*:\s*|\s+|$)/, '');
+  } while (title !== previous);
+  return (title.split('\n').find((line) => line.trim()) || 'Matrix task').trim().slice(0, 255);
 }
 
 function shadowMatrixMessageToRouter(agentName, msg) {
@@ -2125,7 +2161,17 @@ async function routeMatrixMessageToThreadSession(agentName, msg) {
   if (!eligible.ok) return eligible;
   const roomId = msg?.matrixContext?.roomId;
   const matrixEventId = msg?.matrixContext?.eventId;
-  const threadRootEventId = msg?.matrixContext?.threadRootEventId || null;
+  let threadRootEventId = msg?.matrixContext?.threadRootEventId || null;
+  const direct = roomId ? routerStore.conversations.direct(roomId, agentName) : null;
+  if (direct) {
+    await authorizeDirectRoom(agentName, msg.senderMxid, roomId);
+    if (direct.mode === 'group') {
+      threadRootEventId = threadRootEventId && threadRootEventId !== direct.privateRootEventId ? threadRootEventId : null;
+    } else {
+      const root = routerStore.conversations.directRoot(roomId, matrixEventId, agentName);
+      threadRootEventId = root === matrixEventId ? null : root;
+    }
+  }
   if (!roomId || !matrixEventId) {
     return { ok: false, code: 'bad_request', message: 'thread-session routing requires authenticated Matrix room and event ids' };
   }
@@ -2319,11 +2365,41 @@ async function reconcileThreadSessionSourceMessages() {
   return { scanned, initialized: false };
 }
 
+async function reconcileThreadSessionPeerMessages() {
+  if (!THREAD_SESSIONS_ENABLED) return { queued: 0 };
+  let queued = 0;
+  for (const input of routerStore.listPendingPeerTaskInputs()) {
+    const sender = agents[input.senderAgentName];
+    const target = agents[input.recipientAgentName];
+    if (!isAgentRecord(sender) || sender.agentId !== input.senderAgentId
+      || !isAgentRecord(target) || target.agentId !== input.recipientAgentId
+      || !agentEligibleForRoom(sender, input.roomId)
+      || !admittedRunnerPeer({ agent: sender, descriptor: { roomId: input.roomId } }, target)
+      || !threadSessionAgentEligibility(target).ok) continue;
+    const attached = routerStore.attachTaskInputs({ taskId: input.taskId,
+      requestScope: `peer-recovery:${input.sessionId}`, requestKey: input.messageId, messageIds: [input.messageId] });
+    if (!attached.ok) throw new Error(`peer input reconciliation refused: ${attached.code}`);
+    const result = await enqueueThreadSessionDispatch({ agent: target, sessionId: input.sessionId,
+      taskId: input.taskId, threadRootEventId: input.threadRootEventId });
+    if (result.ok && result.state === 'queued') queued += 1;
+    else if (!result.ok) {
+      console.warn(`[router] persisted peer input awaits dispatch: ${result.code}`);
+      scheduleRouterPump(RUNNER_LAUNCH_RETRY_MS);
+    }
+  }
+  return { queued };
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function requestThreadSessionOwnerApproval(agent, projectRoomId, request) {
+function executionAgentIdentity(agent) {
+  return `${agent.agentId}:${agent.registeredAt || agent.discoveredAt || 'legacy'}`;
+}
+
+async function requestThreadSessionOwnerApproval(agent, projectRoomId, request, descriptor) {
+  projectRoomId = routerStore.conversations.direct(projectRoomId, agent.name)?.projectRoomId || projectRoomId;
   const created = approvalStore.createRequest({
     agent: agent.name,
     runtime: 'codex',
@@ -2331,8 +2407,12 @@ async function requestThreadSessionOwnerApproval(agent, projectRoomId, request) 
     upstream_request_id: request.approvalId,
     tool_name: `app_server_${request.kind}`,
     description: request.reason || `${request.kind} permission request`,
-    input_preview: JSON.stringify({ command: request.command, cwd: request.cwd }).slice(0, 8192),
-  });
+    input_preview: request.inputPreview || JSON.stringify({ command: request.command, cwd: request.cwd }).slice(0, 8192),
+  }, { execution: descriptor && request.nativeRequest && request.dispatchId === descriptor.dispatchId ? {
+    agentId: executionAgentIdentity(agent), taskId: descriptor.taskId,
+    workspace: descriptor.cwd, mayWrite: descriptor.mayWrite,
+    ...request.nativeRequest,
+  } : null });
   if (created.status === 'pending') {
     broadcastSSE('approval_requested', { request_id: created.id, agent: created.agent });
   }
@@ -2376,28 +2456,37 @@ function runnerEnvironment(agent) {
 // dispatch fails closed to outcome_unknown rather than running unconstrained.
 function claudeThreadSessionArgs(agent, mayWrite, modelOverride = null) {
   if (normalizeBoolean(process.env.HAFLEET_CLAUDE_PERMISSION_CHANNEL) === false) {
-    throw new Error('managed Claude ephemeral runners require the owner-approval MCP channel');
+    throw new ClaudeRuntimeConfigurationError('managed Claude ephemeral runners require the owner-approval MCP channel');
   }
   const args = [
     '-p', '--output-format', 'stream-json', '--verbose',
     '--permission-mode', mayWrite ? 'auto' : 'plan',
     '--dangerously-load-development-channels', `server:${THREAD_SESSION_MCP_SERVER_NAME}`,
   ];
+  const model = claudeThreadModel(agent, modelOverride);
   // Store-validated, but re-checked here: this string lands on a CLI argv.
-  if (modelOverride && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(modelOverride)) {
-    args.push('--model', modelOverride);
+  if (model) {
+    args.push('--model', model);
   }
+  const ownerSettings = agent.workdir ? path.join(agent.workdir, '.claude', 'settings.json') : null;
+  if (ownerSettings && existsSync(ownerSettings)) args.push('--settings', ownerSettings);
   if (!existsSync('/etc/claude-code/managed-mcp.json')) {
     const mcpConfigCandidates = [agent.workdir, agent.homeDir]
       .map((root) => root ? path.join(root, '.mcp.json') : null)
       .filter(Boolean);
     const mcpConfig = mcpConfigCandidates.find((candidate) => existsSync(candidate)) || null;
     if (!mcpConfig || !existsSync(mcpConfig)) {
-      throw new Error(`Claude owner-approval MCP configuration is unavailable for '${agent.name}'`);
+      throw new ClaudeRuntimeConfigurationError(`Claude owner-approval MCP configuration is unavailable for '${agent.name}'`);
     }
     args.push(`--mcp-config=${mcpConfig}`);
   }
   return args;
+}
+
+function prepareThreadRuntime(agent) {
+  if (agent.type !== 'claude' || !agent.homeDir || !agent.stateDir) return;
+  prepareClaudeThreadRuntime(agent, { repoRoot: REPO_ROOT, runtimeRoot: RUNTIME_ROOT,
+    apiBaseUrl: `http://127.0.0.1:${PORT}`, serverName: THREAD_SESSION_MCP_SERVER_NAME });
 }
 
 function normalizedCodexEffort(value) {
@@ -2405,16 +2494,22 @@ function normalizedCodexEffort(value) {
   return ['low', 'medium', 'high', 'xhigh'].includes(effort) ? effort : undefined;
 }
 
-async function launchClaimedThreadSessionRunner(claim, signal) {
+async function launchClaimedThreadSessionRunner(claim, signal, onCleanup) {
   const descriptor = routerStore.getLaunchDescriptor(claim);
   if (!descriptor.ok && descriptor.code) throw new Error(`${descriptor.code}: ${descriptor.message}`);
   const agent = agents[descriptor.agentName];
   if (!isAgentRecord(agent) || agent.agentId !== descriptor.agentId) {
     throw new Error('runner launch descriptor no longer matches the registered agent');
   }
+  if (agent.manualDown) {
+    const cancelled = routerStore.cancelBeforeStart(claim.dispatchId, 'operator_stopped');
+    if (!cancelled.ok) throw new Error(cancelled.message);
+    return cancelled;
+  }
   // Read from the dispatch row, not re-derived from the agent's role: the
   // sandbox must agree with whatever the lease decision actually recorded.
   const mayWrite = descriptor.mayWrite === true;
+  prepareThreadRuntime(agent);
   const base = {
     router: routerStore,
     claim,
@@ -2423,6 +2518,7 @@ async function launchClaimedThreadSessionRunner(claim, signal) {
     acknowledgementTimeoutMs: RUNNER_ACK_MS,
     executionTimeoutMs: RUNNER_LEASE_MS,
     signal,
+    onCleanup: (confirmed) => onCleanup?.(descriptor.agentName, descriptor.agentId, confirmed),
     mayWrite,
   };
   if (descriptor.framework === 'codex') {
@@ -2431,6 +2527,7 @@ async function launchClaimedThreadSessionRunner(claim, signal) {
       executable: process.env.HAFLEET_CODEX_RUNNER_BIN || 'codex',
       model: descriptor.modelOverride || agent.runtimeProfile?.primary?.model || undefined,
       effort: normalizedCodexEffort(agent.runtimeProfile?.primary?.reasoning),
+      yolo: normalizeExecutionPolicy(agent.executionPolicy, 'codex').yolo,
       approvalTimeoutMs: APPROVAL_ADAPTER_TIMEOUT_MS,
       maxParkedRunners: MAX_PARKED_RUNNERS,
       mcpServer: {
@@ -2445,7 +2542,7 @@ async function launchClaimedThreadSessionRunner(claim, signal) {
           'HAFLEET_RUNNER_ID', 'HAFLEET_FENCE_GENERATION',
         ],
       },
-      requestOwnerApproval: (request) => requestThreadSessionOwnerApproval(agent, descriptor.roomId, request),
+      requestOwnerApproval: (request) => requestThreadSessionOwnerApproval(agent, descriptor.roomId, request, descriptor),
     });
   }
   return runClaudeDispatch({
@@ -2492,6 +2589,11 @@ async function pumpRouterDispatches() {
   if (!THREAD_SESSIONS_ENABLED || !routerPumpAccepting || routerPumpRunning) return;
   routerPumpRunning = true;
   try {
+    try { await reconcileThreadSessionPeerMessages(); }
+    catch (error) {
+      console.error(`[router] peer input reconciliation failed: ${error?.message || error}`);
+      scheduleRouterPump(RUNNER_LAUNCH_RETRY_MS);
+    }
     while (liveThreadSessionRunners.size < MAX_LIVE_RUNNERS) {
       const runnerId = `runner_${randomBytes(16).toString('hex')}`;
       const claim = routerStore.claimDispatch({
@@ -2507,14 +2609,42 @@ async function pumpRouterDispatches() {
       }
       const controller = new AbortController();
       let nextPumpDelayMs = 0;
-      const running = launchClaimedThreadSessionRunner(claim, controller.signal)
+      const launchDescriptor = routerStore.getLaunchDescriptor(claim);
+      const runner = { running: null, controller, cleanupConfirmed: false,
+        agentName: launchDescriptor.agentName, agentId: launchDescriptor.agentId };
+      const onCleanup = (agentName, agentId, confirmed) => {
+        runner.cleanupConfirmed = confirmed;
+        const agent = agents[agentName];
+        if (!isAgentRecord(agent) || agent.agentId !== agentId) return;
+        const pending = agent.stopUnconfirmedDispatches || [];
+        if (confirmed && !pending.includes(claim.dispatchId)) return;
+        if (confirmed) {
+          agent.stopUnconfirmedDispatches = pending.filter((id) => id !== claim.dispatchId);
+        } else {
+          syncAgentMachine(agent.name, { manualDown: true });
+          agent.offlineReason = 'runner-cleanup-unconfirmed';
+          agent.stopUnconfirmedDispatches = [...new Set([...pending, claim.dispatchId])];
+        }
+        if (!saveAgents(true)) {
+          if (confirmed) agent.stopUnconfirmedDispatches = pending;
+          console.error(`[router-runner] failed to persist cleanup evidence dispatch=${claim.dispatchId}`);
+        }
+      };
+      const running = launchClaimedThreadSessionRunner(claim, controller.signal, onCleanup)
         .catch((error) => {
           const state = routerStore.snapshot().dispatches.find((row) => row.dispatchId === claim.dispatchId)?.state;
           if (state === 'leased') {
             const reason = redactPathLikeText(error?.message || error, 1000) || 'runner launch failed';
-            const requeued = routerStore.requeueBeforeStart(claim, RUNNER_LAUNCH_RETRY_MS, reason);
-            if (requeued.ok) nextPumpDelayMs = RUNNER_LAUNCH_RETRY_MS;
-            else console.error(`[router-runner] failed to requeue dispatch=${claim.dispatchId}: ${requeued.code}: ${requeued.message}`);
+            if (error instanceof ClaudeRuntimeConfigurationError) {
+              // Retrying the same invalid model/config cannot repair it. Preserve
+              // unprocessed input and emit the existing actionable launch notice.
+              const cancelled = routerStore.cancelBeforeStart(claim.dispatchId, 'runner_launch_failed');
+              if (!cancelled.ok) console.error(`[router-runner] failed to cancel invalid configuration dispatch=${claim.dispatchId}: ${cancelled.code}: ${cancelled.message}`);
+            } else {
+              const requeued = routerStore.requeueBeforeStart(claim, RUNNER_LAUNCH_RETRY_MS, reason);
+              if (requeued.ok) nextPumpDelayMs = RUNNER_LAUNCH_RETRY_MS;
+              else console.error(`[router-runner] failed to requeue dispatch=${claim.dispatchId}: ${requeued.code}: ${requeued.message}`);
+            }
           }
           console.error(`[router-runner] dispatch=${claim.dispatchId} failed: ${error?.message || error}`);
         })
@@ -2522,7 +2652,8 @@ async function pumpRouterDispatches() {
           liveThreadSessionRunners.delete(claim.dispatchId);
           scheduleRouterPump(nextPumpDelayMs);
         });
-      liveThreadSessionRunners.set(claim.dispatchId, { running, controller });
+      runner.running = running;
+      liveThreadSessionRunners.set(claim.dispatchId, runner);
     }
   } finally {
     routerPumpRunning = false;
@@ -4190,6 +4321,7 @@ function clearDeletedAgentState(agentName) {
 
 function messageTargetsAgent(msg, agentName) {
   if (!msg || !agentName) return false;
+  if (msg.matrixRoomRecipients?.includes(agentName)) return true;
   if (msg.to === agentName) return true;
   if (!msg.group) return false;
   if (!isGroupMember(msg.group, agentName) && msg.matrixDefaultRecipient !== agentName) return false;
@@ -4200,12 +4332,14 @@ function messageVisibleToAgent(msg, agentName) {
   const normalized = normalizeAgentName(agentName);
   if (!msg || !normalized) return false;
   if (msg.from === normalized || msg.to === normalized) return true;
+  if (msg.matrixRoomRecipients?.includes(normalized)) return true;
   if (msg.matrixDefaultRecipient === normalized) return true;
   if (msg.group && isGroupMember(msg.group, normalized)) return true;
   return false;
 }
 
 function deliveryTargetAgentsForMessage(msg, directTargetKind = null) {
+  if (msg?.matrixRoomRecipients) return msg.matrixRoomRecipients.filter(name => !isSuppressedForAgent(msg, name));
   const targets = new Set();
   if (msg?.to && directTargetKind === 'agent' && !isSuppressedForAgent(msg, msg.to)) {
     targets.add(msg.to);
@@ -6565,14 +6699,60 @@ function getAgentDeliveryState(name) {
   };
 }
 
-function serializeAgent(agent) {
+function serializeAgents(records) {
+  const snapshot = THREAD_SESSIONS_ENABLED && routerStore && records.some((agent) => agent.agentId)
+    ? routerStore.snapshot() : null;
+  return records.map((agent) => serializeAgent(agent, snapshot));
+}
+
+function serializeAgent(agent, sharedRouterSnapshot) {
   const deliveryState = getAgentDeliveryState(agent.name);
   const runtime = ensureAgentRuntimeRecord(agent.name);
   const machine = getAgentMachine(agent.name);
+  let threadRuntime = null;
+  if (THREAD_SESSIONS_ENABLED && routerStore && agent.agentId) {
+    const snapshot = sharedRouterSnapshot ?? routerStore.snapshot();
+    const sessionIds = new Set(snapshot.sessions
+      .filter((session) => session.agentId === agent.agentId)
+      .map((session) => session.sessionId));
+    if (sessionIds.size) {
+      const history = snapshot.dispatches.filter((dispatch) => sessionIds.has(dispatch.sessionId));
+      const live = routerStore.listAgentDispatches(agent.agentId);
+      const started = live.find((dispatch) => dispatch.state === 'started');
+      const parked = live.find((dispatch) => dispatch.state === 'parked');
+      const leased = live.find((dispatch) => dispatch.state === 'leased');
+      const queued = live.find((dispatch) => dispatch.state === 'queued');
+      const unresolved = history.find((dispatch) => dispatch.state === 'outcome_unknown' && !dispatch.resolutionAction);
+      const stopping = history.some((dispatch) => liveThreadSessionRunners.has(dispatch.dispatchId)
+        && !live.some((row) => row.dispatchId === dispatch.dispatchId));
+      const queuedDetail = queued && history.find((row) => row.dispatchId === queued.dispatchId);
+      const blockedReason = unresolved?.terminalReason || queuedDetail?.blockedBy?.reason || null;
+      const observedAt = Date.now();
+      const lastSettlement = Math.max(0, ...history.map((dispatch) => Number(dispatch.settledAt) || 0));
+      const state = started ? 'running' : parked ? 'waiting_approval' : leased ? 'starting'
+        : stopping ? 'stopping' : agent.manualDown ? 'stopped'
+          : blockedReason ? 'blocked' : queued ? 'queued' : 'idle';
+      threadRuntime = {
+        transport: 'thread-session',
+        state,
+        activeNow: Boolean(started),
+        online: Boolean(started || parked || leased || stopping),
+        agentOnline: Boolean(started || parked || leased || stopping),
+        healthy: Boolean(started),
+        blocked: !started && !leased && Boolean(parked || blockedReason),
+        blockedReason: parked ? 'waiting_for_owner_approval' : blockedReason,
+        activeDurationSec: started?.startedAt ? Math.max(0, Math.floor((observedAt - started.startedAt) / 1000)) : null,
+        idleDurationSec: !live.length && !stopping && lastSettlement
+          ? Math.max(0, Math.floor((observedAt - lastSettlement) / 1000)) : null,
+        lastTmuxActivitySec: null,
+        runtimeObservation: { observerSource: 'router', observerServer: LOCAL_SERVER_ID, observedAt },
+      };
+    }
+  }
   return {
     ...agent,
     server: normalizeServer(agent.server),
-    state: machine.state,
+    state: agent.manualDown && agent.offlineReason === 'operator-stopped' ? 'stopped' : machine.state,
     healthy: machine.healthy,
     online: deliveryState.online,
     agentOnline: deliveryState.agentOnline,
@@ -6595,6 +6775,7 @@ function serializeAgent(agent) {
     human: normalizeHumanMeta(agent.human),
     task: normalizeAgentTask(agent.task, agent.name),
     runtimeProfile: redactRuntimeProfileSecrets(normalizeRuntimeProfile(agent.runtimeProfile)),
+    executionPolicy: { yolo: agent.executionPolicy?.yolo === true },
     environment: VALID_ENVIRONMENTS.has(agent.environment) ? agent.environment : classifyEnvironment(agent.name),
     activeNow: normalizeRuntimeActiveNow(runtime?.activeNow),
     activeDurationSec: Number(runtime?.activeDurationSec) || 0,
@@ -6609,6 +6790,7 @@ function serializeAgent(agent) {
       ? true
       : (runtime?.mcpPresent === false ? false : null),
     mcpMissingSince: Number(runtime?.mcpMissingSince) || null,
+    ...threadRuntime,
   };
 }
 
@@ -7704,12 +7886,112 @@ const requireApprovalBridgeSecret = (req, res, next) => {
   }
   return requireBridgeSecret(req, res, next);
 };
+function fleetPublicEngagement(engagement) {
+  const agent = agents[engagement.agent];
+  const context = engagement.requestContext;
+  return { ok: true, v: 1, fleetId: context.fleetId, requestId: context.requestId,
+    engagementId: engagement.id, state: engagement.state, targetProjectId: context.targetProjectId,
+    targetRoomId: engagement.projectRoomId, sourceRoomId: context.sourceRoomId,
+    sourceEventId: context.sourceEventId, role: engagement.role,
+    ...(context.agentDefinition ? { agentDefinition: context.agentDefinition } : {}),
+    requestedTokens: engagement.requestedTokens, allocatedTokens: engagement.allocatedTokens,
+    agentMxid: isAgentRecord(agent) ? recordedAgentMxid(agent) : null,
+    bound: engagement.bound === true, serving: servingConfiguration(engagement.agent),
+    fulfillment: engagement.fulfillment ? { phase: engagement.fulfillment.phase,
+      incomplete: Boolean(engagement.fulfillment.error),
+      ...(engagement.fulfillment.error ? { error: 'Agent setup is incomplete; the provider must retry.' } : {}) } : null,
+    ready: engagement.state === 'active' && engagement.bound === true,
+    decidedAt: engagement.decidedAt ?? null, endedAt: engagement.endedAt ?? null };
+}
+
+// This is a local bridge authority endpoint, never exposed by the AS listener.
+// The callback exports only four versioned operations and verifies Matrix facts
+// before forwarding a request. Recheck the current registration at commit time.
+app.post('/api/fleet-control', requireApprovalBridgeSecret, async (req, res) => {
+  const input = req.body ?? {};
+  const side = projectSideStore.getSide(input.sideId);
+  const credential = side && projectSideStore.credentialFor(side.id);
+  const fleetId = fleetIdForSender(credential?.senderLocalpart);
+  const registration = side && credential?.hsToken ? inboundCredentialsProjection(side, credential)?.registration : null;
+  if (!side?.active || credential?.kind !== 'appservice' || !fleetId || input.registration !== registration) {
+    return res.json({ ok: false, status: 403, code: 'fleet_unavailable', error: 'Fleet registration is unavailable.' });
+  }
+  try {
+    if (input.action === 'capabilities') return res.json({ ok: true, offers: fleetCatalogOffers(side.id) });
+    if (input.action === 'status') {
+      const engagement = engagementStore.list().find(e => e.requestContext?.fleetId === fleetId
+        && e.requestContext?.requestId === input.requestId && sideIdForRoom(e.projectRoomId) === side.id);
+      if (!engagement) return res.json({ ok: false, status: 404, code: 'not_found', error: 'Fleet request was not found.' });
+      return res.json(fleetPublicEngagement(engagement));
+    }
+    if (input.action !== 'request') return res.json({ ok: false, status: 404, code: 'not_found', error: 'Unknown fleet operation.' });
+    const context = fleetRequestContext(input.context);
+    if (context.fleetId !== fleetId || sideIdForRoom(context.targetRoomId) !== side.id
+      || sideIdForRoom(context.sourceRoomId) !== side.id || sideIdForRoom(context.ownerDmRoomId) !== side.id) {
+      return res.json({ ok: false, status: 403, code: 'wrong_fleet', error: 'Fleet request scope does not match.' });
+    }
+    req.body = { project: context.targetProjectId, projectRoomId: context.targetRoomId,
+      role: context.role, requester: context.requesterMxid, requestedTokens: context.requestedTokens,
+      ratePerDay: context.ratePerDay, requestId: fleetRequestKey(context), requestContext: context };
+    req.engagementCaller = 'fleet';
+    req.fleetContext = context;
+    const fleetResponse = {
+      statusCode: 200,
+      status(value) { this.statusCode = value; return this; },
+      json(value) {
+        if (this.statusCode >= 400 || value?.ok === false) return res.json({ ok: false,
+          status: this.statusCode >= 400 ? this.statusCode : 409, code: value?.code ?? 'request_refused',
+          error: value?.code === 'conflict' ? 'Request ID already belongs to another request.'
+            : 'The provider could not accept this request; check role availability and allocation.' });
+        return res.json(value);
+      },
+    };
+    return createEngagementRequest(req, fleetResponse);
+  } catch (error) {
+    return res.json({ ok: false, status: error.status ?? 409, code: error.code ?? 'fleet_request_failed',
+      error: error.status ? error.message : 'The fleet request could not be recorded.' });
+  }
+});
 app.post('/api/matrix-work/claim', requireApprovalBridgeSecret, (req, res) => {
   try {
+    // Intent was committed with the verdict. Materialize durable work here so a
+    // crash after approval, before the HTTP response, cannot lose the receipt.
+    for (const engagement of engagementStore.list({ state: 'active' })) {
+      if (engagement.approvalNotice?.state !== 'pending' || !engagement.bound) continue;
+      const sideId = sideIdForRoom(engagement.projectRoomId);
+      const side = projectSideStore.getSide(sideId);
+      const agent = agents[engagement.agent];
+      if (!side?.active || !isAgentRecord(agent) || agent.projectSide !== sideId) continue;
+      const mxid = recordedAgentMxid(agent) || `@${agentPrefixOnSide(side)}${agent.name}:${side.serverName}`;
+      const queued = matrixWorkStore.enqueue({ action: 'engagement-approved', agent: agent.name, sideId,
+        roomId: engagement.requestContext?.sourceRoomId ?? engagement.projectRoomId, mxid, engagementId: engagement.id,
+        content: engagementApprovalContent(engagement, servingConfiguration(agent.name), mxid) });
+      if (queued.state === 'complete') engagementStore.settleApprovalNotice(engagement.id,
+        queued.outcome?.ok ? { eventId: queued.outcome.eventId } : { code: queued.outcome?.code });
+    }
     const job = matrixWorkStore.claim();
     if (!job) return res.json({ job: null });
     const side = projectSideStore.getSide(job.sideId);
     const credential = side && projectSideStore.credentialFor(side.id);
+    if (job.action === 'engagement-approved') {
+      const e = engagementStore.get(job.engagementId);
+      if (!side?.active || !['registrationToken', 'appservice'].includes(credential?.kind)
+        || e?.state !== 'active' || !e.bound || e.agent !== job.agent
+        || (e.requestContext?.sourceRoomId ?? e.projectRoomId) !== job.roomId
+        || sideIdForRoom(job.roomId) !== side.id || !isAgentRecord(agents[job.agent])
+        || agents[job.agent].projectSide !== side.id) {
+        matrixWorkStore.complete(job.id, job.claimToken, { ok: false, code: 'engagement_notice_unavailable' }, { retry: false });
+        engagementStore.settleApprovalNotice(job.engagementId, { code: 'engagement_notice_unavailable' });
+        return res.json({ job: null });
+      }
+      res.set('Cache-Control', 'no-store');
+      return res.json({ job: { ...job,
+        side: { apiBaseUrl: side.apiBaseUrl, serverName: side.serverName, representative: side.representative },
+        credential: credential.kind === 'appservice'
+          ? { kind: credential.kind, asToken: credential.asToken, senderLocalpart: credential.senderLocalpart }
+          : { kind: credential.kind, representativeToken: credential.representativeToken },
+      } });
+    }
     if (!side || !credential || credential.kind !== 'registrationToken'
       || (!side.active && !['leave', 'logout', 'representative-logout'].includes(job.action))
       || job.action !== 'representative-logout' && !isAgentRecord(agents[job.agent])
@@ -7725,7 +8007,10 @@ app.post('/api/matrix-work/claim', requireApprovalBridgeSecret, (req, res) => {
 });
 app.post('/api/matrix-work/:id/complete', requireApprovalBridgeSecret, (req, res) => {
   try {
-    matrixWorkStore.complete(req.params.id, req.body?.claimToken, req.body?.outcome || {});
+    const job = matrixWorkStore.complete(req.params.id, req.body?.claimToken, req.body?.outcome || {});
+    if (job.action === 'engagement-approved' && job.state === 'complete' && job.outcome?.ok) {
+      engagementStore.settleApprovalNotice(job.engagementId, { eventId: job.outcome.eventId });
+    }
     return res.json({ ok: true });
   } catch (error) { return res.status(409).json({ error: error.message }); }
 });
@@ -8110,8 +8395,156 @@ function requireOwnedRunnerDescriptor(req, res) {
     res.status(403).json({ error: 'runner capability does not belong to this agent' });
     return null;
   }
+  if (agent.manualDown) {
+    res.status(409).json({ error: 'agent was stopped by its operator' });
+    return null;
+  }
   return { capability, agent, descriptor };
 }
+
+function admittedRunnerPeer(owned, peer) {
+  if (!isAgentRecord(peer) || !peer.agentId || !agentEligibleForRoom(peer, owned.descriptor.roomId)) return false;
+  if (peer.name === owned.agent.name) return true;
+  return [owned.agent, peer].every((agent) => approvalStore.listBindings({
+    agent: agent.name, projectRoomId: owned.descriptor.roomId,
+  }).length === 1);
+}
+
+app.post('/api/router/session-task', requireAgentToken((req) => req.body?.agent || ''), (req, res) => {
+  if (!THREAD_SESSIONS_ENABLED) return res.status(404).json({ error: 'thread-session router is disabled' });
+  const owned = requireOwnedRunnerDescriptor(req, res);
+  if (!owned) return;
+  const op = req.body?.op;
+  if (!['get', 'list', 'transition', 'comment', 'heartbeat', 'execution'].includes(op)) return res.status(400).json({ error: 'unknown task operation' });
+  try {
+    if (op === 'list') {
+      return res.json(taskStore.listTasks().filter((task) => routerStore.authorizeTaskFromDispatch({
+        ...owned.capability, taskId: task.id,
+      }).ok));
+    }
+    const id = normalizeOptionalText(req.body?.id, 255) || owned.descriptor.taskId;
+    const authorized = routerStore.authorizeTaskFromDispatch({ ...owned.capability, taskId: id, write: op !== 'get' });
+    if (!authorized.ok) return res.status(authorized.code === 'invalid_capability' ? 403 : routerRefusalStatus(authorized)).json({ error: authorized.message, code: authorized.code });
+    if (op === 'get') {
+      const task = taskStore.getTask(id);
+      return task ? res.json(task) : res.status(404).json({ error: 'task not found' });
+    }
+    const task = op === 'heartbeat'
+      ? taskStore.updateTaskExecution(id, { heartbeat_at: new Date().toISOString() })
+      : op === 'execution'
+      ? taskStore.updateTaskExecution(id, {
+        // Task maintenance cannot set status/identity or supply its own clock.
+        // Keep this explicit field projection behind the same dispatch write gate.
+        ...(req.body?.heartbeat_at === true ? { heartbeat_at: new Date().toISOString() } : {}),
+        ...(req.body?.waiting_reason !== undefined ? { waiting_reason: req.body.waiting_reason } : {}),
+        ...(req.body?.waiting_until !== undefined ? { waiting_until: req.body.waiting_until } : {}),
+      })
+      : op === 'comment'
+      ? taskStore.addComment(id, { author: owned.agent.name, text: req.body?.text })
+      : taskStore.transitionTask(id, req.body?.status, { waiting_reason: req.body?.waiting_reason, waiting_until: req.body?.waiting_until });
+    broadcastSSE('task_updated', task);
+    return res.json({ ok: true, task });
+  } catch (error) {
+    return respondTaskStoreError(res, error, 'failed session task operation');
+  }
+});
+
+app.post('/api/router/files', requireAgentToken((req) => req.body?.agent || ''), (req, res) => {
+  if (!THREAD_SESSIONS_ENABLED) return res.status(404).json({ error: 'thread-session router is disabled' });
+  const owned = requireOwnedRunnerDescriptor(req, res);
+  if (!owned) return;
+  const allowed = routerStore.authorizeFileReply(owned.capability);
+  if (!allowed.ok) return res.status(routerRefusalStatus(allowed)).json({ error: allowed.message, code: allowed.code });
+  const fields = new Set(['agent', 'op', 'path', 'name', 'caption', 'tool_call_id', 'delivery_id', 'event_id']);
+  if (Object.keys(req.body).some(key => !fields.has(key))) return res.status(400).json({ error: 'file tools cannot select destinations or additional fields' });
+  let result;
+  if (req.body.op === 'receive') {
+    if (typeof req.body.event_id !== 'string') return res.status(400).json({ error: 'event_id required' });
+    const received = routerStore.receiveFile({ ...owned.capability, eventId: req.body.event_id });
+    if (!received.ok) return res.status(routerRefusalStatus(received)).json({ error: received.message, code: received.code });
+    if (received.file.errorCode) return res.status(409).json({ error: received.file.error, code: received.file.errorCode });
+    try {
+      const verified = snapshotSessionFile({ workspace: MATRIX_MEDIA_DIR, requestedPath: received.file.path,
+        name: received.file.name, directory: MATRIX_MEDIA_DIR });
+      if (verified.sha256 !== received.file.sha256 || verified.size !== received.file.size) throw new Error('integrity');
+    } catch { return res.status(409).json({ error: 'Received attachment is unavailable or changed', code: 'file_integrity_mismatch' }); }
+    return res.json({ eventId: req.body.event_id, ...received.file });
+  } else if (req.body.op === 'status') {
+    if (typeof req.body.delivery_id !== 'string') return res.status(400).json({ error: 'delivery_id required' });
+    result = routerStore.readFileReply({ ...owned.capability, commandId: req.body.delivery_id });
+  } else if (req.body.op === 'send') {
+    if (typeof req.body.path !== 'string' || req.body.path.length > 4096 || !req.body.path.trim()
+      || typeof req.body.tool_call_id !== 'string' || !req.body.tool_call_id || req.body.tool_call_id.length > 512
+      || (req.body.name !== undefined && typeof req.body.name !== 'string')
+      || (req.body.caption !== undefined && (typeof req.body.caption !== 'string' || req.body.caption.length > 1000))) {
+      return res.status(400).json({ error: 'valid file path, tool_call_id, filename and caption required' });
+    }
+    const requested = { path: req.body.path.trim(), name: req.body.name || null, caption: req.body.caption || '' };
+    const requestInput = { ...owned.capability, requestKey: req.body.tool_call_id,
+      requestDigest: createHash('sha256').update(JSON.stringify(requested)).digest('hex') };
+    result = routerStore.findFileReply(requestInput);
+    if (result.ok && !result.delivery) {
+      try {
+        const file = snapshotSessionFile({ workspace: owned.descriptor.cwd, requestedPath: requested.path,
+          name: requested.name, directory: path.join(DATA_DIR, 'session-files') });
+        result = routerStore.queueFileReply({ ...requestInput, file, body: requested.caption });
+      } catch (error) {
+        return res.status(error instanceof SessionFileError ? error.status : 400).json({
+          error: error instanceof SessionFileError ? error.message : 'Unable to snapshot workspace file',
+          code: error instanceof SessionFileError ? error.code : 'file_read_failed',
+        });
+      }
+    }
+  } else return res.status(400).json({ error: 'unknown file operation' });
+  if (!result.ok) return res.status(routerRefusalStatus(result)).json({ error: result.message, code: result.code });
+  return res.json(result.delivery);
+});
+
+app.post('/api/router/reply-outbox/:id/prepared-file', requireRouterBridgeSecret, (req, res) => {
+  const content = req.body?.content;
+  if (!content || typeof content !== 'object' || Array.isArray(content) || typeof req.body.claim_token !== 'string') {
+    return res.status(400).json({ error: 'prepared content and claim token required' });
+  }
+  const result = routerStore.prepareFileReply({ commandId: req.params.id, claimToken: req.body.claim_token, content });
+  return result.ok ? res.json(result) : res.status(routerRefusalStatus(result)).json({ error: result.message, code: result.code });
+});
+
+app.post('/api/router/messages', requireAgentToken((req) => req.body?.agent || ''), async (req, res) => {
+  if (!THREAD_SESSIONS_ENABLED) return res.status(404).json({ error: 'thread-session router is disabled' });
+  const owned = requireOwnedRunnerDescriptor(req, res);
+  if (!owned) return;
+  const target = agents[normalizeAgentName(req.body?.to)];
+  if (!admittedRunnerPeer(owned, target)) return res.status(403).json({ error: 'target is not admitted to this project scope' });
+  if (!threadSessionAgentEligibility(target).ok) return res.status(409).json({ error: 'target is unavailable for thread work' });
+  if (!normalizeOptionalText(req.body?.tool_call_id, 512)) return res.status(400).json({ error: 'tool_call_id is required' });
+  const kind = req.body?.type;
+  const body = normalizeOptionalText(req.body?.full || req.body?.summary, 100_000);
+  if (!body || !['request', 'inform', 'reply'].includes(kind)) return res.status(400).json({ error: 'message body and valid type are required' });
+  if (req.body?.attachments?.length || req.body?.group || req.body?.room_id) return res.status(400).json({ error: 'session messaging cannot attach files or select a room' });
+  try {
+    if (kind === 'request') {
+      const result = routerStore.createTaskFromDispatch({ ...owned.capability,
+        toolCallId: `message:${req.body?.tool_call_id}`, rootMessageId: req.body?.root_message_id, inputMessageIds: [],
+        task: { title: String(req.body?.summary || body).slice(0, 255), description: body,
+          assigneeAgentId: target.agentId, assigneeName: target.name, parentId: owned.descriptor.taskId },
+        acknowledgementBody: `Delegated to ${target.name}: ${String(req.body?.summary || body).slice(0, 200)}`,
+      });
+      if (!result.ok) return res.status(routerRefusalStatus(result)).json({ error: result.message, code: result.code });
+      return res.status(result.replayed ? 200 : 201).json({ ok: true, task: result });
+    }
+    const result = routerStore.deliverPeerMessageFromDispatch({ ...owned.capability,
+      recipientAgentId: target.agentId, recipientAgentName: target.name,
+      targetTaskId: req.body?.target_task_id, toolCallId: req.body?.tool_call_id, body });
+    if (!result.ok) return res.status(routerRefusalStatus(result)).json({ error: result.message, code: result.code });
+    const queued = await enqueueThreadSessionDispatch({ agent: target, sessionId: result.session.sessionId,
+      taskId: result.taskId, threadRootEventId: result.threadRootEventId });
+    if (!queued.ok) return res.status(routerRefusalStatus(queued)).json({ error: queued.message, code: queued.code, persisted: true });
+    return res.json({ ok: true, messageId: result.messageId, taskId: result.taskId,
+      queued: queued.state === 'queued', dispatchId: queued.dispatchId, dispatchState: queued.state });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
 
 app.post('/api/router/tasks', requireAgentToken((req) => req.body?.agent || ''), (req, res) => {
   if (!THREAD_SESSIONS_ENABLED) return res.status(404).json({ error: 'thread-session router is disabled' });
@@ -8134,6 +8567,9 @@ app.post('/api/router/tasks', requireAgentToken((req) => req.body?.agent || ''),
   if (descriptor.agentName !== creator.name || descriptor.agentId !== creator.agentId) {
     return res.status(403).json({ error: 'runner capability does not belong to creator agent' });
   }
+  if (!admittedRunnerPeer({ agent: creator, descriptor }, assignee)) {
+    return res.status(403).json({ error: 'assignee is not admitted to this project scope' });
+  }
   const result = routerStore.createTaskFromDispatch({
     ...capability,
     toolCallId: req.body?.tool_call_id,
@@ -8146,7 +8582,7 @@ app.post('/api/router/tasks', requireAgentToken((req) => req.body?.agent || ''),
       granularity: req.body?.granularity,
       assigneeAgentId: assignee.agentId,
       assigneeName: assignee.name,
-      parentId: req.body?.parent_id,
+      parentId: req.body?.parent_id ?? descriptor.taskId,
       labels: Array.isArray(req.body?.labels) ? req.body.labels : [],
     },
     acknowledgementBody: req.body?.acknowledgement_body,
@@ -8186,7 +8622,7 @@ app.post('/api/router/approvals/claude', requireAgentToken((req) => req.body?.ag
       approval = approvalStore.createRequest({
         agent: owned.agent.name,
         runtime: 'claude',
-        project_room_id: owned.descriptor.roomId,
+        project_room_id: routerStore.conversations.direct(owned.descriptor.roomId, owned.agent.name)?.projectRoomId || owned.descriptor.roomId,
         upstream_request_id: approvalId,
         tool_name: toolName,
         description,
@@ -8449,6 +8885,31 @@ app.delete('/api/approval-bindings/:agent/:roomId', requireApprovalBridgeSecret,
 
 app.get('/api/approval-bindings', requireApprovalBridgeSecret, (req, res) => {
   try {
+    if (req.query?.thread_root_event_id !== undefined) {
+      const roomId = req.query.project;
+      const threadRootEventId = req.query.thread_root_event_id;
+      const requesterMxid = req.query.requester_mxid;
+      if (typeof roomId !== 'string' || !/^![^:\s]+:\S+$/.test(roomId) || roomId.length > 255
+        || typeof threadRootEventId !== 'string' || !/^\$\S{1,254}$/.test(threadRootEventId)
+        || typeof requesterMxid !== 'string' || !/^@[^:\s]+:\S+$/.test(requesterMxid) || requesterMxid.length > 255) {
+        return res.status(400).json({ error: 'exact project room, thread root and requester MXID are required' });
+      }
+      const candidates = [];
+      if (THREAD_SESSIONS_ENABLED && routerStore) {
+        for (const approval of approvalStore.listBindings({ project: roomId })) {
+          if (approval.active === false || approval.projectRoomId !== roomId) continue;
+          const agent = agents[approval.agent];
+          if (!agent?.agentId || !agentEligibleForRoom(agent, roomId)) continue;
+          const binding = routerStore.findActiveTaskBinding(agent.agentId, roomId, threadRootEventId);
+          if (!binding.taskId || binding.agentName !== agent.name) continue;
+          const task = taskStore.getTask(binding.taskId);
+          if (!task || task.status === 'done' || task.created_by !== requesterMxid) continue;
+          candidates.push({ agent: agent.name, taskId: task.id });
+        }
+      }
+      return res.json({ ok: true, threadLookup: { v: 1, roomId, threadRootEventId, requesterMxid,
+        target: candidates.length === 1 ? candidates[0] : null } });
+    }
     return res.json({
       ok: true,
       bindings: approvalStore.listBindings({ agent: req.query?.agent, project: req.query?.project }),
@@ -8622,13 +9083,14 @@ app.get('/api/project-sides', requireBearer, (req, res) => {
  * ADR-016's settled question 2 in force: a REAL allocation, not a slice. Returns
  * `{ allocated, committed, remaining }` where `allocated: null` means UNALLOCATED — which is not
  * unlimited. Nothing may be minted against a side with no allocation, so that a side which has been
- * configured and not yet budgeted refuses work instead of drawing on whatever is left.
+ * configured and not yet budgeted refuses legacy requests. ADR-025 project
+ * definitions instead draw from their explicitly selected Resource pool.
  */
 function sideBudgetFor(sideId) {
   const side = projectSideStore.getSide(sideId);
   if (!side) return null;
   const allocated = side.allocatedTokens ?? null;
-  const committed = engagementStore.committedForProjectSide(side.serverName);
+  const committed = engagementStore.committedForProjectSide(side.serverName, { legacyOnly: true });
   return {
     allocated,
     committed,
@@ -8658,13 +9120,18 @@ function sideBudgetFor(sideId) {
  * orphans, and a number that is normally zero is the useful kind to show.
  */
 function sideCommitmentsFor(side) {
-  const commitments = engagementStore.commitmentsForProjectSide(side.serverName)
+  const all = engagementStore.commitmentsForProjectSide(side.serverName)
     .map((row) => ({
       ...row,
       agentExists: Boolean(row.agent && isAgentRecord(agents[normalizeAgentName(row.agent)])),
     }));
+  const commitments = all.filter(row => !usesResourcePool(engagementStore.get(row.id)));
+  const poolCommitments = all.filter(row => usesResourcePool(engagementStore.get(row.id)));
   return {
     commitments,
+    poolCommitments,
+    poolCommitted: poolCommitments.reduce((sum, row) => sum + row.allocatedTokens, 0),
+    totalCommitted: all.reduce((sum, row) => sum + row.allocatedTokens, 0),
     orphanedCommitted: commitments
       .filter((row) => !row.agentExists)
       .reduce((n, row) => n + (row.allocatedTokens ?? 0), 0),
@@ -9155,6 +9622,7 @@ app.get('/api/project-sides/acting-credentials', requireApprovalBridgeSecret, (r
           kind: 'registrationToken',
           representativeToken: credential.representativeToken,
           representative: side.representative ?? null,
+          registration: derivedRegistrationId(side.id, credential.representativeToken),
         };
       }
       /*
@@ -9670,7 +10138,7 @@ app.post('/api/agents/:name/matrix-identity', requireBearer, async (req, res) =>
     const minted = await mintAgentIdentity({
       side,
       credential,
-      localpart: `${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}`.toLowerCase(),
+      localpart: `${agentPrefixOnSide(side, credential)}${agentName}`.toLowerCase(),
     });
     /*
      * `mintAgentIdentity` RETURNS a verdict rather than throwing — `{ minted: false, reason }` — and the
@@ -10221,6 +10689,39 @@ app.post('/api/matrix/pending-invites/decide', requireBearer, (req, res) => {
   }
 });
 
+app.get('/api/agents/:name/execution-policy', requireBearer, (req, res) => {
+  const agent = agents[req.params.name];
+  if (!isAgentRecord(agent)) return res.status(404).json({ error: 'agent not found' });
+  return res.json({ executionPolicy: { yolo: agent.executionPolicy?.yolo === true },
+    grants: approvalStore.listGrants(agent.name, executionAgentIdentity(agent)), appliesTo: 'next_dispatch' });
+});
+
+app.put('/api/agents/:name/execution-policy', requireBearer, (req, res) => {
+  const agent = agents[req.params.name];
+  if (!isAgentRecord(agent)) return res.status(404).json({ error: 'agent not found' });
+  let policy;
+  try { policy = normalizeExecutionPolicy(req.body?.executionPolicy, threadSessionFramework(agent)); }
+  catch (error) { return res.status(400).json({ error: error.message }); }
+  const previous = agent.executionPolicy;
+  agent.executionPolicy = policy;
+  if (!saveAgents(true)) {
+    agent.executionPolicy = previous;
+    return res.status(503).json({ error: 'execution policy persistence failed' });
+  }
+  auditLog(req, { agent: agent.name, summary: { action: 'execution-policy', yolo: policy.yolo } });
+  return res.json({ ok: true, executionPolicy: policy, appliesTo: 'next_dispatch' });
+});
+
+app.delete('/api/agents/:name/execution-grants/:id', requireBearer, (req, res) => {
+  const agent = agents[req.params.name];
+  if (!isAgentRecord(agent)) return res.status(404).json({ error: 'agent not found' });
+  try {
+    const grant = approvalStore.revokeGrant(req.params.id, agent.name, 'operator');
+    if (!grant) return res.status(404).json({ error: 'authorization rule not found' });
+    return res.json({ ok: true, grant, appliesTo: 'subsequent_requests' });
+  } catch (error) { return respondApprovalStoreError(res, error, 'failed to revoke authorization'); }
+});
+
 app.post('/api/approvals', requireAgentToken(_tokenFromApprovalBody), (req, res) => {
   try {
     const record = approvalStore.createRequest(req.body || {});
@@ -10313,6 +10814,10 @@ const _tokenFromName = r => r.params?.name || '';
 const _tokenFromAgent = r => r.body?.agent || r.params?.agent || r.query?.agent || '';
 const _tokenFromNodeAssignee = r => { const g = taskGraphStore.getGraph(r.params?.id); return g?.nodes?.[r.params?.nodeId]?.assignee || ''; };
 app.post('/api/agents', requireAgentToken(r => r.body?.name || ''), (req, res) => {
+  const registeringName = normalizeAgentName(req.body?.name);
+  if (stoppingAgents.has(registeringName) || agents[registeringName]?.stopUnconfirmedDispatches?.length) {
+    return res.status(409).json({ error: 'agent shutdown is not yet confirmed', code: 'agent_stopping' });
+  }
   const {
     name,
     role,
@@ -10441,6 +10946,10 @@ app.post('/api/agents', requireAgentToken(r => r.body?.name || ''), (req, res) =
     // set it could raise its own budget by re-registering. `PUT /api/agents/:name/preset` names that
     // hole in its own comment and can only close its own route.
     presetId: normalizeOptionalText(applyPresetId, 128) || existing.presetId || null,
+    executionPolicy: existing.executionPolicy || normalizeExecutionPolicy(
+      existing.name ? undefined : frameworkPresets.find(p => p.id === applyPresetId)?.executionPolicy,
+      presetFramework ?? agentType ?? existing.type,
+    ),
     // Recorded so the sweep does not have to re-derive it, and so a record stays
     // correct even if the registry later changes.
     transport: (() => {
@@ -10632,7 +11141,7 @@ async function mintIdentityForProvisionedAgent(agentName, sideId) {
   mintAgentIdentity({
     side,
     credential,
-    localpart: `${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}`.toLowerCase(),
+    localpart: `${agentPrefixOnSide(side, credential)}${agentName}`.toLowerCase(),
   }).then((minted) => {
     if (minted?.minted) {
       console.log(`[mint] ${agentName} has an identity on ${sideId}: ${minted.mxid}`);
@@ -10842,6 +11351,10 @@ app.put('/api/agents/:name/preset', requireBearer, (req, res) => {
 });
 
 app.patch('/api/agents/:name', requireAgentToken(_tokenFromName), (req, res) => {
+  const updatingName = normalizeAgentName(req.params.name);
+  if (stoppingAgents.has(updatingName) || agents[updatingName]?.stopUnconfirmedDispatches?.length) {
+    return res.status(409).json({ error: 'agent shutdown is not yet confirmed', code: 'agent_stopping' });
+  }
   refreshServerLiveness();
   const agentName = normalizeAgentName(req.params.name);
   if (!agentName) return res.status(400).json({ error: 'invalid agent name' });
@@ -11013,7 +11526,7 @@ app.get('/api/agents', (req, res) => {
       .sort((a, b) => a.localeCompare(b));
     return res.json(names);
   }
-  res.json(records.map(serializeAgent));
+  res.json(serializeAgents(records));
 });
 
 // matrix-Agent pool view (Phase 2): the role×capability grid, for capability-aware dispatch.
@@ -11173,7 +11686,7 @@ let dispatchTicketSeq = 0;
 const cellKey = (role, tier) => `${role}:${tier}`;
 const annotateBusy = (records) => records.map((a) => ({ ...a, busy: dispatchLeaseStore.isBusy(a.name) }));
 const poolRecords = () =>
-  annotateBusy(Object.values(agents).filter((a) => agentEligibleForRoom(a)).map(serializeAgent));
+  annotateBusy(serializeAgents(Object.values(agents).filter((a) => agentEligibleForRoom(a))));
 
 const DISPATCH_LEASE_ERROR_STATUS = {
   missing_fields: 400,
@@ -11846,6 +12359,7 @@ app.post('/api/agents/:name/provision', requireBearer, (req, res) => {
     type: framework,
     presetId,
     runtimeProfile: preset ? normalizeRuntimeProfile(runtimeProfileFromPreset(preset)) : null,
+    executionPolicy: normalizeExecutionPolicy(preset?.executionPolicy, framework),
     agentId: normalizeAgentId(provisioned.name ? `agent_${agentName}` : null) || null,
     homeDir: normalizeWorkspacePath(paths.homeDir) || null,
     workdir: normalizeWorkspacePath(paths.workdir) || null,
@@ -11880,6 +12394,140 @@ app.post('/api/agents/:name/provision', requireBearer, (req, res) => {
   });
 });
 
+const stoppingAgents = new Set();
+const startingAgents = new Set();
+
+app.post('/api/agents/:name/stop', requireBearer, async (req, res) => {
+  if (!isLocalRequest(req)) return res.status(403).json({ error: 'local-only endpoint', stopped: false });
+  const name = normalizeAgentName(req.params.name);
+  if (!name) return res.status(400).json({ error: 'invalid agent name', stopped: false });
+  const agent = agents[name];
+  if (!isAgentRecord(agent)) return res.status(404).json({ error: 'agent not found', stopped: false });
+  if (stoppingAgents.has(name) || startingAgents.has(name)) {
+    return res.status(409).json({ error: 'agent start or stop is already in progress', code: 'agent_lifecycle_busy', stopped: false });
+  }
+  if (!isLocalAgentServer(normalizeServer(agent.server), LOCAL_SERVER_ID)) {
+    return res.status(422).json({ error: 'remote agent stop is not supported by this host', code: 'remote_stop_unsupported', stopped: false });
+  }
+  // ACP hosts are separate processes. Their self-reported PID does not give
+  // this backend authority to signal a host process or prove its children exited.
+  if (agentTransport(agent) === 'acp') {
+    return res.status(422).json({ error: 'ACP requires a confirmed stop from its supervising host', code: 'acp_stop_unconfirmed', stopped: false });
+  }
+  // Thread runners are owned through dispatch guardians, not tmux names. Fresh
+  // provisioned agents have no pane target; inferring one from their name both
+  // rejects names outside a legacy allowlist and risks targeting another session.
+  // A recorded tmux target still requires the exact legacy ownership policy.
+  const hasTmuxTarget = agent.tmux != null && agent.tmux !== '';
+  const threadOnly = !hasTmuxTarget && THREAD_SESSIONS_ENABLED && routerStore && agent.agentId
+    && ['claude', 'codex'].includes(threadSessionFramework(agent));
+  const sessionName = threadOnly ? null : sessionKeyFromTmuxTarget(agent.tmux) || name;
+  if (sessionName && (sessionName !== name || !sessionPolicy.allows(sessionName))) {
+    return res.status(403).json({ error: 'agent session is outside this host management policy', code: 'unmanaged_session', stopped: false });
+  }
+  const beforePersistence = snapshotAgentPersistenceState(name);
+  syncAgentMachine(name, { manualDown: true });
+  agent.offlineReason = 'operator-stop-requested';
+  if (!saveAgents(true)) {
+    restoreAgentPersistenceState(name, beforePersistence);
+    return res.status(503).json({ error: 'could not persist stop fence', stopped: false });
+  }
+  const cancelledDispatches = [];
+  let sessionKilled = false;
+  stoppingAgents.add(name);
+  try {
+    if (agent.stopUnconfirmedDispatches?.length) {
+      // Outcome inspection establishes the workspace state, not process exit.
+      // Its resolutionAction cannot release this separate termination fence.
+      throw new Error('runner termination remains unconfirmed; workspace outcome resolution cannot verify host process cleanup');
+    }
+    const dispatches = THREAD_SESSIONS_ENABLED && agent.agentId
+      ? routerStore.listAgentDispatches(agent.agentId) : [];
+    const dispatchIds = new Set(dispatches.map((dispatch) => dispatch.dispatchId));
+    // Cancellation may already have settled the router row while its guardian
+    // is still terminating. Process ownership outlives that row's live state.
+    const ownedEntries = [...liveThreadSessionRunners].filter(([dispatchId, runner]) =>
+      dispatchIds.has(dispatchId) || (runner.agentId === agent.agentId && runner.agentName === name));
+    const ownedRunners = ownedEntries.map(([, runner]) => runner);
+    const ownedIds = ownedEntries.map(([dispatchId]) => dispatchId);
+    const unconfirmedRunners = [];
+    for (const dispatch of dispatches) {
+      const runner = liveThreadSessionRunners.get(dispatch.dispatchId);
+      if (!runner && dispatch.state !== 'queued') unconfirmedRunners.push(dispatch.dispatchId);
+      // Fence the capability before asking the child to exit. Started work is
+      // still uncertain and retains its resource quarantine after termination.
+      const result = dispatch.state === 'queued' || dispatch.state === 'leased'
+        ? routerStore.cancelBeforeStart(dispatch.dispatchId)
+        : routerStore.markOutcomeUnknown(dispatch.dispatchId, 'operator_stopped_agent');
+      if (!result.ok) throw new Error(`dispatch ${dispatch.dispatchId}: ${result.message || result.code}`);
+      cancelledDispatches.push(dispatch.dispatchId);
+    }
+    for (const runner of ownedRunners) runner.controller.abort();
+    if (unconfirmedRunners.length) {
+      agent.stopUnconfirmedDispatches = unconfirmedRunners;
+      if (!saveAgents(true)) throw new Error('could not persist unconfirmed runner termination');
+    }
+    // A timed-out HTTP request must not turn a second stop into success while
+    // its child is still exiting. Clear these receipts only after owned cleanup.
+    agent.stopUnconfirmedDispatches = [...new Set([...(agent.stopUnconfirmedDispatches || []), ...ownedIds])];
+    if (ownedIds.length && !saveAgents(true)) throw new Error('could not persist pending runner cleanup');
+    const cleanup = Promise.allSettled(ownedRunners.map((runner) => runner.running)).then(() => {
+      const confirmedIds = ownedIds.filter((_, index) => ownedRunners[index].cleanupConfirmed === true);
+      const pending = agent.stopUnconfirmedDispatches || [];
+      agent.stopUnconfirmedDispatches = pending.filter((id) => !confirmedIds.includes(id));
+      if (ownedIds.length && !saveAgents(true)) {
+        agent.stopUnconfirmedDispatches = pending;
+        throw new Error('could not persist confirmed runner cleanup');
+      }
+      if (confirmedIds.length !== ownedIds.length) throw new Error('owned runner settled without confirmed host process cleanup');
+    });
+    let cleanupTimer;
+    try {
+      await Promise.race([
+        cleanup,
+        new Promise((_, reject) => {
+          cleanupTimer = setTimeout(() => reject(new Error('runner process cleanup did not finish')), 10000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(cleanupTimer);
+    }
+    if (unconfirmedRunners.length) throw new Error('runner process ownership is unavailable; termination is unconfirmed');
+    if (sessionName) {
+      if (!hostRuntime.capabilities.sessions) throw new Error('host runtime cannot verify session termination');
+      const before = await hostRuntime.listPanes();
+      if (!before.ok) throw new Error('host runtime could not enumerate managed sessions');
+      if (before.panes.some((pane) => pane.session === sessionName)) {
+        sessionKilled = await hostRuntime.killSession(sessionName);
+      }
+      const after = await hostRuntime.listPanes();
+      if (!after.ok || after.panes.some((pane) => pane.session === sessionName)) {
+        throw new Error('managed session termination was not confirmed');
+      }
+    }
+    if (THREAD_SESSIONS_ENABLED && agent.agentId && routerStore.listAgentDispatches(agent.agentId).length) {
+      throw new Error('agent still has an unsettled dispatch');
+    }
+    agent.tmux = null;
+    agent.offlineReason = 'operator-stopped';
+    agent.lastSeen = Date.now();
+    const runtime = ensureAgentRuntimeRecord(name);
+    runtime.activeNow = false;
+    runtime.activeDurationSec = 0;
+    runtime.idleDurationSec = 0;
+    setRuntimeObservation(runtime, { observerSource: 'operator-stop', observerServer: LOCAL_SERVER_ID, observedAt: agent.lastSeen });
+    if (!saveAgentRuntime(true)) throw new Error('processes stopped but runtime persistence failed');
+    if (!saveAgents(true)) throw new Error('processes stopped but agent persistence failed');
+    auditLog(req, { agent: name, summary: { action: 'stop', sessionKilled, cancelledDispatches } });
+    return res.json({ ok: true, stopped: true, name, sessionKilled, cancelledDispatches, agent: serializeAgent(agent) });
+  } catch (error) {
+    auditLog(req, { agent: name, summary: { action: 'stop-unconfirmed', sessionKilled, cancelledDispatches } });
+    return res.status(503).json({ error: error.message, code: 'stop_unconfirmed', stopped: false, sessionKilled, cancelledDispatches });
+  } finally {
+    stoppingAgents.delete(name);
+  }
+});
+
 app.post('/api/agents/:name/start', requireBearer, (req, res) => {
   if (!isLocalRequest(req)) return res.status(403).json({ error: 'local-only endpoint' });
   const agentName = normalizeAgentName(req.params.name);
@@ -11887,18 +12535,22 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
   const agent = agents[agentName];
   if (!isAgentRecord(agent)) return res.status(404).json({ error: 'agent not found' });
   if (agent.online) return res.status(409).json({ error: 'agent already online' });
+  if (stoppingAgents.has(agentName) || startingAgents.has(agentName) || agent.stopUnconfirmedDispatches?.length) {
+    return res.status(409).json({ error: 'agent lifecycle cleanup is still pending', code: 'agent_lifecycle_busy' });
+  }
   const VALID_FRAMEWORKS = new Set(['claude', 'codex']);
   const framework = agent.type;
   if (!framework || !VALID_FRAMEWORKS.has(framework)) {
     return res.status(400).json({ error: `agent has no valid framework (type='${agent.type || 'null'}'). Update agent type to claude or codex first.` });
   }
   const hafleetBin = path.join(REPO_ROOT, 'bin', 'hafleet');
-  const launchEnv = { ...process.env };
+  const launchEnv = { ...process.env, HAFLEET_LAUNCH_ENV_READY: '1' };
   const rp = agent.runtimeProfile?.primary;
   if (rp?.apiBaseUrl) launchEnv.ANTHROPIC_BASE_URL = rp.apiBaseUrl;
   if (rp?.apiKey) launchEnv.ANTHROPIC_API_KEY = rp.apiKey;
   if (rp?.model) launchEnv.HAFLEET_LAUNCH_MODEL = rp.model;
   if (rp?.extraArgs) launchEnv.HAFLEET_LAUNCH_EXTRA_ARGS = rp.extraArgs;
+  startingAgents.add(agentName);
   try {
     /*
      * The launcher's OUTPUT IS KEPT. This was `stdio: 'ignore'`, so a launch that failed — a
@@ -11924,6 +12576,7 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
      * non-zero exit becomes visible at all, since the response has long since been sent.
      */
     child.on('exit', (code, signal) => {
+      startingAgents.delete(agentName);
       try { closeSync(logFd); } catch { /* already closed */ }
       if (code === 0) return;
       console.error(`[start] hafleet up-v1 ${agentName} exited ${signal ? `on ${signal}` : `with code ${code}`} — see ${logPath}`);
@@ -11933,7 +12586,9 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
        * which reads as a live agent that has merely gone quiet.
        */
       const a = agents[agentName];
-      if (isAgentRecord(a) && !a.online) return;
+      // The session sweep may have already noticed the missing pane. Preserve
+      // the launcher's more specific failure, but never overwrite operator Stop.
+      if (isAgentRecord(a) && a.manualDown) return;
       if (isAgentRecord(a)) {
         a.tmux = null;
         a.offlineReason = `launch-failed:exit-${signal || code}`;
@@ -11941,6 +12596,7 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
         saveAgents();
       }
     });
+    child.on('error', () => startingAgents.delete(agentName));
     child.unref();
     agent.tmux = `${agentName}:0.0`;
     agent.lastSeen = Date.now();
@@ -11956,6 +12612,7 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
      */
     res.json({ ok: true, name: agentName, framework, pid: child.pid, state: 'launching', log: logPath });
   } catch (e) {
+    startingAgents.delete(agentName);
     console.error(`[start] failed to launch ${agentName}:`, e.message);
     res.status(500).json({ error: 'launch failed', detail: e.message });
   }
@@ -12725,7 +13382,8 @@ app.get('/api/frameworks/detect', requireBearer, async (_req, res) => {
  */
 app.get('/api/capability', requireBearer, (_req, res) => {
   refreshServerLiveness();
-  const rows = Object.values(agents).filter((a) => agentEligibleForRoom(a)).map(serializeAgent);
+  const rows = serializeAgents(Object.values(agents).filter((a) => agentEligibleForRoom(a)));
+  const canProvision = (preset) => ['claude', 'codex'].includes(preset.framework);
   const TIER_RANK = Object.fromEntries(
     [...CAPABILITY_TIERS].reverse().map((t, i) => [t, i]),
   );
@@ -12754,6 +13412,10 @@ app.get('/api/capability', requireBearer, (_req, res) => {
       }
       able.push({
         agent: a.name,
+        presetId: a.presetId ?? null,
+        framework: a.runtimeProfile?.primary?.framework ?? a.type ?? null,
+        model: a.runtimeProfile?.primary?.model ?? null,
+        reasoning: a.runtimeProfile?.primary?.reasoning ?? null,
         tier,
         family: modelFamily(a.runtimeProfile),
         overTier: TIER_RANK[tier] - TIER_RANK[need],
@@ -12761,7 +13423,13 @@ app.get('/api/capability', requireBearer, (_req, res) => {
       });
     }
 
-    const families = [...new Set(able.map((r) => r.family).filter(Boolean))].sort();
+    const eligibleResources = resourcesForRole(key, need, frameworkPresets).filter(({ preset }) => canProvision(preset));
+    const families = [...new Set([
+      ...able.map((r) => r.family),
+      ...eligibleResources.map(({ preset }) => modelFamily(runtimeProfileFromPreset(preset))),
+    ].filter(Boolean))].sort();
+    const representedPresets = new Set(able.map((row) => row.presetId).filter(Boolean));
+    const provisionable = eligibleResources.filter(({ preset }) => !representedPresets.has(preset.id)).length;
     return {
       role: key,
       displayName: def.displayName,
@@ -12790,7 +13458,9 @@ app.get('/api/capability', requireBearer, (_req, res) => {
        * `able` still lists every agent that clears the tier, so nothing is hidden:
        * the two fields now answer different questions instead of the same one twice.
        */
-      fillable: (def.crossFamily === true && families.length < 2) ? 0 : able.length,
+      // A configured resource may supply its first agent on demand. Do not count
+      // a preset again when its existing agent already represents that capacity.
+      fillable: (def.crossFamily === true && families.length < 2) ? 0 : able.length + provisionable,
       able,
       unable,
       overTier: able.filter((r) => r.overTier > 0).length,
@@ -12805,22 +13475,26 @@ app.get('/api/capability', requireBearer, (_req, res) => {
    * pick them (lowest qualifying tier first, then id). Each non-qualifying preset carries its
    * reason, matching `unable` above: a model no tier accepts, a tier below the role's floor, and a
    * missing ceiling are different problems with different fixes. Preset ids, names, tiers and
-   * ceilings only — never the resolved profile, which carries the apiKey.
+   * ceilings and model identity only — never the resolved profile, which carries the apiKey.
    */
   const resources = Object.fromEntries(ROLES.map((role) => {
     const need = ROLE_DEFAULT_TIER[role];
-    const ranked = resourcesForRole(role, need, frameworkPresets);
+    const ranked = resourcesForRole(role, need, frameworkPresets).filter(({ preset }) => canProvision(preset));
     const qualifiedIds = new Set(ranked.map(({ preset }) => preset.id));
     return [role, {
       qualified: ranked.map(({ preset, tier }) => ({
         presetId: preset.id,
         name: preset.name,
+        framework: preset.framework ?? null,
+        model: preset.model ?? null,
+        reasoning: preset.reasoning ?? null,
+        family: modelFamily(runtimeProfileFromPreset(preset)),
         tier,
         overTier: TIER_RANK[tier] - TIER_RANK[need],
         ceilingTokens: preset.ceiling?.tokens ?? null,
       })),
       // The head of `qualified`, named so a client does not re-implement the pick.
-      selected: resourceForRole(role, need, frameworkPresets)?.id ?? null,
+      selected: ranked[0]?.preset.id ?? null,
       unqualified: frameworkPresets
         .filter((p) => !qualifiedIds.has(p.id))
         .map((p) => {
@@ -12829,7 +13503,9 @@ app.get('/api/capability', requireBearer, (_req, res) => {
             presetId: p.id,
             name: p.name,
             tier: tier ?? null,
-            reason: !tier
+            reason: !canProvision(p)
+              ? 'framework-not-provisionable'
+              : !tier
               ? (p.model ? 'model-not-accepted' : 'no-model')
               : (TIER_RANK[tier] < TIER_RANK[need] ? 'below-tier' : 'no-ceiling'),
           };
@@ -12900,7 +13576,7 @@ app.get('/api/capability', requireBearer, (_req, res) => {
  */
 function servingConfiguration(agentName) {
   if (!agentName) return null;
-  const row = Object.values(agents).filter(isAgentRecord).map(serializeAgent)
+  const row = serializeAgents(Object.values(agents).filter(isAgentRecord))
     .find((a) => a.name === agentName);
   if (!row) return null;
   const primary = row.runtimeProfile?.primary ?? {};
@@ -12921,6 +13597,9 @@ function servingConfiguration(agentName) {
 
 function agentEligibleForRoom(agent, projectRoomId = null, fulfillmentId = null) {
   if (!isAgentRecord(agent) || agent.retiredAt || String(agent.offlineReason ?? '').startsWith('retired:')) return false;
+  // A stopped or unconfirmed runner cannot accept a new engagement. An idle
+  // provisioned home remains eligible; current online telemetry is not a fence.
+  if (agent.manualDown || agent.stopUnconfirmedDispatches?.length) return false;
   if (agent.engagementProvisioningId && agent.engagementProvisioningId !== fulfillmentId
     && engagementStore.get(agent.engagementProvisioningId)?.fulfillment?.phase !== 'complete') return false;
   if (engagementStore.list({ state: 'pending' }).some((e) => e.fulfillment && e.agent === agent.name
@@ -12937,13 +13616,16 @@ function agentEligibleForRoom(agent, projectRoomId = null, fulfillmentId = null)
 }
 
 function agentForRole(role, projectRoomId = null) {
-  const rows = Object.values(agents).filter((a) => agentEligibleForRoom(a, projectRoomId)).map(serializeAgent);
+  const rows = serializeAgents(Object.values(agents).filter((a) => agentEligibleForRoom(a, projectRoomId)));
   const TIER_RANK = Object.fromEntries([...CAPABILITY_TIERS].reverse().map((t, i) => [t, i]));
   const need = ROLE_DEFAULT_TIER[role];
   if (!need) return null;
   const qualified = rows
     .map((a) => ({ a, tier: modelTier(a.runtimeProfile) }))
-    .filter(({ tier }) => tier && TIER_RANK[tier] >= TIER_RANK[need]);
+    .filter(({ a, tier }) => tier && TIER_RANK[tier] >= TIER_RANK[need]
+      && (!agents[a.name]?.projectAgentDefinition || agents[a.name].projectAgentDefinition.projectRoomId === projectRoomId)
+      && (!agents[a.name]?.resourceDefinitionId || resourceAgentDefinitions.find(agents[a.name].resourceDefinitionId)?.definition.role === role
+        && resourceAgentDefinitions.find(agents[a.name].resourceDefinitionId)?.definition.enabled === true));
   if (!qualified.length) return null;
   /*
    * Most headroom first, so a second request for the same role does not pile onto
@@ -12955,11 +13637,112 @@ function agentForRole(role, projectRoomId = null) {
   return qualified[0].a.name;
 }
 
-function roleCrossFamilyAvailable(role, projectRoomId = null) {
+function allocationChoice(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new EngagementError('bad_request', 'Choose an Agent definition or existing Agent');
+  if (value.kind === 'definition' && typeof value.definitionId === 'string') return { kind: 'definition', definitionId: value.definitionId };
+  if (value.kind === 'agent' && typeof value.agent === 'string') return { kind: 'agent', agent: value.agent };
+  if (value.kind === 'project-definition') return { kind: 'project-definition' };
+  throw new EngagementError('bad_request', 'Invalid Agent allocation choice');
+}
+
+function allocationCandidate(e, input) {
+  const choice = allocationChoice(input);
+  if (e.requestContext?.agentDefinition) {
+    if (choice.kind !== 'project-definition') throw new EngagementError('conflict', 'Approve the Agent and resource defined by the project, or reject this request');
+    const definition = e.requestContext.agentDefinition;
+    const preset = frameworkPresets.find(p => publicResourceId(p) === definition.resourceId);
+    if (!preset || (!e.fulfillment && !fleetCatalogOffers(sideIdForRoom(e.projectRoomId))
+      .some(offer => offer.published && offer.role === e.role && offer.resources.some(resource => resource.id === definition.resourceId)))
+      || !['claude', 'codex'].includes(preset.framework)
+      || !resourcesForRole(e.role, ROLE_DEFAULT_TIER[e.role], [preset]).length) {
+      throw new EngagementError('agent_unavailable', 'The requested resource is no longer published or does not qualify for this role');
+    }
+    if (e.fulfillment && preset.id !== e.fulfillment.presetId) throw new EngagementError('conflict', 'The reserved resource cannot change');
+    const name = projectAgentRuntimeName(e.requestContext), agent = agents[name];
+    if (agent && (agent.projectAgentRequestId !== e.requestId || !agentEligibleForRoom(agent, e.projectRoomId, e.id))) {
+      throw new EngagementError('conflict', 'The requested Agent identity is unavailable');
+    }
+    const budget = resourceBudget(preset, { excludeEngagementId: e.id });
+    return { choice, name, displayName: definition.name, preset, provision: !agent, budget,
+      remainingTokens: agent ? remainingFor(name, { excludeEngagementId: e.id }) : budget.remainingTokens };
+  }
+  if (choice.kind === 'project-definition') throw new EngagementError('bad_request', 'This request has no project Agent definition');
+  const found = choice.kind === 'definition' ? resourceAgentDefinitions.find(choice.definitionId) : null;
+  if (choice.kind === 'definition' && (!found || !found.definition.enabled || found.definition.role !== e.role)) {
+    throw new EngagementError('agent_unavailable', 'Agent definition is unavailable for this role');
+  }
+  const name = found?.definition.name || choice.agent;
+  const agent = agents[name];
+  const preset = found?.preset || frameworkPresets.find(p => p.id === agent?.presetId);
+  if (!preset || !resourcesForRole(e.role, ROLE_DEFAULT_TIER[e.role], [preset]).length) {
+    throw new EngagementError('agent_unavailable', 'Selected resource does not qualify for this role');
+  }
+  if (found && agent && agent.resourceDefinitionId !== found.definition.id) throw new EngagementError('conflict', 'Agent name belongs to another identity');
+  if (agent) {
+    if (agent.projectAgentDefinition && agent.projectAgentDefinition.projectRoomId !== e.projectRoomId) {
+      throw new EngagementError('agent_unavailable', 'This Agent belongs to a different project');
+    }
+    if (agent.resourceDefinitionId) {
+      const definition = resourceAgentDefinitions.find(agent.resourceDefinitionId)?.definition;
+      if (!definition?.enabled || definition.role !== e.role) throw new EngagementError('agent_unavailable', 'Agent definition is unavailable for this role');
+    }
+    if (!agentEligibleForRoom(agent, e.projectRoomId, e.id)
+      || !modelTier(agent.runtimeProfile)
+      || !resourcesForRole(e.role, ROLE_DEFAULT_TIER[e.role], [{ ...preset, ...agent.runtimeProfile?.primary }]).length) {
+      throw new EngagementError('agent_unavailable', 'Selected Agent is unavailable on this project side or does not qualify');
+    }
+  } else {
+    if (!found || !['claude', 'codex'].includes(preset.framework)) throw new EngagementError('agent_unavailable', 'Selected Agent does not exist');
+    if (engagementStore.list().some(other => other.id !== e.id && other.agent === name && other.state === 'pending'
+      && other.fulfillment && other.fulfillment.phase !== 'failed')) throw new EngagementError('conflict', 'Agent definition is already reserved by another request');
+  }
+  return { choice, name, preset, definitionId: found?.definition.id || null, provision: !agent,
+    remainingTokens: agent ? remainingFor(name, { excludeEngagementId: e.id }) : resourceRemaining(preset, { excludeEngagementId: e.id }) };
+}
+
+function engagementCandidates(e) {
+  const choices = e.requestContext?.agentDefinition ? [{ kind: 'project-definition' }] : resourceAgentDefinitions.all().filter(row => row.definition.role === e.role)
+    .map(row => ({ kind: 'definition', definitionId: row.definition.id }));
+  for (const agent of Object.values(agents).filter(a => isAgentRecord(a) && !e.requestContext?.agentDefinition)) {
+    if (!agent.resourceDefinitionId) choices.push({ kind: 'agent', agent: agent.name });
+  }
+  return choices.flatMap(choice => {
+    try {
+      const c = allocationCandidate(e, choice);
+      return [{ choice, name: c.displayName || c.name, resource: c.preset.name, framework: c.preset.framework,
+        model: c.preset.model, reasoning: c.preset.reasoning, provision: c.provision, remainingTokens: c.remainingTokens,
+        ...(c.budget ? { budget: c.budget } : {}) }];
+    } catch (error) { if (error instanceof EngagementError) return []; throw error; }
+  });
+}
+
+function publicResourceConfigurations(role, _sideId) {
+  return resourcesForRole(role, ROLE_DEFAULT_TIER[role], frameworkPresets)
+    .filter(({ preset }) => preset.catalogPublished === true && ['claude', 'codex'].includes(preset.framework))
+    .map(({ preset, tier }) => ({ id: publicResourceId(preset), name: preset.name, framework: preset.framework,
+      model: preset.model, reasoning: preset.reasoning || null, tier }));
+}
+
+// Catalog visibility is derived, not an automatic-acceptance offer. Keep the
+// engagement store's explicit offers unchanged: publishing capacity cannot
+// grant budget or bypass the provider's review of a project-defined Agent.
+function fleetCatalogOffers(sideId = null) {
+  return ROLES.flatMap(role => {
+    const offer = engagementStore.getOffer(role);
+    const resources = offer?.published === false || !roleCrossFamilyAvailable(role, null, sideId)
+      ? [] : publicResourceConfigurations(role, sideId);
+    if (!offer && !resources.length) return [];
+    return [{ role, count: offer?.count ?? null, budgetCapPerEngagement: offer?.budgetCapPerEngagement ?? null,
+      rateCap: offer?.rateCap ?? null, published: offer?.published === true || resources.length > 0, resources }];
+  });
+}
+
+function roleCrossFamilyAvailable(role, projectRoomId = null, projectSideId = null) {
   if (!roleCapacity.roles[role]?.crossFamily) return true;
   const rank = Object.fromEntries([...CAPABILITY_TIERS].reverse().map((tier, i) => [tier, i]));
   const need = rank[ROLE_DEFAULT_TIER[role]];
   const families = Object.values(agents).filter((a) => agentEligibleForRoom(a, projectRoomId))
+    .filter((a) => !projectSideId || a.projectSide === projectSideId)
     .filter((a) => rank[modelTier(a.runtimeProfile)] >= need)
     .map((a) => modelFamily(a.runtimeProfile)).filter(Boolean);
   return new Set(families).size >= 2;
@@ -13069,7 +13852,10 @@ function remainingFor(agentName, { forAutoJoin = false, excludeEngagementId = nu
   const drawn = spent === null ? reserved : Math.max(reserved, spent);
   const byCeiling = Number.isFinite(ceiling) ? Math.max(0, ceiling - drawn) : null;
   const bySeat = seatRemainingFor(agentName, excludeEngagementId);
-  const limits = [byCeiling, bySeat].filter((v) => v !== null);
+  const poolBudget = preset ? resourceBudget(preset, { forAutoJoin, excludeEngagementId }) : null;
+  if (poolBudget?.seat.status === 'period_mismatch') return null;
+  const byPool = poolBudget?.remainingTokens ?? null;
+  const limits = [byCeiling, bySeat, byPool].filter((v) => v !== null);
   return limits.length ? Math.min(...limits) : null;
 }
 
@@ -13354,18 +14140,21 @@ function backendRosterAdmits(mxid, sideId, agentsMap = agents, sideStore = proje
   const m = id.match(/^@([^:\s@]+):([^\s@]+)$/);
   if (!m) return false;
   const [, localpart, server] = m;
-  if (!localpart.startsWith(MATRIX_AGENT_PREFIX_FOR_REGISTRATION)) return false;
-  const agentName = localpart.slice(MATRIX_AGENT_PREFIX_FOR_REGISTRATION.length);
+  const side = sideStore.getSide(sideId);
+  if (!side?.serverName) return false;
+  let prefix;
+  try { prefix = projectSideAgentPrefix({ side, credential: sideStore.credentialFor?.(sideId) }, MATRIX_AGENT_PREFIX_FOR_REGISTRATION); }
+  catch { return false; }
+  if (!localpart.startsWith(prefix)) return false;
+  const agentName = localpart.slice(prefix.length);
   const recordedMatches = Object.values(agentsMap).filter((a) => recordedAgentMxid(a) === id);
   if (recordedMatches.length > 1) return false;
   const agent = recordedMatches[0] || agentsMap[agentName];
   if (!isAgentRecord(agent)) return false;                                  // ①
   if (String(agent.projectSide ?? '') !== String(sideId ?? '')) return false; // ② missing ≠ admitted
-  const side = sideStore.getSide(sideId);
-  if (!side?.serverName) return false;                                      // no side, no composition
   const recorded = recordedAgentMxid(agent);
   const authoritative = recorded
-    ?? `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+    ?? `@${prefix}${agentName}:${side.serverName}`.toLowerCase();
   const am = authoritative.match(/^@([^:\s@]+):([^\s@]+)$/);
   if (!am) return false;
   return localpart === am[1] && server.toLowerCase() === am[2].toLowerCase(); // ③
@@ -13394,7 +14183,7 @@ async function withdrawAgentFromProjectRoom(agentName, roomId) {
    * one WE mint by, on the server the room id names, and `leaveRoomOnSideAsAgent` re-checks it against
    * the namespace the registration claimed before presenting any token.
    */
-  const agentMxid = recordedAgentMxid(agents[agentName]) || `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+  const agentMxid = recordedAgentMxid(agents[agentName]) || `@${agentPrefixOnSide(side, credential)}${agentName}:${side.serverName}`.toLowerCase();
   /*
    * F10 (17-r5): THE SAME FIRST GATE as admission — before any external request. A leave for an
    * identity the fleet does not vouch for is an external side effect (the homeserver records the
@@ -13452,7 +14241,7 @@ async function admitAgentToProjectRoom(engagement) {
   if (!credential) return { admitted: false, reason: 'no_credential', sideId };
 
   const acting = { side, credential };
-  const agentMxid = recordedAgentMxid(agents[agentName]) || `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${side.serverName}`.toLowerCase();
+  const agentMxid = recordedAgentMxid(agents[agentName]) || `@${agentPrefixOnSide(side, credential)}${agentName}:${side.serverName}`.toLowerCase();
 
   /*
    * F10 (17-r5): THE ROSTER GATE COMES FIRST — before the invite, before any external request at
@@ -13556,6 +14345,7 @@ function bindEngagement(engagement, resolvedOwner = null) {
 }
 
 function engagementResult(req, engagement, extras = {}) {
+  if (req.engagementCaller === 'fleet') return fleetPublicEngagement(engagement);
   const internal = req.engagementCaller !== 'requester' && req.engagementCaller !== 'matrix';
   if (internal) return { ok: true, engagement, ...extras };
   const fields = ['id', 'requestId', 'idempotent', 'project', 'projectRoomId', 'role', 'requester',
@@ -13573,6 +14363,7 @@ function engagementResult(req, engagement, extras = {}) {
 }
 
 const engagementFulfillments = new Map();
+const engagementAllocationChoices = new Map();
 function runMatrixWork(command) {
   if (!getBridgeSecret()) throw new Error('Matrix bridge authorization is not configured');
   const job = matrixWorkStore.enqueue(command);
@@ -13593,18 +14384,22 @@ let launchEngagementAgent = async (agent) => {
   });
 };
 
-function resourceRemaining(preset, { forAutoJoin = false } = {}) {
-  if (!Number.isFinite(preset?.ceiling?.tokens)) return null;
+function resourceBudget(preset, options = {}) {
   const candidate = { type: preset.framework, server: LOCAL_SERVER_ID, runtimeProfile: runtimeProfileFromPreset(preset) };
   const identity = (a) => seatIdentity(a, { keyId: SEAT_KEY_ID, secret: SEAT_KEY_SECRET }).seatId;
   const seatId = identity(candidate);
-  const declaration = seatDeclarations[seatId];
-  const known = Number.isFinite(declaration?.quotaTokens) && declaration?.period === preset.ceiling.period;
-  if (forAutoJoin && declaration && !known) return null;
-  const committed = Object.values(agents).filter(isAgentRecord).filter((a) => identity(a) === seatId)
-    .reduce((sum, a) => sum + engagementStore.committedFor(a.name), 0)
-    + unprovisionedSeatCommitments(seatId);
-  return Math.max(0, Math.min(preset.ceiling.tokens - committed, known ? declaration.quotaTokens - committed : Infinity));
+  const commitments = engagementStore.list().filter(holdsAllocation).map(e => {
+    const agent = isAgentRecord(agents[e.agent]) ? agents[e.agent] : null;
+    const reservedPreset = frameworkPresets.find(p => p.id === e.fulfillment?.presetId);
+    const target = agent || (reservedPreset ? { type: reservedPreset.framework, server: LOCAL_SERVER_ID,
+      runtimeProfile: runtimeProfileFromPreset(reservedPreset) } : null);
+    return { ...e, presetId: agent?.presetId || reservedPreset?.id, seatId: target ? identity(target) : null };
+  });
+  return resourceAllocationBudget({ preset, seatId, declaration: seatDeclarations[seatId], commitments, ...options });
+}
+
+function resourceRemaining(preset, options = {}) {
+  return preset ? resourceBudget(preset, options).remainingTokens : null;
 }
 
 function unprovisionedSeatCommitments(seatId) {
@@ -13620,6 +14415,9 @@ function unprovisionedSeatCommitments(seatId) {
 
 function fulfillEngagement(id, options = {}) {
   if (engagementFulfillments.has(id)) {
+    if (options.allocation && JSON.stringify(allocationChoice(options.allocation)) !== engagementAllocationChoices.get(id)) {
+      return Promise.reject(new EngagementError('conflict', 'A different Agent selection is already in progress'));
+    }
     const e = engagementStore.get(id);
     if (options.allocatedTokens !== undefined && Number(options.allocatedTokens) !== e?.allocatedTokens
       || options.owner && JSON.stringify(options.owner) !== JSON.stringify(e?.fulfillment?.owner)) {
@@ -13627,15 +14425,32 @@ function fulfillEngagement(id, options = {}) {
     }
     return engagementFulfillments.get(id);
   }
-  const work = fulfillEngagementOnce(id, options).finally(() => engagementFulfillments.delete(id));
+  engagementAllocationChoices.set(id, options.allocation ? JSON.stringify(allocationChoice(options.allocation)) : null);
+  const work = fulfillEngagementOnce(id, options).finally(() => { engagementFulfillments.delete(id); engagementAllocationChoices.delete(id); });
   engagementFulfillments.set(id, work);
   return work;
 }
 
-async function fulfillEngagementOnce(id, { allocatedTokens, by = 'operator', reason, autoJoin = false, owner: suppliedOwner = null } = {}) {
+async function fulfillEngagementOnce(id, { allocatedTokens, by = 'operator', reason, autoJoin = false, owner: suppliedOwner = null, allocation = null } = {}) {
   let e = engagementStore.get(id);
   if (!e) throw new EngagementError('not_found', 'engagement not found');
-  if (e.state === 'active') return { engagement: e };
+  const selectedChoice = allocation ? allocationChoice(allocation) : e.allocationChoice || e.fulfillment?.allocationChoice
+    || (e.requestContext?.agentDefinition ? { kind: 'project-definition' } : null);
+  if (e.requestContext?.agentDefinition && selectedChoice.kind !== 'project-definition') {
+    throw new EngagementError('conflict', 'The project defined this Agent and resource; submit a new request to change them');
+  }
+  const savedChoice = e.allocationChoice || e.fulfillment?.allocationChoice || (e.agent ? { kind: 'agent', agent: e.agent } : null);
+  if (allocation && (e.fulfillment || e.state === 'active') && JSON.stringify(selectedChoice) !== JSON.stringify(savedChoice)) {
+    throw new EngagementError('conflict', 'A reserved or active assignment cannot change its Agent');
+  }
+  let selected = e.state === 'pending' && selectedChoice ? allocationCandidate(e, selectedChoice) : null;
+  if (selected) e = { ...e, agent: selected.name };
+  if (e.state === 'active') {
+    if (!autoJoin && getBridgeSecret() && projectSideStore.getSide(sideIdForRoom(e.projectRoomId))) {
+      e = engagementStore.queueApprovalNotice(id);
+    }
+    return { engagement: e };
+  }
   if (e.state !== 'pending') throw new EngagementError('conflict', 'engagement is no longer pending');
   if (!roleCrossFamilyAvailable(e.role, e.projectRoomId)) {
     throw new EngagementError('cross_family_unavailable', 'this role requires qualifying agents from two model families on the project side');
@@ -13656,23 +14471,65 @@ async function fulfillEngagementOnce(id, { allocatedTokens, by = 'operator', rea
   }
   const sideId = sideIdForRoom(e.projectRoomId);
   const side = sideId ? projectSideStore.getSide(sideId) : null;
+  if (e.requestContext) {
+    const credential = side && projectSideStore.credentialFor(sideId);
+    if (!side?.active || credential?.kind !== 'appservice'
+      || fleetIdForSender(credential.senderLocalpart) !== e.requestContext.fleetId
+      || owner.ownerMxid !== e.requestContext.ownerMxid || owner.ownerDmRoomId !== e.requestContext.ownerDmRoomId) {
+      throw new EngagementError('owner_unavailable', 'Use the verified project owner and private approval room for this request.');
+    }
+    try {
+      await verifyFleetTarget(e.requestContext, { ...side, fleetId: e.requestContext.fleetId,
+        representativeMxid: side.representative?.mxid }, async (_side, roomId, suffix, options = {}) => {
+        const url = new URL(`${side.apiBaseUrl.replace(/\/+$/, '')}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/${suffix}`);
+        url.searchParams.set('user_id', side.representative.mxid);
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${credential.asToken}` }, signal: AbortSignal.timeout(15_000) });
+        if (options.optional && response.status === 404) return null;
+        if (!response.ok) throw new Error('Matrix target authorization unavailable');
+        return response.json();
+      });
+    } catch {
+      throw new EngagementError('owner_unavailable', 'Project authorization changed or could not be verified; engagement remains pending.');
+    }
+  }
+  if (owner.ownerDmRoomId === e.projectRoomId) {
+    throw new EngagementError('bad_request', 'owner approval room must be private and distinct from the project room');
+  }
+  const mxidKey = (value) => {
+    if (typeof value !== 'string') return null;
+    const separator = value.indexOf(':');
+    return separator < 0 ? null : value.slice(0, separator) + value.slice(separator).toLowerCase();
+  };
+  const ownerKey = mxidKey(owner.ownerMxid);
+  if (owner.ownerMxid?.startsWith(`@${agentPrefixOnSide(side)}`)
+    || Object.values(agents).some((candidate) => isAgentRecord(candidate) && mxidKey(recordedAgentMxid(candidate)) === ownerKey)
+    || ownerKey && ownerKey === mxidKey(side?.representative?.mxid)) {
+    throw new EngagementError('bad_request', 'project owner must be a human, not an agent or project representative');
+  }
   if (side && !side.active) throw new EngagementError('agent_unavailable', 'project side is deactivated');
   const reserved = e.fulfillment && e.fulfillment.phase !== 'failed' ? e.allocatedTokens || 0 : 0;
   const budget = side ? sideBudgetFor(sideId) : null;
-  if (budget && (budget.allocated === null || alloc > budget.remaining + reserved)) {
+  if (!usesResourcePool(e) && budget && (budget.allocated === null || alloc > budget.remaining + reserved)) {
     throw new EngagementError('over_allocation', 'project side has insufficient allocation');
   }
-  const needsProvisioning = !e.agent || Boolean(e.fulfillment);
+  if (selected) {
+    const current = allocationCandidate(e, selected.choice);
+    if (current.name !== selected.name) throw new EngagementError('conflict', 'Agent definition changed during approval; review it again');
+    selected = current;
+  }
+  const needsProvisioning = !e.agent || Boolean(e.fulfillment) || selected?.provision;
   if (!needsProvisioning) {
     if (!agentEligibleForRoom(agents[e.agent], e.projectRoomId)) throw new EngagementError('agent_unavailable', 'agent is no longer eligible for this project side');
     const remaining = remainingFor(e.agent, { forAutoJoin: autoJoin });
     if (remaining === null) throw new EngagementError('no_ceiling', 'cannot allocate without a known limit');
     if (alloc > remaining) throw new EngagementError('over_commit', autoJoin
       ? 'The contributor cannot accept this allocation.' : overCommitMessage(e, alloc, remaining, ceilingSpendFor(e.agent)));
+    if (selected) e = engagementStore.selectAgent(id, selected.name, selected.choice, by);
     const binding = bindEngagement(e, owner);
     engagementStore.setBindingOutcome(id, binding);
     if (!binding.bound) throw new EngagementError('owner_unavailable', 'project owner could not be bound');
-    e = engagementStore.decide({ engagementId: id, approve: true, allocatedTokens: alloc, remainingTokens: remaining, by, reason, autoJoin });
+    e = engagementStore.decide({ engagementId: id, approve: true, allocatedTokens: alloc, remainingTokens: remaining, by, reason, autoJoin,
+      notify: Boolean(side && getBridgeSecret()) });
     return { engagement: e, binding, roomAdmission: await admitAgentToProjectRoom(e) };
   }
   if (!side) throw new EngagementError('no_project_side', 'configure the project side before provisioning');
@@ -13682,11 +14539,21 @@ async function fulfillEngagementOnce(id, { allocatedTokens, by = 'operator', rea
     throw new EngagementError('provision_unavailable', 'on-demand provisioning requires a side credential and its authenticated Matrix bridge');
   }
   const preset = e.fulfillment ? frameworkPresets.find((p) => p.id === e.fulfillment.presetId)
-    : resourcesForRole(e.role, ROLE_DEFAULT_TIER[e.role], frameworkPresets)
-      .map((r) => r.preset).find((p) => (resourceRemaining(p, { forAutoJoin: autoJoin }) ?? -1) >= alloc);
+    : selected ? selected.preset : resourcesForRole(e.role, ROLE_DEFAULT_TIER[e.role], frameworkPresets)
+      .map((r) => r.preset).find((p) => ['claude', 'codex'].includes(p.framework)
+        && (resourceRemaining(p, { forAutoJoin: autoJoin }) ?? -1) >= alloc);
   if (!preset || !['claude', 'codex'].includes(preset.framework)) throw new EngagementError('no_ceiling', 'no qualifying resource has sufficient capacity');
+  if (selected && (selected.remainingTokens ?? -1) < alloc) {
+    const limits = selected.budget;
+    const detail = limits?.seat.status === 'period_mismatch' ? 'The shared account quota period does not match this pool.'
+      : limits?.pool.remaining < alloc ? `Selected pool has ${limits.pool.remaining} tokens available; this approval needs ${alloc}.`
+        : limits?.seat.remaining !== null && limits?.seat.remaining < alloc
+          ? `The shared account has ${limits.seat.remaining} tokens available across its pools; this approval needs ${alloc}.`
+          : 'Selected resource has insufficient remaining capacity';
+    throw new EngagementError('over_commit', detail);
+  }
   const agentName = e.agent || normalizeAgentName(`mx_${sideId.replace(/[^a-z0-9]/g, '_').slice(0, 24)}_${e.role}_${createHash('sha256').update(id).digest('hex').slice(0, 12)}`);
-  e = engagementStore.planFulfillment(id, { agent: agentName, allocatedTokens: alloc, presetId: preset.id, sideId, owner });
+  e = engagementStore.planFulfillment(id, { agent: agentName, allocatedTokens: alloc, presetId: preset.id, sideId, owner, ...(selected ? { allocationChoice: selected.choice, definitionId: selected.definitionId } : {}) });
   const assertPending = () => {
     if (engagementStore.get(id)?.state !== 'pending' || !projectSideStore.getSide(sideId)?.active) {
       throw new EngagementError('conflict', 'engagement was cancelled or its side deactivated during provisioning');
@@ -13702,8 +14569,13 @@ async function fulfillEngagementOnce(id, { allocatedTokens, by = 'operator', rea
       const snapshot = snapshotAgentPersistenceState(agentName);
       agents[agentName] = {
         name: agentName, kind: 'agent', type: preset.framework, projectSide: sideId, presetId: preset.id,
+        ...(e.fulfillment.definitionId ? { resourceDefinitionId: e.fulfillment.definitionId } : {}),
+        ...(e.requestContext?.agentDefinition ? { projectAgentRequestId: e.requestId,
+          projectAgentDefinition: { ...e.requestContext.agentDefinition, projectRoomId: e.projectRoomId },
+          displayName: e.requestContext.agentDefinition.name, role: e.role } : {}),
         engagementProvisioningId: id,
         runtimeProfile: normalizeRuntimeProfile(runtimeProfileFromPreset(preset)), agentId: `agent_${agentName}`,
+        executionPolicy: normalizeExecutionPolicy(preset.executionPolicy, preset.framework),
         homeDir: provisioned.paths.homeDir, workdir: provisioned.paths.workdir, stateDir: provisioned.paths.stateDir,
         server: LOCAL_SERVER_ID, tmux: null, online: false, offlineReason: 'provisioned', manualDown: false,
         registeredAt: Date.now(), discoveredAt: Date.now(), lastSeen: Date.now(),
@@ -13712,9 +14584,10 @@ async function fulfillEngagementOnce(id, { allocatedTokens, by = 'operator', rea
       loadAgentTokens();
     }
     if (!agentEligibleForRoom(agents[agentName], e.projectRoomId, id)) throw new Error('provisioned agent is not eligible for this side');
+    prepareThreadRuntime(agents[agentName]);
     engagementStore.setFulfillmentPhase(id, 'provisioned');
     if (!recordedAgentMxid(agents[agentName])) {
-      const localpart = `${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}`;
+      const localpart = `${agentPrefixOnSide(side, credential)}${agentName}`;
       const minted = credential.kind === 'registrationToken'
         ? await runMatrixWork({ action: 'identity', agent: agentName, sideId, localpart, engagementId: id })
           .then((result) => ({ minted: result.ok, mxid: result.mxid, kind: 'registrationToken', reason: result.code }))
@@ -13747,7 +14620,8 @@ async function fulfillEngagementOnce(id, { allocatedTokens, by = 'operator', rea
       if (!saveAgentsOrRollback(agentName, snapshot)) throw new Error('agent readiness persistence failed');
     }
     const remaining = remainingFor(agentName, { forAutoJoin: autoJoin, excludeEngagementId: id });
-    e = engagementStore.decide({ engagementId: id, approve: true, allocatedTokens: alloc, remainingTokens: remaining, by, reason, autoJoin });
+    e = engagementStore.decide({ engagementId: id, approve: true, allocatedTokens: alloc, remainingTokens: remaining, by, reason, autoJoin,
+      notify: Boolean(side && getBridgeSecret()) });
     return { engagement: e, binding, roomAdmission };
   } catch (error) {
     // Keep the reservation while setup is incomplete. A verdict retries the same
@@ -13890,6 +14764,10 @@ app.get('/api/engagements', requireBearer, (req, res) => {
   const state = normalizeOptionalText(req.query.state, 32) || undefined;
   const rows = engagementStore.list({ state }).map((e) => ({
     ...e,
+    // Readiness is scoped to this project; the console must not infer an owner
+    // from its requester or an unrelated project's private approval binding.
+    ownerBindingRequired: e.state === 'pending'
+      && !(e.fulfillment?.owner || resolveOwnerFor(e.agent, e.projectRoomId)),
     // What is LEFT on the agent behind it, so the queue can show over-commitment
     // before the decision rather than reporting it afterwards.
     agentRemainingTokens: e.agent ? remainingFor(e.agent) : null,
@@ -13911,12 +14789,13 @@ app.get('/api/engagements/audit', requireBearer, (req, res) => {
  * approvals. Wiring it behind the bridge secret would have made the console unable
  * to read its own queue, which is the mistake the existing binding endpoint makes.
  */
-app.post('/api/engagements', requireRequester, async (req, res) => {
+app.post('/api/engagements', requireRequester, createEngagementRequest);
+async function createEngagementRequest(req, res) {
   try {
     const b = req.body || {};
     const role = normalizeOptionalText(b.role, 64);
     if (!ROLES.includes(role)) return res.status(400).json({ error: `unknown role: ${role}` });
-    const replay = engagementStore.replayRequest({ ...b, role });
+    const replay = engagementStore.replayRequest({ ...b, role, requestContext: req.fleetContext ?? null });
     if (replay) return res.json(engagementResult(req, replay));
 
     /*
@@ -13932,13 +14811,26 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
      * for the role. Anything else falls back to the capability model's own answer.
      */
     const requested = normalizeOptionalText(b.agent, 128);
-    let agent = agentForRole(role, b.projectRoomId);
+    let agent = req.fleetContext?.agentDefinition ? null : agentForRole(role, b.projectRoomId);
+    let requestedResource = null;
+    if (req.fleetContext?.agentDefinition) {
+      const context = req.fleetContext;
+      requestedResource = allocationCandidate({ role, projectRoomId: b.projectRoomId, requestContext: context }, { kind: 'project-definition' }).preset;
+      if (engagementStore.list().some(e => e.projectRoomId === b.projectRoomId && ['pending', 'active'].includes(e.state)
+        && e.requestContext?.agentDefinition?.name === context.agentDefinition.name)) {
+        throw new EngagementError('conflict', 'This project already has a pending or active Agent with that name');
+      }
+    }
     if (requested) {
       const TIER_RANK = Object.fromEntries([...CAPABILITY_TIERS].reverse().map((t, i) => [t, i]));
-      const row = Object.values(agents).filter(isAgentRecord).map(serializeAgent)
+      const row = serializeAgents(Object.values(agents).filter(isAgentRecord))
         .find((a) => a.name === requested);
       if (row && !agentEligibleForRoom(agents[requested], b.projectRoomId)) {
         return res.status(400).json({ error: 'requested agent is not eligible for this project side' });
+      }
+      if (row && agents[requested].projectAgentDefinition
+        && agents[requested].projectAgentDefinition.projectRoomId !== b.projectRoomId) {
+        return res.status(400).json({ error: 'requested agent belongs to another project' });
       }
       const tier = row ? modelTier(row.runtimeProfile) : null;
       const qualifies = tier && TIER_RANK[tier] >= TIER_RANK[ROLE_DEFAULT_TIER[role]];
@@ -13996,11 +14888,12 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
      * afterwards would mean unwinding a commitment already made, which is the shape of bug this
      * repository has produced before.
      *
-     * It also covers the pending case, deliberately: a request the side cannot afford should not sit in
-     * the queue looking like a decision waiting to be made. The remedy is the allocation, and the
-     * refusal says so.
+     * Verified Palpo requests cannot auto-join. Recording their definitions does
+     * not reserve tokens or create an Agent, so an exhausted side can still ask
+     * for a new Resource and await the provider's decision. The verdict and
+     * fulfillment paths both recheck the side budget before any reservation.
      */
-    if (req.engagementCaller !== 'requester' && refuseOverSideAllocation(res, {
+    if (req.engagementCaller !== 'requester' && req.engagementCaller !== 'fleet' && refuseOverSideAllocation(res, {
       projectRoomId: b.projectRoomId,
       tokens: b.requestedTokens,
       act: 'this engagement',
@@ -14023,10 +14916,11 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
        * request that could not be deduped says so.
        */
       requestId: b.requestId,
+      requestContext: req.fleetContext ?? null,
       agent,
       remainingTokens: agent ? remainingFor(agent, { forAutoJoin: true })
-        : resourceRemaining(resourceForRole(role, ROLE_DEFAULT_TIER[role], frameworkPresets), { forAutoJoin: true }),
-      allowAutoJoin: req.engagementCaller !== 'requester',
+        : resourceRemaining(requestedResource || resourceForRole(role, ROLE_DEFAULT_TIER[role], frameworkPresets), { forAutoJoin: true }),
+      allowAutoJoin: req.engagementCaller !== 'requester' && req.engagementCaller !== 'fleet',
       crossFamilyOk: roleCrossFamilyAvailable(role, b.projectRoomId),
       deferActivation: true,
     });
@@ -14053,6 +14947,13 @@ app.post('/api/engagements', requireRequester, async (req, res) => {
   } catch (e) {
     return respondEngagementError(res, e, 'failed to create engagement');
   }
+}
+
+app.get('/api/engagements/:id/candidates', requireBearer, (req, res) => {
+  const e = engagementStore.get(req.params.id);
+  if (!e) return res.status(404).json({ error: 'Engagement not found' });
+  return res.json({ candidates: engagementCandidates(e), locked: Boolean(e.fulfillment) || e.state !== 'pending',
+    allocation: e.allocationChoice || e.fulfillment?.allocationChoice || (e.requestContext?.agentDefinition ? { kind: 'project-definition' } : null) });
 });
 
 app.post('/api/engagements/:id/verdict', requireBearer, async (req, res) => {
@@ -14061,14 +14962,14 @@ app.post('/api/engagements/:id/verdict', requireBearer, async (req, res) => {
     if (b.approve === true) {
       const existing = engagementStore.get(req.params.id);
       const reserved = existing?.fulfillment && existing.fulfillment.phase !== 'failed' ? existing.allocatedTokens || 0 : 0;
-      if (existing?.state === 'pending' && refuseOverSideAllocation(res, {
+      if (existing?.state === 'pending' && !usesResourcePool(existing) && refuseOverSideAllocation(res, {
         projectRoomId: existing.projectRoomId,
         tokens: Number(b.allocatedTokens ?? existing.allocatedTokens ?? existing.requestedTokens) - reserved,
         act: 'approving this engagement', extra: { engagementId: existing.id },
       })) return undefined;
       try {
         const result = await fulfillEngagement(req.params.id, {
-          allocatedTokens: b.allocatedTokens, by: getRequestAgentName(req) || 'operator', reason: b.reason, owner: b.owner,
+          allocation: b.allocation, allocatedTokens: b.allocatedTokens, by: getRequestAgentName(req) || 'operator', reason: b.reason, owner: b.owner,
         });
         return res.json({ ok: true, ...result, serving: servingConfiguration(result.engagement.agent) });
       } catch (error) {
@@ -14143,9 +15044,19 @@ app.get('/api/offer-book', requireRequester, (req, res) => {
     .filter((o) => o.published)
     .map((o) => {
       const agent = agentForRole(o.role, req.engagementCaller === 'requester' ? null : room);
+      const crossFamilyOk = roleCrossFamilyAvailable(o.role, req.engagementCaller === 'requester' ? null : room);
+      const resource = agent ? null : resourcesForRole(o.role, ROLE_DEFAULT_TIER[o.role], frameworkPresets)
+        .find(({ preset }) => ['claude', 'codex'].includes(preset.framework) && resourceRemaining(preset) > 0)?.preset;
+      const primary = resource ? runtimeProfileFromPreset(resource)?.primary : null;
+      // A saved resource can supply the first agent after admission. Publish only
+      // its serving configuration; the preset identity and seat state stay private.
+      const serving = servingConfiguration(agent) ?? (primary ? {
+        agent: null, framework: primary.framework, model: primary.model,
+        reasoning: primary.reasoning ?? null, tier: presetTier(resource), provisioningRequired: true,
+      } : null);
       return {
         role: o.role,
-        crossFamilyOk: roleCrossFamilyAvailable(o.role, req.engagementCaller === 'requester' ? null : room),
+        crossFamilyOk,
         budgetCapPerEngagement: o.budgetCapPerEngagement ?? null,
         rateCap: o.rateCap ?? null,
         count: o.count ?? null,
@@ -14157,7 +15068,8 @@ app.get('/api/offer-book', requireRequester, (req, res) => {
          * `agentForRole` picks by most remaining headroom, so this answer moves as other
          * projects are served, and a borrower who read it as a promise would be wrong.
          */
-        serving: roleCrossFamilyAvailable(o.role, req.engagementCaller === 'requester' ? null : room) ? servingConfiguration(agent) : null,
+        serving: crossFamilyOk ? serving : null,
+        resources: publicResourceConfigurations(o.role, room ? sideIdForRoom(room) : null),
       };
     });
   return res.json({
@@ -14178,10 +15090,11 @@ app.get('/api/offers', requireBearer, (_req, res) => {
    * would make "not offered" indistinguishable from "role does not exist".
    */
   const configured = new Map(engagementStore.listOffers().map((o) => [o.role, o]));
+  const catalog = new Map(fleetCatalogOffers().map(o => [o.role, o]));
   return res.json({
-    offers: ROLES.map((role) => configured.get(role) ?? {
+    offers: ROLES.map((role) => ({ ...(configured.get(role) ?? {
       role, count: null, budgetCapPerEngagement: null, rateCap: null, published: false, updatedAt: null,
-    }),
+    }), catalogPublished: Boolean(catalog.get(role)?.resources.length) })),
   });
 });
 
@@ -14333,7 +15246,7 @@ const TOKENS_UNAVAILABLE_REASON =
 
 app.get('/api/usage', requireBearer, async (_req, res) => {
   refreshServerLiveness();
-  const rows = Object.values(agents).filter(isAgentRecord).map(serializeAgent);
+  const rows = serializeAgents(Object.values(agents).filter(isAgentRecord));
   const allTasks = taskStore.listTasks();
   const TASK_STATUSES = ['created', 'accepted', 'in_progress', 'blocked', 'done'];
 
@@ -14658,12 +15571,39 @@ app.delete('/api/seats/:seatId', requireBearer, (req, res) => {
 app.get('/api/framework-presets', requireBearer, (_req, res) => {
   return res.json(frameworkPresets.map(p => ({
     ...p,
+    agentDefinitions: resourceAgentDefinitions.list(p),
     apiKey: p.apiKey ? true : null,
   })));
 });
 
+function mutateResourceAgentDefinition(req, res) {
+  try {
+    const definition = resourceAgentDefinitions.edit(req.params.id, req.params.definitionId || null,
+      req.method === 'DELETE' ? null : req.body || {});
+    return res.json({ ok: true, definition });
+  } catch (error) { return respondEngagementError(res, error, 'Agent definition could not be saved'); }
+}
+app.post('/api/framework-presets/:id/agents', requireBearer, mutateResourceAgentDefinition);
+app.put('/api/framework-presets/:id/agents/:definitionId', requireBearer, mutateResourceAgentDefinition);
+app.delete('/api/framework-presets/:id/agents/:definitionId', requireBearer, mutateResourceAgentDefinition);
+app.put('/api/framework-presets/:id/catalog', requireBearer, (req, res) => {
+  const preset = frameworkPresets.find(p => p.id === req.params.id);
+  if (!preset) return res.status(404).json({ error: 'Resource not found' });
+  if (typeof req.body?.published !== 'boolean') return res.status(400).json({ error: 'published must be a boolean' });
+  const previous = preset.catalogPublished;
+  preset.catalogPublished = req.body.published;
+  if (!saveFrameworkPresets()) { preset.catalogPublished = previous; return res.status(503).json({ error: 'Publication could not be saved' }); }
+  return res.json({ ok: true, published: preset.catalogPublished });
+});
+
 app.post('/api/framework-presets', requireBearer, (req, res) => {
   const b = req.body || {};
+  let executionPolicy;
+  try { executionPolicy = normalizeExecutionPolicy(b.executionPolicy, b.framework); }
+  catch (error) { return res.status(400).json({ error: error.message }); }
+  if (b.catalogPublished !== undefined && typeof b.catalogPublished !== 'boolean') {
+    return res.status(400).json({ error: 'catalogPublished must be a boolean' });
+  }
   const name = normalizeOptionalText(b.name, 128);
   if (!name) return res.status(400).json({ error: 'name is required' });
   let id = 'preset_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
@@ -14692,6 +15632,8 @@ app.post('/api/framework-presets', requireBearer, (req, res) => {
     provider: normalizeOptionalText(b.provider, 64) || null,
     model: normalizeOptionalText(b.model, 256) || null,
     reasoning: normalizeOptionalText(b.reasoning, 64) || null,
+    catalogPublished: b.catalogPublished !== false,
+    executionPolicy,
     extraArgs,
     apiBaseUrl,
     apiKey: normalizeOptionalText(b.apiKey, 256) || null,
@@ -14732,9 +15674,13 @@ app.put('/api/framework-presets/:id', requireBearer, (req, res) => {
     }
   }
   const previousPreset = frameworkPresets[idx];
+  let executionPolicy;
+  try { executionPolicy = normalizeExecutionPolicy(b.executionPolicy === undefined ? previousPreset.executionPolicy : b.executionPolicy, b.framework); }
+  catch (error) { return res.status(400).json({ error: error.message }); }
   const nextPreset = {
     ...previousPreset,
     name,
+    executionPolicy,
     framework: normalizeOptionalText(b.framework, 32) || null,
     provider: normalizeOptionalText(b.provider, 64) || null,
     model: normalizeOptionalText(b.model, 256) || null,
@@ -14752,6 +15698,13 @@ app.put('/api/framework-presets/:id', requireBearer, (req, res) => {
       ? (previousPreset.ceiling ?? null)
       : normalizeCeiling(b.ceiling),
   };
+  if (((previousPreset.agentDefinitions || []).some(d => resourceAgentDefinitions.inUse(d.name))
+    || engagementStore.list().some(e => e.state === 'pending' && e.fulfillment?.presetId === previousPreset.id))
+    && JSON.stringify(runtimeProfileFromPreset(previousPreset)) !== JSON.stringify(runtimeProfileFromPreset(nextPreset))) {
+    return res.status(409).json({ error: 'This resource has provisioned or reserved Agents; create a new resource to change their runtime configuration' });
+  }
+  if ((nextPreset.agentDefinitions || []).some(d => !resourcesForRole(d.role, ROLE_DEFAULT_TIER[d.role], [nextPreset]).length
+    || !['claude', 'codex'].includes(nextPreset.framework))) return res.status(400).json({ error: 'Resource changes would invalidate its Agent definitions' });
   frameworkPresets[idx] = nextPreset;
   if (!saveFrameworkPresets()) {
     frameworkPresets[idx] = previousPreset;
@@ -14763,6 +15716,10 @@ app.put('/api/framework-presets/:id', requireBearer, (req, res) => {
 app.delete('/api/framework-presets/:id', requireBearer, (req, res) => {
   const idx = frameworkPresets.findIndex(p => p.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'preset not found' });
+  if (frameworkPresets[idx].agentDefinitions?.length) return res.status(409).json({ error: 'Remove unused Agent definitions before deleting their resource' });
+  if (engagementStore.list().some(e => e.state === 'pending' && e.fulfillment?.presetId === req.params.id)) {
+    return res.status(409).json({ error: 'This resource has a reserved Agent; finish or reject the request first' });
+  }
   const removed = frameworkPresets.splice(idx, 1)[0];
   if (!saveFrameworkPresets()) {
     frameworkPresets.splice(idx, 0, removed);
@@ -15061,6 +16018,79 @@ app.delete('/api/groups/:name', requireBridgeSecret, (req, res) => {
 });
 
 // ── DM ensure (triggers bridge to create Matrix DM room) ─────────────
+async function authorizeDirectRoom(agentName, humanMxid, roomId) {
+  const agent = agents[agentName];
+  return resolveDirectAdmission({ agent, humanMxid, roomId,
+    existing: routerStore.conversations.direct(roomId, agentName),
+    engagements: engagementStore.list({ state: 'active' }),
+    bindings: approvalStore.listBindings({ agent: agentName }),
+    eligible: agentEligibleForRoom(agent, roomId),
+    membersForProject: async projectRoomId => {
+      const side = projectSideStore.getSide(sideIdForRoom(projectRoomId));
+      const credential = side && projectSideStore.credentialFor(side.id || side.serverName);
+      if (!side?.active || !credential) return { known: false, members: [] };
+      return joinedMembersOnSide({ side, credential, roomId: projectRoomId });
+    },
+  });
+}
+
+app.post('/api/matrix/direct-rooms', requireBridgeSecret, async (req, res) => {
+  try {
+    const { agent, humanMxid, roomId, mode, sinceTs } = req.body;
+    if (mode !== undefined && !['direct', 'group'].includes(mode)
+      || sinceTs !== undefined && (!Number.isSafeInteger(sinceTs) || sinceTs < 0)) return res.status(400).json({ error: 'invalid room mode or history boundary' });
+    const binding = await authorizeDirectRoom(agent, humanMxid, roomId);
+    if (mode === 'group') routerStore.conversations.promoteRoom(roomId, sinceTs ?? Date.now());
+    return res.json({ ok: true, binding: routerStore.conversations.bindDirect({ ...binding, mode, sinceTs }) });
+  } catch (error) {
+    return res.status(String(error.message).endsWith('_unavailable') ? 503 : 403).json({ error: error.message });
+  }
+});
+
+app.get('/api/matrix/direct-agents', requireBridgeSecret, (_req, res) => {
+  const active = new Set(engagementStore.list({ state: 'active' }).filter(e => !e.endedAt).map(e => e.agent));
+  res.json({ agents: [...active].filter(name => agentEligibleForRoom(agents[name])) });
+});
+
+app.post('/api/matrix/conversations/events', requireBridgeSecret, async (req, res) => {
+  try {
+    const input = req.body;
+    const invited = routerStore.conversations.roomBindings(input.roomId);
+    const bindings = approvalStore.listBindings({ projectRoomId: input.roomId });
+    let admitted = !invited.length && bindings.some(b => b.active !== false && b.projectRoomId === input.roomId);
+    for (const binding of invited) {
+      if (recordedAgentMxid(agents[binding.agent]) === input.senderMxid) { admitted = true; break; }
+      try { await authorizeDirectRoom(binding.agent, input.senderMxid, input.roomId); admitted = true; break; }
+      catch { /* Another binding may authorize this sender. */ }
+    }
+    if (!admitted) {
+      return res.status(403).json({ error: 'conversation room is not admitted' });
+    }
+    let attachment;
+    if (input.attachment?.errorCode) {
+      const errors = { file_too_large: 'Attachment exceeds 20 MiB', invalid_media: 'Matrix attachment has no valid media URI',
+        media_unavailable: 'Matrix attachment is no longer available', file_decryption_failed: 'Attachment integrity or decryption failed' };
+      if (!errors[input.attachment.errorCode]) return res.status(400).json({ error: 'invalid attachment failure' });
+      attachment = { name: String(input.attachment.name || 'attachment').slice(0, 240),
+        errorCode: input.attachment.errorCode, error: errors[input.attachment.errorCode] };
+    } else if (input.attachment) {
+      attachment = snapshotSessionFile({ workspace: MATRIX_MEDIA_DIR, requestedPath: input.attachment.path,
+        name: input.attachment.name, directory: MATRIX_MEDIA_DIR });
+      if (attachment.sha256 !== input.attachment.sha256 || attachment.size !== input.attachment.size) {
+        return res.status(400).json({ error: 'incoming file integrity mismatch' });
+      }
+    }
+    return res.json({ ok: true, ...routerStore.conversations.archive({ ...input, attachment }) });
+  } catch (error) { return res.status(400).json({ error: error.message }); }
+});
+
+app.post('/api/router/conversation', requireAgentToken(_tokenFromBody), (req, res) => {
+  const owned = requireOwnedRunnerDescriptor(req, res);
+  if (!owned) return;
+  const result = routerStore.readConversation(owned.capability, req.body.offset ?? 0);
+  return res.status(result.ok ? 200 : routerRefusalStatus(result)).json(result);
+});
+
 app.post('/api/dm/ensure', requireBearer, (req, res) => {
   const { agent, human, humanId } = req.body;
   if (!agent || !human) return res.status(400).json({ error: 'agent and human required' });
@@ -15227,6 +16257,19 @@ app.post('/api/messages', requireAgentToken(_tokenFromBody), async (req, res) =>
   }
   const senderMxid = isBridgeAuthenticated && sourceType === 'matrix' && typeof sender_mxid === 'string' && /^@[^:]+:.+/.test(sender_mxid.trim())
     ? sender_mxid.trim().slice(0, 255) : null;
+  let matrixRoomRecipients;
+  if (req.body.room_agent_targets !== undefined) {
+    const targets = req.body.room_agent_targets;
+    if (!hasAuthenticatedBridgeSecret || sourceType !== 'matrix' || !Array.isArray(targets) || !targets.length || targets.length > 32
+      || targets.some(name => typeof name !== 'string') || !targets.includes(toName)) return res.status(400).json({ error: 'invalid invited-room recipients' });
+    matrixRoomRecipients = [...new Set(targets)];
+    for (const name of matrixRoomRecipients) {
+      const binding = routerStore.conversations.direct(source_room, name);
+      if (!binding || binding.mode === 'group' && !mentions?.includes(name)) return res.status(403).json({ error: 'room recipient was not admitted and mentioned' });
+      try { await authorizeDirectRoom(name, senderMxid, source_room); }
+      catch { return res.status(403).json({ error: 'room recipient is no longer authorized' }); }
+    }
+  }
   // Derive trustLevel server-side from validated senderMxid — never trust caller-supplied value
   const trustLevel = senderMxid ? (MATRIX_OPERATOR_MXIDS.has(senderMxid) ? 'operator' : 'external') : null;
   // Normalize literal \n (two chars) to actual newlines — some agents double-escape them
@@ -15391,6 +16434,7 @@ app.post('/api/messages', requireAgentToken(_tokenFromBody), async (req, res) =>
     summary: canonicalSummary,
     full: canonicalFull,
     mentions: [...textMentions],
+    ...(matrixRoomRecipients ? { matrixRoomRecipients } : {}),
     reply_to: reply_to || null,
     /*
      * INCIDENTAL: this message exists for whoever is waiting on a specific message, and for nobody
@@ -16356,11 +17400,13 @@ export const __backendV2TestInternals = {
   approvalStoreForTest: approvalStore,
   approvalAdapterTimeoutMsForTest: APPROVAL_ADAPTER_TIMEOUT_MS,
   routerStoreForTest: routerStore,
+  liveThreadSessionRunnersForTest: liveThreadSessionRunners,
   agentOpsServiceForTest: agentOpsService,
   agentOpsServerIdentityForTest: agentOpsServerIdentity,
   shadowMatrixMessageToRouterForTest: shadowMatrixMessageToRouter,
   routeMatrixMessageToThreadSessionForTest: routeMatrixMessageToThreadSession,
   reconcileThreadSessionSourceMessagesForTest: reconcileThreadSessionSourceMessages,
+  reconcileThreadSessionPeerMessagesForTest: reconcileThreadSessionPeerMessages,
   scheduleRouterPumpForTest: scheduleRouterPump,
   stopRouterPumpForTest,
   dispatchQueuesForTest: dispatchQueues,

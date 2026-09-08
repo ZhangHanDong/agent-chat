@@ -28,7 +28,7 @@ const SECTIONS = [
   {
     head: 'rail.secResource',
     rows: [
-      { href: '/resources', key: 'resources', icon: '▦', count: 'agentsConfigured', unit: 'configured', also: ['/'] },
+      { href: '/resources', key: 'resources', icon: '▦', count: 'resourcesConfigured', unit: 'configured', also: ['/'] },
       /*
        * The roster sits under 资源 rather than getting a heading of its own,
        * although it joins all four layers. The four headings ARE the four layers, so
@@ -87,8 +87,8 @@ export default function Rail() {
    * navigation surface that disagrees with the content it navigates to is worse
    * than one with no counts at all.
    */
-  const { agents, presetOf, railCounts, tierOf } = useData();
-  const counts = railCounts();
+  const { agents, presets, presetOf, railCounts, tierOf } = useData();
+  const counts = { ...railCounts(), resourcesConfigured: presets.length };
 
   /*
    * EVERY agent, not only the running ones.
@@ -174,14 +174,6 @@ export default function Rail() {
       <div className="rail-scroll">
         <h2 className="rail-sec roster-head">
           <span className="grow">{`${t('rail.agents')} · ${shown.length}`}</span>
-          {/* The action that adds a row to THIS list, attached to the list it
-              changes rather than sitting in the nav as a peer of the four
-              destinations — a contributor onboards far less often than they
-              look at what they are lending. */}
-          <Link href="/onboard" className="roster-add" title={t('nav.onboard')}
-            aria-current={pathname === '/onboard' ? 'page' : undefined}>
-            {t('rail.addAgent')}
-          </Link>
         </h2>
         <ul className="rail-list">
           {shown.map((a) => {

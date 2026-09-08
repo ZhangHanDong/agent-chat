@@ -101,6 +101,29 @@ describe('Matrix owner approval bridge', () => {
     expect(serialized).not.toContain('actions');
   });
 
+  test('scoped approval cards preserve private details and validate all four structured decisions', () => {
+    const scoped = { ...approval, runtime: 'codex', reusable_scope: {
+      description: 'Network host: aapt.org\nProtocol: https', workspace: '/work/edison', task_id: 'task-1',
+    } };
+    const content = buildOwnerApprovalRequest(scoped);
+    const detail = content['com.agentchat.approval'];
+    expect(detail.actions.map(a => a.id)).toEqual(['approve_once', 'approve_task', 'approve_always', 'deny']);
+    expect(detail.description).toContain('aapt.org');
+    expect(detail.description).toContain(approval.project);
+    expect(JSON.stringify(buildPublicApprovalNotice(scoped))).not.toMatch(/aapt|\/work|reusable_scope|approve_always/);
+    for (const action of ['approve_once', 'approve_task', 'approve_always', 'deny']) {
+      const event = { sender: approval.owner_mxid, event_id: '$decision', content: {
+        msgtype: 'com.agentchat.approval.verdict.v1', 'com.agentchat.approval': { ...detail, kind: 'verdict', action },
+      } };
+      expect(parseApprovalVerdictEvent(approval.owner_dm_room_id, event)).toMatchObject({
+        action, sender_mxid: approval.owner_mxid, input_digest: approval.input_digest, project_room_id: approval.project_room_id,
+      });
+      event.content['com.agentchat.approval'].action = 'allow_anything';
+      expect(parseApprovalVerdictEvent(approval.owner_dm_room_id, event)).toBeNull();
+    }
+    expect(buildOwnerApprovalRequest(approval)['com.agentchat.approval'].actions).toHaveLength(2);
+  });
+
   test('owner_dm_approval_request_contains_structured_actions', () => {
     /*
      * REQ-OWNER-UI-APPROVAL-DM and REQ-OWNER-UI-APPROVAL-UI. The DM event is the full

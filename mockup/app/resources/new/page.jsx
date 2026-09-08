@@ -7,6 +7,7 @@ import PageHead from '@/components/PageHead';
 import { Toast, useToast } from '@/components/Toast';
 import { useT } from '@/components/Prefs';
 import { presetCommand, fmtTokens } from '@/lib/mock-data';
+import { ExecutionPolicyChoice } from '@/components/ExecutionPermissions';
 import { useData, Provenance } from '@/components/Data';
 import { send } from '@/lib/api';
 
@@ -68,6 +69,7 @@ export default function WizardPage() {
   const [draft, setDraft] = useState({
     name: '', framework: null, provider: null, model: null, reasoning: null,
     tokens: 1_000_000, rateCapPerDay: 50_000,
+    yolo: false,
   });
 
   const router = useRouter();
@@ -275,6 +277,8 @@ export default function WizardPage() {
       {step === 3 && (
         <div className="panel">
           <h3 className="sub">{t('wz.setBudget')}</h3>
+          <p className="notice">{t('rs.definitionHelp')}</p>
+          {draft.framework === 'codex' && <ExecutionPolicyChoice resource yolo={draft.yolo} onChange={yolo => set({ yolo })} />}
           {/*
             * The preset's NAME, which the form never asked for.
             *
@@ -369,6 +373,7 @@ export default function WizardPage() {
                   provider: draft.provider,
                   model: draft.model,
                   reasoning: draft.reasoning,
+                  executionPolicy: { yolo: draft.framework === 'codex' && draft.yolo === true },
                   ceiling: {
                     tokens: draft.tokens,
                     period: 'monthly',
@@ -385,10 +390,9 @@ export default function WizardPage() {
                * message that fades, and the honest reading of the screen was that nothing had
                * happened. Reported as a bug within a minute of someone using it.
                *
-               * /resources is the right destination rather than a dead end: it lists the preset
-               * that was just created and, when an agent is running, carries the attach control
-               * that is genuinely the next step — a preset does nothing until something is bound
-               * to it. The delay is only so the confirmation is legible before the page changes.
+               * Return to the saved resource. Approval of a qualifying request
+               * will provision its agent; no manual creation step follows this form.
+               * The delay keeps the saved confirmation legible.
                */
               setTimeout(() => router.push('/resources'), 1200);
               return undefined;

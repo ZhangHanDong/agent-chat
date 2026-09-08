@@ -199,18 +199,30 @@ export async function createBackendTestContext(prefix, seed = {}) {
   const { app } = backendModule;
   const servers = new Set();
 
+  async function listenApp(host) {
+    const server = await new Promise((resolve, reject) => {
+      const instance = app.listen(0, host, () => resolve(instance));
+      instance.on('error', reject);
+    });
+    if (typeof server.unref === 'function') server.unref();
+    servers.add(server);
+    return server;
+  }
+
+  // Supertest wraps an Express function in listen(0), which may bind IPv6 ::
+  // while its client always dials IPv4 127.0.0.1. On macOS that port can already
+  // belong to an unrelated IPv4 listener: the request then reaches that process.
+  // Bind the exact address the client uses once per context, and pass the live
+  // server to Supertest. backendModule.app remains the original Express handler.
+  const requestServer = await listenApp('127.0.0.1');
+
   return {
-    app,
+    app: requestServer,
     backendModule,
     internals: backendModule.__backendV2TestInternals || {},
     runtimeDir,
     async listen(host = '127.0.0.1') {
-      const server = await new Promise((resolve, reject) => {
-        const instance = app.listen(0, host, () => resolve(instance));
-        instance.on('error', reject);
-      });
-      if (typeof server.unref === 'function') server.unref();
-      servers.add(server);
+      const server = await listenApp(host);
       const address = server.address();
       return {
         server,

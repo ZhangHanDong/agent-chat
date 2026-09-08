@@ -234,7 +234,11 @@ describe('GET /api/capability — the resources block', () => {
 
     // architect needs strong: only the Opus preset qualifies; every other preset carries its reason.
     expect(resources.architect.qualified).toEqual([
-      { presetId: 'preset_opus', name: 'preset_opus', tier: 'strong', overTier: 0, ceilingTokens: 5_000_000 },
+      {
+        presetId: 'preset_opus', name: 'preset_opus', tier: 'strong', overTier: 0,
+        ceilingTokens: 5_000_000, framework: 'claude', model: 'claude-opus-5',
+        reasoning: null, family: 'claude',
+      },
     ]);
     expect(resources.architect.selected).toBe('preset_opus');
     expect(resources.architect.considered).toBe(4);

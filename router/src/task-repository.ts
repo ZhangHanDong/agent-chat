@@ -65,6 +65,7 @@ interface MigrationRow {
 export interface TaskStoreLike {
   createTask(body: Readonly<Record<string, unknown>>): LegacyTask;
   getTask(id: string): LegacyTask | null;
+  getExecutionEpoch(id: string): number | null;
   listTasks(filters?: Readonly<Record<string, string>>): LegacyTask[];
   updateTask(id: string, patch: Readonly<Record<string, unknown>>): LegacyTask;
   updateTaskExecution(id: string, patch: Readonly<Record<string, unknown>>): LegacyTask;
@@ -311,6 +312,11 @@ export function createRouterTaskStore(router: RouterStore): TaskStoreLike {
   };
 
   const store: TaskStoreLike = {
+    getExecutionEpoch(id) {
+      return router.db.prepare<[string], { execution_epoch: number }>(
+        'SELECT execution_epoch FROM tasks WHERE task_id = ?',
+      ).get(id)?.execution_epoch ?? null;
+    },
     createTask(body) {
       const title = text(body.title, 255);
       if (!title) throw taskError('invalid_title', 'title is required');

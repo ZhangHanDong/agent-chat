@@ -154,6 +154,8 @@ export interface MatrixCommand {
 }
 
 export interface ReplyCommand {
+  file?: import('./files.js').FileReplyManifest & { preparedContent: Readonly<Record<string, unknown>> | null };
+  activity?: { replaceEventId: string | null };
   commandId: string;
   dispatchId: string | null;
   transactionId: string;
@@ -295,6 +297,7 @@ export interface StartedPayload {
 }
 
 export interface RunnerContext {
+  discussion?: Record<string, unknown> | null;
   contextGeneration: number;
   rollingSummary: string;
   messages: readonly SessionInboxMessage[];

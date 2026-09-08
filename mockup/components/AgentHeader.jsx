@@ -69,7 +69,10 @@ export default function AgentHeader({ agent }) {
             emits and the same words appear in `hafleet ls`. */}
         <span className={`badge${agent.activeNow ? ' ok' : ''}`}>{runtimeStatusText(agent)}</span>
         <span className="badge">
-          {agent.transport === 'acp' ? t('ag.noPane') : `TMUX · ${agent.tmux}`}
+          {agent.transport === 'thread-session' || agent.transport === 'ephemeral'
+            ? t('ag.threadSession')
+            : agent.transport === 'acp' ? t('ag.noPane')
+              : agent.tmux ? `TMUX · ${agent.tmux}` : t('ag.noRuntime')}
         </span>
         <span className="badge">{agent.framework}</span>
         {agent.mcp && <span className="badge ok">{t('ag.mcpConnected')}</span>}

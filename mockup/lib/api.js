@@ -73,7 +73,8 @@ export async function send(path, { method = 'POST', body } = {}) {
     const text = await res.text();
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch { /* keep the raw text */ }
-    if (!res.ok) return { ok: false, error: parsed?.error || text.slice(0, 160) || `HTTP ${res.status}`, status: res.status };
+    if (!res.ok) return { ok: false, error: parsed?.error || text.slice(0, 160) || `HTTP ${res.status}`,
+      status: res.status, code: parsed?.code ?? null };
     return { ok: true, body: parsed };
   } catch (e) {
     return { ok: false, error: e?.message ?? 'request failed' };
@@ -91,16 +92,17 @@ export async function send(path, { method = 'POST', body } = {}) {
  * `agentOnline`, `healthy`). The collapse is deliberate for the roster row, and
  * the per-agent page has the room to show all three.
  */
-function mapAgent(a) {
+export function mapAgent(a) {
   const rp = a.runtimeProfile?.primary ?? null;
   return {
     name: a.name,
     framework: a.type ?? null,
+    executionPolicy: a.executionPolicy ?? { yolo: false },
     transport: a.transport ?? null,
     tmux: a.tmux ?? null,
     activeNow: a.activeNow === true,
-    activeDurationSec: Number(a.activeDurationSec) || 0,
-    idleDurationSec: Number(a.idleDurationSec) || 0,
+    activeDurationSec: a.activeDurationSec == null ? null : Number(a.activeDurationSec),
+    idleDurationSec: a.idleDurationSec == null ? null : Number(a.idleDurationSec),
     environment: a.environment ?? null,
     alive: a.healthy === true || a.online === true,
     online: a.online === true,
@@ -147,6 +149,9 @@ function mapPreset(p) {
     // The backend returns `true` rather than the secret when one is stored.
     apiKeySet: p.apiKey === true,
     ceiling: p.ceiling ?? null,
+    agentDefinitions: p.agentDefinitions ?? [],
+    catalogPublished: p.catalogPublished === true,
+    executionPolicy: p.executionPolicy ?? { yolo: false },
   };
 }
 
@@ -208,41 +213,48 @@ function mapAlert(a) {
  * `agentsByName` reattaches the agent records: the endpoint returns names, and the
  * page links to each agent's own route.
  */
-function mapCapability(payload, agentsByName) {
+export function mapCapability(payload, agentsByName) {
   const attach = (name) => agentsByName.get(name) ?? { name };
-  return (payload?.roles ?? []).map((r) => ({
-    key: r.role,
-    role: {
-      displayName: r.displayName,
-      defaultTier: r.defaultTier,
-      crossFamily: r.crossFamily,
-    },
-    able: r.able.map((x) => ({
-      agent: attach(x.agent),
-      match: { ok: true, tier: x.tier, family: x.family, overTier: x.overTier },
-    })),
-    unable: r.unable.map((x) => ({
-      agent: attach(x.agent),
-      // The console's reason keys, from the endpoint's reason codes. Kept as a
-      // mapping rather than sharing strings: the API is a contract for any client,
-      // and an i18n key is this console's business.
-      match: {
-        ok: false,
-        why: x.reason === 'no-model' ? 'cap.why.noModel'
-          : x.reason === 'below-tier' ? 'cap.why.belowTier'
-            : 'cap.why.notAccepted',
-        tier: x.tier ?? null,
-        need: x.need ?? null,
+  return (payload?.roles ?? []).map((r) => {
+    const assignedPresets = new Set((r.able ?? []).map((x) => attach(x.agent).presetId).filter(Boolean));
+    const resources = (r.resources ?? payload.resources?.[r.role]?.qualified ?? [])
+      .filter((resource) => !assignedPresets.has(resource.presetId));
+    return {
+      key: r.role,
+      role: {
+        displayName: r.displayName,
+        defaultTier: r.defaultTier,
+        crossFamily: r.crossFamily,
       },
-    })),
-    families: r.families,
-    crossFamilyOk: r.crossFamilyOk,
-    overTier: r.able.filter((x) => x.overTier > 0),
-    excluded: r.excluded ?? [],
-    // No endpoint publishes an offer, so this stays null here and the page shows
-    // the offer section as the contract it is.
-    offer: null,
-  }));
+      resources,
+      unavailableResources: payload.resources?.[r.role]?.unqualified ?? [],
+      able: (r.able ?? []).map((x) => ({
+        agent: attach(x.agent),
+        match: { ok: true, tier: x.tier, family: x.family, overTier: x.overTier },
+      })),
+      unable: (r.unable ?? []).map((x) => ({
+        agent: attach(x.agent),
+        // The console's reason keys, from the endpoint's reason codes. Kept as a
+        // mapping rather than sharing strings: the API is a contract for any client,
+        // and an i18n key is this console's business.
+        match: {
+          ok: false,
+          why: x.reason === 'no-model' ? 'cap.why.noModel'
+            : x.reason === 'below-tier' ? 'cap.why.belowTier'
+              : 'cap.why.notAccepted',
+          tier: x.tier ?? null,
+          need: x.need ?? null,
+        },
+      })),
+      families: r.families,
+      crossFamilyOk: r.crossFamilyOk,
+      overTier: [...(r.able ?? []), ...resources].filter((x) => x.overTier > 0),
+      excluded: r.excluded ?? [],
+      // No endpoint publishes an offer, so this stays null here and the page shows
+      // the offer section as the contract it is.
+      offer: null,
+    };
+  });
 }
 
 /**
@@ -357,6 +369,8 @@ export async function fetchLive() {
               allocated: b?.allocated ?? null,
               committed: b?.committed ?? null,
               remaining: b?.remaining ?? null,
+              poolCommitted: b?.poolCommitted ?? 0,
+              poolCommitments: Array.isArray(b?.poolCommitments) ? b.poolCommitments : [],
               /*
                * WHOSE the committed figure is. `已承诺 200k` beside a project with nobody assigned was a
                * number the operator could not interrogate; three of those four commitments belonged to

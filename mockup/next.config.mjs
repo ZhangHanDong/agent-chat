@@ -5,6 +5,7 @@
 const pages = process.env.PAGES === '1';
 
 const nextConfig = {
+  ...(process.env.HAFLEET_CONSOLE_DIST_DIR ? { distDir: process.env.HAFLEET_CONSOLE_DIST_DIR } : {}),
   // A prototype, not a product: no telemetry, no image optimisation server.
   images: { unoptimized: true },
   /*
