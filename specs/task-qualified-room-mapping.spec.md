@@ -132,6 +132,14 @@ Scenario: Unmap removes the previous room aliases
   Then the old aliases for that room no longer resolve
   And another room sharing the canonical group-side identity remains mapped
 
+Scenario: Dotless sides and at-sign group names clean up exactly
+  Test: unmap removes case-equivalent aliases on a dotless side with an at-sign group name
+  Test: rename removes case-equivalent aliases on a dotless side
+  Given a room on a dotless registered side has case-equivalent qualified aliases
+  When the room is renamed or unmapped
+  Then all aliases for its exact group and side are removed
+  And group names containing an at-sign retain their full name
+
 ## Out of Scope
 
 - Live service restarts, deployment, or Matrix room changes.

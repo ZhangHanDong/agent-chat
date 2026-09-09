@@ -2142,10 +2142,23 @@ function groupSideAmbiguity(groupName, side, entries) {
     + `${[...new Set(entries.map(([, room]) => room))].join(', ')}; refusing to choose a room.`;
 }
 
-function removeRoomGroupAliases(roomId, key) {
-  const name = bareGroupName(key);
-  const matches = name !== key
-    ? qualifiedGroupEntries(name, key.slice(name.length + 1))
+function qualifiedGroupIdentityForRoom(roomId, key, explicitSide = null) {
+  if (typeof key !== 'string') return null;
+  for (const side of [explicitSide, projectServerFromRoomId(roomId)]) {
+    if (!side) continue;
+    const suffix = `@${side}`;
+    if (key.length > suffix.length && key.toLowerCase().endsWith(suffix.toLowerCase())) {
+      return { name: key.slice(0, -suffix.length), side: key.slice(-side.length) };
+    }
+  }
+  const legacyName = bareGroupName(key);
+  return legacyName !== key ? { name: legacyName, side: key.slice(legacyName.length + 1) } : null;
+}
+
+function removeRoomGroupAliases(roomId, key, side = null) {
+  const identity = qualifiedGroupIdentityForRoom(roomId, key, side);
+  const matches = identity
+    ? qualifiedGroupEntries(identity.name, identity.side)
     : [[key, state.groupRoomMap[key]]];
   for (const [alias, mappedRoom] of matches) {
     if (mappedRoom === roomId) delete state.groupRoomMap[alias];
@@ -2179,7 +2192,7 @@ function mapRoom(roomId, groupName, { side = null, logger = console } = {}) {
     try { postGroupMapConflict({ groupName, side, fromRoom: prevRoom, toRoom: roomId, message }); } catch { /* reporting must not break the room handler */ }
     return false;
   }
-  if (prevGroup && prevGroup !== key) removeRoomGroupAliases(roomId, prevGroup);
+  if (prevGroup && prevGroup !== key) removeRoomGroupAliases(roomId, prevGroup, side);
   state.roomGroupMap[roomId] = key;
   state.groupRoomMap[key] = roomId;
   markRoomTrusted(roomId, { group: key });
@@ -2219,7 +2232,10 @@ function bareGroupName(key) {
   if (at > 0 && key.slice(at + 1).includes('.')) return key.slice(0, at);
   return key;
 }
-function groupForRoom(roomId) { return bareGroupName(state.roomGroupMap[roomId]) || null; }
+function groupForRoom(roomId) {
+  const key = state.roomGroupMap[roomId];
+  return qualifiedGroupIdentityForRoom(roomId, key)?.name ?? bareGroupName(key) ?? null;
+}
 function groupMappingKey(roomId) { return state.roomGroupMap[roomId] || null; }
 /*
  * 15-r2: THE single deletion path. Every unmap goes through here so the two

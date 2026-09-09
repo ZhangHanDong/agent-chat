@@ -2392,7 +2392,7 @@ async function requestThreadSessionOwnerApproval(agent, projectRoomId, request) 
       upstreamRequestId: request.upstreamRequestId,
       ...request.mcp,
     } : { command: request.command, cwd: request.cwd }).slice(0, 8192),
-  });
+  }, { routerApprovalId: request.approvalId });
   if (created.status === 'pending') {
     broadcastSSE('approval_requested', { request_id: created.id, agent: created.agent });
   }
@@ -8247,7 +8247,8 @@ app.post('/api/router/approvals/claude', requireAgentToken((req) => req.body?.ag
   if (!parked.ok) return res.status(routerRefusalStatus(parked)).json({ error: parked.message, code: parked.code });
   try {
     let approval = approvalStore.listRequests({ upstream_request_prefix: approvalId })
-      .find((row) => row.upstream_request_id === approvalId && row.agent === owned.agent.name) || null;
+      .find((row) => row.upstream_request_id === approvalId
+        && row.router_approval_id === approvalId && row.agent === owned.agent.name) || null;
     if (!approval) {
       approval = approvalStore.createRequest({
         agent: owned.agent.name,
@@ -8257,7 +8258,7 @@ app.post('/api/router/approvals/claude', requireAgentToken((req) => req.body?.ag
         tool_name: toolName,
         description,
         input_preview: inputPreview,
-      });
+      }, { routerApprovalId: approvalId });
       if (approval.status === 'pending') {
         broadcastSSE('approval_requested', { request_id: approval.id, agent: approval.agent });
       }
@@ -10246,8 +10247,8 @@ app.get('/api/approvals/:id/matrix', requireApprovalBridgeSecret, (req, res) => 
     const record = approvalStore.getRequest(req.params.id, { matrix: true });
     if (!record) return res.status(404).json({ error: 'approval request not found' });
     const agent = agents[record.agent];
-    const threadRootEventId = routerStore && agent?.agentId
-      ? routerStore.approvalThreadOrigin(record.upstream_request_id, agent.agentId, record.project_room_id)
+    const threadRootEventId = routerStore && agent?.agentId && record.router_approval_id
+      ? routerStore.approvalThreadOrigin(record.router_approval_id, agent.agentId, record.project_room_id)
       : null;
     return res.json({ ok: true, approval: { ...record, thread_root_event_id: threadRootEventId } });
   } catch (error) {

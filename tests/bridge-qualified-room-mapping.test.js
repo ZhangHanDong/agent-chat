@@ -281,4 +281,31 @@ describe('qualified room mappings through real credential helpers', () => {
     });
     expect(persistedMaps()).toEqual(maps());
   });
+
+  test('unmap removes case-equivalent aliases on a dotless side with an at-sign group name', () => {
+    const room = '!room:localhost';
+    const state = module.bridgeStateForTest();
+    state.groupRoomMap = {
+      'Team@Ops@localhost': room,
+      'Team@Ops@LOCALHOST': room,
+      'Team@Ops@other.example': NEW_ROOM,
+    };
+    state.roomGroupMap = { [room]: 'Team@Ops@localhost', [NEW_ROOM]: 'Team@Ops@other.example' };
+    expect(module.__unmapRoomForTest(room)).toBe('Team@Ops@localhost');
+    expect(module.__roomForGroupForTest('Team@Ops', 'localhost')).toBeNull();
+    expect(maps().groupRoomMap).toEqual({ 'Team@Ops@other.example': NEW_ROOM });
+  });
+
+  test('rename removes case-equivalent aliases on a dotless side', () => {
+    const room = '!room:localhost';
+    const state = module.bridgeStateForTest();
+    state.groupRoomMap = { 'Old@localhost': room, 'Old@LOCALHOST': room };
+    state.roomGroupMap = { [room]: 'Old@localhost' };
+    expect(module.__mapRoomForTest(room, 'New', { side: 'localhost' })).toBe(true);
+    expect(module.__roomForGroupForTest('Old', 'localhost')).toBeNull();
+    expect(maps()).toEqual({
+      groupRoomMap: { 'New@localhost': room },
+      roomGroupMap: { [room]: 'New@localhost' },
+    });
+  });
 });

@@ -64,6 +64,13 @@ describe('approval notice thread provenance', () => {
       expect(response.status).toBe(200);
       expect(response.body.approval.thread_root_event_id).toBeNull();
     }
+    const reused = await request(context.app).post('/api/approvals')
+      .set('X-Agent-Token', 'worker-token')
+      .send({ agent: 'worker', runtime: 'claude', project_room_id: '!project:test',
+        upstream_request_id: upstream.upstream_request_id, tool_name: 'Bash', input_preview: 'legacy reuse' });
+    expect(reused.status).toBe(201);
+    expect(reused.body.approval.id).not.toBe(upstream.id);
+    expect((await matrix(reused.body.approval.id)).body.approval.thread_root_event_id).toBeNull();
     expect((await request(context.app).get(`/api/approvals/${upstream.id}/matrix`)).status).toBe(403);
   });
 });

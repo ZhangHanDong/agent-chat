@@ -27,10 +27,12 @@ non-actionable public notice, and existing authorization checks.
 ### Allowed Changes
 - backend-v2.js
 - bridge-matrix.js
+- lib/approval-store.js
 - router/src/store.ts
 - router/dist/store.js
 - router/dist/store.d.ts
 - tests/approval-thread-notice.test.js
+- tests/approval-store.test.js
 - tests/bridge-matrix-approval.test.js
 - specs/task-approval-thread-notice.spec.md
 - docs/**
@@ -50,6 +52,14 @@ Scenario: Scope mismatch cannot misroute a notice
   When the bridge resolves the public notice destination
   Then no unrelated task thread is returned
   And the Matrix record still requires bridge authentication
+
+Scenario: Legacy request identifiers do not prove router provenance
+  Test: router approval provenance is trusted-only, durable, and exact for pending idempotency
+  Test: does not infer a thread from another agent room or legacy request
+  Given a native approval wait exists or has finished
+  When a legacy request reuses its client-settable upstream identifier
+  Then the legacy record has no router-thread association
+  And a pending record from a different origin is not silently adopted
 
 Scenario: Thread relation contains only public coordination state
   Test: thread approval notices remain in the originating task thread
