@@ -35,7 +35,7 @@ export default function AgentHeader({ agent }) {
       <PageHead title={agent.name} />
 
       <div className="btn-row" style={{ margin: '-8px 0 4px' }}>
-        <span className={`badge${agent.activeNow || agent.runner?.activity === 'running' ? ' ok' : ''}`}>{runtimeLabel(agent, t)}</span>
+        <span className={`badge${agent.activeNow || agent.runner?.activity === 'running' || agent.dispatchActivity?.activity === 'running' ? ' ok' : ''}`}>{runtimeLabel(agent, t)}</span>
         <span className="badge">{transportLabel(agent, t)}</span>
         <span className="badge">{agent.framework ?? t('ag.notProvided')}</span>
         {agent.mcp && <span className="badge ok">{t('ag.mcpConnected')}</span>}

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
@@ -119,5 +119,120 @@ describe('backend on-demand runner projection', () => {
     router.db.prepare("UPDATE dispatches SET state = 'future-state' WHERE dispatch_id = ?").run(id);
     router.db.pragma('ignore_check_constraints = OFF');
     expect((await read()).runner).toMatchObject({ availability: 'unknown', activity: 'unknown', reason: 'dispatch-state-unavailable' });
+  });
+});
+
+describe('backend hybrid thread dispatch projection', () => {
+  let context, router;
+  const agent = (name, overrides = {}) => ({ name, agentId: `agent_${name}`, kind: 'agent', type: 'claude',
+    workdir: process.cwd(), online: true, transport: 'tmux', tmux: `${name}:0.0`, ...overrides });
+  beforeEach(async () => {
+    context = await createBackendTestContext('hafleet-hybrid-projection-', {
+      agents: {
+        hybrid: agent('hybrid'), other: agent('other'),
+        stopped: agent('stopped', { manualDown: true, online: false, offlineReason: 'manual-offline' }),
+        acp: agent('acp', { transport: 'acp', tmux: null }),
+        remote: agent('remote', { server: 'remote-host' }),
+        octos: agent('octos', { type: 'octos' }), anonymous: agent('anonymous', { agentId: null }),
+      },
+      agentRuntime: { hybrid: { activeNow: false, idleDurationSec: 119745, activeDurationSec: 0 } },
+      agentTokens: { hybrid: 'test-hybrid-token', other: 'test-other-token', acp: 'test-acp-token' },
+      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1' },
+    });
+    router = context.internals.routerStoreForTest;
+  });
+  afterEach(() => { vi.restoreAllMocks(); context?.cleanup(); router?.close(); });
+  const read = async (name = 'hybrid') => {
+    const response = await request(context.app).get(`/api/agents/${name}`);
+    expect(response.status).toBe(200);
+    return response.body;
+  };
+  function enqueue(id, name = 'hybrid', state = 'queued') {
+    const input = router.ingestMessage({ messageId: id, roomId: `!${id}:test`, matrixEventId: `$${id}`,
+      senderName: 'human', senderMxid: '@human:test', recipientAgentId: `agent_${name}`,
+      recipientAgentName: name, normalizedBody: 'hello' });
+    expect(input.ok).toBe(true);
+    const queued = router.enqueueDispatch({ sessionId: input.session.sessionId, framework: 'claude',
+      localServerId: 'local', mayWrite: false, payload: {} });
+    expect(queued.ok).toBe(true);
+    // This test isolates serialization from the scheduler and never launches a real runner.
+    router.db.prepare('UPDATE dispatches SET state = ? WHERE dispatch_id = ?').run(state, queued.dispatchId);
+    return queued.dispatchId;
+  }
+
+  test('projects hybrid dispatch activity without replacing terminal liveness', async () => {
+    const before = await read();
+    const id = enqueue('hybrid-current');
+    for (const [state, activity, active, queued, parked] of [
+      ['queued', 'queued', 0, 1, 0], ['leased', 'running', 1, 0, 0],
+      ['started', 'running', 1, 0, 0], ['parked', 'parked', 1, 0, 1],
+    ]) {
+      router.db.prepare('UPDATE dispatches SET state = ? WHERE dispatch_id = ?').run(state, id);
+      const projected = await read();
+      expect(projected.dispatchActivity).toEqual({ source: 'router-ledger', activity,
+        activeDispatchCount: active, queuedDispatchCount: queued, parkedDispatchCount: parked });
+      expect(projected).toMatchObject({ runner: null, transport: 'tmux', tmux: 'hybrid:0.0',
+        online: before.online, healthy: before.healthy, activeNow: false, idleDurationSec: 119745 });
+      const list = await request(context.app).get('/api/agents');
+      expect(list.body.find(a => a.name === 'hybrid').dispatchActivity).toEqual(projected.dispatchActivity);
+    }
+    enqueue('acp-current', 'acp', 'started');
+    expect(await read('acp')).toMatchObject({ runner: null, transport: 'acp', tmux: null,
+      dispatchActivity: { activity: 'running', activeDispatchCount: 1 } });
+  });
+
+  test('ignores terminal history and other agents for hybrid dispatch activity', async () => {
+    for (const state of ['completed', 'cancelled_before_start', 'outcome_unknown']) enqueue(state, 'hybrid', state);
+    enqueue('other-started', 'other', 'started');
+    expect(await read()).toMatchObject({ runner: null, activeNow: false, idleDurationSec: 119745,
+      dispatchActivity: { source: 'router-ledger', activity: 'idle', activeDispatchCount: 0,
+        queuedDispatchCount: 0, parkedDispatchCount: 0 } });
+  });
+
+  test('fails closed on hybrid dispatch errors without hiding terminal state', async () => {
+    const before = await read();
+    const query = vi.spyOn(router, 'agentDispatchActivity').mockImplementation(() => { throw new Error('private-query-detail'); });
+    const assertUnknown = async () => {
+      const projected = await read();
+      expect(projected.dispatchActivity).toEqual({ source: 'router-ledger', activity: 'unknown',
+        activeDispatchCount: null, queuedDispatchCount: null, parkedDispatchCount: null });
+      expect(projected).toMatchObject({ runner: null, transport: 'tmux', tmux: 'hybrid:0.0', online: before.online });
+      expect(JSON.stringify(projected.dispatchActivity)).not.toContain('private-query-detail');
+    };
+    await assertUnknown();
+    query.mockRestore();
+    const id = enqueue('unknown-hybrid');
+    router.db.pragma('ignore_check_constraints = ON');
+    router.db.prepare("UPDATE dispatches SET state = 'future-state' WHERE dispatch_id = ?").run(id);
+    router.db.pragma('ignore_check_constraints = OFF');
+    await assertUnknown();
+  });
+
+  test('retains hybrid dispatch observation after legacy pane loss', async () => {
+    enqueue('pane-lost', 'hybrid', 'started');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const snapshot = await context.internals.buildLocalPaneMetadataSnapshotForTest(
+      vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
+    );
+    for (let i = 0; i < 3; i += 1) await context.internals.sweepLocalActivityDurationsForTest(snapshot);
+    expect(await read()).toMatchObject({ runner: null, transport: 'tmux', tmux: null,
+      online: false, offlineReason: 'tmux-missing:auto', dispatchActivity: { activity: 'running', activeDispatchCount: 1 } });
+  });
+
+  test('excludes unsupported identities from dispatch activity', async () => {
+    for (const name of ['remote', 'octos', 'anonymous']) expect((await read(name)).dispatchActivity, name).toBeNull();
+  });
+
+  test('preserves a manually stopped hybrid terminal across dispatch activity', async () => {
+    const assertStopped = async (activity, activeDispatchCount) => {
+      expect(await read('stopped')).toMatchObject({ online: false, manualDown: true, runner: null,
+        transport: 'tmux', offlineReason: 'manual-offline',
+        dispatchActivity: { activity, activeDispatchCount, queuedDispatchCount: 0, parkedDispatchCount: 0 } });
+    };
+    await assertStopped('idle', 0);
+    const id = enqueue('stopped-dispatch', 'stopped', 'started');
+    await assertStopped('running', 1);
+    router.db.prepare("UPDATE dispatches SET state = 'completed' WHERE dispatch_id = ?").run(id);
+    await assertStopped('idle', 0);
   });
 });
