@@ -8562,6 +8562,14 @@ app.post('/api/approval-bindings/matrix/markers/sync', requireApprovalBridgeSecr
   }
 });
 
+app.post('/api/approval-bindings/matrix/markers/migrate-v2', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    return res.json({ ok: true, migration: approvalStore.migrateMarkerRoomsV2(req.body || {}) });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to migrate approval room markers');
+  }
+});
+
 app.get('/api/approval-bindings/matrix/markers', requireApprovalBridgeSecret, (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 200);

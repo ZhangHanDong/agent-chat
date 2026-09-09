@@ -36,4 +36,27 @@ describe('approval binding marker bridge API', () => {
     expect(next.body.markers).toHaveLength(1);
     expect((await bridge('post', '/api/approvals/fake/matrix/projections/1/prepare').send({ ...identity })).status).toBe(409);
   });
+
+  test('v2 marker sync requires the pinned publisher context and server-derived manifest', async () => {
+    const store = context.internals.approvalStoreForTest;
+    store.upsertProjectionPublisher({
+      scope: 'local_bot', publisher_mxid: '@private:test', homeserver: 'https://test',
+      credential_kind: 'local_bot', credential_generation: 'g2',
+    });
+    const base = {
+      agent: 'worker', owner_mxid: '@owner:test', approval_room_id: '!dm:test',
+      publisher_mxid: '@private:test', publisher_scope: 'local_bot',
+      credential_kind: 'local_bot', credential_generation: 'g2',
+    };
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/sync').send({
+      ...base, credential_generation: 'wrong',
+    })).status).toBe(409);
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/sync').send({
+      ...base,
+      project_room_associations: [{ agent: 'worker', project_room_id: '!p:test', active: true }],
+    })).status).toBe(400);
+    const synced = await bridge('post', '/api/approval-bindings/matrix/markers/sync').send(base);
+    expect(synced.status).toBe(200);
+    expect(synced.body.marker).toMatchObject({ version: 2, marker_channel: 'room_marker_v2' });
+  });
 });
