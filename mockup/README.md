@@ -1,4 +1,4 @@
-# HAFleet contribution console — clickable prototype
+# HAFleet contribution console
 
 A Next.js app implementing the design in
 [`../docs/design/hafleet-as-contribution-console.md`](../docs/design/hafleet-as-contribution-console.md).
@@ -10,7 +10,10 @@ landed.)
 
 ```bash
 cd mockup
-npm install
+npm ci
+# Set HAFLEET_BACKEND (default http://127.0.0.1:8090) and
+# HAFLEET_API_TOKEN in this server process's environment, or in .env.local.
+# Use the operator token for the same local deployment; never use NEXT_PUBLIC_*.
 npm run build && npm start   # http://localhost:3100
 ```
 
@@ -199,8 +202,21 @@ oracle with the code they claimed to constrain.
 
 ## Known limits
 
-A prototype: no backend, no persistence, no live pane proxying, and the numbers are
-illustrative rather than measured.
+Presets, onboarding, engagements and supported actions use the real backend.
+Live tmux panes are read-only. On-demand runners report readiness and durable
+dispatch activity separately from resident-process liveness. Missing live logs,
+profile writes and supervisor assessments are explicitly unavailable; the console
+does not fabricate those records. Fixture mode is for demonstration only.
+
+Task counts and supported transcript token totals are per agent. Project-level
+attribution and a spend-over-time series are not supplied. Allocation charts count
+active engagements only. Declared ceilings do not stop a running coding process.
+
+From the repository root, install both packages (`npm ci` and
+`npm ci --prefix mockup`) before `npm run test:dashboard`. These deterministic
+Vitest checks render real components without contacting live services. `npm run
+check` in `mockup/` additionally checks the running page routes and dictionary;
+it is not a substitute for browser interaction.
 
 - The fixture has five agents and four presets. Layout at 1 / 20 / 100 is untested and needs
   fixture variants rather than layout changes.

@@ -49,9 +49,12 @@ an executable task contract.
 - bin/hafleet-up
 - bin/hafleet-up-v1
 - bin/hafleet-down
+- README.md
+- .github/workflows/ci.yml
 - bin/hafleet-sync-skills
 - tsconfig*.json
 - scripts/check-router-build.sh
+- scripts/run-suite-tests.mjs
 - scripts/write-v1-agent-task.js
 - scripts/probe-task-maintenance.mjs
 - scripts/check-architecture-boundaries.js
@@ -66,8 +69,8 @@ an executable task contract.
 - backend-v2.js
 - bridge-matrix.js
 - server.js
-- package.json
-- package-lock.json
+- ./package.json
+- ./package-lock.json
 - .gitignore
 
 ### Forbidden

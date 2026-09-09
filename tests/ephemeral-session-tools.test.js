@@ -158,7 +158,7 @@ describe('ephemeral session tools', () => {
       .send({ agent: 'worker', op: 'execution', id, heartbeat_at: true });
     for (const id of [other.taskId, peer.taskId]) {
       expect((await call(headers, id)).status).toBe(403);
-      expect((await invoke('update_task_execution', { id, heartbeat: true })).text).toContain('outside this dispatch');
+      expect(await invoke('update_task_execution', { id, heartbeat: true })).toMatchObject({ result: { isError: true }, text: expect.stringContaining('outside the runner session') });
     }
     for (const auth of [{ 'X-Agent-Token': 'worker-secret' }, { ...headers, 'X-Agent-Token': 'peer-secret' },
       { ...headers, 'X-HAFleet-Runner-Id': 'wrong-runner' }, { ...headers, 'X-HAFleet-Dispatch-Capability': 'wrong' },
@@ -335,7 +335,7 @@ describe('ephemeral session tools', () => {
     const { context, own, other, claim } = await fixture();
     const invoke = await connectMcp(context, claim);
     expect((await invoke('get_task', { id: own.taskId })).data.id).toBe(own.taskId);
-    expect((await invoke('get_task', { id: other.taskId })).text).toContain('outside this dispatch');
+    expect(await invoke('get_task', { id: other.taskId })).toMatchObject({ result: { isError: true }, text: expect.stringContaining('outside the runner session') });
     expect((await invoke('send_message', { to: 'peer', type: 'request', summary: 'MCP delegation', full: 'Read-only child' })).data).toMatchObject({ ok: true, task: { ok: true } });
     expect((await invoke('transition_task', { id: own.taskId, status: 'done' })).data).toMatchObject({ ok: true, task: { status: 'done' } });
   });
@@ -351,7 +351,7 @@ describe('ephemeral session tools', () => {
     const id = created.data.task.taskId;
     expect((await invoke('get_task', { id })).data).toMatchObject({ id, parent_id: own.taskId, assignee: 'peer', created_by: 'worker' });
     expect((await invoke('list_tasks', { assignee: '*' })).data.map((task) => task.id)).toEqual(expect.arrayContaining([own.taskId, id]));
-    expect((await invoke('transition_task', { id, status: 'done' })).text).toContain('outside this dispatch');
+    expect(await invoke('transition_task', { id, status: 'done' })).toMatchObject({ result: { isError: true }, text: expect.stringContaining('only the active task assignee') });
   });
 
   test.each([undefined, null])('task API defaults a %s parent to its authenticated dispatch', async (parent) => {

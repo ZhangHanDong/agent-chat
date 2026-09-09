@@ -97,7 +97,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         ...(process.env.FAKE_CODEX_ELICITATION_NO_TURN ? {} : { turnId: 'turn-fake' }),
         serverName: 'hafleet', mode: 'form', message: 'Allow create_task?',
         requestedSchema: { type: 'object', properties: process.env.FAKE_CODEX_ELICITATION === 'input' ? { secret: { type: 'string' } } : {} },
-        _meta: { tool_params: { assignee: 'peer', title: 'delegated work' } },
+        _meta: { codex_approval_kind: 'mcp_tool_call', tool_params: { assignee: 'peer', title: 'delegated work' } },
       } : {
         threadId: wrongThread ? 'thread-wrong' : 'thread-fake',
         turnId: 'turn-fake',
@@ -107,6 +107,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         reason: 'test command',
       },
     };
+    if (process.env.FAKE_CODEX_ELICITATION) send({ method: 'item/started', params: {
+      threadId: 'thread-fake', turnId: 'turn-fake', item: { id: `mcp-item-${approvalRequestId}`,
+        type: 'mcpToolCall', status: 'inProgress', server: 'hafleet', tool: 'create_task', arguments: issuedApproval.params._meta.tool_params },
+    } });
     send(issuedApproval);
     return;
   }
@@ -115,7 +119,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const accepted = process.env.FAKE_CODEX_ELICITATION ? message.result.action === 'accept' : message.result.decision === 'accept';
     send({ method: 'serverRequest/resolved', params: { threadId: 'thread-fake', requestId: approvalRequestId } });
     if (process.env.FAKE_CODEX_RETRY_DENIED_ELICITATION && approvalRequestId === 0 && !accepted) {
+      send({ method: 'item/completed', params: { threadId: 'thread-fake', turnId: 'turn-fake', item: { id: 'mcp-item-0', type: 'mcpToolCall' } } });
       approvalRequestId = 1;
+      send({ method: 'item/started', params: { threadId: 'thread-fake', turnId: 'turn-fake', item: { id: 'mcp-item-1', type: 'mcpToolCall', status: 'inProgress', server: 'hafleet', tool: 'create_task', arguments: issuedApproval.params._meta.tool_params } } });
       send({ ...issuedApproval, id: approvalRequestId });
       return;
     }

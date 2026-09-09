@@ -689,6 +689,12 @@
         },
         {
           "method": "POST",
+          "path": "/api/router/task-operations",
+          "owner": "agent-runtime.thread-task-lifecycle",
+          "auth": "agent-token"
+        },
+        {
+          "method": "POST",
           "path": "/api/router/session-task",
           "owner": "router.runner-session-task",
           "auth": "agent-token",

@@ -64,7 +64,7 @@ describe('canonical mentionless thread addressing', () => {
 describe('Matrix task display titles', () => {
   async function expectTitle(source, title) {
     const context = await createBackendTestContext('matrix-title-', {
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'title-bridge' },
+      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'title-bridge', API_TOKEN: 'title-operator' },
       agents: { worker_native: {
         name: 'worker_native', agentId: 'agent_worker_native', type: 'codex', role: 'coding',
         kind: 'agent', workdir: process.cwd(), workspaceMode: 'shared', online: true,
@@ -79,7 +79,7 @@ describe('Matrix task display titles', () => {
       const snapshot = context.internals.routerStoreForTest.snapshot();
       expect(snapshot.tasks).toHaveLength(1);
       expect(snapshot.tasks[0]).toMatchObject({ title, assignee: 'worker_native', threadRootEventId: '$native-human-root' });
-      const task = await request(context.app).get(`/api/tasks/${snapshot.tasks[0].taskId}`).expect(200);
+      const task = await request(context.app).get(`/api/tasks/${snapshot.tasks[0].taskId}`).set('Authorization', 'Bearer title-operator').expect(200);
       expect(task.body.description).toBe(source);
       const claimed = await request(context.app).post('/api/router/matrix-outbox/claim')
         .set('X-Bridge-Secret', 'title-bridge').send({ claim_ms: 30000 }).expect(200);
@@ -108,7 +108,7 @@ describe('Matrix task display titles', () => {
 
 test('authenticated Matrix follow-up executes after its prior task completes', async () => {
   const context = await createBackendTestContext('completed-matrix-followup-', {
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'followup-bridge' },
+    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'followup-bridge', API_TOKEN: 'followup-operator' },
     agents: { worker: { name: 'worker', agentId: 'agent_worker', type: 'codex', role: 'coding',
       kind: 'agent', workdir: process.cwd(), workspaceMode: 'shared', online: true } },
   });
@@ -144,7 +144,7 @@ test('authenticated Matrix follow-up executes after its prior task completes', a
     expect(second.started).toMatchObject({ taskId: activated.taskId, sessionId: activated.sessionId });
     expect(second.started.inbox.map(m => m.body)).toEqual(['@worker 改写为python版本']);
     expect(second.started.context.messages.map(m => m.body)).toContain('sum.js tests passed');
-    expect((await request(context.app).get(`/api/tasks/${activated.taskId}`).expect(200)).body.status).toBe('in_progress');
+    expect((await request(context.app).get(`/api/tasks/${activated.taskId}`).set('Authorization', 'Bearer followup-operator').expect(200)).body.status).toBe('in_progress');
     expect(createRouterTaskStore(router).getExecutionEpoch(activated.taskId)).toBe(1);
     expect(router.sessionById(activated.sessionId).threadRootEventId).toBe('$sum-root');
     await send('$python-followup', '@worker 改写为python版本', '$sum-root').expect(200);
@@ -980,4 +980,23 @@ describe('thread-session backend integration', () => {
       quarantinedByDispatchId: null,
     });
   });
+  test('promoted task title removes complete Matrix mentions without corrupting text', async () => {
+    const cases = [
+      ['[@worker](https://matrix.to/#/@ac_worker:127.0.0.1:8008) Build the CLI', 'Build the CLI'],
+      ['[@worker](https://matrix.to/#/%40ac_worker%3Atest) /task Keep user@example.com intact', 'Keep user@example.com intact'],
+      ['/task @worker Build [docs](https://example.test/docs)', 'Build [docs](https://example.test/docs)'],
+      ['@ac_worker:127.0.0.1:8008 修复消息发送', '修复消息发送'],
+    ];
+    for (const [index, [body, title]] of cases.entries()) {
+      const accepted = await request(context.app).post('/api/messages').set('X-Bridge-Secret', 'router-bridge-secret').send({
+        from: 'alice', group: 'robrix2', type: 'human', source: 'matrix', summary: body, full: body,
+        mentions: ['worker'], source_room: '!title:test', source_event_id: `$title-${index}`, sender_mxid: '@alice:test',
+      });
+      expect(accepted.status).toBe(200);
+      const task = context.internals.routerStoreForTest.snapshot().tasks.find(row => row.threadRootEventId === `$title-${index}`);
+      expect(task?.title).toBe(title);
+    }
+  });
+
+
 });

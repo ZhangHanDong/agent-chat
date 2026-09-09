@@ -125,7 +125,58 @@ describe('the sync collector loop', () => {
     expect(collector.stats.processed).toBe(2);
   });
 
-  test('A: a router failure does NOT advance the cursor; retries are CAPPED and the collector stops', async () => {
+  test('r10: two retry-after refusals back off then commit the held batch', async () => {
+    let attempts = 0;
+    const router = { handle: vi.fn(async () => {
+      attempts += 1;
+      return attempts <= 2 ? { status: 500, retryAfterMs: 2_500 } : { status: 200 };
+    }) };
+    const cursorStore = { value: 'C0' };
+    const sleeps = [];
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't', user_id: '@hafleet:p' }))
+      .mockImplementation(async () => jsonResponse(200, { next_batch: 'C1', rooms: { join: { '!r:p': { timeline: { events: [{ event_id: '$r10', type: 'm.room.message', content: {} }] } } } } }));
+    const collector = makeCollector({
+      baseUrl: HS, side: 'side-a', router,
+      credentialFor: () => ({ asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      readCursor: () => cursorStore.value,
+      writeCursor: async (value) => { cursorStore.value = value; },
+      fetchImpl, sleep: async (ms) => { sleeps.push(ms); },
+      shouldContinue: () => attempts < 3 && watchdog() < 30,
+    });
+    await collector.loop;
+    expect(sleeps).toEqual([2_500, 2_500]);
+    expect(cursorStore.value).toBe('C1');
+    expect(collector.stats.gaveUp).not.toBe(true);
+    expect(router.handle).toHaveBeenCalledTimes(3);
+  });
+
+  test('r10: persistent retry-after refusals stay alive at the five-minute cap and hold cursor', async () => {
+    let attempts = 0;
+    const router = { handle: vi.fn(async () => {
+      attempts += 1;
+      return { status: 500, retryAfterMs: 900_000 };
+    }) };
+    const sleeps = [];
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't', user_id: '@hafleet:p' }))
+      .mockImplementation(async () => jsonResponse(200, { next_batch: 'C1', rooms: { join: { '!r:p': { timeline: { events: [{ event_id: '$r10-persist', type: 'm.room.message', content: {} }] } } } } }));
+    const collector = makeCollector({
+      baseUrl: HS, side: 'side-a', router,
+      credentialFor: () => ({ asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      readCursor: () => 'C0', writeCursor: async () => { throw new Error('cursor must remain held'); },
+      fetchImpl, sleep: async (ms) => { sleeps.push(ms); },
+      shouldContinue: () => attempts < 12 && watchdog() < 40,
+    });
+    await collector.loop;
+    expect(router.handle).toHaveBeenCalledTimes(12);
+    expect(sleeps).toHaveLength(12);
+    expect(sleeps.every((ms) => ms === 300_000)).toBe(true);
+    expect(collector.stats.gaveUp).not.toBe(true);
+    expect(collector.stats.batchAttempts).toBe(12);
+  });
+
+  test('A: a router failure holds the cursor and keeps retrying with capped exponential backoff', async () => {
     /*
      * Harness hardening (5-r1 supplement): shouldContinue carries a HARD poll cap, sleep is a
      * non-spin mock (records and yields), and the loop's own stop — not a mock-call count —
@@ -133,7 +184,7 @@ describe('the sync collector loop', () => {
      */
     const failing = { handle: async () => ({ status: 500, body: {} }) };
     const cursorStore = { value: 'CURSOR-0' };
-    const HARD_CAP = 50; // far above MAX_DELIVERY_ATTEMPTS; reaching it means the cap failed
+    const HARD_CAP = 10;
     let polls = 0;
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))
@@ -153,16 +204,11 @@ describe('the sync collector loop', () => {
       shouldContinue: () => polls < HARD_CAP,
     });
     await collector.loop;
-    expect(polls).toBeLessThan(HARD_CAP); // the LOOP stopped itself, not the harness
-    expect(collector.stats.gaveUp).toBe(true);
-    /*
-     * THE CAP VALUE IS CONTRACTUAL (5-r2b): the spec says 8, so the break lands EXACTLY on the
-     * 8th refusal — not merely "eventually". Pinning the number here is what stops the code and
-     * the spec drifting apart again (the 5-r2 ACK claimed 8 while the constant read 12).
-     */
-    expect(collector.stats.failed).toBe(8);
-    expect(collector.stats.batchAttempts).toBe(8);
-    expect(sleeps.length).toBeGreaterThan(0); // backoff actually ran
+    expect(polls).toBe(HARD_CAP); // harness stops it; the collector remains recoverable
+    expect(collector.stats.gaveUp ?? false).toBe(false);
+    expect(collector.stats.failed).toBe(HARD_CAP);
+    expect(collector.stats.batchAttempts).toBe(HARD_CAP);
+    expect(sleeps).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 300_000]);
     expect(writes).toEqual([]); // the failed batch never moved the cursor
     expect(collector.stats.logins).toBe(1);
   });
@@ -342,15 +388,14 @@ describe('intake wiring rules', () => {
   });
 });
 
-describe('5-r2 supplement: circuit break, side normalization, invite idempotence', () => {
-  test('A-cap: a poison batch circuit-breaks the collector, holds the cursor, warns once', async () => {
+describe('5-r2 supplement: retry durability, side normalization, invite idempotence', () => {
+  test('A-cap: a refused batch reaches the delay cap without stopping or moving the cursor', async () => {
     const failing = { handle: async () => ({ status: 500, body: {} }) };
     const cursorStore = { value: 'C0' };
-    const HARD_CAP = 60;
+    const HARD_CAP = 12;
     let polls = 0;
-    const breaks = [];
-    const loggedErrors = [];
-    const logger = { error: (m) => { loggedErrors.push(m); }, warn: () => {} };
+    const loggedWarnings = [];
+    const logger = { error: () => {}, warn: (m) => { loggedWarnings.push(m); } };
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))
       .mockImplementation(async () => {
@@ -364,36 +409,20 @@ describe('5-r2 supplement: circuit break, side normalization, invite idempotence
       credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
       readCursor: () => cursorStore.value,
       writeCursor: async (v) => { writes.push(v); cursorStore.value = v; },
-      onCircuitBreak: (s, d) => { breaks.push({ s, d }); },
       logger,
       fetchImpl,
       sleep: async (ms) => { sleeps.push(ms); await Promise.resolve(); },
       shouldContinue: () => polls < HARD_CAP && watchdog() < 400,
     });
     await collector.loop;
-    expect(polls).toBeLessThan(HARD_CAP);          // the collector stopped ITSELF
-    expect(breaks).toHaveLength(1);                // warned exactly once
-    expect(breaks[0].s).toBe('side-a');
-    // TWO CURSORS, each in its place (5-r3): heldCursor is where a restart RESUMES (the
-    // current since), failedNextBatch is the end of the batch that was never committed.
-    // Calling nextBatch "the recovery point" was wrong — it names a position never reached.
-    expect(breaks[0].d.heldCursor).toBe('C0');
-    expect(breaks[0].d.failedNextBatch).toBe('POISON');
-    expect(breaks[0].d.attempts).toBe(8);          // spec value, pinned (5-r2b)
-    // B(ii)/B(iii) 5-r4: the payload has NO bare `cursor` field, and the log names the two
-    // cursors correctly — POISON is the FAILED batch end, never called a recovery point.
-    expect(Object.prototype.hasOwnProperty.call(breaks[0].d, 'cursor')).toBe(false);
-    expect(loggedErrors).toHaveLength(1);
-    expect(loggedErrors[0]).toContain('recovery resumes from held cursor C0');
-    expect(loggedErrors[0]).toContain('batch ending at POISON was never committed');
-    expect(loggedErrors[0]).not.toMatch(/resumes? from held cursor POISON/); // POISON is never the held cursor
-    // FAST-BREAK (5-r3): the refusing batch retried at a FIXED 1s. Seven sleeps precede the
-    // eighth attempt (which breaks the circuit rather than sleeping again) — attempts 1..7
-    // retry, attempt 8 stops. The pinned sequence is what keeps "no climb" honest.
-    expect(sleeps).toEqual([1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(polls).toBe(HARD_CAP);
+    expect(loggedWarnings.filter((m) => m.includes('backing off'))).toHaveLength(HARD_CAP);
+    expect(loggedWarnings.at(-1)).toContain('retaining cursor C0');
+    expect(loggedWarnings.at(-1)).toContain('failed next_batch POISON');
+    expect(sleeps).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 300_000, 300_000, 300_000]);
     expect(writes).toEqual([]);                    // cursor never advanced
     expect(cursorStore.value).toBe('C0');          // held at the pre-poison position
-    expect(collector.stats.gaveUp).toBe(true);
+    expect(collector.stats.gaveUp ?? false).toBe(false);
   });
 
   test('D-norm: side names are normalized before the mutex (case, trailing slash, URL form)', () => {

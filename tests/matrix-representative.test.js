@@ -1230,9 +1230,9 @@ describe('reading a room\'s history on a project side', () => {
     expect(dead.reason).toMatch(/ECONNREFUSED/);
   });
 
-  test('a malformed body yields an empty page rather than a crash', async () => {
+  test('a malformed body yields an explicit unreadable history result', async () => {
     const impl = fakeFetch([ok({ chunk: 'not an array', end: 42 })]);
     const r = await roomMessagesOnSide({ side: SIDE, credential: asCred(), roomId: ROOM, fetchImpl: impl });
-    expect(r).toEqual({ known: true, chunk: [], end: null, reason: null });
+    expect(r).toEqual({ known: false, chunk: [], end: null, reason: 'history unreadable: malformed messages page' });
   });
 });

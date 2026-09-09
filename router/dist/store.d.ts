@@ -1,6 +1,7 @@
 import { ConversationStore } from './conversations.js';
 import { type ActivityEvent } from './activity.js';
 import { type FileReplyManifest, type FileReplyResult } from './files.js';
+import { type TaskOperationInput, type TaskOperationResult } from './task-operations.js';
 import type { ActivationResult, ActiveTaskBinding, ApprovalDecisionEvent, AttachInputsResult, AttachTaskInputsInput, AuthenticatedMessageInput, CapabilityInput, ClaimDispatchInput, ClaimResult, CreateTaskIntentInput, EnqueueDispatchInput, EnqueueResult, EventPage, IngestResult, MatrixCommand, MatrixDeliveryFailure, MatrixDeliveryReceipt, LaunchDescriptor, OutcomeInspectionResult, OutcomeResolutionResult, ParkDispatchInput, ReconcileReport, Refusal, ReplyCommand, RouterOptions, RouterSnapshot, ResolveOutcomeUnknownInput, RunnerEffectInput, SessionInboxMessage, SessionView, SetSessionOverridesInput, SettleDispatchInput, SettleSuccess, StartedPayload, StoredMessageResult, TaskDeliveryResult, TaskDispatchFailureResult, TaskIntentResult } from './types.js';
 interface DispatchRow {
     dispatch_id: string;
@@ -244,6 +245,7 @@ export declare class RouterStore {
     clearWorkspaceDirty(resourceIdInput: string): {
         ok: true;
     } | Refusal;
+    taskOperation(input: TaskOperationInput): TaskOperationResult;
     checkInbox(input: CapabilityInput): readonly SessionInboxMessage[] | Refusal;
     checkInboxForAgent(input: CapabilityInput, agentNameInput: string): readonly SessionInboxMessage[] | Refusal;
     listAgentDispatches(agentIdInput: string): readonly {
@@ -301,6 +303,12 @@ export declare class RouterStore {
         ok: true;
         contextGeneration: number;
     } | Refusal;
+    /** Small allowlisted projection, independent of the dashboard history limit. */
+    agentDispatchActivity(agentId: string): {
+        activeDispatchCount: number;
+        queuedDispatchCount: number;
+        parkedDispatchCount: number;
+    };
     snapshot(): RouterSnapshot;
     eventsAfter(after: number, limit?: number): EventPage;
     private meta;

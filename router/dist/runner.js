@@ -9,12 +9,19 @@ function canonical(value) {
         return value.map(canonical);
     if (value !== null && typeof value === 'object') {
         const input = value;
-        const output = {};
+        const output = Object.create(null);
         for (const key of Object.keys(input).sort())
             output[key] = canonical(input[key]);
         return output;
     }
     return value;
+}
+function isRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+function isApprovalMethod(method) {
+    return method === 'mcpServer/elicitation/request' || method === 'item/commandExecution/requestApproval'
+        || method === 'item/fileChange/requestApproval' || method === 'item/permissions/requestApproval';
 }
 export function operationDigest(method, params) {
     return createHash('sha256').update(JSON.stringify(canonical({ method, params }))).digest('hex');
@@ -126,6 +133,9 @@ function buildPrompt(payload) {
             TASK_MAINTENANCE_INSTRUCTIONS,
             'Do not create a replacement task or write legacy agent task metadata.',
         ] : []),
+        payload.taskId
+            ? 'The taskId below is your existing task, already started by HAFleet. Read it with get_task; do not accept it again or create a duplicate. Use update_task_execution for heartbeats, comment_task for verification evidence, and transition_task to done only after independently checking the result. Report real blockers with a reason and revisit time. A final response does not complete the task. When delegating execution through Herdr/octoloop, use the hafleet-inner-loop skill to prepare a fresh job, monitor its result and independently verify it; you remain responsible for task completion.'
+            : 'You coordinate requirements and create separately rooted tasks with create_task. list_tasks/get_task expose only this session and its created tasks; use their durable status when monitoring assignments.',
         JSON.stringify(context),
         requested ? `\nCurrent request:\n${requested}` : '',
     ].join('\n');
@@ -373,6 +383,9 @@ export async function runCodexDispatch(options) {
     }, 10_000);
     activityTimer.unref();
     let stderr = '';
+    const mcpCandidates = new Map();
+    const seenMcpItems = new Set();
+    const serverRequestIds = new Set();
     let resolveTurn = null;
     let rejectTurn = null;
     let resolveTurnIdentity = () => undefined;
@@ -404,98 +417,170 @@ export async function runCodexDispatch(options) {
         }
         return response;
     };
+    const correlateMcp = (params) => {
+        const meta = params._meta;
+        const schema = params.requestedSchema;
+        if (params.mode !== 'form' || !isRecord(meta) || meta.codex_approval_kind !== 'mcp_tool_call'
+            || !isRecord(meta.tool_params) || !isRecord(schema) || schema.type !== 'object'
+            || !isRecord(schema.properties) || Object.keys(schema.properties).length !== 0
+            || Object.keys(schema).some((key) => !['type', 'properties', 'required'].includes(key))
+            || (schema.required !== undefined && (!Array.isArray(schema.required) || schema.required.length !== 0))) {
+            throw new Error('Unsupported MCP elicitation form or tool approval metadata');
+        }
+        if (!threadId || !turnId || params.threadId !== threadId || params.turnId !== turnId
+            || typeof params.serverName !== 'string' || !params.serverName) {
+            throw new Error('MCP approval identity does not match the active thread and turn');
+        }
+        const args = JSON.stringify(canonical(meta.tool_params));
+        const candidates = [...mcpCandidates.values()].filter((candidate) => candidate.active && !candidate.consumed
+            && candidate.threadId === threadId && candidate.turnId === turnId && candidate.serverName === params.serverName
+            && JSON.stringify(canonical(candidate.arguments)) === args);
+        const candidate = candidates.length === 1 ? candidates[0] : undefined;
+        if (!candidate)
+            throw new Error('MCP approval correlation requires one unconsumed active tool item');
+        candidate.consumed = true;
+        return candidate;
+    };
     const answerApproval = async (message) => {
-        if (message.id === undefined || !message.method || !message.params)
-            return;
+        if (message.id === undefined || !message.method || !isRecord(message.params)) {
+            throw new Error('Malformed Codex approval request (including MCP)');
+        }
         const params = message.params;
+        const nativeMcp = message.method === 'mcpServer/elicitation/request';
+        const upstreamThreadId = typeof params.threadId === 'string' ? params.threadId : '';
+        const upstreamTurnId = typeof params.turnId === 'string' ? params.turnId : '';
+        let upstreamItemId = typeof params.itemId === 'string' ? params.itemId : '';
+        const upstreamRequestId = String(message.id);
+        if (!turnId && upstreamThreadId === threadId) {
+            await withTimeout(turnIdentityReady, acknowledgementTimeoutMs, 'Codex turn identity');
+        }
+        if (terminal)
+            throw new Error('Codex approval arrived after runner termination');
+        const candidate = nativeMcp ? correlateMcp(params) : null;
+        const mcp = candidate ? {
+            serverName: candidate.serverName, toolName: candidate.toolName, arguments: candidate.arguments,
+        } : null;
+        if (candidate)
+            upstreamItemId = candidate.id;
+        if (!threadId || !turnId || upstreamThreadId !== threadId || upstreamTurnId !== turnId || !upstreamItemId) {
+            await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) });
+            return;
+        }
+        // Authority comes from the configured control-plane server and structured
+        // tool item. Display text and persistence hints never grant permissions.
+        if (mcp && options.mcpServer?.name === 'hafleet' && mcp.serverName === 'hafleet'
+            && /^[a-z][a-z0-9_]*$/.test(mcp.toolName)
+            && options.coordinationNeedsOwnerApproval?.({
+                tool_name: `mcp__hafleet__${mcp.toolName}`, tool_input: mcp.arguments,
+            }) === false) {
+            await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'allow', params) });
+            return;
+        }
+        const kind = message.method === 'item/commandExecution/requestApproval'
+            ? 'command'
+            : message.method === 'item/fileChange/requestApproval'
+                ? 'file_change'
+                : nativeMcp ? 'mcp_tool_call' : 'permissions';
+        const opDigest = operationDigest(message.method, mcp
+            ? { nativeRequest: params, correlatedToolCall: { id: upstreamItemId, ...mcp } }
+            : params);
+        const approvalId = `tss_${randomUUID()}`;
+        const parked = options.router.parkForApproval({
+            ...capabilityInput(options.claim),
+            approvalId,
+            operationDigest: opDigest,
+            upstreamThreadId,
+            upstreamTurnId,
+            upstreamItemId,
+            upstreamRequestId,
+            maxParkedRunners: options.maxParkedRunners,
+        });
+        if (!parked.ok) {
+            if (nativeMcp)
+                throw refusalError(parked);
+            await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) });
+            return;
+        }
+        const ownerRequest = {
+            approvalId,
+            dispatchId: options.claim.dispatchId,
+            operationDigest: opDigest,
+            framework: 'codex',
+            kind,
+            ...(mcp ? { mcp } : {}),
+            nativeRequest: { method: message.method, params },
+            reason: typeof params.reason === 'string' ? params.reason : null,
+            command: typeof params.command === 'string' ? params.command : null,
+            cwd: typeof params.cwd === 'string' ? params.cwd : null,
+            upstreamThreadId,
+            upstreamTurnId,
+            upstreamItemId,
+            upstreamRequestId,
+        };
+        const verdict = await withTimeout(options.requestOwnerApproval(ownerRequest), approvalTimeoutMs, 'owner approval');
+        if (terminal)
+            throw new Error('Codex approval completed after runner termination');
+        if (candidate && !candidate.active)
+            throw new Error('MCP approval tool item is no longer active');
+        const decisionEvent = {
+            decisionEventId: verdict.decisionEventId,
+            approvalId,
+            dispatchId: options.claim.dispatchId,
+            operationDigest: opDigest,
+            decision: verdict.decision,
+        };
+        const applied = options.router.recordApprovalDecision(decisionEvent);
+        if (!applied.ok)
+            throw refusalError(applied);
+        const resumed = options.router.resumeAfterApproval({
+            ...capabilityInput(options.claim),
+            approvalId,
+            operationDigest: opDigest,
+        });
+        if (!resumed.ok)
+            throw refusalError(resumed);
+        await writeLine(child, {
+            id: message.id,
+            result: approvalResponse(message.method, resumed.decision, params),
+        });
+    };
+    const handleServerRequest = async (message) => {
+        const method = message.method ?? '';
+        const supported = isApprovalMethod(method);
+        const validId = typeof message.id === 'string' || (typeof message.id === 'number' && Number.isSafeInteger(message.id));
         try {
-            const elicitation = message.method === 'mcpServer/elicitation/request';
-            const upstreamThreadId = typeof params.threadId === 'string' ? params.threadId : '';
-            const upstreamRequestId = String(message.id);
-            if (!turnId && upstreamThreadId === threadId) {
-                await withTimeout(turnIdentityReady, acknowledgementTimeoutMs, 'Codex turn identity');
-            }
-            // MCP elicitation has no itemId and permits an absent turnId. This process
-            // owns one turn; bind its request id to that turn instead of inventing an
-            // item from model text. Only a confirmation form can use a boolean verdict.
-            const upstreamTurnId = typeof params.turnId === 'string' ? params.turnId : elicitation ? turnId ?? '' : '';
-            const upstreamItemId = elicitation ? `mcp:${upstreamRequestId}` : typeof params.itemId === 'string' ? params.itemId : '';
-            if (terminal || !threadId || !turnId || upstreamThreadId !== threadId || upstreamTurnId !== turnId || !upstreamItemId
-                || (elicitation && !isMcpConfirmation(params, options.mcpServer?.name))) {
-                await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) });
-                return;
-            }
-            const kind = message.method === 'item/commandExecution/requestApproval'
-                ? 'command'
-                : message.method === 'item/fileChange/requestApproval'
-                    ? 'file_change'
-                    : elicitation ? 'mcp_tool' : 'permissions';
-            const opDigest = operationDigest(message.method, params);
-            const approvalId = `tss_${randomUUID()}`;
-            const parked = options.router.parkForApproval({
-                ...capabilityInput(options.claim),
-                approvalId,
-                operationDigest: opDigest,
-                upstreamThreadId,
-                upstreamTurnId,
-                upstreamItemId,
-                upstreamRequestId,
-                maxParkedRunners: options.maxParkedRunners,
-            });
-            if (!parked.ok) {
-                await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) });
-                return;
-            }
-            const ownerRequest = {
-                approvalId,
-                dispatchId: options.claim.dispatchId,
-                operationDigest: opDigest,
-                framework: 'codex',
-                kind,
-                reason: typeof params.reason === 'string' ? params.reason : elicitation && typeof params.message === 'string' ? params.message : null,
-                command: typeof params.command === 'string' ? params.command : null,
-                cwd: typeof params.cwd === 'string' ? params.cwd : null,
-                ...(elicitation ? { inputPreview: JSON.stringify(params).slice(0, 8192) } : {}),
-                upstreamThreadId,
-                upstreamTurnId,
-                upstreamItemId,
-                upstreamRequestId,
-                nativeRequest: { method: message.method, params },
-            };
-            const verdict = await withTimeout(options.requestOwnerApproval(ownerRequest), approvalTimeoutMs, 'owner approval');
-            const decisionEvent = {
-                decisionEventId: verdict.decisionEventId,
-                approvalId,
-                dispatchId: options.claim.dispatchId,
-                operationDigest: opDigest,
-                decision: verdict.decision,
-            };
-            const applied = options.router.recordApprovalDecision(decisionEvent);
-            if (!applied.ok)
-                throw refusalError(applied);
-            const resumed = options.router.resumeAfterApproval({
-                ...capabilityInput(options.claim),
-                approvalId,
-                operationDigest: opDigest,
-            });
-            if (!resumed.ok)
-                throw refusalError(resumed);
-            await writeLine(child, {
-                id: message.id,
-                result: approvalResponse(message.method, resumed.decision, params),
-            });
+            if (!validId)
+                throw new Error('Invalid or absent Codex server request id');
+            if (!supported)
+                throw new Error(`Unsupported Codex server RPC method: ${method}`);
+            const requestKey = `${typeof message.id}:${String(message.id)}`;
+            if (serverRequestIds.has(requestKey))
+                throw new Error('Duplicate Codex server approval request');
+            serverRequestIds.add(requestKey);
+            await answerApproval(message);
         }
         catch (error) {
-            await writeLine(child, { id: message.id, result: approvalResponse(message.method, 'deny', params) }).catch(() => undefined);
+            const failure = error instanceof Error ? error : new Error(String(error));
             terminal = true;
+            const response = !validId
+                ? { error: { code: -32600, message: failure.message } }
+                : !supported
+                    ? { error: { code: -32601, message: failure.message } }
+                    : { result: method === 'mcpServer/elicitation/request'
+                            ? { action: 'cancel', content: null, _meta: null }
+                            : approvalResponse(method, 'deny', message.params ?? {}) };
+            await writeLine(child, { id: validId ? message.id : null, ...response }).catch(() => undefined);
+            rejectRpcResponses(failure);
+            rejectTurn?.(failure);
             await terminateAndWait(child);
-            await settleUnknown(options.router, options.claim, `approval_transport_failed:${error instanceof Error ? error.message : String(error)}`);
-            rejectTurn?.(error instanceof Error ? error : new Error(String(error)));
+            await settleUnknown(options.router, options.claim, `approval_transport_failed:${failure.message}`);
         }
     };
     readline.createInterface({ input: child.stdout }).on('line', (line) => {
         const message = parseRpcLine(line);
         if (!message)
+            return;
+        if (terminal)
             return;
         if (message.method === 'item/started' || message.method === 'item/completed') {
             void turnIdentityReady.then(() => {
@@ -517,15 +602,31 @@ export async function runCodexDispatch(options) {
             }
             return;
         }
-        if (message.method === 'item/commandExecution/requestApproval'
-            || message.method === 'item/fileChange/requestApproval'
-            || message.method === 'item/permissions/requestApproval'
-            || message.method === 'mcpServer/elicitation/request') {
-            void answerApproval(message).catch((error) => {
-                terminal = true;
-                rejectTurn?.(error instanceof Error ? error : new Error(String(error)));
-            });
+        if ((message.id !== undefined && message.method) || isApprovalMethod(message.method)) {
+            void handleServerRequest(message);
             return;
+        }
+        if (message.method === 'item/started' || message.method === 'item/completed') {
+            const params = message.params;
+            const item = params?.item;
+            if (params && isRecord(item) && item.type === 'mcpToolCall' && typeof item.id === 'string' && item.id
+                && typeof params.threadId === 'string' && typeof params.turnId === 'string') {
+                const key = JSON.stringify([params.threadId, params.turnId, item.id]);
+                const existing = mcpCandidates.get(key);
+                const seen = seenMcpItems.has(key);
+                // Preserve completion tombstones even when a start event was absent.
+                seenMcpItems.add(key);
+                if (existing) {
+                    // Completion or reuse of an item identity cannot re-arm it.
+                    existing.active = false;
+                }
+                else if (!seen && mcpCandidates.size < 1024 && message.method === 'item/started' && item.status === 'inProgress'
+                    && typeof item.server === 'string' && item.server && typeof item.tool === 'string' && item.tool
+                    && isRecord(item.arguments)) {
+                    mcpCandidates.set(key, { id: item.id, threadId: params.threadId, turnId: params.turnId,
+                        serverName: item.server, toolName: item.tool, arguments: item.arguments, active: true, consumed: false });
+                }
+            }
         }
         if (message.method === 'item/completed') {
             const item = message.params?.item;
@@ -651,26 +752,9 @@ export async function runCodexDispatch(options) {
         options.signal?.removeEventListener('abort', abortChild);
     }
 }
-function isMcpConfirmation(params, serverName) {
-    if (!serverName || params.serverName !== serverName || params.mode !== 'form')
-        return false;
-    const schema = params.requestedSchema;
-    if (!schema || Array.isArray(schema) || typeof schema !== 'object')
-        return false;
-    const record = schema;
-    if (record.type !== 'object')
-        return false;
-    const properties = record.properties;
-    if (!properties || Array.isArray(properties) || typeof properties !== 'object' || Object.keys(properties).length !== 0)
-        return false;
-    if (record.required !== undefined && (!Array.isArray(record.required) || record.required.length !== 0))
-        return false;
-    // Do not synthesize answers to arbitrary forms or URL authentication flows.
-    return Object.keys(record).every((key) => ['type', 'properties', 'required', 'additionalProperties', 'title', 'description', '$schema'].includes(key));
-}
 function approvalResponse(method, decision, params) {
     if (method === 'mcpServer/elicitation/request') {
-        return { action: decision === 'allow' ? 'accept' : 'decline', content: decision === 'allow' ? {} : null };
+        return { action: decision === 'allow' ? 'accept' : 'decline', content: null, _meta: null };
     }
     if (method === 'item/permissions/requestApproval') {
         const requested = params.permissions;

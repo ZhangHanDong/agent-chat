@@ -5,7 +5,8 @@ export interface OwnerApprovalRequest {
     dispatchId: string;
     operationDigest: string;
     framework: 'codex';
-    kind: 'command' | 'file_change' | 'permissions' | 'mcp_tool';
+    kind: 'command' | 'file_change' | 'permissions' | 'mcp_tool_call';
+    mcp?: McpApprovalOperation;
     reason: string | null;
     command: string | null;
     cwd: string | null;
@@ -24,6 +25,11 @@ export interface OwnerApprovalVerdict {
     decision: 'allow' | 'deny';
 }
 export type OwnerApprovalHandler = (request: OwnerApprovalRequest) => Promise<OwnerApprovalVerdict>;
+interface McpApprovalOperation {
+    serverName: string;
+    toolName: string;
+    arguments: Readonly<Record<string, unknown>>;
+}
 export interface RunnerBaseOptions {
     router: RouterStore;
     claim: ClaimSuccess;
@@ -50,6 +56,11 @@ export interface CodexRunnerOptions extends RunnerBaseOptions {
     requestOwnerApproval: OwnerApprovalHandler;
     /** Contributor-owned setting; never sourced from a task/message payload. */
     yolo?: boolean;
+    /** Backend-owned, exact HAFleet control-plane policy; absent means owner-gated. */
+    coordinationNeedsOwnerApproval?: (input: {
+        tool_name: string;
+        tool_input: Readonly<Record<string, unknown>>;
+    }) => boolean;
     mcpServer?: {
         name: string;
         command: string;
@@ -71,3 +82,4 @@ export declare function operationDigest(method: string, params: Readonly<Record<
 export declare function runClaudeDispatch(options: ClaudeRunnerOptions): Promise<RunnerCompletion>;
 export declare function runCodexDispatch(options: CodexRunnerOptions): Promise<RunnerCompletion>;
 export declare function isCompletedSettlement(result: SettleSuccess | Refusal): result is SettleSuccess;
+export {};

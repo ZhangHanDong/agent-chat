@@ -403,7 +403,11 @@ describe('server heartbeat api (sweep and lifecycle)', () => {
 
     const response = await request(context.app).get('/api/servers');
 
-    expect(response.status).toBe(200);
+    expect(response.status, JSON.stringify({
+      requestUrl: response.request.url,
+      contentType: response.headers['content-type'],
+      response: response.text,
+    })).toBe(200);
     expect(response.body).toHaveLength(1);
     expect(response.body[0]).toMatchObject({
       id: 'my-local',

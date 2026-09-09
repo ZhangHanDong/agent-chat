@@ -123,7 +123,7 @@ describe('framework presets api', () => {
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ error: 'framework preset persistence failed' });
-    expect(list.body).toEqual([{ ...original, apiKey: true }]);
+    expect(list.body).toEqual([{ ...original, apiKey: true, agentDefinitions: [] }]);
     expect(readJson(presetsPath(context.runtimeDir))).toEqual([original]);
   });
 
@@ -139,7 +139,7 @@ describe('framework presets api', () => {
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ error: 'framework preset persistence failed' });
-    expect(list.body).toEqual([{ ...original, apiKey: true }]);
+    expect(list.body).toEqual([{ ...original, apiKey: true, agentDefinitions: [] }]);
     expect(readJson(presetsPath(context.runtimeDir))).toEqual([original]);
   });
 });

@@ -210,7 +210,10 @@ hafleet ls
 hafleet service status
 ```
 
-Then open the dashboard at `http://127.0.0.1:8084`.
+The current contribution dashboard is the Next.js app in `mockup/`, at
+`http://127.0.0.1:3100`. See [its startup instructions](mockup/README.md) for
+the server-side backend URL and operator token. Port 8084 below refers to the
+older `server.js` web/queue service, not this console.
 
 Agents run over one of two transports, decided by their framework adapter: tmux
 (`hafleet up`) or ACP (`hafleet acp-up`). `hafleet ls` shows which in the `TRANS`
@@ -221,21 +224,25 @@ Dashboard design notes live in [docs/design/](docs/design/): a scored
 [UX review](docs/design/dashboard-ux-review.md) and the
 [left-rail relayout design](docs/design/dashboard-relayout.md).
 
-Dashboard pages:
+Current dashboard pages:
 
 | Path | Purpose |
 | --- | --- |
-| `/` | Fleet monitor |
-| `/agents/<name>` | Agent detail, terminal capture, tasks, audit, DM box |
-| `/tasks` | Task list and actions |
-| `/projects` | Project board |
-| `/pool` | Agent pool |
+| `/`, `/resources` | Contributed agents, presets, ceilings and measured usage |
+| `/workforce` | Agent roster, availability and project access |
+| `/agents/<name>` | Runtime, terminal capture where available, activity and read-only profile |
+| `/resources/new`, `/onboard` | Contribution preset and agent onboarding forms |
+| `/capability`, `/engagements` | Offered roles and capacity allocations |
+| `/projects`, `/projects/new` | Project access and project-side onboarding |
+| `/usage` | Measured task counts, tokens and current allocations |
 | `/alerts` | Alerts |
 | `/config` | Agent and preset configuration |
 
-Five ways to reach an agent: the dashboard DM box, Matrix, `hafleet send`,
-attaching to the pane directly, or the REST API. All deliver **when the agent is
-idle** — there is no interrupt.
+Reach an agent through Matrix, `hafleet send`, its terminal where present, or the
+REST API. Thread-session runners use durable dispatch state; an idle headless
+runner has no resident pane. The contribution console reports availability and
+usage, while decomposition, assignment and lower-loop verification remain with
+the managed agents.
 
 ## Operating
 

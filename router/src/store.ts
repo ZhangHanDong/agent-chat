@@ -16,6 +16,8 @@ import { TASK_AUTHORIZATION_EPOCH_SCHEMA } from './migrations/011-task-authoriza
 import { ConversationStore, CONVERSATION_SCHEMA } from './conversations.js';
 import { ActivityStore, type ActivityEvent } from './activity.js';
 import { FILE_REPLY_SCHEMA, type FileReplyManifest, type FileReplyRow, type FileReplyResult } from './files.js';
+import { TASK_OPERATIONS_SCHEMA } from './migrations/009-task-operations.js';
+import { applyTaskOperation, type TaskOperationInput, type TaskOperationResult } from './task-operations.js';
 import type {
   ActivationResult,
   ActiveTaskBinding,
@@ -60,7 +62,7 @@ import type {
   TaskIntentResult,
 } from './types.js';
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 const DEFAULT_EVENT_RETENTION = 10_000;
 
 interface SessionRow {
@@ -523,28 +525,22 @@ export class RouterStore {
       });
       migrate();
     }
-    const versionNine = this.db.prepare<[number], IdRow>(
-      'SELECT version AS id FROM router_schema_migrations WHERE version = ?',
-    ).get(9);
-    if (!versionNine) {
-      const migrate = this.db.transaction(() => {
-        this.db.exec(APPROVAL_REQUEST_IDENTITY_SCHEMA);
-        this.db.prepare<[number, number]>(
-          'INSERT INTO router_schema_migrations(version, applied_at) VALUES (?, ?)',
-        ).run(9, this.now());
-      });
-      migrate();
-    }
+    // Two released branches used migration 9 for different schemas. Migration
+    // numbers alone cannot distinguish them. Converge their physical schemas
+    // atomically, retaining the original history and recording the union as 12.
     this.db.transaction(() => {
+      const hasColumn = (table: string, column: string) =>
+        (this.db.pragma(`table_info(${table})`) as { name: string }[]).some((row: { name: string }) => row.name === column);
+      if (!hasColumn('approval_waits', 'resumed_at')) this.db.exec(APPROVAL_REQUEST_IDENTITY_SCHEMA);
+      if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runner_task_operations'").get()) {
+        this.db.exec(TASK_OPERATIONS_SCHEMA);
+      }
       this.db.exec(CONVERSATION_SCHEMA);
-      this.db.prepare('INSERT OR IGNORE INTO router_schema_migrations(version,applied_at) VALUES (?,?)').run(10, this.now());
+      if (!hasColumn('tasks', 'execution_epoch')) this.db.exec(TASK_AUTHORIZATION_EPOCH_SCHEMA);
+      for (const version of [9, 10, 11, 12]) {
+        this.db.prepare('INSERT OR IGNORE INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(version, this.now());
+      }
     })();
-    if (!this.db.prepare<[number], IdRow>('SELECT version AS id FROM router_schema_migrations WHERE version = ?').get(11)) {
-      this.db.transaction(() => {
-        this.db.exec(TASK_AUTHORIZATION_EPOCH_SCHEMA);
-        this.db.prepare<[number, number]>('INSERT INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(11, this.now());
-      })();
-    }
   }
 
   private emit(kind: string, payload: Readonly<Record<string, unknown>>, audience = 'operator'): number {
@@ -3262,6 +3258,26 @@ export class RouterStore {
     }
   }
 
+  taskOperation(input: TaskOperationInput): TaskOperationResult {
+    try {
+      return this.db.transaction((): TaskOperationResult => {
+        const checked = this.validateCapability(input);
+        if ('ok' in checked) return checked;
+        if (checked.dispatch.state !== 'started') return refusal('invalid_transition', 'task operations require a currently started dispatch');
+        const result = applyTaskOperation(this, input, checked.dispatch.session_id, checked.dispatch.task_id);
+        if (result.ok && !result.replayed && !['get', 'list'].includes(input.action)) {
+          this.emit('task.updated', { taskId: input.taskId, dispatchId: input.dispatchId, action: input.action, status: result.task?.status });
+          if (input.action === 'transition' && result.task) this.enqueueTaskNotice(result.task.id,
+            `task_operation:${input.dispatchId}:${input.toolCallId}`, `Task status: ${result.task.status}`);
+        }
+        return result;
+      })();
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && typeof error.code === 'string' && !error.code.startsWith('SQLITE_')) return refusal('bad_request', error.message);
+      throw error;
+    }
+  }
+
   checkInbox(input: CapabilityInput): readonly SessionInboxMessage[] | Refusal {
     const checked = this.validateCapability(input);
     if ('ok' in checked) return checked;
@@ -3540,6 +3556,36 @@ export class RouterStore {
       if (error instanceof RouterInputError) return refusal('bad_request', error.message);
       throw error;
     }
+  }
+
+  /** Small allowlisted projection, independent of the dashboard history limit. */
+  agentDispatchActivity(agentId: string): {
+    activeDispatchCount: number;
+    queuedDispatchCount: number;
+    parkedDispatchCount: number;
+  } {
+    const rows = this.db.prepare<[string], { state: string; count: number }>(
+      `SELECT d.state, COUNT(*) AS count FROM dispatches d
+       JOIN sessions s ON s.session_id = d.session_id
+       WHERE s.agent_id = ? GROUP BY d.state`,
+    ).all(agentId);
+    const result = { activeDispatchCount: 0, queuedDispatchCount: 0, parkedDispatchCount: 0 };
+    for (const row of rows) {
+      switch (row.state) {
+        case 'queued': result.queuedDispatchCount += row.count; break;
+        case 'parked':
+          result.parkedDispatchCount += row.count;
+          result.activeDispatchCount += row.count;
+          break;
+        case 'leased':
+        case 'started': result.activeDispatchCount += row.count; break;
+        case 'completed':
+        case 'cancelled_before_start':
+        case 'outcome_unknown': break;
+        default: throw new Error('unrecognized dispatch activity state');
+      }
+    }
+    return result;
   }
 
   snapshot(): RouterSnapshot {

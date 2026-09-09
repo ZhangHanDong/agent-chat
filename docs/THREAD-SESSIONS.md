@@ -198,6 +198,63 @@ inherited. The helper also keeps bootstrap cost off the backend event loop.
 
 ## Enablement and rollback
 
+### Three-layer task completion
+
+Robrix2 and HAFleet manage the organization and route requests. The
+HAFleet-managed Claude/Codex agent owns decomposition, assignment, monitoring
+and acceptance. Herdr and octoloop control lower execution agents; selecting
+octoscode there does not make it a HAFleet thread runner. The installed
+`hafleet-inner-loop` skill includes a fresh-job monitor and verification
+protocol for this middle-to-lower boundary.
+
+A worker dispatch starts with its bound task already `in_progress`. It should
+read that task, record acceptance and execution heartbeats, independently
+verify delegated work, add the evidence comment, then explicitly transition
+the task to `done`. It must not accept it again or create a duplicate.
+Returning final text settles the dispatch and queues a Matrix reply; it does
+not complete the task.
+
+Ephemeral MCP task tools use `POST /api/router/task-operations`, authenticated
+by the agent token and the complete current dispatch capability. Mutations
+apply only to the dispatch's active task binding; authors come from backend
+state. Reads also include tasks created by earlier dispatches in the same
+coordinator session, without granting authority to mutate those child tasks.
+Unstarted, parked, revoked and foreign capabilities are refused. Migration 9
+persists mutation receipts with task effects in one SQLite transaction:
+identical tool-call retries replay their result, while changed payloads with
+the same call id are refused.
+
+With thread sessions enabled, global task reads and operator mutation routes
+require the configured operator bearer, including on loopback. Legacy agent
+mutation routes refuse eligible thread agents. The scoped endpoint remains
+the runner's path; neither an agent token alone nor omitted headers grant
+global task access. Legacy `post` remains unavailable to ephemeral runners.
+
+On 2026-09-06, local Docker Palpo delivered a real Claude middle-agent task to
+Herdr/octoscode. The middle agent prepared a nonce-bound job, owned its
+monitor, independently tested the submitted commit, wrote verification and
+transitioned the task to `done`; the dispatch separately completed and its
+reply reached the original Matrix thread. This API-driven run does not
+satisfy a fresh Robrix GUI test or the rebuild-continuity release gate above.
+
+Codex native MCP consent (`mcpServer/elicitation/request`) is correlated with
+a unique active structured MCP item, its thread/turn/server and exact arguments.
+The backend supplies the existing ADR-005 coordination-tool exception for the
+configured HAFleet server; other supported empty-form tool requests use the
+same owner approval, digest, parking and resume path as native commands.
+Unknown shapes, missing identity, ambiguous or completed items fail explicitly.
+Completed item identities remain tombstoned, and an owner decision cannot
+revive an item that completed while approval was pending. This adapter does
+not change the native sandbox or grant a blanket MCP permission.
+
+The real local Codex R2 run also reached explicit task done, completed dispatch
+and one matching reply in its original Matrix thread. Its middle agent owned
+the fresh-result monitor, followed up a missing lower report and independently
+corrected a test-count error before acceptance. The test driver reviewed native
+owner approvals and formally recovered earlier failed attempts; this is not an
+uninterrupted, approval-free execution claim. Only lower octoscode/kimi was
+exercised in the Claude and Codex middle-agent runs.
+
 The task-store cutover and runtime switch are separate and both default off:
 
 ```text

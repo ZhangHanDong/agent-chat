@@ -292,6 +292,8 @@ describe('representative room admission and intake', () => {
     vi.stubGlobal('fetch', vi.fn(async (input, options) => {
       expect(options.headers.Authorization).toBe('Bearer fixture-as-token');
       expect(new URL(input).searchParams.get('user_id')).toBe(representative);
+      if (new URL(input).pathname.endsWith('/messages')) return json({ chunk: [] });
+      expect(new URL(input).pathname).toMatch(/\/joined_members$/);
       return json({ joined: Object.fromEntries(members.map(mxid => [mxid, {}])) });
     }));
     await bridge.onRoomMessage(room, message('$as-without-token'));
@@ -313,6 +315,8 @@ describe('representative room admission and intake', () => {
     vi.stubGlobal('fetch', vi.fn(async (input, options) => {
       expect(options.headers.Authorization).toBe('Bearer fixture-as-token');
       expect(new URL(input).searchParams.get('user_id')).toBe(rep);
+      if (new URL(input).pathname.endsWith('/messages')) return json({ chunk: [] });
+      expect(new URL(input).pathname).toMatch(/\/joined_members$/);
       return json({ joined: Object.fromEntries(members.map(mxid => [mxid, {}])) });
     }));
     expect(bridge.isKnownAgentMxid(ownMxid)).toBe(true);

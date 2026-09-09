@@ -207,10 +207,23 @@ describe('structured one-shot runners', () => {
         guardian.once('error', reject);
         guardian.once('message', resolve);
       });
-      for (let attempt = 0; attempt < 100 && !existsSync(pidFile); attempt += 1) {
+      let runtimePid = 0;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        // The fixture creates the file before writeFileSync publishes its PID.
+        // Readiness requires a complete PID for a live process, not just a path.
+        try {
+          const pidText = readFileSync(pidFile, 'utf8').trim();
+          const candidate = Number(pidText);
+          if (/^[1-9]\d*$/.test(pidText) && Number.isSafeInteger(candidate)) {
+            process.kill(candidate, 0);
+            runtimePid = candidate;
+            break;
+          }
+        } catch (error) {
+          if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error;
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      const runtimePid = Number.parseInt(readFileSync(pidFile, 'utf8'), 10);
       expect(runtimePid).toBeGreaterThan(0);
       guardian.disconnect();
       await new Promise((resolve) => guardian.once('exit', resolve));
@@ -300,20 +313,20 @@ describe('structured one-shot runners', () => {
       try {
         const completion = await runCodexDispatch({ router, claim, cwd: root,
           executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
-          env: { FAKE_CODEX_ELICITATION: 'confirmation', FAKE_CODEX_ELICITATION_NO_TURN: '1', FAKE_CODEX_APPROVAL_LOG: log },
+          env: { FAKE_CODEX_ELICITATION: 'confirmation', FAKE_CODEX_APPROVAL_LOG: log },
           mcpServer: { name: 'hafleet', command: process.execPath, args: [], envVars: [] },
           approvalTimeoutMs: 1000, maxParkedRunners: 1,
           requestOwnerApproval: async (approval) => {
             calls += 1;
             expect(router.listAgentDispatches('agent-id')[0].state).toBe('parked');
-            expect(approval).toMatchObject({ kind: 'mcp_tool', upstreamThreadId: 'thread-fake', upstreamTurnId: 'turn-fake', upstreamItemId: 'mcp:91' });
-            expect(JSON.parse(approval.inputPreview)._meta.tool_params.assignee).toBe('peer');
+            expect(approval).toMatchObject({ kind: 'mcp_tool_call', upstreamThreadId: 'thread-fake', upstreamTurnId: 'turn-fake', upstreamItemId: 'mcp-item-91' });
+            expect(approval.mcp.arguments.assignee).toBe('peer');
             return { decisionEventId: `owner-${decision}`, decision };
           },
         });
         expect(calls).toBe(1);
         expect(completion).toMatchObject({ state: 'completed', text: decision === 'allow' ? 'approved result' : 'denied result' });
-        expect(JSON.parse(readFileSync(log, 'utf8')).result).toEqual({ action: decision === 'allow' ? 'accept' : 'decline', content: decision === 'allow' ? {} : null });
+        expect(JSON.parse(readFileSync(log, 'utf8')).result).toEqual({ action: decision === 'allow' ? 'accept' : 'decline', content: null, _meta: null });
       } finally { router.close(); }
     }
   });
@@ -340,11 +353,12 @@ describe('structured one-shot runners', () => {
       expect(ownerRequests).toHaveLength(2);
       expect(ownerRequests.map((request) => request.upstreamRequestId)).toEqual(['0', '1']);
       expect(ownerRequests[1].approvalId).not.toBe(ownerRequests[0].approvalId);
-      expect(ownerRequests[1].operationDigest).toBe(ownerRequests[0].operationDigest);
-      expect(ownerRequests[1].inputPreview).toBe(ownerRequests[0].inputPreview);
+      expect(ownerRequests[1].operationDigest).not.toBe(ownerRequests[0].operationDigest);
+      expect(ownerRequests.map(request => request.upstreamItemId)).toEqual(['mcp-item-0', 'mcp-item-1']);
+      expect(ownerRequests[1].mcp.arguments).toEqual(ownerRequests[0].mcp.arguments);
       expect(router.db.prepare('SELECT decision FROM approval_waits ORDER BY rowid').all()).toEqual([{ decision: 'deny' }, { decision: 'allow' }]);
       expect(router.db.prepare('SELECT COUNT(*) count FROM approval_inbox').get().count).toBe(2);
-      expect(JSON.parse(readFileSync(log, 'utf8'))).toEqual({ id: 1, result: { action: 'accept', content: {} } });
+      expect(JSON.parse(readFileSync(log, 'utf8'))).toEqual({ id: 1, result: { action: 'accept', content: null, _meta: null } });
     } finally { router.close(); }
   });
 
@@ -353,14 +367,14 @@ describe('structured one-shot runners', () => {
       const { root, router, claim } = setup('codex');
       let calls = 0;
       try {
-        const result = await runCodexDispatch({ router, claim, cwd: root,
+        await expect(runCodexDispatch({ router, claim, cwd: root,
           executable: path.join(fixtures, 'fake-codex-app-server.mjs'), env,
           mcpServer: { name: 'hafleet', command: process.execPath, args: [], envVars: [] },
           approvalTimeoutMs: 1000, maxParkedRunners: 1,
           requestOwnerApproval: async () => { calls += 1; return { decisionEventId: 'unexpected', decision: 'allow' }; },
-        });
+        })).rejects.toThrow(/MCP/);
         expect(calls).toBe(0);
-        expect(result).toMatchObject({ state: 'completed', text: 'denied result' });
+        expect(router.db.prepare('SELECT state FROM dispatches').get().state).toBe('outcome_unknown');
       } finally { router.close(); }
     }
   });

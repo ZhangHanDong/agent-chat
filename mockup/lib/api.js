@@ -120,6 +120,13 @@ export function mapAgent(a) {
     // Carried so a page can show the resolved configuration even when the preset
     // it came from has since been edited or deleted.
     runtimeProfile: rp,
+    // This is readiness for a fresh dispatch, independent of resident-process liveness.
+    // Keep only the public projection; future private launch fields must not escape into UI state.
+    runner: a.runner?.mode === 'on-demand' ? Object.fromEntries([
+      'mode', 'availability', 'reason', 'framework', 'activity', 'activeDispatchCount',
+      'queuedDispatchCount', 'parkedDispatchCount', 'model', 'modelSource',
+    ].filter((key) => Object.hasOwn(a.runner, key)).map((key) => [key, a.runner[key]])) : null,
+    createdAt: typeof a.createdAt === 'string' || typeof a.createdAt === 'number' ? a.createdAt : null,
     blocked: a.blocked === true,
     blockedReason: a.blockedReason ?? null,
     offlineReason: a.offlineReason ?? null,

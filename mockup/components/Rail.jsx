@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { runtimeStatusText } from '@/lib/mock-data';
+import { runtimeLabel } from '@/lib/agent-detail';
 import { useData } from '@/components/Data';
 import { PrefsSwitch, useT } from '@/components/Prefs';
 
@@ -191,7 +191,7 @@ export default function Rail() {
                   <span className="id">
                     <span className="nm">{a.name}</span>
                     {/* Status is text, not colour. */}
-                    <span className="st">{runtimeStatusText(a)}</span>
+                    <span className="st">{runtimeLabel(a, t)}</span>
                     {/* What it contributes. An unconfigured agent contributes
                         nothing, and that is the fact worth surfacing. */}
                     <span className={`job${preset ? '' : ' none'}`}>

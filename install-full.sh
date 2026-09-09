@@ -385,17 +385,34 @@ link_cli_commands() {
 
 link_skill() {
   local target="$1"
-  local template="$INSTALL_DIR/skills/hafleet/SKILL.md"
-  [ -f "$template" ] || die "missing skill template: $template"
+  local template="${2:-$INSTALL_DIR/skills/hafleet/SKILL.md}"
+  [ -e "$template" ] || die "missing skill template: $template"
   run mkdir -p "$(dirname "$target")"
+  if [ "$DRY_RUN" = false ] && [ -e "$target" ] && [ ! -L "$target" ]; then
+    local backup="${target}.bak.$(date +%Y%m%d-%H%M%S)"
+    local candidate="$backup" suffix=0
+    while [ -e "$candidate" ] || [ -L "$candidate" ]; do
+      suffix=$((suffix + 1))
+      candidate="$backup.$suffix"
+    done
+    mv "$target" "$candidate"
+    log "Backed up existing $target to $candidate"
+  fi
   run ln -sfn "$template" "$target"
 }
 
 install_skills() {
+  local inner_loop="$INSTALL_DIR/skills/hafleet-inner-loop"
+  local resource
+  for resource in SKILL.md scripts/monitor.mjs; do
+    [ -f "$inner_loop/$resource" ] || die "missing skill resource: $inner_loop/$resource"
+  done
   link_skill "$HOME/.claude/skills/hafleet/SKILL.md"
   link_skill "$HOME/.codex/skills/hafleet/SKILL.md"
   link_skill "$HOME/.claude/skills/agent-message/SKILL.md"
   link_skill "$HOME/.codex/skills/agent-message/SKILL.md"
+  link_skill "$HOME/.claude/skills/hafleet-inner-loop" "$inner_loop"
+  link_skill "$HOME/.codex/skills/hafleet-inner-loop" "$inner_loop"
 }
 
 configure_claude_mcp() {

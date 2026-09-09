@@ -1,7 +1,7 @@
 # Testing
 
 ```bash
-npm test                  # full suite, serial
+npm test                  # full suite, four serial process shards
 npm run test:kernel       # sharded kernel + CLI subset
 npm run verify:ci         # all gates (needs GNU timeout; macOS: brew install coreutils)
 ```
@@ -62,6 +62,22 @@ The ceiling can come down after the module-retention debt is paid (split the
 heavy `api-*` files, budget boots per file) — that work is tracked on the
 coordination board, not here. Do not raise this number to make a failing test
 pass; find the loop or the retention instead.
+
+## Full-suite process boundaries (2026-09-08 integration)
+
+The combined suite has outgrown the original single-process allowance: the
+integration run exhausted 4096 MiB after 150 completed files, while the active
+membership-observation file passed in isolation with a 1024 MiB ceiling. Its
+SSE drain now has an independent iteration watchdog as required by LOOP-R1.
+This is consistent with the cross-file module retention documented above.
+
+`npm test` and `npm run test:ci` now execute four deterministic Vitest shards
+sequentially, each in a fresh process at the same 4096 MiB ceiling. All shard
+verdicts are merged with Vitest's blob reporter; CI still writes
+`test-results.json`. A failed, crashed or missing shard fails the command even
+if the remaining shards pass. There are no automatic retries or exclusions.
+Focused selectors (`npm test -- tests/example.test.js`) keep their direct
+single-run behavior. The module-retention debt itself remains open.
 
 ## Feature work starts from a task spec (2026-08-31)
 

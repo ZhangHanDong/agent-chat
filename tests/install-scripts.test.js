@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { execFileSync } from 'child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 
@@ -84,9 +84,65 @@ describe('local install and uninstall scripts', () => {
       expect(lstatSync(path.join(binDir, 'hafleet-send')).isSymbolicLink()).toBe(true);
       expect(lstatSync(path.join(home, '.claude', 'skills', 'hafleet', 'SKILL.md')).isSymbolicLink()).toBe(true);
       expect(lstatSync(path.join(home, '.codex', 'skills', 'agent-message', 'SKILL.md')).isSymbolicLink()).toBe(true);
+      for (const client of ['.claude', '.codex']) {
+        const skill = path.join(home, client, 'skills', 'hafleet-inner-loop');
+        expect(existsSync(path.join(skill, 'scripts', 'monitor.mjs'))).toBe(true);
+        expect(realpathSync(skill)).toBe(path.join(ROOT, 'skills', 'hafleet-inner-loop'));
+        expect(readFileSync(path.join(skill, 'SKILL.md'), 'utf8')).toContain('scripts/monitor.mjs');
+        for (const alias of ['hafleet', 'agent-message']) {
+          expect(realpathSync(path.join(home, client, 'skills', alias, 'SKILL.md'))).toBe(path.join(ROOT, 'skills', 'hafleet', 'SKILL.md'));
+        }
+      }
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  test('full installer preserves existing inner-loop skill content in a backup', () => {
+    const tmp = makeTempRoot('hafleet-install-skill-backup-');
+    try {
+      const home = path.join(tmp, 'home');
+      const skills = ['.claude', '.codex'].map((client) => path.join(home, client, 'skills', 'hafleet-inner-loop'));
+      for (const skill of skills) {
+        mkdirSync(skill, { recursive: true });
+        writeFileSync(path.join(skill, 'local.txt'), 'existing local skill');
+        writeFileSync(`${skill}.bak.older`, 'existing backup');
+      }
+      const fakeNode = path.join(tmp, 'fake-node');
+      writeFileSync(fakeNode, '#!/usr/bin/env bash\n', { mode: 0o755 });
+      runScript('install-full.sh', [
+        '--deny-existing-tmux', '--skip-prereq-check', '--skip-npm', '--skip-mcp', '--no-start',
+        '--systemd-dir', path.join(tmp, 'systemd'), '--bin-dir', path.join(tmp, 'bin'), '--env-file', path.join(tmp, '.env'),
+      ], { home, nodeBin: fakeNode });
+      for (const skill of skills) {
+        expect(lstatSync(skill).isSymbolicLink()).toBe(true);
+        const backups = readdirSync(path.dirname(skill)).filter((name) => name.startsWith('hafleet-inner-loop.bak.'));
+        expect(backups).toHaveLength(2);
+        const backup = backups.find((name) => name !== 'hafleet-inner-loop.bak.older');
+        expect(readFileSync(path.join(path.dirname(skill), backup, 'local.txt'), 'utf8')).toBe('existing local skill');
+        expect(readFileSync(`${skill}.bak.older`, 'utf8')).toBe('existing backup');
+      }
+    } finally { rmSync(tmp, { recursive: true, force: true }); }
+  });
+
+  test('uninstall removes only its owned inner-loop links', () => {
+    const tmp = makeTempRoot('hafleet-uninstall-inner-loop-');
+    try {
+      const home = path.join(tmp, 'home');
+      const owned = path.join(home, '.claude', 'skills', 'hafleet-inner-loop');
+      const custom = path.join(home, '.codex', 'skills', 'hafleet-inner-loop');
+      mkdirSync(path.dirname(owned), { recursive: true });
+      mkdirSync(custom, { recursive: true });
+      symlinkSync(path.join(ROOT, 'skills', 'hafleet-inner-loop'), owned);
+      writeFileSync(path.join(custom, 'SKILL.md'), 'user-owned skill');
+      runScript('uninstall.sh', [
+        '--yes', '--skip-mcp', '--systemd-dir', path.join(tmp, 'systemd'),
+        '--sudoers-dir', path.join(tmp, 'sudoers'), '--bin-dir', path.join(tmp, 'bin'),
+      ], { home });
+      expect(existsSync(owned)).toBe(false);
+      expect(readFileSync(path.join(custom, 'SKILL.md'), 'utf8')).toBe('user-owned skill');
+      expect(existsSync(path.join(ROOT, 'skills', 'hafleet-inner-loop', 'scripts', 'monitor.mjs'))).toBe(true);
+    } finally { rmSync(tmp, { recursive: true, force: true }); }
   });
 
   test('install-full configures Claude Code and Codex MCP when the CLIs are available', () => {
