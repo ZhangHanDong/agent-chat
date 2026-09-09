@@ -2409,6 +2409,10 @@ async function requestThreadSessionOwnerApproval(agent, projectRoomId, request) 
   }, { routerApprovalId: request.approvalId });
   if (created.status === 'pending') {
     broadcastSSE('approval_requested', { request_id: created.id, agent: created.agent });
+    broadcastSSE('approval_changed', {
+      request_id: created.id,
+      revision: approvalStore.getProjectionRevision(created.id),
+    });
   }
   let record = created;
   while (record.status === 'pending') {
@@ -2418,6 +2422,10 @@ async function requestThreadSessionOwnerApproval(agent, projectRoomId, request) 
   }
   const consumed = approvalStore.consumeDecision(record.id, agent.name, record.input_digest || null);
   if (!consumed.ok) throw new Error(`owner approval consume failed: ${consumed.code}`);
+  broadcastSSE('approval_changed', {
+    request_id: consumed.record.id,
+    revision: approvalStore.getProjectionRevision(consumed.record.id),
+  });
   return { decisionEventId: consumed.decision_event_id, decision: consumed.decision };
 }
 
@@ -8278,6 +8286,10 @@ app.post('/api/router/approvals/claude', requireAgentToken((req) => req.body?.ag
       }, { routerApprovalId: approvalId });
       if (approval.status === 'pending') {
         broadcastSSE('approval_requested', { request_id: approval.id, agent: approval.agent });
+        broadcastSSE('approval_changed', {
+          request_id: approval.id,
+          revision: approvalStore.getProjectionRevision(approval.id),
+        });
       }
     }
     return res.status(parked.replayed ? 200 : 201).json({
@@ -10242,6 +10254,10 @@ app.post('/api/approvals', requireAgentToken(_tokenFromApprovalBody), (req, res)
       // Tool details never enter the shared SSE stream. The bridge fetches them
       // through the secret-authenticated Matrix endpoint below.
       broadcastSSE('approval_requested', { request_id: record.id, agent: record.agent });
+      broadcastSSE('approval_changed', {
+        request_id: record.id,
+        revision: approvalStore.getProjectionRevision(record.id),
+      });
     }
     return res.status(record.status === 'pending' ? 201 : 200).json({ ok: true, approval: record });
   } catch (error) {
@@ -10273,6 +10289,91 @@ app.get('/api/approvals/:id/matrix', requireApprovalBridgeSecret, (req, res) => 
   }
 });
 
+app.get('/api/approvals/matrix/projections', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    runApprovalProjectionMaintenance();
+    const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 200);
+    const projections = approvalStore.listDueProjections({ limit, after: req.query?.after }).map((projection) => ({
+      ...projection,
+      approval: approvalStore.getProjectionRequest(projection.request_id),
+    }));
+    return res.json({
+      ok: true,
+      projections,
+      next: projections.length === limit ? projections[projections.length - 1].cursor : null,
+    });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to list approval projections');
+  }
+});
+
+function projectionPlanIdentity(body = {}, params = {}) {
+  return {
+    request_id: params.id,
+    revision: params.revision,
+    channel: body.channel,
+    publisher_mxid: body.publisher_mxid,
+    room_id: body.room_id,
+    credential_generation: body.credential_generation,
+    transaction_id: body.transaction_id,
+  };
+}
+
+let approvalProjectionMaintenanceRunning = false;
+function runApprovalProjectionMaintenance() {
+  if (approvalProjectionMaintenanceRunning) return { skipped: true };
+  approvalProjectionMaintenanceRunning = true;
+  try {
+    const expiry = approvalStore.sweepExpired({ limit: 100 });
+    const migration = approvalStore.migrateLegacyBatch();
+    const wakeRows = approvalStore.listDueProjections({ limit: 200 });
+    const wakes = new Set();
+    for (const row of wakeRows) {
+      const key = `${row.request_id}\0${row.revision}`;
+      if (wakes.has(key)) continue;
+      wakes.add(key);
+      broadcastSSE('approval_changed', {
+        request_id: row.request_id,
+        revision: row.revision,
+      });
+    }
+    return { skipped: false, ok: true, expiry, migration, wakes: wakes.size };
+  } catch (error) {
+    console.error(`[approval-projection] maintenance failed: ${error.message}`);
+    return { skipped: false, ok: false, error_code: error.code || 'maintenance_failed' };
+  } finally {
+    approvalProjectionMaintenanceRunning = false;
+  }
+}
+
+app.post('/api/approvals/:id/matrix/projections/:revision/prepare', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    const result = approvalStore.prepareProjection(req.body?.cas_token, {
+      ...(req.body || {}), request_id: req.params.id, revision: req.params.revision,
+    });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to prepare approval projection');
+  }
+});
+
+for (const operation of ['begin-send', 'receipt', 'retry']) {
+  app.post(`/api/approvals/:id/matrix/projections/:revision/${operation}`, requireApprovalBridgeSecret, (req, res) => {
+    try {
+      const body = req.body || {};
+      const identity = projectionPlanIdentity(body, req.params);
+      const result = operation === 'begin-send'
+        ? approvalStore.beginProjectionSend(body.cas_token, identity)
+        : operation === 'receipt'
+          ? approvalStore.receiptProjection(body.cas_token, { ...identity, event_id: body.event_id })
+          : approvalStore.retryProjection(body.cas_token, { ...identity, retry_at: body.retry_at, error_code: body.error_code });
+      return res.json({ ok: true, ...result });
+    } catch (error) {
+      return respondApprovalStoreError(res, error, `failed to ${operation} approval projection`);
+    }
+  });
+}
+
 app.post('/api/approvals/:id/verdict', requireApprovalBridgeSecret, (req, res) => {
   try {
     const result = approvalStore.submitMatrixVerdict(req.params.id, req.body || {});
@@ -10288,6 +10389,10 @@ app.post('/api/approvals/:id/verdict', requireApprovalBridgeSecret, (req, res) =
       agent: result.record.agent,
       status: result.record.status,
     });
+    broadcastSSE('approval_changed', {
+      request_id: result.record.id,
+      revision: approvalStore.getProjectionRevision(result.record.id),
+    });
     return res.json({ ok: true, approval: result.record });
   } catch (error) {
     return respondApprovalStoreError(res, error, 'failed to apply approval verdict');
@@ -10299,6 +10404,10 @@ app.post('/api/approvals/:id/delivery-failed', requireApprovalBridgeSecret, (req
     const record = approvalStore.denyPending(req.params.id, req.body?.reason || 'matrix_delivery_failed');
     if (!record) return res.status(404).json({ error: 'approval request not found' });
     broadcastSSE('approval_verdict', { request_id: record.id, agent: record.agent, status: record.status });
+    broadcastSSE('approval_changed', {
+      request_id: record.id,
+      revision: approvalStore.getProjectionRevision(record.id),
+    });
     return res.json({ ok: true, approval: record });
   } catch (error) {
     return respondApprovalStoreError(res, error, 'failed to deny undeliverable approval');
@@ -10319,6 +10428,10 @@ app.post('/api/approvals/:id/consume', requireAgentToken(_tokenFromApprovalRecor
       const status = result.code === 'pending' ? 202 : (result.code === 'expired' ? 410 : 409);
       return res.status(status).json({ ok: false, code: result.code, approval: result.record });
     }
+    broadcastSSE('approval_changed', {
+      request_id: result.record.id,
+      revision: approvalStore.getProjectionRevision(result.record.id),
+    });
     return res.json({ ok: true, decision: result.decision, approval: result.record });
   } catch (error) {
     return respondApprovalStoreError(res, error, 'failed to consume approval decision');
@@ -15987,6 +16100,9 @@ function startBackgroundLoops() {
   // SSE keepalive: send comment pings every 30s to prevent proxy idle timeout.
   sseAdapter.startKeepalive(trackLifecycleInterval);
 
+  runApprovalProjectionMaintenance();
+  trackLifecycleInterval(runApprovalProjectionMaintenance, 30_000);
+
   trackLifecycleInterval(() => {
     refreshServerLiveness();
   }, SERVER_SWEEP_INTERVAL_MS);
@@ -16191,6 +16307,7 @@ export const __backendV2TestInternals = {
   },
   dispatchLeaseStoreForTest: dispatchLeaseStore,
   approvalStoreForTest: approvalStore,
+  runApprovalProjectionMaintenanceForTest: runApprovalProjectionMaintenance,
   approvalAdapterTimeoutMsForTest: APPROVAL_ADAPTER_TIMEOUT_MS,
   routerStoreForTest: routerStore,
   agentOpsServiceForTest: agentOpsService,

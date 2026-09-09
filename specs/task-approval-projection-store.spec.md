@@ -19,10 +19,13 @@ Project every canonical approval state durably and idempotently to Matrix while 
 
 ### Allowed Changes
 - lib/approval-store.js
+- backend-v2.js
+- tests/api-approval-projections.test.js
 - tests/approval-store-projection.test.js
 - tests/approval-store.test.js
 - tests/approval-thread-notice.test.js
 - specs/task-approval-projection-store.spec.md
+- specs/task-approval-projection-api.spec.md
 - knowledge/requirements/req-approval-canonical-projection.md
 
 ### Forbidden
