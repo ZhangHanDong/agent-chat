@@ -42,6 +42,7 @@ keep final response text separate from durable task and dispatch state.
 - remote/lib/mcp-server-core.js
 - tests/router-task-lifecycle.test.js
 - tests/router-task-lifecycle-backend.test.js
+- tests/router-task-resume-backend.test.js
 - tests/mcp-task-lifecycle.test.js
 - tests/router-backend.test.js
 - knowledge/requirements/req-three-layer-task-completion.md
@@ -111,6 +112,14 @@ Scenario: Loopback and agent credentials cannot bypass capability scope
   Given thread sessions are enabled
   When a caller omits capability or tries a global task route without operator authority
   Then the request is refused even on loopback and when no operator token is configured
+
+Scenario: Operator resume wakes the existing blocked dispatch
+  Test: operator resume starts queued work without another message
+  Given a blocked task with a queued follow-up and no active runner
+  When an authenticated operator resumes the existing task
+  Then the queued dispatch is scheduled without a new message or restart
+  And unauthorized or invalid transitions neither resume nor launch it
+  And launch failure remains a failed launch instead of task completion
 
 ## Out of Scope
 
