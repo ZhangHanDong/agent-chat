@@ -84,7 +84,8 @@ describe('shared approval room marker v2 contract', () => {
     expect(Object.keys(after.bindings)).toHaveLength(Object.keys(before.bindings).length + 1);
     expect(after.requests).toEqual(before.requests);
     expect(after.markerRoomScopes).toEqual(beforeConflict.markerRoomScopes);
-    expect(after.markerOutbox).toEqual(beforeConflict.markerOutbox);
+    expect(after.markerOutbox).toHaveLength(beforeConflict.markerOutbox.length);
+    expect(after.markerOutbox.every((row) => row.superseded)).toBe(true);
   });
 
   test('duplicate tuples and overflow reject while distinct agents in one project remain valid', () => {
@@ -126,13 +127,6 @@ describe('shared approval room marker v2 contract', () => {
       'zeta\0!z-room:test': { agent: 'zeta', approvalRoomId: '!z-room:test', ownerMxid: OWNER, publisherMxid: '@private-publisher:test', generation: 7, associations: [] },
     };
     store.state.markerOutbox = [];
-    store.state.markerRoomScopes = {
-      '!z-room:test': {
-        approvalRoomId: '!z-room:test', ownerMxid: OWNER,
-        publisherMxid: '@private-publisher:test', generation: 11,
-        associations: [{ agent: 'historic', project_room_id: '!historic:test', active: false }],
-      },
-    };
     store._save();
     const firstBatch = store.migrateMarkerRoomsV2({ limit: 1 });
     expect(firstBatch).toMatchObject({ examined: 1, complete: false, cursor: ROOM });
@@ -146,7 +140,7 @@ describe('shared approval room marker v2 contract', () => {
     expect(reloaded.migrateMarkerRoomsV2({ limit: 1 })).toMatchObject({ examined: 1, complete: true });
     const v2Rows = reloaded.listDueMarkers().filter((row) => row.marker_channel === 'room_marker_v2');
     expect(v2Rows).toHaveLength(2);
-    expect(v2Rows.find((row) => row.approval_room_id === '!z-room:test').binding_generation).toBeGreaterThan(11);
+    expect(v2Rows.find((row) => row.approval_room_id === '!z-room:test').binding_generation).toBeGreaterThan(7);
   });
 
   test('v2 receipt queues fixed retirement and preserves old attempted receipt semantics', () => {
@@ -225,13 +219,17 @@ describe('shared approval room marker v2 contract', () => {
     seedActualFour(store);
     syncRoom(store);
     store.upsertBinding(binding('beta', 'project3', '!project3:test'));
+    store.upsertProjectionPublisher({
+      scope: 'local_bot', publisher_mxid: '@private-publisher:test', homeserver: 'https://test',
+      credential_kind: 'local_bot', credential_generation: 'private-g2',
+    });
     const before = readFileSync(file, 'utf8');
     const bindingsBefore = store.listBindings({ agent: 'beta' });
     store.fsFault = (phase) => {
       if (phase === 'beforeRename') throw new Error('sync rename fault');
     };
 
-    expect(() => syncRoom(store))
+    expect(() => syncRoom(store, { credential_generation: 'private-g2' }))
       .toThrow(/persist|sync rename fault/);
     expect(readFileSync(file, 'utf8')).toBe(before);
     expect(store.listBindings({ agent: 'beta' })).toEqual(bindingsBefore);
@@ -298,6 +296,21 @@ describe('shared approval room marker v2 contract', () => {
     expect(reloaded.state.markerRoomMigration).toMatchObject({ cursor: ROOM, complete: true });
     expect(reloaded.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2'))
       .toMatchObject({ approval_room_id: ROOM, binding_generation: 4 });
+    reloaded.upsertBinding({
+      ...binding('alpha', 'early', '!early:test'), owner_dm_room_id: '!A:test',
+    });
+    reloaded.state.markerScopes[`alpha\0!A:test`] = {
+      agent: 'alpha', approvalRoomId: '!A:test', ownerMxid: OWNER,
+      publisherMxid: '@private-publisher:test', generation: 2,
+      associations: [{ project_room_id: '!early:test', active: true }],
+    };
+    reloaded._save();
+    expect(reloaded.migrateMarkerRoomsV2({ limit: 1 })).toMatchObject({
+      examined: 1, complete: true, cursor: '!A:test',
+    });
+    expect(reloaded.listDueMarkers()).toContainEqual(expect.objectContaining({
+      approval_room_id: '!A:test', marker_channel: 'room_marker_v2',
+    }));
   });
 
 
@@ -330,6 +343,147 @@ describe('shared approval room marker v2 contract', () => {
       marker_channel: 'room_marker_v1_retirement',
       plan: expect.objectContaining({ attempt_state: 'uncertain' }),
     }));
+  });
+
+  test('new room agent supersedes stale ready plan and appears in the next manifest', () => {
+    const { store } = setup();
+    seedActualFour(store);
+    syncRoom(store);
+    const old = store.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2');
+    const plan = store.prepareMarker(old.cas_token, {
+      ...markerIdentity(old, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    store.upsertBinding(binding('beta', 'project3', '!project3:test'));
+    const current = store.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2');
+    expect(current.marker.project_room_associations).toContainEqual({
+      agent: 'beta', project_room_id: '!project3:test', active: true,
+    });
+    expect(() => store.beginMarkerSend(plan.cas_token, markerIdentity(old, plan))).toThrow(/superseded/);
+  });
+
+  test('owner conflict persists binding but blocks stale room plan from beginning', () => {
+    const { store } = setup();
+    seedActualFour(store);
+    syncRoom(store);
+    const old = store.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2');
+    const plan = store.prepareMarker(old.cas_token, {
+      ...markerIdentity(old, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    store.upsertBinding(binding('beta', 'project3', '!project3:test', null, '@other-owner:test'));
+    expect(store.listBindings({ agent: 'beta' })).toHaveLength(1);
+    expect(() => syncRoom(store)).toThrow(/common.*owner/);
+    expect(() => store.beginMarkerSend(plan.cas_token, markerIdentity(old, plan))).toThrow(/superseded/);
+  });
+
+  test('publisher rotation blocks ready work but keeps exact attempted receipt admissible', () => {
+    const readyStore = setup().store;
+    seedActualFour(readyStore);
+    syncRoom(readyStore);
+    const readyRow = readyStore.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2');
+    const readyPlan = readyStore.prepareMarker(readyRow.cas_token, {
+      ...markerIdentity(readyRow, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    readyStore.upsertProjectionPublisher({
+      scope: 'local_bot', publisher_mxid: '@private-publisher:test', homeserver: 'https://test',
+      credential_kind: 'local_bot', credential_generation: 'private-g2',
+    });
+    expect(() => readyStore.beginMarkerSend(readyPlan.cas_token, markerIdentity(readyRow, readyPlan)))
+      .toThrow(/no longer current/);
+
+    const attemptedStore = setup().store;
+    seedActualFour(attemptedStore);
+    syncRoom(attemptedStore);
+    const attemptedRow = attemptedStore.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2');
+    const attemptedPlan = attemptedStore.prepareMarker(attemptedRow.cas_token, {
+      ...markerIdentity(attemptedRow, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    attemptedStore.beginMarkerSend(attemptedPlan.cas_token, markerIdentity(attemptedRow, attemptedPlan));
+    attemptedStore.upsertProjectionPublisher({
+      scope: 'local_bot', publisher_mxid: '@private-publisher:test', homeserver: 'https://test',
+      credential_kind: 'local_bot', credential_generation: 'private-g2',
+    });
+    expect(attemptedStore.receiptMarker(attemptedPlan.cas_token, {
+      ...markerIdentity(attemptedRow, attemptedPlan), event_id: '$late-exact',
+    })).toEqual({ event_id: '$late-exact' });
+  });
+
+  test('each accepted v2 revision retains eligible retirement reconciliation work', () => {
+    const { store } = setup();
+    seedActualFour(store);
+    syncRoom(store);
+    const first = store.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2');
+    const firstPlan = store.prepareMarker(first.cas_token, {
+      ...markerIdentity(first, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    store.beginMarkerSend(firstPlan.cas_token, markerIdentity(first, firstPlan));
+    store.receiptMarker(firstPlan.cas_token, { ...markerIdentity(first, firstPlan), event_id: '$v2-first' });
+    store.upsertBinding(binding('claude', 'project3', '!project3:test'));
+    const second = store.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2');
+    const secondPlan = store.prepareMarker(second.cas_token, {
+      ...markerIdentity(second, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    store.beginMarkerSend(secondPlan.cas_token, markerIdentity(second, secondPlan));
+    store.receiptMarker(secondPlan.cas_token, { ...markerIdentity(second, secondPlan), event_id: '$v2-second' });
+    const retirements = store.state.markerOutbox.filter((row) => row.markerChannel === 'room_marker_v1_retirement');
+    expect(retirements).toHaveLength(2);
+    expect(retirements.filter((row) => !row.superseded && !row.eventId)).toHaveLength(1);
+  });
+
+  test('late v1 receipt queues one bounded retirement reconciliation', () => {
+    const { store } = setup();
+    seedActualFour(store);
+    const legacy = {
+      agent: 'claude', approvalRoomId: ROOM, ownerMxid: OWNER,
+      publisherMxid: '@private-publisher:test', generation: 0, associations: [],
+    };
+    store.state.markerScopes[`claude\0${ROOM}`] = legacy;
+    store._advanceMarker(legacy, store._markerAssociations(legacy));
+    store._save();
+    const old = store.listDueMarkers().find((row) => row.marker_channel === 'room_marker');
+    const oldPlan = store.prepareMarker(old.cas_token, {
+      ...markerIdentity(old, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    store.beginMarkerSend(oldPlan.cas_token, markerIdentity(old, oldPlan));
+
+    syncRoom(store);
+    const v2 = store.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v2');
+    const v2Plan = store.prepareMarker(v2.cas_token, {
+      ...markerIdentity(v2, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    store.beginMarkerSend(v2Plan.cas_token, markerIdentity(v2, v2Plan));
+    store.receiptMarker(v2Plan.cas_token, { ...markerIdentity(v2, v2Plan), event_id: '$v2-before-retire' });
+    const retirement = store.listDueMarkers().find((row) => row.marker_channel === 'room_marker_v1_retirement');
+    const retirementPlan = store.prepareMarker(retirement.cas_token, {
+      ...markerIdentity(retirement, { publisher_mxid: '@private-publisher:test', credential_generation: 'private-g1' }),
+      credential_generation: 'private-g1',
+    }).plan;
+    store.beginMarkerSend(retirementPlan.cas_token, markerIdentity(retirement, retirementPlan));
+    store.receiptMarker(retirementPlan.cas_token, {
+      ...markerIdentity(retirement, retirementPlan), event_id: '$retirement-first',
+    });
+    store.receiptMarker(oldPlan.cas_token, {
+      ...markerIdentity(old, oldPlan), event_id: '$late-v1',
+    });
+
+    expect(store.reconcileMarkerRetirements({
+      approval_room_id: ROOM,
+      limit: 1,
+    })).toEqual({ examined: 1, queued: 1 });
+    expect(store.listDueMarkers()).toContainEqual(expect.objectContaining({
+      marker_channel: 'room_marker_v1_retirement', marker: {},
+    }));
+    expect(store.reconcileMarkerRetirements({
+      approval_room_id: ROOM,
+      limit: 1,
+    })).toEqual({ examined: 1, queued: 0 });
   });
 
 });

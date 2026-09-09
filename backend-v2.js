@@ -8554,8 +8554,39 @@ app.get('/api/approval-bindings', requireApprovalBridgeSecret, (req, res) => {
   }
 });
 
+function validateMarkerPublisher(body = {}) {
+  const room = String(body.approval_room_id || '');
+  const server = room.includes(':') ? room.slice(room.indexOf(':') + 1).toLowerCase() : '';
+  const localServer = String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase();
+  const expectedScope = server === localServer && MATRIX_BOT_MXID_FOR_PROBE
+    ? 'local_bot'
+    : `side-representative:${server}`;
+  const publisher = approvalStore.projectionPublisher(expectedScope);
+  if (!publisher || body.publisher_scope !== expectedScope
+    || publisher.publisherMxid !== body.publisher_mxid
+    || publisher.homeserver !== server
+    || publisher.credentialKind !== body.credential_kind
+    || publisher.credentialGeneration !== body.credential_generation) {
+    throw new ApprovalStoreError('conflict', 'marker publisher is unavailable, stale, or mismatched');
+  }
+  if (expectedScope.startsWith('side-representative:')) {
+    const sideId = expectedScope.slice('side-representative:'.length);
+    const side = projectSideStore.getSide(sideId);
+    const credential = projectSideStore.credentialFor(sideId);
+    const expectedMxid = credential?.kind === 'appservice'
+      ? `@${credential.senderLocalpart}:${side?.serverName}`
+      : side?.representative?.mxid;
+    if (!side || !side.active || side.accessState !== 'accepted' || !credential
+      || credential.outboundGeneration !== publisher.credentialGeneration
+      || credential.kind !== publisher.credentialKind || expectedMxid !== publisher.publisherMxid) {
+      throw new ApprovalStoreError('conflict', 'marker publisher credential is no longer current');
+    }
+  }
+}
+
 app.post('/api/approval-bindings/matrix/markers/sync', requireApprovalBridgeSecret, (req, res) => {
   try {
+    if (req.body?.publisher_scope) validateMarkerPublisher(req.body);
     return res.json({ ok: true, marker: approvalStore.syncBindingMarker(req.body || {}) });
   } catch (error) {
     return respondApprovalStoreError(res, error, 'failed to synchronize approval room marker');
@@ -8567,6 +8598,17 @@ app.post('/api/approval-bindings/matrix/markers/migrate-v2', requireApprovalBrid
     return res.json({ ok: true, migration: approvalStore.migrateMarkerRoomsV2(req.body || {}) });
   } catch (error) {
     return respondApprovalStoreError(res, error, 'failed to migrate approval room markers');
+  }
+});
+
+app.post('/api/approval-bindings/matrix/markers/reconcile-retirements', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    return res.json({
+      ok: true,
+      reconciliation: approvalStore.reconcileMarkerRetirements(req.body || {}),
+    });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to reconcile approval marker retirement');
   }
 });
 
@@ -8584,6 +8626,11 @@ for (const operation of ['prepare', 'begin-send', 'receipt', 'retry']) {
   app.post(`/api/approval-bindings/matrix/markers/${operation}`, requireApprovalBridgeSecret, (req, res) => {
     try {
       const body = req.body || {};
+      if (operation !== 'receipt'
+        && (body.marker_channel === 'room_marker_v2'
+          || body.marker_channel === 'room_marker_v1_retirement')) {
+        validateMarkerPublisher(body);
+      }
       const result = operation === 'prepare' ? approvalStore.prepareMarker(body.cas_token, body)
         : operation === 'begin-send' ? approvalStore.beginMarkerSend(body.cas_token, body)
           : operation === 'receipt' ? approvalStore.receiptMarker(body.cas_token, body)

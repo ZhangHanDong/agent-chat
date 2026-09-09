@@ -13,9 +13,10 @@ Replace the single-agent approval-room marker scope with one room-owned v2 manif
 - The canonical identity is `(approval_room_id, room_generation, marker_channel)` and never contains a synthetic approval request ID.
 - `com.agentchat.approval.room.v2` uses state key `""`, one common owner/private publisher, and at most 64 canonical `(agent, project_room_id, active)` tuples sorted by code-point order.
 - `syncBindingMarker` accepts a compatibility agent selector but derives the whole room manifest from canonical bindings; null agent-membership observations remain eligible.
-- `migrateMarkerRoomsV2({limit})` examines at most `limit` retained v1 candidates, persists its cursor, seeds each room generation above all v1/v2 high-water marks, and rolls back cursor plus aggregate state on persistence failure.
+- `migrateMarkerRoomsV2({limit})` examines at most `limit` unmigrated retained v1 candidates, persists its progress marker, revisits late candidates regardless of lexical position, seeds each room generation above all v1/v2 high-water marks, and rolls back progress plus aggregate state on persistence failure.
 - A successful v2 receipt queues `room_marker_v1_retirement` with fixed `{}` content. A v1 retirement receipt stops v1 publication; failed or delayed writes remain reconciliation work.
 - Equal-generation identical content replays; equal-generation changed content conflicts. Older ready/begin/retry work is superseded while exact receipts for already-attempted I/O remain valid.
+- Binding changes and current private-publisher registry changes invalidate stale unattempted plans. Exact receipts remain admissible after the send boundary, and bounded retirement reconciliation creates fresh work after a late legacy receipt.
 
 ## Boundaries
 
@@ -94,6 +95,36 @@ Scenario: Marker replay and pagination remain deterministic
   Given multiple mixed-case rooms with v2 and retirement work
   When identical sync repeats and a page anchor completes
   Then generation stays equal, the next opaque cursor uses one code-point order, and due result counts remain bounded.
+
+Scenario: New associations invalidate stale room plans
+  Test: new room agent supersedes stale ready plan and appears in the next manifest
+  Given a ready room plan predates a newly committed agent binding
+  When the binding refreshes its shared room marker
+  Then the old plan cannot begin and the replacement manifest contains the new association.
+
+Scenario: Conflicting ownership persists governance and fails closed
+  Test: owner conflict persists binding but blocks stale room plan from beginning
+  Given a newly committed binding conflicts with the room's canonical owner
+  When marker refresh cannot derive one authoritative manifest
+  Then the binding remains durable and previously ready marker work cannot begin.
+
+Scenario: Publisher rotation separates pre-send and post-send authority
+  Test: publisher rotation blocks ready work but keeps exact attempted receipt admissible
+  Given the private publisher registry advances after one plan is ready and another crossed the send boundary
+  When begin and receipt are attempted with the pinned plans
+  Then stale ready work is rejected while the exact attempted receipt remains admissible.
+
+Scenario: Every v2 receipt retains eligible retirement work
+  Test: each accepted v2 revision retains eligible retirement reconciliation work
+  Given a prior retirement completed before a later v2 room revision
+  When the later revision receives its exact receipt
+  Then a distinct eligible retirement row remains available for that revision.
+
+Scenario: Late legacy receipts are reconciled within a bound
+  Test: late v1 receipt queues one bounded retirement reconciliation
+  Given a legacy write completes after the room's earlier retirement
+  When bounded retirement reconciliation examines that room
+  Then exactly one fresh retirement is queued without fabricating a remote receipt or CAS result.
 
 ## Out of Scope
 
