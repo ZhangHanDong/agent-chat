@@ -1,5 +1,9 @@
 # Palpo / HAFleet outbound transport review
 
+Follow-up: [implementation and Mini1 acceptance](2026-09-08-palpo-outbound-implementation.md).
+The findings below describe the pre-implementation state and are preserved as
+the design review, rather than the current deployment status.
+
 Reviewed HAFleet `39196ee` and Palpo `0736f991` / `0b11e786` after the operator
 requested an independent agent review. The findings below combine that agent's
 code inspection with the primary agent's verification of the cited paths.

@@ -747,3 +747,11 @@ palpo-admin-e2e/2026-09-06/execution-auth-backup-20260908-154315.
 - The original source checkout may contain independent website work. Integration
   commits and tests live in the isolated integration worktrees; the merged HAFleet
   runtime and Robrix executable have not replaced the live installation.
+
+
+## 2026-09-08 outbound Mini1 deployment
+
+- Live backend, bridge and console now use the isolated hagency-outbound-20260908 worktree. Palpo browser/machine HTTPS origin is crew.ominix.io:19444; Matrix HTTPS origin is crew.ominix.io:19443. Local console remains 127.0.0.1:13202. The old laptop18010/18080 forwards, bridge18195 listener and Mini1 reverse19094 are disabled. Do not restore a tunnel as the default repair.
+- Generation1 migration retained the same dynamic AS registration, Matrix tokens, namespace, agents, projects and allocations. The exact real Matrix receipt established proof; automatic heartbeats maintain liveness without owner browser renewal. Requests retain independent observed/received expiry. A pending historical edision request was replayed but not approved or allocated.
+- Changed Matrix API URLs require a coordinated bridge restart for existing private clients. Verify the original cached token's full user_id and device_id at the configured endpoint with timeout/redirect refusal, then update only baseUrl. Never delete crypto caches or create replacement devices merely because a tunnel URL changed. Live three-device recovery is evidenced in outbound-direct-device-after.json.
+- Operational launch helper and protected rollback/evidence files remain under Library/Caches/palpo-admin-e2e/2026-09-06. Do not commit downloaded credentials. Full acceptance, exact sources and remaining validation limits: docs/reviews/2026-09-08-palpo-outbound-implementation.md.

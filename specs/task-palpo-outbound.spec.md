@@ -74,6 +74,12 @@ Scenario: Exact transport proof
   When receipt provenance is checked
   Then only the configured transport and registration can establish readiness
 
+Scenario: Preserve existing encrypted devices
+  Test: changed direct device endpoint verifies the original token and preserves device and crypto state
+  Given a cached encrypted device and a new configured URL for the same homeserver
+  When the bridge restarts with the new endpoint
+  Then the existing device token must prove the same Matrix user and device before only its cached URL changes
+
 ## Out of Scope
 
 - Replacing Matrix encryption or model execution approval.

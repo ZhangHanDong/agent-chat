@@ -1372,3 +1372,14 @@ deployed to Mini1; the broad HAFleet/Robrix/Palpo-Rust integration is not deploy
 No pushes or changes to the original concurrent website work. Root task-writer
 is absent at this source checkout, so no canonical task completion was invented.
 Review: docs/reviews/2026-09-08-upstream-integration.md.
+
+
+## 2026-09-08 outbound implementation and no-tunnel acceptance
+
+Implemented HAFleet durable outbound receive/publish and Palpo colocated Matrix relay, lease/ACK/sequence/generation checks, stored resource/status reads, automatic startup and import UI. HAFleet57d56da and Palpo9040bbcb were validated from isolated source trees before replacing the idle local services and pinned Mini1 containers. The minimal live Rust URL-CAS backport preserved existing authentication behavior and all registration identities. The original concurrent website checkout was untouched.
+
+Real browser admin migration, owner download, HAFleet import and exact Mini1 Matrix proof passed. The owned SSH forwarding service and old bridge inbound listener were stopped. Repeated public browser/API checks and an independent Agent confirmed advancing heartbeat and three active usable verified requests. Old laptop18080 is retired; use https://crew.ominix.io:19444 and local HAFleet13202. Migration replays the old edision request as pending; no user request was auto-approved.
+
+Post-cutover inspection found stale private-device endpoint caches. Follow-up4953baf validates and reuses original devices across the endpoint change. All fifty existing dispatches were complete before the coordinated bridge restart. All three live sessions changed only baseUrl and resumed sync with unchanged tokens/devices and no private startup warnings. No-tunnel browser acceptance passed again after that restart.
+
+Validation: full HAFleet suite4174passed/oneplatformskip before the narrow device fix, followed by37passing tests across four exact direct-chat/outbound files. Palpo57Node and three browser suites passed; Linux minimal-backport CAS3 plus existing dynamic-auth1 passed. Production console, static checks, architecture and exact spec bindings passed. Native agent-spec cannot execute the seven Node lifecycle scenarios (Skip, not pass); the general console verifier retains three baseline invariant failures and one existing layout failure. No new native Robrix/model/file acceptance is claimed. Detailed evidence and recovery paths: docs/reviews/2026-09-08-palpo-outbound-implementation.md.

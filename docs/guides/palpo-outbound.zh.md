@@ -29,8 +29,12 @@ Palpo Web 与 Matrix homeserver 位于服务器侧。Matrix 把 Appservice 事�
 
 既有 Appservice 可以通过管理员的迁移操作原位切换 URL，保留注册 ID、namespace、Matrix token、用户、房间及历史申请。Palpo 的 URL 更新使用原值比较，拒绝覆盖并发修改。文件配置创建的 Appservice 还须更新其注册源文件，避免 homeserver 重启后恢复旧 URL。
 
+如果同时把 Matrix 地址从 SSH 本地转发改成公网地址，应在保存新地址后协调重启 bridge。私聊启动会用原设备 token 在新地址核验用户及设备 ID，成功才更新缓存地址，保留原加密状态；失败不会删除缓存或重新登录。已运行的私聊客户端暂不热切换地址。
+
 队列满时会明确拒绝新投递并让上游重试，保留已有记录；管理员可查看容量并按 Palpo 部署文档扩容。去重记录不会被静默删除。
 
 ## 验证范围
 
-仓库包含持久化、丢响应、重启、凭据轮换、消息来源、跨项目权限、状态新鲜度和导入页面的回归。跨仓库 HTTP 验证使用真实 HAFleet/Palpo 协议实现与隔离的 Matrix、执行后端数据；它不等同于真实模型执行。具体部署和线上验收记录见本次评审报告。
+仓库包含持久化、丢响应、重启、凭据轮换、消息来源、跨项目权限、状态新鲜度和导入页面的回归。跨仓库 HTTP 验证使用真实 HAFleet/Palpo 协议实现与隔离的 Matrix、执行后端数据；它不等同于真实模型执行。具体部署和线上验收记录见[本次评审报告](../reviews/2026-09-08-palpo-outbound-implementation.md)。
+
+本次 Mini1 部署的 Palpo 管理页为 `https://crew.ominix.io:19444`，Matrix 地址为 `https://crew.ominix.io:19443`，本地 HAFleet 仍为 `http://127.0.0.1:13202`。旧的本地 `18080`、`18010` 转发已停止，请更新书签。既有账号、房间和资源分配保留。
