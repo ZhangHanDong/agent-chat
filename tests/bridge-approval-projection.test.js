@@ -64,6 +64,13 @@ describe('approval projection publish checkpoint', () => {
     expect(io.prepareContent).toHaveBeenCalledTimes(1);
   });
 
+  test('a failed durable begin performs no Matrix send', async () => {
+    const io = harness({ begin: vi.fn().mockRejectedValue(new Error('pre-rename persistence failed')) });
+    await expect(publishApprovalProjectionForTest(row, io)).rejects.toThrow(/persistence failed/);
+    expect(io.send).not.toHaveBeenCalled();
+    expect(io.retry).not.toHaveBeenCalled();
+  });
+
   test('an uncertain durable plan replays stored ciphertext without preparing content again', async () => {
     const io = harness({ prepareContent: vi.fn().mockRejectedValue(new Error('crypto temporarily unavailable')) });
     const uncertain = { ...row, plan: { ...winningPlan, attempt_state: 'uncertain' } };

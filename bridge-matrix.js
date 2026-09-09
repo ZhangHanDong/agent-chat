@@ -2631,6 +2631,19 @@ export function buildOwnerApprovalRequest(approval) {
   };
 }
 
+export function buildOwnerApprovalStatus(approval) {
+  const stateName = String(approval?.status || 'unknown');
+  return {
+    msgtype: APPROVAL_STATUS_MSGTYPE,
+    body: `Approval ${stateName} for ${String(approval?.agent || '').trim()}.`,
+    [APPROVAL_EVENT_KEY]: {
+      version: 1, kind: 'status', request_id: String(approval?.id || '').trim(),
+      agent: String(approval?.agent || '').trim(), project: String(approval?.project || '').trim(),
+      state: stateName, decision: approval?.decision || null,
+    },
+  };
+}
+
 export function parseApprovalVerdictEvent(roomId, event) {
   const content = event?.content;
   if (!content) return null;
@@ -10664,9 +10677,103 @@ function projectionPlanIdentityForBridge(plan, row) {
   };
 }
 
+function projectionServer(roomId) {
+  const at = String(roomId || '').indexOf(':');
+  return at > 0 ? String(roomId).slice(at + 1).toLowerCase() : null;
+}
+
+function projectionActorForBridge(bridge, row) {
+  const approval = row.approval || {};
+  const server = projectionServer(row.target_room_id);
+  if (!server) return null;
+  if (row.channel === 'public_notice') {
+    const normalized = MatrixBridge.normalizeSender(bridge.agentSenderFor(approval.agent, row.target_room_id));
+    if (!normalized) return null;
+    const record = normalized.kind === 'token' ? credentialForToken(normalized.token) : null;
+    return { scope: `agent:${approval.agent}:${server}`,
+      publisher_mxid: normalized.kind === 'appservice' ? normalized.agentUserId : record?.mxid,
+      homeserver: server, credential_kind: normalized.kind === 'appservice' ? 'appservice' : 'agent_token',
+      credential_generation: normalized.kind === 'appservice' ? normalized.credential?.outboundGeneration : record?.credentialGeneration,
+      sender: normalized, agent: approval.agent, side_id: server };
+  }
+  const acting = typeof bridge.actingSideFor === 'function' ? bridge.actingSideFor(server) : null;
+  if (acting?.credential) {
+    const publisher = acting.credential.kind === 'appservice'
+      ? `@${acting.credential.senderLocalpart}:${server}`.toLowerCase() : acting.side?.representative?.mxid;
+    return { scope: `side-representative:${server}`, publisher_mxid: publisher, homeserver: server,
+      credential_kind: acting.credential.kind, credential_generation: acting.credential.outboundGeneration,
+      sender: { kind: 'side-representative', ...acting }, side_id: server };
+  }
+  if (server !== MATRIX_SERVER_NAME || !bridge.botClient || !state.botCredentialGeneration) return null;
+  return { scope: 'local_bot', publisher_mxid: bridge.botUserId || state.botMxid, homeserver: server,
+    credential_kind: 'local_bot', credential_generation: state.botCredentialGeneration,
+    sender: { kind: 'local_bot', client: bridge.botClient } };
+}
+
+function approvalProjectionIo(bridge) {
+  const post = (row, operation, body) => bridge.callBackendApi('POST',
+    `/api/approvals/${encodeURIComponent(row.request_id)}/matrix/projections/${row.revision}/${operation}`,
+    body, `context=approval-projection:${operation}`);
+  return {
+    resolveActor: async row => projectionActorForBridge(bridge, row),
+    registerPublisher: actor => bridge.callBackendApi('PUT', '/api/approvals/matrix/publishers', {
+      scope: actor.scope, publisher_mxid: actor.publisher_mxid, homeserver: actor.homeserver,
+      credential_kind: actor.credential_kind, credential_generation: actor.credential_generation,
+      ...(actor.agent ? { agent: actor.agent } : {}), ...(actor.side_id ? { side_id: actor.side_id } : {}),
+    }, 'context=approval-projection:publisher'),
+    prepareContent: async (row, actor) => {
+      const message = row.channel === 'private_request' ? buildOwnerApprovalRequest(row.approval)
+        : row.channel === 'private_status' ? buildOwnerApprovalStatus(row.approval)
+          : buildPublicApprovalNotice(row.approval);
+      if (actor.sender.kind !== 'local_bot') return { event_type: 'm.room.message', content: message };
+      await bridge.ensureApprovalDmSecurity(row.target_room_id);
+      if (bridge.approvalDmMode === 'plaintext-test') return { event_type: 'm.room.message', content: message };
+      if (!bridge.botClient?.crypto || !(await bridge.botClient.crypto.isRoomEncrypted(row.target_room_id))) {
+        throw new Error('owner approval room encryption is unavailable after security setup');
+      }
+      return { event_type: 'm.room.encrypted',
+        content: await bridge.botClient.crypto.encryptRoomEvent(row.target_room_id, 'm.room.message', message) };
+    },
+    prepare: (body, row) => post(row, 'prepare', body),
+    begin: (body, row) => post(row, 'begin-send', body),
+    receipt: (body, eventId, row) => post(row, 'receipt', { ...body, event_id: eventId }),
+    retry: (body, error, row) => post(row, 'retry', { ...body,
+      error_code: String(error?.code || 'matrix_send_failed').slice(0, 128) }),
+    send: async (plan, actor, row) => {
+      if (actor.sender.kind === 'local_bot') {
+        if (!sameProjectionActor(actor, projectionActorForBridge(bridge, row))) {
+          throw new Error('approval projection publisher changed before local send');
+        }
+        const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(row.target_room_id)}`
+          + `/send/${encodeURIComponent(plan.prepared_event_type)}/${plan.transaction_id}`;
+        const response = await actor.sender.client.doRequest('PUT', endpoint, null, plan.prepared_payload);
+        return response?.event_id || null;
+      }
+      if (actor.sender.kind === 'side-representative') {
+        const result = await sendToRoomOnSide({ side: actor.sender.side, credential: actor.sender.credential,
+          roomId: row.target_room_id, content: plan.prepared_payload, finalTxnId: plan.transaction_id,
+          preparedEventType: plan.prepared_event_type, expectedPublisherMxid: plan.publisher_mxid });
+        if (!result.sent) throw new Error(result.reason || 'side approval projection send failed');
+        return result.eventId;
+      }
+      return bridge.sendAsAgentContent(actor.sender, row.target_room_id, plan.prepared_payload, null, {
+        transactionId: plan.transaction_id, preparedEventType: plan.prepared_event_type,
+        expectedPublisherMxid: plan.publisher_mxid,
+        expectedCredentialGeneration: plan.credential_generation, throwOnFailure: true,
+      });
+    },
+  };
+}
+
+export function approvalProjectionIoForTest(bridge) { return approvalProjectionIo(bridge); }
+export async function publishApprovalProjectionWithBridgeForTest(bridge, row) {
+  return publishApprovalProjection(row, approvalProjectionIo(bridge));
+}
+
 async function publishApprovalProjection(row, io) {
   const currentActor = await io.resolveActor(row);
   const pinnedActor = row.plan ? {
+    ...currentActor,
     scope: row.plan.publisher_scope,
     publisher_mxid: row.plan.publisher_mxid,
     homeserver: row.plan.homeserver || currentActor?.homeserver,
