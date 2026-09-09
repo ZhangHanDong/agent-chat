@@ -1,0 +1,39 @@
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import request from 'supertest';
+import { createBackendTestContext } from './helpers/backend-test-runtime.js';
+
+let context;
+const secret = 'marker-bridge-secret';
+const bridge = (method, url) => request(context.app)[method](url).set('X-Bridge-Secret', secret);
+beforeAll(async () => {
+  context = await createBackendTestContext('hafleet-marker-api-', { agents: { worker: { name: 'worker', kind: 'agent' } },
+    env: { MATRIX_BRIDGE_SECRET: secret } });
+  await bridge('put', '/api/approval-bindings').send({ agent: 'worker', project: 'p', project_room_id: '!p:test', owner_mxid: '@owner:test', owner_dm_room_id: '!dm:test' });
+});
+afterAll(() => context.cleanup());
+
+describe('approval binding marker bridge API', () => {
+  test('marker routes are secret-only independently keyed and cursor-stable', async () => {
+    expect((await request(context.app).get('/api/approval-bindings/matrix/markers')).status).toBe(403);
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/sync').send({ agent: 'worker', owner_mxid: '@owner:test', approval_room_id: '!dm:test', publisher_mxid: '@bot:test' })).status).toBe(200);
+    await bridge('put', '/api/approval-bindings').send({ agent: 'worker', project: 'q', project_room_id: '!q:test', owner_mxid: '@other:test', owner_dm_room_id: '!otherdm:test' });
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/sync').send({ agent: 'worker', owner_mxid: '@other:test', approval_room_id: '!otherdm:test', publisher_mxid: '@otherbot:test' })).status).toBe(200);
+    const listed = await bridge('get', '/api/approval-bindings/matrix/markers?limit=1');
+    const row = listed.body.markers[0];
+    const publisher = row.marker.publisher_mxid;
+    expect(row).not.toHaveProperty('request_id');
+    const prepared = await bridge('post', '/api/approval-bindings/matrix/markers/prepare').send({ cas_token: row.cas_token,
+      approval_room_id: row.approval_room_id, binding_generation: row.binding_generation, marker_channel: row.marker_channel,
+      publisher_mxid: publisher, credential_generation: 'g1' });
+    expect(prepared.body.plan).toMatchObject({ prepared_event_type: 'com.agentchat.approval.room.v1', state_key: '' });
+    const identity = { cas_token: prepared.body.plan.cas_token, approval_room_id: row.approval_room_id,
+      binding_generation: row.binding_generation, marker_channel: row.marker_channel,
+      publisher_mxid: publisher, credential_generation: 'g1' };
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/begin-send').send(identity)).status).toBe(200);
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/receipt').send({ ...identity, event_id: '$marker' })).status).toBe(200);
+    const next = await bridge('get', `/api/approval-bindings/matrix/markers?limit=1&after=${encodeURIComponent(listed.body.next)}`);
+    expect(next.status).toBe(200);
+    expect(next.body.markers).toHaveLength(1);
+    expect((await bridge('post', '/api/approvals/fake/matrix/projections/1/prepare').send({ ...identity })).status).toBe(409);
+  });
+});

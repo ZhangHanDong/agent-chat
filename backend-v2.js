@@ -8554,6 +8554,39 @@ app.get('/api/approval-bindings', requireApprovalBridgeSecret, (req, res) => {
   }
 });
 
+app.post('/api/approval-bindings/matrix/markers/sync', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    return res.json({ ok: true, marker: approvalStore.syncBindingMarker(req.body || {}) });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to synchronize approval room marker');
+  }
+});
+
+app.get('/api/approval-bindings/matrix/markers', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 200);
+    const markers = approvalStore.listDueMarkers({ limit, after: req.query?.after });
+    return res.json({ ok: true, markers, next: markers.length === limit ? markers[markers.length - 1].cursor : null });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to list approval room markers');
+  }
+});
+
+for (const operation of ['prepare', 'begin-send', 'receipt', 'retry']) {
+  app.post(`/api/approval-bindings/matrix/markers/${operation}`, requireApprovalBridgeSecret, (req, res) => {
+    try {
+      const body = req.body || {};
+      const result = operation === 'prepare' ? approvalStore.prepareMarker(body.cas_token, body)
+        : operation === 'begin-send' ? approvalStore.beginMarkerSend(body.cas_token, body)
+          : operation === 'receipt' ? approvalStore.receiptMarker(body.cas_token, body)
+            : approvalStore.retryMarker(body.cas_token, body);
+      return res.json({ ok: true, ...result });
+    } catch (error) {
+      return respondApprovalStoreError(res, error, `failed to ${operation} approval room marker`);
+    }
+  });
+}
+
 /*
  * ── 项目方 Project sides (ADR-016 decisions 1, 3 and 8) ────────────────────────────────────
  *

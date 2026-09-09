@@ -26,6 +26,9 @@ Project every canonical approval state durably and idempotently to Matrix while 
 - tests/approval-thread-notice.test.js
 - specs/task-approval-projection-store.spec.md
 - specs/task-approval-projection-api.spec.md
+- specs/task-approval-binding-marker-store.spec.md
+- tests/approval-binding-marker.test.js
+- tests/api-approval-binding-markers.test.js
 - knowledge/requirements/req-approval-canonical-projection.md
 
 ### Forbidden
