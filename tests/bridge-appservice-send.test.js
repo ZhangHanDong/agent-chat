@@ -143,6 +143,21 @@ describe('sending as an agent that has no token of its own', () => {
     expect(calls).toHaveLength(0);
   });
 
+  test('projection delivery rejects a retired captured credential even when current matches the plan', async () => {
+    const calls = captureFetch();
+    const captured = appserviceSender();
+    captured.credential.outboundGeneration = 'generation-1';
+    const current = appserviceSender();
+    current.credential.outboundGeneration = 'generation-2';
+    const bridge = bridgeStub();
+    bridge.actingSideFor = () => ({ side: current.side, credential: current.credential });
+    await expect(bridge.sendAsAgentContent(captured, ROOM, { body: 'fixed' }, null, {
+      transactionId: 'hafleet_captured_stale', preparedEventType: 'm.room.message',
+      expectedPublisherMxid: AGENT_MXID, expectedCredentialGeneration: 'generation-2', throwOnFailure: true,
+    })).rejects.toThrow(/captured.*durable plan/);
+    expect(calls).toHaveLength(0);
+  });
+
   test('projection membership recovery revalidates current send context before retry PUT', async () => {
     const calls = [];
     const original = appserviceSender();

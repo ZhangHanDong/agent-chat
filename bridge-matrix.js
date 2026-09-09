@@ -10113,6 +10113,16 @@ export class MatrixBridge {
         || !delivery.expectedCredentialGeneration) {
         throw new Error('incomplete Matrix projection publisher context');
       }
+      const capturedPublisher = sender.kind === 'appservice'
+        ? sender.agentUserId
+        : credentialForToken(sender.token)?.mxid;
+      const capturedGeneration = sender.kind === 'appservice'
+        ? sender.credential?.outboundGeneration
+        : credentialForToken(sender.token)?.credentialGeneration;
+      if (capturedPublisher !== delivery.expectedPublisherMxid
+        || capturedGeneration !== delivery.expectedCredentialGeneration) {
+        throw new Error('captured Matrix projection publisher credential does not match the durable plan');
+      }
       if (typeof delivery?.validateSendContext === 'function') {
         await delivery.validateSendContext(sender);
         return;
