@@ -10406,6 +10406,103 @@ app.get('/api/approvals/matrix/projections', requireApprovalBridgeSecret, (req, 
   }
 });
 
+// Only the bridge can attest authenticated historical event observations. The backend
+// checks their consistency/current send authority; it does not retrieve or decrypt events.
+app.get('/api/approvals/:id/matrix/legacy-original', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    return res.json({ ok: true, ...approvalStore.legacyOriginalForProjection(req.query?.cas_token, req.params.id),
+      status_publisher: approvalStore.legacyStatusPublisher(req.params.id) });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to read legacy original evidence');
+  }
+});
+
+app.post('/api/approvals/:id/matrix/legacy-original', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    const body = req.body || {};
+    const row = approvalStore.projectionForCas(body.cas_token);
+    if (!row || row.request_id !== req.params.id || body.request_id !== req.params.id
+      || row.migration_kind !== 'legacy_v1' || row.channel !== 'private_status') {
+      throw new ApprovalStoreError('conflict', 'legacy attestation route identity mismatch');
+    }
+    validateLegacyProjectionPublisher(row, body.publisher, body.original?.sender, body.private_context);
+    const result = approvalStore.attestLegacyOriginal(req.params.id, body);
+    return res.json({ ok: true, ...result, persistence: { committed: true, degraded: approvalStore.persistenceHealth().degraded } });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to attest legacy original evidence');
+  }
+});
+
+function validateLegacyProjectionPublisher(row, proposed = {}, originalSender, privateContext) {
+  if (!proposed || typeof proposed !== 'object' || Array.isArray(proposed)) {
+    throw new ApprovalStoreError('conflict', 'legacy publisher context is required');
+  }
+  const approval = approvalStore.getProjectionRequest(row.request_id);
+  const server = String(row.target_room_id || '').split(':').slice(1).join(':').toLowerCase();
+  const publisher = approvalStore.projectionPublisher(proposed.publisher_scope);
+  if (!approval || !publisher || publisher.publisherMxid !== originalSender
+    || proposed.publisher_mxid !== originalSender || publisher.homeserver !== server
+    || publisher.homeserver !== proposed.homeserver || publisher.credentialKind !== proposed.credential_kind
+    || publisher.credentialGeneration !== proposed.credential_generation) {
+    throw new ApprovalStoreError('conflict', 'legacy original publisher is unavailable or stale');
+  }
+  if (publisher.scope === 'local_bot') {
+    if (!MATRIX_BOT_MXID_FOR_PROBE || publisher.publisherMxid !== MATRIX_BOT_MXID_FOR_PROBE
+      || server !== String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase()
+      || publisher.credentialKind !== 'local_bot') {
+      throw new ApprovalStoreError('conflict', 'legacy local publisher is not configured');
+    }
+  } else if (publisher.scope === `side-representative:${server}`) {
+    const side = projectSideStore.getSide(server);
+    const credential = projectSideStore.credentialFor(server);
+    const expected = credential?.kind === 'appservice'
+      ? `@${credential.senderLocalpart}:${side?.serverName}` : side?.representative?.mxid;
+    if (!side || !side.active || side.accessState !== 'accepted' || !credential
+      || credential.outboundGeneration !== publisher.credentialGeneration
+      || credential.kind !== publisher.credentialKind || expected !== originalSender) {
+      throw new ApprovalStoreError('conflict', 'legacy side publisher is no longer current');
+    }
+  } else {
+    throw new ApprovalStoreError('conflict', 'legacy status requires an original private publisher');
+  }
+  if (!approvalStore.legacyStatusPublisher(row.request_id)) {
+    // Before the first status pin, the recovered sender cannot distinguish two
+    // currently valid private credential scopes. Do not choose one by preference.
+    const local = approvalStore.projectionPublisher('local_bot');
+    const sidePublisher = approvalStore.projectionPublisher(`side-representative:${server}`);
+    const side = projectSideStore.getSide(server);
+    const credential = projectSideStore.credentialFor(server);
+    const sideSender = credential?.kind === 'appservice'
+      ? `@${credential.senderLocalpart}:${side?.serverName}` : side?.representative?.mxid;
+    const localMatches = local && MATRIX_BOT_MXID_FOR_PROBE === originalSender
+      && local.publisherMxid === originalSender && local.homeserver === server && local.credentialKind === 'local_bot'
+      && server === String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase();
+    const sideMatches = sidePublisher && side?.active && side.accessState === 'accepted' && credential
+      && sidePublisher.publisherMxid === originalSender && sideSender === originalSender
+      && sidePublisher.homeserver === server && sidePublisher.credentialKind === credential.kind
+      && sidePublisher.credentialGeneration === credential.outboundGeneration;
+    if (localMatches && sideMatches) {
+      throw new ApprovalStoreError('conflict', 'legacy original publisher has ambiguous current private contexts');
+    }
+  }
+  // Fresh private-context observations are authenticated bridge assertions, not
+  // independent backend membership/crypto proof. Reuse the existing ADR-003 opt-in.
+  if (!privateContext || privateContext.room_id !== row.target_room_id
+    || privateContext.owner_mxid !== approval.owner_mxid || privateContext.ready !== true
+    || privateContext.joined !== true || typeof privateContext.encrypted !== 'boolean') {
+    throw new ApprovalStoreError('conflict', 'legacy private context is unavailable');
+  }
+  if (!privateContext.encrypted && !(
+    String(process.env.HAFLEET_APPROVAL_DM_MODE || 'required').trim().toLowerCase() === 'plaintext-test'
+    && String(process.env.HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST || '').trim() === '1'
+    && String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production')) {
+    throw new ApprovalStoreError('conflict', 'legacy plaintext approval diagnostics are not authorized');
+  }
+  if (proposed.prepared_event_type && ((proposed.prepared_event_type === 'm.room.encrypted') !== privateContext.encrypted)) {
+    throw new ApprovalStoreError('conflict', 'legacy prepared event does not match private room security');
+  }
+}
+
 app.put('/api/approvals/matrix/publishers', requireApprovalBridgeSecret, (req, res) => {
   try {
     const body = req.body || {};
@@ -10473,6 +10570,12 @@ function projectionPlanIdentity(body = {}, params = {}) {
 function validateProjectionPublisher(body = {}) {
   const row = approvalStore.projectionForCas(body.cas_token);
   if (!row) throw new ApprovalStoreError('conflict', 'projection row changed');
+  if (row.channel === 'private_status' && row.migration_kind === 'legacy_v1') {
+    const { evidence } = approvalStore.legacyOriginalForProjection(row.cas_token, row.request_id);
+    if (!evidence) throw new ApprovalStoreError('conflict', 'legacy original evidence is required');
+    validateLegacyProjectionPublisher(row, row.plan || body, evidence.original_sender, body.private_context);
+    return;
+  }
   const approval = approvalStore.getProjectionRequest(row.request_id);
   const room = String(row.target_room_id || '');
   const server = room.includes(':') ? room.slice(room.indexOf(':') + 1).toLowerCase() : '';
