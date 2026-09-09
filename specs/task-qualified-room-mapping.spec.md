@@ -140,6 +140,13 @@ Scenario: Dotless sides and at-sign group names clean up exactly
   Then all aliases for its exact group and side are removed
   And group names containing an at-sign retain their full name
 
+Scenario: Dotless qualified mappings survive restart unchanged
+  Test: reload preserves a dotless qualified side when the group name contains an at-sign
+  Given a qualified mapping for a dotless side and a group name containing an at-sign
+  When the bridge reloads its persisted mapping state
+  Then startup migration does not append the side a second time
+  And both mapping directions retain the original group name and room
+
 ## Out of Scope
 
 - Live service restarts, deployment, or Matrix room changes.

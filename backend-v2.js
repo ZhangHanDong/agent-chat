@@ -7767,6 +7767,7 @@ installDeliveryQueueRoutes(app);
 function respondApprovalStoreError(res, error, fallback = 'approval operation failed') {
   if (error instanceof ApprovalStoreError) {
     if (error.code === 'bad_request') return res.status(400).json({ error: error.message, code: error.code });
+    if (error.code === 'conflict') return res.status(409).json({ error: error.message, code: error.code });
     if (error.code === 'persistence_failed') return res.status(503).json({ error: error.message, code: error.code });
   }
   return res.status(500).json({ error: error?.message || fallback });

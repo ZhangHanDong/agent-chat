@@ -821,8 +821,10 @@ state.roomGroupMap = state.roomGroupMap || {};
 {
   let migrated = 0;
   for (const [key, roomId] of Object.entries({ ...state.groupRoomMap })) {
-    const at = key.lastIndexOf('@');
-    if (at > 0 && key.slice(at + 1).includes('.')) continue;      // already qualified
+    const rawServer = typeof roomId === 'string' && roomId.includes(':') ? roomId.slice(roomId.indexOf(':') + 1) : null;
+    const qualifiedSuffix = rawServer ? `@${rawServer}` : null;
+    if (qualifiedSuffix && key.length > qualifiedSuffix.length
+      && key.toLowerCase().endsWith(qualifiedSuffix.toLowerCase())) continue;
     /*
      * At this point in module evaluation there is no bridge instance, so
      * sideForRoom is unavailable — but the room id NAMES its own server, and a
@@ -835,7 +837,6 @@ state.roomGroupMap = state.roomGroupMap || {};
      * keys. Live side IDs are canonical lowercase; mapRoom and roomForGroup
      * compare only the side segment without case so these keys remain usable.
      */
-    const rawServer = typeof roomId === 'string' && roomId.includes(':') ? roomId.slice(roomId.indexOf(':') + 1) : null;
     const server = rawServer ? rawServer.toLowerCase() : null;
     if (!rawServer || server === MATRIX_SERVER_NAME.toLowerCase()) continue; // own-server rooms stay bare
     const qualified = `${key}@${rawServer}`;

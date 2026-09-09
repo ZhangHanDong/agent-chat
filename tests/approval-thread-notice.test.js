@@ -48,6 +48,12 @@ describe('approval notice thread provenance', () => {
   });
 
   test('does not infer a thread from another agent room or legacy request', async () => {
+    const conflict = await request(context.app).post('/api/approvals')
+      .set('X-Agent-Token', 'worker-token')
+      .send({ agent: 'worker', runtime: 'claude', project_room_id: '!project:test',
+        upstream_request_id: upstream.upstream_request_id, tool_name: 'Bash', input_preview: 'pending legacy reuse' });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.code).toBe('conflict');
     // Finish the first store request so its pending idempotency key does not
     // intentionally return the original record for the wrong-room fixture.
     approvals.denyPending(upstream.id, 'fixture-complete');

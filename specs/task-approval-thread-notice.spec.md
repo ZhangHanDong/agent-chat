@@ -60,6 +60,7 @@ Scenario: Legacy request identifiers do not prove router provenance
   When a legacy request reuses its client-settable upstream identifier
   Then the legacy record has no router-thread association
   And a pending record from a different origin is not silently adopted
+  And the HTTP endpoint reports that conflict as 409
 
 Scenario: Thread relation contains only public coordination state
   Test: thread approval notices remain in the originating task thread

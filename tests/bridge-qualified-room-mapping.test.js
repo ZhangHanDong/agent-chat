@@ -308,4 +308,16 @@ describe('qualified room mappings through real credential helpers', () => {
       roomGroupMap: { [room]: 'New@localhost' },
     });
   });
+
+  test('reload preserves a dotless qualified side when the group name contains an at-sign', async () => {
+    const room = '!room:localhost';
+    expect(module.__mapRoomForTest(room, 'Team@Ops', { side: 'localhost' })).toBe(true);
+    expect(module.__groupMappingKeyForTest(room)).toBe('Team@Ops@localhost');
+    vi.resetModules();
+    module = await import('../bridge-matrix.js');
+    Object.setPrototypeOf(bridge, module.MatrixBridge.prototype);
+    expect(module.__groupMappingKeyForTest(room)).toBe('Team@Ops@localhost');
+    expect(module.__groupForRoomForTest(room)).toBe('Team@Ops');
+    expect(module.__roomForGroupForTest('Team@Ops', 'localhost')).toBe(room);
+  });
 });
