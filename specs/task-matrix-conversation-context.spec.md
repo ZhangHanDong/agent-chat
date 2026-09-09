@@ -63,6 +63,13 @@ Scenario: Mentions carry the exact unread discussion
   When a participant mentions an agent
   Then the dispatch reads discussion up to that event and success advances only its position
 
+Scenario: Delivered Agent replies remain readable by peer Agents
+  Test: already delivered Agent replies remain shared thread context without waking another Agent
+  Given an authenticated Agent reply whose outgoing Matrix event is already remembered
+  When its echo reaches the admitted room and a human later mentions another Agent
+  Then the reply is archived once with its sender and thread and appears in the other Agent's frozen discussion
+  And the Agent reply does not trigger another worker
+
 Scenario: Large discussions remain fully readable
   Test: conversation pages preserve long messages and reject cross-dispatch reads
   Given a discussion exceeding the initial context page

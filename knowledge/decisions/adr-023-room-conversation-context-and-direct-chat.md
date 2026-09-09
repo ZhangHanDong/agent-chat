@@ -20,6 +20,14 @@ successful result delivered. Retried events and failed runs cannot lose discussi
 Large ranges remain available through a fenced, paginated conversation tool; do
 not silently truncate them or expose another room through a caller-chosen id.
 
+Outgoing delivery deduplication prevents a routing loop; it must not suppress
+archival of the authenticated Matrix echo. Dedicated encrypted Agent devices
+also pass their own replies through the admitted background path. Shared
+discussion deduplicates by room/event identity independently of worker input.
+Historical recovery reads original Matrix events and writes the normal archive
+API, preserving sender, thread and promotion visibility; it does not replay
+human requests or rewrite successful positions or completed dispatches.
+
 A direct room binds exactly one human and one agent to one already active
 engagement and its existing project owner. Verify the human's current project
 membership and the agent's admission; refuse ambiguous projects. Recheck on new

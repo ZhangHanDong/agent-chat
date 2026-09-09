@@ -6638,7 +6638,12 @@ export class MatrixBridge {
       console.warn(`[matrix-ingress] ignored event without event_id room=${roomId}`);
       return { ignored: true, reason: 'missing_event_id' };
     }
-    if (eventId && this.isDuplicateMatrixEvent(eventId)) return;
+    // Outgoing delivery remembers its Matrix ID to suppress routing echoes, but
+    // the authenticated echo still owns the sender/time/thread needed by the
+    // shared discussion archive. Agent messages pass the normal room admission
+    // and background-only guards below; they never create another worker turn.
+    const agentDiscussion = event.type === 'm.room.message' && isAgentUser(event.sender, this);
+    if (this.isDuplicateMatrixEvent(eventId) && !agentDiscussion) return;
     const inFlight = this.processingMatrixEventIds.get(eventId);
     if (inFlight) return inFlight;
     const attempt = this._onRoomMessageClaimed(roomId, event, eventId);

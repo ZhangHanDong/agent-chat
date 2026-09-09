@@ -103,6 +103,22 @@ test('direct endpoint migration refuses a mismatched or incomplete cached identi
   expect(fetchImpl).not.toHaveBeenCalled();
 });
 
+test('direct device own replies reach background intake with original identity and promotion boundary', async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'direct-own-reply-')); dirs.push(directory);
+  const roomId = '!shared:test', agent = '@ac_worker:test';
+  const binding = { roomId, agent: 'worker', humanMxid: '@alice:test', mode: 'group', sinceTs: 200 };
+  const manager = new MatrixDirectChats({ directory, onMessage: vi.fn(), onBinding: vi.fn(), warning: vi.fn(),
+    backend: vi.fn(async () => ({ binding })) });
+  const entry = { sender: { agentName: 'worker', agentUserId: agent }, rooms: { [roomId]: binding },
+    file: path.join(directory, 'rooms.json'), client: { getRoomState: vi.fn(async () => [agent, '@alice:test', '@ac_other:test']
+      .map(state_key => ({ type: 'm.room.member', state_key, content: { membership: 'join' } }))) } };
+  const event = { event_id: '$own', sender: agent, origin_server_ts: 300, content: { msgtype: 'm.text', body: 'my public answer' } };
+  await manager.message(entry, roomId, event);
+  expect(manager.onMessage).toHaveBeenCalledWith(roomId, event);
+  await manager.message(entry, roomId, { ...event, event_id: '$private-before-group', origin_server_ts: 100 }, true);
+  expect(manager.onMessage).toHaveBeenCalledTimes(1);
+});
+
 test('direct admission requires a unique active project and current human membership', async () => {
   const f = admission();
   expect(await resolveDirectAdmission(f)).toMatchObject({ projectRoomId: '!project:test', humanMxid: '@alice:test', engagementId: 'engagement' });
