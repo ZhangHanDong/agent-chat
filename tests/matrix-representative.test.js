@@ -845,6 +845,11 @@ describe('sending into a room on a project side', () => {
 
   test('projection send rejects invalid final context before fetch', async () => {
     for (const context of [
+      ...[null, true, 17, '.', '..'].map((finalTxnId) => ({
+        finalTxnId,
+        preparedEventType: 'm.room.message',
+        expectedPublisherMxid: `@hafleet:${SERVER}`,
+      })),
       { finalTxnId: 'bad/id', preparedEventType: 'm.room.message', expectedPublisherMxid: `@hafleet:${SERVER}` },
       { finalTxnId: 'hafleet_ok', preparedEventType: 'm.reaction', expectedPublisherMxid: `@hafleet:${SERVER}` },
       { finalTxnId: 'hafleet_ok', preparedEventType: 'm.room.message' },
