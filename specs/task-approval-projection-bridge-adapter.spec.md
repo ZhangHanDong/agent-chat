@@ -30,7 +30,7 @@ Connect canonical approval projection rows to the existing bridge actor, securit
 - specs/task-approval-projection-bridge-adapter.spec.md
 
 ### Forbidden
-- Backend or approval-store changes, startup timers, SSE listeners, marker publication, GUI, Cargo, live Matrix/provider calls, native verdict authorization, and plaintext downgrade.
+- Backend changes outside protected projection publisher validation and provenance; approval-store changes, startup timers, SSE listeners, marker publication, GUI, Cargo, live Matrix/provider calls, native verdict authorization, and plaintext downgrade.
 
 ## Acceptance Criteria
 
@@ -60,6 +60,15 @@ Scenario: Status keeps original publisher and selected state
   When the adapter resolves and prepares that selected row
   Then it uses the original private request publisher
   And the wire version remains 1 with the selected revision state decision migration and full binding tuple.
+
+Scenario: Side security observation has one complete response deadline
+  Test: real loopback delayed and fragmented HTTP response regressions
+  Given an authorized current side publisher checks room encryption state
+  When headers arrive before a delayed or continuously partial response body
+  Then the original deadline aborts the connection before accepting plaintext
+  And 429 cloned bodies remain within the same deadline with no internal retry
+  And early encrypted or server-error classification releases the unread stream
+  And a valid fragmented absence response within the deadline remains accepted.
 
 ## Out of Scope
 

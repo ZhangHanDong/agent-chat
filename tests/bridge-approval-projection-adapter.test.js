@@ -4,6 +4,7 @@ import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 import {
   MatrixBridge, bridgeStateForTest, ourServerNameForTest,
+  matrixRateLimitGateForTest,
   approvalProjectionIoForTest, publishApprovalProjectionWithBridgeForTest,
 } from '../bridge-matrix.js';
 
@@ -108,6 +109,59 @@ describe('approval projection production request adapter', () => {
       await expect(io.prepareContent(row, await io.resolveActor(row))).rejects.toMatchObject({ name: 'AbortError' });
     } finally {
       await new Promise(resolve => socket.close(resolve));
+    }
+  });
+
+  test.each([
+    ['fragmented valid body', 404, 20, false, true],
+    ['delayed absence body', 404, 700, false, false],
+    ['continuous partial body', 404, 700, true, false],
+    ['delayed rate limit body', 429, 700, false, false],
+    ['unconsumed encrypted body', 200, 700, true, false],
+    ['unconsumed server error body', 503, 700, true, false],
+  ])('side security bounds the complete response: %s', async (_name, status, delay, trickle, accepted) => {
+    let requests = 0;
+    let closed = false;
+    const timers = [];
+    const socket = createServer((_req, res) => {
+      requests += 1;
+      res.once('close', () => { closed = true; });
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.flushHeaders();
+      res.write('{');
+      if (trickle) timers.push(setInterval(() => res.write(' '), 10));
+      timers.push(setTimeout(() => res.end(status === 429
+        ? '"errcode":"M_LIMIT_EXCEEDED","retry_after_ms":1}'
+        : '"errcode":"M_NOT_FOUND"}'), delay));
+    });
+    await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
+    const side = { side: { serverName: server, apiBaseUrl: `http://127.0.0.1:${socket.address().port}` },
+      credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
+        outboundGeneration: 'side-generation' } };
+    const io = approvalProjectionIoForTest({ actingSideFor: () => side,
+      approvalProjectionSecurityTimeoutMs: accepted ? 1000 : 100 });
+    const row = { request_id: 'approval_body_deadline', revision: 1, channel: 'private_request',
+      state: 'pending', migration_kind: 'native_v2', target_room_id: `!owner:${server}`,
+      approval: { agent: 'worker', project: 'adapter', expires_at: Date.now() + 1000 } };
+    vi.unstubAllGlobals();
+    matrixRateLimitGateForTest.reset();
+    try {
+      const actor = await io.resolveActor(row);
+      const started = performance.now();
+      if (accepted) {
+        await expect(io.prepareContent(row, actor)).resolves.toMatchObject({ event_type: 'm.room.message' });
+      } else {
+        await expect(io.prepareContent(row, actor)).rejects.toThrow();
+        expect(performance.now() - started).toBeLessThan(500);
+      }
+      // Observe server-side closure before fixture cleanup can close the socket.
+      await vi.waitFor(() => expect(closed).toBe(true), { timeout: 400, interval: 10 });
+      expect(requests).toBe(1);
+    } finally {
+      for (const timer of timers) clearTimeout(timer);
+      socket.closeAllConnections();
+      await new Promise(resolve => socket.close(resolve));
+      matrixRateLimitGateForTest.reset();
     }
   });
 

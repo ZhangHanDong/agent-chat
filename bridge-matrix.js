@@ -10773,24 +10773,27 @@ async function assertSideApprovalPlaintext(bridge, actor, row) {
   const deadlineMs = Number.isFinite(bridge.approvalProjectionSecurityTimeoutMs)
     ? Math.min(Math.max(bridge.approvalProjectionSecurityTimeoutMs, 1), 5_000) : 5_000;
   const timeout = setTimeout(() => controller.abort(), deadlineMs);
-  let response;
   try {
-    response = await fetch(url.toString(), {
+    const response = await fetch(url.toString(), {
       method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
     });
+    const limited = await rateLimitGate.observeResponse(response);
+    controller.signal.throwIfAborted();
+    if (limited) throw new Error('project-side approval security check rate limited');
+    if (response.status === 404) {
+      const errorBody = await response.json().catch(() => null);
+      controller.signal.throwIfAborted();
+      if (errorBody?.errcode === 'M_NOT_FOUND') return;
+      throw new Error('project-side approval room security absence was not confirmed');
+    }
+    if (!response.ok) throw new Error(`project-side approval room security is indeterminate (HTTP ${response.status})`);
+    throw new Error(`encrypted project-side approval room ${roomId} requires unavailable crypto`);
   } finally {
+    // Keep one deadline through headers, cloned rate-limit bodies and JSON parsing.
+    // Abort also releases unread response streams on early classification errors.
+    controller.abort();
     clearTimeout(timeout);
   }
-  if (await rateLimitGate.observeResponse(response)) {
-    throw new Error('project-side approval security check rate limited');
-  }
-  if (response.status === 404) {
-    const errorBody = await response.json().catch(() => null);
-    if (errorBody?.errcode === 'M_NOT_FOUND') return;
-    throw new Error('project-side approval room security absence was not confirmed');
-  }
-  if (!response.ok) throw new Error(`project-side approval room security is indeterminate (HTTP ${response.status})`);
-  throw new Error(`encrypted project-side approval room ${roomId} requires unavailable crypto`);
 }
 
 function approvalProjectionIo(bridge) {
