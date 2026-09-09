@@ -10735,14 +10735,17 @@ function projectionActorForBridge(bridge, row) {
 
 function canonicalPrivateProjectionContent(row, actor, content) {
   const approval = row.approval || {};
-  return { ...content, [APPROVAL_EVENT_KEY]: {
+  const stateName = String(row.state || approval.status || '');
+  return { ...content,
+    ...(row.channel === 'private_status' ? { body: `Approval ${stateName} for ${String(approval.agent || '').trim()}.` } : {}),
+    [APPROVAL_EVENT_KEY]: {
     ...(content[APPROVAL_EVENT_KEY] || {}),
     version: 1,
     request_id: String(row.request_id || approval.id || ''),
     revision: Number(row.revision),
-    state: String(row.state || approval.status || ''),
+    state: stateName,
     decision: row.decision ?? approval.decision ?? null,
-    migration: String(row.migration_kind || row.migration || 'native_v2'),
+    migration_kind: String(row.migration_kind || 'native_v2'),
     agent: String(approval.agent || ''),
     project: String(approval.project || ''),
     project_room_id: String(approval.project_room_id || ''),
@@ -10752,16 +10755,40 @@ function canonicalPrivateProjectionContent(row, actor, content) {
   } };
 }
 
-async function assertSideApprovalPlaintext(actor, roomId) {
+async function assertSideApprovalPlaintext(bridge, actor, row) {
+  const roomId = row.target_room_id;
   const { side, credential } = actor.sender;
-  const token = credential.kind === 'appservice' ? credential.asToken : credential.token;
+  const token = credential.kind === 'appservice' ? credential.asToken : credential.representativeToken;
   if (!token) throw new Error('project-side approval security credential unavailable');
+  if (!sameProjectionActor(actor, projectionActorForBridge(bridge, row))) {
+    throw new Error('approval projection publisher changed before side security check');
+  }
+  if (!rateLimitGate.beforeRequest()) {
+    throw new Error('project-side approval security check rate limited');
+  }
   const url = new URL(`${String(side.apiBaseUrl).replace(/\/+$/, '')}/_matrix/client/v3/rooms/`
     + `${encodeURIComponent(roomId)}/state/m.room.encryption/`);
-  const response = await fetchWithRateLimit(url.toString(), {
-    method: 'GET', headers: { Authorization: `Bearer ${token}` },
-  });
-  if (response.status === 404) return;
+  if (credential.kind === 'appservice') url.searchParams.set('user_id', actor.publisher_mxid);
+  const controller = new AbortController();
+  const deadlineMs = Number.isFinite(bridge.approvalProjectionSecurityTimeoutMs)
+    ? Math.min(Math.max(bridge.approvalProjectionSecurityTimeoutMs, 1), 5_000) : 5_000;
+  const timeout = setTimeout(() => controller.abort(), deadlineMs);
+  let response;
+  try {
+    response = await fetch(url.toString(), {
+      method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (await rateLimitGate.observeResponse(response)) {
+    throw new Error('project-side approval security check rate limited');
+  }
+  if (response.status === 404) {
+    const errorBody = await response.json().catch(() => null);
+    if (errorBody?.errcode === 'M_NOT_FOUND') return;
+    throw new Error('project-side approval room security absence was not confirmed');
+  }
   if (!response.ok) throw new Error(`project-side approval room security is indeterminate (HTTP ${response.status})`);
   throw new Error(`encrypted project-side approval room ${roomId} requires unavailable crypto`);
 }
@@ -10783,7 +10810,7 @@ function approvalProjectionIo(bridge) {
           : buildPublicApprovalNotice(row.approval);
       if (row.channel !== 'public_notice') message = canonicalPrivateProjectionContent(row, actor, message);
       if (actor.sender.kind === 'side-representative') {
-        await assertSideApprovalPlaintext(actor, row.target_room_id);
+        await assertSideApprovalPlaintext(bridge, actor, row);
         return { event_type: 'm.room.message', content: message };
       }
       if (actor.sender.kind !== 'local_bot') return { event_type: 'm.room.message', content: message };
@@ -10815,7 +10842,7 @@ function approvalProjectionIo(bridge) {
         return response?.event_id || null;
       }
       if (actor.sender.kind === 'side-representative') {
-        await assertSideApprovalPlaintext(actor, row.target_room_id);
+        await assertSideApprovalPlaintext(bridge, actor, row);
         if (!sameProjectionActor(actor, projectionActorForBridge(bridge, row))) {
           throw new Error('approval projection publisher changed after side security check');
         }
