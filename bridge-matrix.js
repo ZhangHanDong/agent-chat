@@ -10102,7 +10102,26 @@ export class MatrixBridge {
       ? `primary:${sourceMsgId}`
       : `${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
     const txnId = suppliedTxnId || `bridge_${createHash('sha256').update(txnSeed).digest('hex').slice(0, 32)}`;
+    const validateProjectionSendContext = async () => {
+      if (typeof delivery?.validateSendContext === 'function') {
+        await delivery.validateSendContext(sender);
+      }
+      if (!delivery?.expectedCredentialGeneration || !sender.agentName
+        || typeof this.agentSenderFor !== 'function') return;
+      const current = MatrixBridge.normalizeSender(this.agentSenderFor(sender.agentName, roomId));
+      const currentPublisher = current?.kind === 'appservice'
+        ? current.agentUserId
+        : credentialForToken(current?.token)?.mxid;
+      const currentGeneration = current?.kind === 'appservice'
+        ? current.credential?.outboundGeneration
+        : credentialForToken(current?.token)?.credentialGeneration;
+      if (currentPublisher !== delivery.expectedPublisherMxid
+        || currentGeneration !== delivery.expectedCredentialGeneration) {
+        throw new Error('Matrix projection publisher credential generation changed');
+      }
+    };
     const doSend = async () => {
+      await validateProjectionSendContext();
       /*
        * The token's OWN side, not this deployment's server. `sendAsAgentContent` is the choke point for
        * every outbound agent message, so reading the constant here sent a project side's token to our
@@ -10199,6 +10218,7 @@ export class MatrixBridge {
       if (e.message.includes('membership') && e.message.includes('leave')) {
         console.log(`Agent not joined in ${roomId}, attempting auto-join…`);
         try {
+          await validateProjectionSendContext();
           if (sender.kind === 'appservice') {
             /*
              * THE SIDE READMITS ITS OWN AGENT. The branch below invites through the BOT against
@@ -10613,31 +10633,44 @@ function projectionPlanIdentityForBridge(plan, row) {
 }
 
 async function publishApprovalProjection(row, io) {
-  const pinnedActor = await io.resolveActor(row);
+  const currentActor = await io.resolveActor(row);
+  const pinnedActor = row.plan ? {
+    scope: row.plan.publisher_scope,
+    publisher_mxid: row.plan.publisher_mxid,
+    homeserver: row.plan.homeserver || currentActor?.homeserver,
+    credential_kind: row.plan.credential_kind || currentActor?.credential_kind,
+    credential_generation: row.plan.credential_generation,
+  } : currentActor;
   if (!pinnedActor) throw new Error('approval projection publisher unavailable');
-  const prepared = await io.prepareContent(row, pinnedActor);
-  if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
-    throw new Error('approval projection publisher changed during content preparation');
+  if (!sameProjectionActor(pinnedActor, currentActor)) {
+    throw new Error('approval projection publisher changed before replay');
   }
-  await io.registerPublisher(pinnedActor, row);
-  if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
-    throw new Error('approval projection publisher changed during registration');
-  }
-  const proposal = {
-    cas_token: row.cas_token,
-    channel: row.channel,
-    publisher_scope: pinnedActor.scope,
-    publisher_mxid: pinnedActor.publisher_mxid,
-    homeserver: pinnedActor.homeserver,
-    credential_kind: pinnedActor.credential_kind,
-    credential_generation: pinnedActor.credential_generation,
-    payload_version: 1,
-    prepared_event_type: prepared.event_type,
-    prepared_payload: prepared.content,
-  };
-  const plan = (await io.prepare(proposal, row)).plan;
-  if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
-    throw new Error('approval projection publisher changed after durable preparation');
+  let plan = row.plan;
+  if (!plan) {
+    const prepared = await io.prepareContent(row, pinnedActor);
+    if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
+      throw new Error('approval projection publisher changed during content preparation');
+    }
+    await io.registerPublisher(pinnedActor, row);
+    if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
+      throw new Error('approval projection publisher changed during registration');
+    }
+    const proposal = {
+      cas_token: row.cas_token,
+      channel: row.channel,
+      publisher_scope: pinnedActor.scope,
+      publisher_mxid: pinnedActor.publisher_mxid,
+      homeserver: pinnedActor.homeserver,
+      credential_kind: pinnedActor.credential_kind,
+      credential_generation: pinnedActor.credential_generation,
+      payload_version: 1,
+      prepared_event_type: prepared.event_type,
+      prepared_payload: prepared.content,
+    };
+    plan = (await io.prepare(proposal, row)).plan;
+    if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
+      throw new Error('approval projection publisher changed after durable preparation');
+    }
   }
   const identity = projectionPlanIdentityForBridge(plan, row);
   let began = false;

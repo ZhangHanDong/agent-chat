@@ -252,6 +252,50 @@ describe('approval projection bridge API', () => {
     expect((await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/receipt`).send({ ...identity, event_id: '$late' })).status).toBe(200);
   });
 
+  test('private status retains its original actor but cannot send after that credential rotates', async () => {
+    await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'status-g1',
+    });
+    const created = await request(context.app).post('/api/approvals').set('X-Agent-Token', AGENT_TOKEN).send({
+      agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:test',
+      upstream_request_id: 'u-private-status-generation', tool_name: 'Bash',
+    });
+    const requestRow = (await bridge('get', '/api/approvals/matrix/projections?limit=200')).body.projections
+      .find((item) => item.request_id === created.body.approval.id && item.channel === 'private_request');
+    const preparedRequest = await bridge('post', `/api/approvals/${requestRow.request_id}/matrix/projections/1/prepare`).send({
+      cas_token: requestRow.cas_token, channel: requestRow.channel, publisher_scope: 'local_bot',
+      publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot',
+      credential_generation: 'status-g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'request' },
+    });
+    const requestPlan = preparedRequest.body.plan;
+    const requestIdentity = { cas_token: requestPlan.cas_token, channel: requestRow.channel,
+      publisher_scope: requestPlan.publisher_scope, publisher_mxid: requestPlan.publisher_mxid,
+      room_id: requestRow.target_room_id, credential_generation: requestPlan.credential_generation,
+      transaction_id: requestPlan.transaction_id };
+    await bridge('post', `/api/approvals/${requestRow.request_id}/matrix/projections/1/begin-send`).send(requestIdentity);
+    await bridge('post', `/api/approvals/${requestRow.request_id}/matrix/projections/1/receipt`).send({ ...requestIdentity, event_id: '$private-request' });
+    const approval = (await bridge('get', `/api/approvals/${requestRow.request_id}/matrix`)).body.approval;
+    await bridge('post', `/api/approvals/${requestRow.request_id}/verdict`).send({
+      action: 'approve_once', sender_mxid: approval.owner_mxid, room_id: approval.owner_dm_room_id,
+      agent: approval.agent, project: approval.project, project_room_id: approval.project_room_id,
+      input_digest: approval.input_digest,
+    });
+    const statusRow = (await bridge('get', '/api/approvals/matrix/projections?limit=200')).body.projections
+      .find((item) => item.request_id === requestRow.request_id && item.channel === 'private_status');
+    await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'status-g2',
+    });
+    const statusPrepare = await bridge('post', `/api/approvals/${statusRow.request_id}/matrix/projections/${statusRow.revision}/prepare`).send({
+      cas_token: statusRow.cas_token, channel: statusRow.channel, publisher_scope: requestPlan.publisher_scope,
+      publisher_mxid: requestPlan.publisher_mxid, homeserver: requestPlan.homeserver,
+      credential_kind: requestPlan.credential_kind, credential_generation: requestPlan.credential_generation,
+      prepared_event_type: 'm.room.message', prepared_payload: { body: 'approved' },
+    });
+    expect(statusPrepare.status).toBe(409);
+  });
+
   test('public notice publisher is the registered agent identity rather than a representative', async () => {
     const created = await request(context.app).post('/api/approvals')
       .set('X-Agent-Token', AGENT_TOKEN)

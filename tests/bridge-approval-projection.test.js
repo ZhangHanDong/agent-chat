@@ -63,4 +63,13 @@ describe('approval projection publish checkpoint', () => {
     }), expect.any(Error), row);
     expect(io.prepareContent).toHaveBeenCalledTimes(1);
   });
+
+  test('an uncertain durable plan replays stored ciphertext without preparing content again', async () => {
+    const io = harness({ prepareContent: vi.fn().mockRejectedValue(new Error('crypto temporarily unavailable')) });
+    const uncertain = { ...row, plan: { ...winningPlan, attempt_state: 'uncertain' } };
+    await expect(publishApprovalProjectionForTest(uncertain, io)).resolves.toEqual({ ok: true, event_id: '$event' });
+    expect(io.prepareContent).not.toHaveBeenCalled();
+    expect(io.prepare).not.toHaveBeenCalled();
+    expect(io.send).toHaveBeenCalledWith(uncertain.plan, actor, uncertain);
+  });
 });

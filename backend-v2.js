@@ -10423,6 +10423,14 @@ function validateProjectionPublisher(body = {}) {
     || publisher.credentialGeneration !== proposed.credential_generation) {
     throw new ApprovalStoreError('conflict', 'projection publisher is unavailable, stale, or mismatched');
   }
+  if (row.channel === 'private_status') {
+    const current = approvalStore.projectionPublisher(expectedScope);
+    if (!current || current.publisherMxid !== publisher.publisherMxid
+      || current.homeserver !== publisher.homeserver || current.credentialKind !== publisher.credentialKind
+      || current.credentialGeneration !== publisher.credentialGeneration) {
+      throw new ApprovalStoreError('conflict', 'private status publisher credential is no longer current');
+    }
+  }
   if (publisher.scope.startsWith('side-representative:') || publisher.credentialKind === 'appservice') {
     const sideId = publisher.sideId || publisher.homeserver;
     const side = projectSideStore.getSide(sideId);

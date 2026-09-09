@@ -131,6 +131,29 @@ describe('sending as an agent that has no token of its own', () => {
     expect(calls).toHaveLength(1);
   });
 
+  test('projection membership recovery revalidates current send context before retry PUT', async () => {
+    const calls = [];
+    const original = appserviceSender();
+    original.credential.outboundGeneration = 'generation-1';
+    let current = original;
+    vi.stubGlobal('fetch', async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      if (calls.length === 1) {
+        current = appserviceSender();
+        current.credential.outboundGeneration = 'generation-2';
+        return { ok: false, status: 403, json: async () => ({ errcode: 'M_FORBIDDEN', error: 'membership leave' }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ event_id: '$unexpected' }) };
+    });
+    const bridge = bridgeStub();
+    bridge.agentSenderFor = () => current;
+    await expect(bridge.sendAsAgentContent(original, ROOM, { body: 'fixed' }, null, {
+      transactionId: 'hafleet_recovery', preparedEventType: 'm.room.message',
+      expectedPublisherMxid: AGENT_MXID, expectedCredentialGeneration: 'generation-1', throwOnFailure: true,
+    })).rejects.toThrow(/generation changed/);
+    expect(calls).toHaveLength(1);
+  });
+
   test('the work indicator ends by NAME, because there is no token to look the name up from', async () => {
     captureFetch();
     const bridge = bridgeStub();
