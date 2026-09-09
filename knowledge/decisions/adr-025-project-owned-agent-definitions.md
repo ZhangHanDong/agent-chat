@@ -12,6 +12,35 @@ and publishes resources; Palpo defines each Agent by name, role and selected
 resource and submits it for provider approval. Multiple project Agents may request
 the same resource. Defining or submitting does not provision or approve capacity.
 
+Project Agent names support Chinese and other Unicode letters, followed by
+letters, combining marks, numbers, underscores or hyphens, bounded to 64 UTF-16
+code units. Normalize names to NFC at both protocol boundaries before duplicate
+and replay checks. Preserve the normalized name as the visible Agent/Matrix
+display name. Runtime paths and Matrix localparts use an ASCII stem plus the
+existing fleet/project/request digest; legacy ASCII requests retain their exact
+identity derivation. Names never change ownership, scope or authorization.
+
+Project labels are observed Matrix room names, stored separately from immutable
+request IDs and authorization context. The bridge forwards them only after target
+verification. The console resolves labels by exact room ID and retains the ID as
+secondary information. Names neither merge projects nor grant access.
+
+Revocation ends one allocation, not the human Matrix account. Persist the decision
+before Matrix cleanup, retain cleanup results, and allow explicit cleanup retries
+without releasing allocation twice. Another live allocation keeps its room seat.
+After a lost response the console reads the saved decision before reporting success;
+an unknown or failed departure must remain visible as such.
+
+The operator's 2026-09-09 clarification extends final-allocation revocation:
+retire the Agent's managed Matrix identity and remove all room memberships,
+including invited rooms and DMs. Retain historical messages and local files.
+Another active allocation or reserved fulfillment prevents whole-Agent retirement.
+HAFleet initiates a scoped outbound retirement request; Palpo verifies the known
+request, exact MXID and actual App Service ownership before using its server-held
+administrator credential. Deactivate with erase=false and verify zero memberships
+and refused App Service authentication. Keep the shared registration and retired
+identity audit record. Persist local admission fencing and recoverable outcomes.
+
 The authenticated Matrix request and its durable request context carry the same
 bounded Agent definition. A published resource has a stable opaque catalog ID;
 internal preset IDs and other projects' Agent names are not catalog metadata.

@@ -1,5 +1,22 @@
 # Repository audit knowledge
 
+- **Final-allocation Agent retirement, 2026-09-09:** the operator requested
+  removal from App Service access and all rooms when revoking Edison. The
+  outbound Palpo path now fences/stops HAFleet execution and verifies Matrix
+  account deactivation, zero rooms and denied AS authentication. Retire all
+  management aliases for the exact MXID; preserve the shared registration,
+  history and other active allocations. Edison was actually retired and left
+  four rooms. See [acceptance](reviews/2026-09-09-agent-matrix-retirement.md).
+  This supersedes the earlier room-only revoke behavior for final allocations.
+
+- **Project labels and revoke recovery, 2026-09-09:** HAFleet lacked project
+  metadata although Palpo/Matrix had room names. Verified requests now carry
+  observed names separately from authority, and the console resolves exact room
+  labels. Five existing labels were backfilled. Edison was already revoked;
+  testing changed no allocation. Revoke persists departure results, reconciles
+  lost responses and offers explicit retries. See
+  [the report](reviews/2026-09-09-engagement-console-recovery.md).
+
 - **Mini1 public Matrix, 2026-09-08:** operator explicitly requested public access
   using crew.ominix.io on another port. Public homeserver URL is now
   `https://crew.ominix.io:19443`; Matrix server identity remains
@@ -761,3 +778,48 @@ palpo-admin-e2e/2026-09-06/execution-auth-backup-20260908-154315.
 
 - Outgoing Matrix event dedup is a routing-loop guard, not proof that shared conversation archival happened. Own-device echoes and peer Agent replies must still pass admitted background archival; activity events stay excluded and Agent messages never wake another worker. adf3294 fixes both early returns.
 - The Edison/xiaobai shared room's missing original answers were recovered through the normal authenticated archive API, not direct DB/task/cursor edits. Preserve group-promotion since_ts; do not import earlier private messages. A live database copy and real read_conversation capability prove that Edison's next range includes the recovered xiaobai answers. See docs/reviews/2026-09-08-shared-agent-thread-context.md.
+
+
+## 2026-09-09 — Chinese project Agent names
+
+Palpo and HAFleet now accept Chinese/Unicode names with NFC normalization.
+Visible names are separate from generated ASCII runtime names and Matrix
+localparts; preserve legacy ASCII derivation and the scoped request digest.
+Both boundaries must agree or outbound source verification rejects the request.
+See docs/reviews/2026-09-09-unicode-agent-names.md for tests and live evidence.
+
+## 2026-09-09 — Palpo account approval onboarding
+
+Palpo Web at https://crew.ominix.io:19444 now supports Request an account. The
+companion app queues signup, encrypts pending passwords, posts existing Octos
+approval cards into the private Palpo · Account approvals room, validates actual
+Matrix administrator verdicts and registers ordinary accounts. Robrix and the
+Rust homeserver did not require code changes. Private room history must start at
+invitation so administrators can see requests posted before their first join.
+New-project owner approval readiness now refreshes automatically.
+
+Source worktree: /Users/yuechen/home/palpo-account-approval-20260909, branch
+feat/account-approval-20260909. Final image palpo-web-admin:cc23a8c98efb31c9.
+Keep PALPO_ACCOUNT_CONFIG=/app/data/account-approval.json on later web deployments;
+the private key, bot credential and dedicated server-side admin token stay in
+the existing volume. The human approver is @palpoadmin_e2e_20260906:hfux-closure-20260906.test.
+Room !hLLaGNnA2IPHl3EO0N:hfux-closure-20260906.test is dedicated to account signup;
+it is distinct from HAFleet resource and runtime approval rooms.
+
+See the source worktree's web-admin/deploy/account-approval-acceptance-2026-09-09.md
+for real browser/native Robrix evidence and limitations. Account acceptance never
+autoapproves HAFleet resource allocation. Do not expose the private evidence
+directory's credentials or browser states.
+
+
+## 2026-09-09 — Mini1 Matrix login throttling
+
+The live homeserver used the default rc_login burst=5/per_second=0.003.
+GET login discovery and POST authentication consume the same bucket, and Caddy
+connections share the Docker gateway IP, so ordinary Robrix setup exhausted it.
+Mini1 /Users/cloud/palpo-hafleet-ux-closure-20260906/palpo.toml now explicitly
+sets rc_login = { per_second = 0.1, burst = 20 }; throttling stays enabled.
+The prior protected config is palpo.toml.before-login-rate-1788971772.
+This is a deployment adjustment, not per-user or trusted-proxy isolation; do not
+claim it fixes password mismatches. Six public discovery requests and a real
+approved ordinary-account password login passed after restart.

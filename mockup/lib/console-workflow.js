@@ -53,3 +53,10 @@ export function onboardingHealthStatus(agent) {
   }
   return { state: 'waiting' };
 }
+/** Labels are display-only; joins and mutations continue to use the room ID. */
+export function projectLabel(project, sides = [], whitelist = []) {
+  const roomId = project.projectRoomId;
+  const registered = sides.flatMap(side => side.projects ?? []).find(row => row.roomId === roomId);
+  return registered?.name || whitelist.find(row => row.projectRoomId === roomId)?.displayName
+    || project.project || roomId;
+}

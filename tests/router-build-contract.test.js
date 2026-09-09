@@ -35,6 +35,27 @@ afterEach(() => {
 });
 
 describe('router build and dependency contract', () => {
+  test('outbound SQLite ownership does not permit router internal imports or unrelated database clients', () => {
+    const root = temporaryProject();
+    const adapterImport = ['import Database from ', JSON.stringify('better-sqlite3'), ';\n'].join('');
+    mkdirSync(path.join(root, 'lib'));
+    mkdirSync(path.join(root, 'tests'));
+    for (const file of ['lib/fleet-outbound-store.js', 'tests/fleet-outbound-store.test.js']) {
+      writeFileSync(path.join(root, file), adapterImport);
+    }
+    const check = () => spawnSync(process.execPath, ['scripts/check-router-boundary.js'], { cwd: root, encoding: 'utf8' });
+    expect(check().status).toBe(0);
+    writeFileSync(path.join(root, 'lib', 'other-store.js'), adapterImport);
+    const unrelated = check();
+    expect(unrelated.status).not.toBe(0);
+    expect(`${unrelated.stdout}${unrelated.stderr}`).toContain('lib/other-store.js: imports the router database adapter directly');
+    rmSync(path.join(root, 'lib', 'other-store.js'));
+    appendFileSync(path.join(root, 'lib', 'fleet-outbound-store.js'), `import '../router/${'dist/store.js'}';\n`);
+    const internal = check();
+    expect(internal.status).not.toBe(0);
+    expect(`${internal.stdout}${internal.stderr}`).toContain('lib/fleet-outbound-store.js: imports a router internal module');
+  });
+
   test('test_router_build_check_detects_stale_or_internal_import', () => {
     const root = temporaryProject();
     execFileSync('bash', ['scripts/check-router-build.sh'], { cwd: root, encoding: 'utf8' });

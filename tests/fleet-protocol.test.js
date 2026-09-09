@@ -53,6 +53,16 @@ function fixture() {
 }
 
 describe('fleet protocol authorization', () => {
+  test('fleet observes project names without trusting request display metadata', async () => {
+    const f = fixture(); await f.ready();
+    const original = f.readRoom.getMockImplementation();
+    f.readRoom.mockImplementation((side, room, suffix, options) => suffix === 'state/m.room.name/'
+      ? Promise.resolve({ name: '项目规划群' }) : original(side, room, suffix, options));
+    expect((await f.call('requests', { ...context, projectName: 'Forged label' })).status).toBe(200);
+    expect(f.backend).toHaveBeenCalledWith({ action: 'request', sideId, registration,
+      context: fleetRequestContext(context), projectName: '项目规划群' });
+    expect(f.readRoom).toHaveBeenCalledWith(expect.anything(), target, 'state/m.room.name/', { optional: true });
+  });
   test('outbound probe receipt requires configured authenticated edge', async () => {
     const f = fixture();
     f.side.credential = { transport: { mode: 'outbound', generation: 1 } };
@@ -74,9 +84,9 @@ describe('fleet protocol authorization', () => {
 
   test('fleet source verification binds the project Agent definition', async () => {
     const f = fixture(); await f.ready();
-    const agentDefinition = { name: 'fast-one', resourceId: `resource_${'a'.repeat(24)}` };
+    const agentDefinition = { name: '小白', resourceId: `resource_${'a'.repeat(24)}` };
     f.event.content.agentDefinition = agentDefinition;
-    for (const changed of [{ name: 'fast-two', resourceId: agentDefinition.resourceId },
+    for (const changed of [{ name: '孙悟空', resourceId: agentDefinition.resourceId },
       { name: agentDefinition.name, resourceId: `resource_${'b'.repeat(24)}` }]) {
       expect((await f.call('requests', { ...context, agentDefinition: changed })).body.code).toBe('source_mismatch');
     }

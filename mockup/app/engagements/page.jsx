@@ -9,9 +9,9 @@ import { Blank } from '@/components/Blank';
 import { useT } from '@/components/Prefs';
 import { fmtTokens } from '@/lib/mock-data';
 import { useData, Provenance } from '@/components/Data';
-import { send } from '@/lib/api';
+import { revokeEngagement, send } from '@/lib/api';
 import CredentialForm from '@/components/CredentialForm';
-import { allocationValue, approvalVerdict } from '@/lib/console-workflow';
+import { allocationValue, approvalVerdict, projectLabel } from '@/lib/console-workflow';
 
 /*
  * ④ 接洽 — what replaces dispatch.
@@ -457,13 +457,15 @@ export default function EngagementsPage() {
   const {
     pendingEngagements, activeEngagements, endedEngagements, whitelist,
     roleCapacity, remaining, overCommits, offers, presetOf, agents, capability,
-    provenance, refresh,
+    provenance, refresh, projectSides,
   } = useData();
   const roleName = (key) => roleCapacity.roles[key]?.displayName ?? key;
   const [toast, say] = useToast();
   const [wlRoom, setWlRoom] = useState('');
   const [wlName, setWlName] = useState('');
   const [approving, setApproving] = useState(null);
+  const [revoking, setRevoking] = useState(null);
+  const label = e => projectLabel(e, projectSides, whitelist);
 
   /*
    * Real writes when the endpoint is behind the page, simulated otherwise.
@@ -481,10 +483,25 @@ export default function EngagementsPage() {
       : kind === 'revoke' ? `engagements/${e.id}/revoke`
         : null;
     if (!path) return null;
-    const res = await send(path, { body });
-    if (res.ok) await refresh();
-    else say('fail', res.error);
+    const res = kind === 'revoke' ? await revokeEngagement(e.id, body) : await send(path, { body });
+    await refresh();
+    if (!res.ok) say('fail', res.error);
     return res;
+  }
+
+  async function revoke(e) {
+    if (!live) return say('ok', t('en.wouldRevoke', { project: label(e) }));
+    if (revoking) return;
+    setRevoking(e.id);
+    try {
+      const res = await act('revoke', e, { reason: 'revoked from the console' });
+      if (!res?.ok) return;
+      const state = res.body?.engagement?.withdrawal?.state;
+      const scope = res.body?.engagement?.withdrawal?.scope === 'agent' ? 'retirement' : 'withdrawal';
+      if (state === 'failed' || res.body?.roomWithdrawal?.left === false) say('fail', t(`en.${scope}.failed`));
+      else if (res.reconciled && !['complete', 'retained'].includes(state)) say('fail', t(`en.${scope}.pending`));
+      else say('ok', t('en.didRevoke', { project: label(e) }));
+    } finally { setRevoking(null); }
   }
 
   const pending = pendingEngagements();
@@ -540,7 +557,7 @@ export default function EngagementsPage() {
               return (
                 <tr key={e.id}>
                   <td>
-                    <div>{e.project}</div>
+                    <div>{label(e)}</div>
                     {/* The room id is the identity; the name is decoration. Shown
                         together so the reader can see which one they are trusting. */}
                     <span className="dim mono-s">{e.projectRoomId}</span>
@@ -628,7 +645,7 @@ export default function EngagementsPage() {
           <tbody>
             {active.map((e) => (
               <tr key={e.id}>
-                <td><div>{e.project}</div><span className="dim mono-s">{e.projectRoomId}</span></td>
+                <td><div>{label(e)}</div><span className="dim mono-s">{e.projectRoomId}</span></td>
                 <td>{roleName(e.role)}</td>
                 <td><Link href={`/agents/${e.agent}`}>{e.agent}</Link></td>
                 <td className="amount">{fmtTokens(e.allocatedTokens)}</td>
@@ -645,14 +662,10 @@ export default function EngagementsPage() {
                 <td>
                   <button
                     className="btn danger"
-                    onClick={async () => {
-                      if (!live) return say('ok', t('en.wouldRevoke', { project: e.project }));
-                      const res = await act('revoke', e, { reason: 'revoked from the console' });
-                      if (res?.ok) say('ok', t('en.didRevoke', { project: e.project }));
-                      return null;
-                    }}
+                    disabled={Boolean(revoking)}
+                    onClick={() => revoke(e)}
                   >
-                    {t('en.revoke')}
+                    {t(revoking === e.id ? 'en.revoking' : 'en.revoke')}
                   </button>
                 </td>
               </tr>
@@ -670,7 +683,7 @@ export default function EngagementsPage() {
           <tbody>
             {ended.map((e) => (
               <tr key={e.id}>
-                <td>{e.project}</td>
+                <td><div>{label(e)}</div><small className="dim mono-s">{e.requestContext?.agentDefinition?.name || e.agent}</small></td>
                 <td>{roleName(e.role)}</td>
                 {/* An engagement that ended without ever being approved never had
                     an allocation, and a blank cell here says nothing — the rule
@@ -689,7 +702,16 @@ export default function EngagementsPage() {
                   * resolve, which printed a raw `en.ended.*` string on screen for
                   * anything the backend recorded.
                   */}
-                <td className="dim">{/^[a-z]+\.[a-zA-Z.]+$/.test(e.endedReason ?? '') ? t(e.endedReason) : (e.endedReason ?? '')}</td>
+                <td className="dim">
+                  {/^[a-z]+\.[a-zA-Z.]+$/.test(e.endedReason ?? '') ? t(e.endedReason) : (e.endedReason ?? '')}
+                  {e.withdrawal && <p>{t(`en.${e.withdrawal.scope === 'agent' ? 'retirement' : 'withdrawal'}.${e.withdrawal.state}`)}</p>}
+                  {e.withdrawal?.reason && <p>{e.withdrawal.reason}</p>}
+                  {['failed', 'pending'].includes(e.withdrawal?.state)
+                    ? <button className="btn" disabled={Boolean(revoking)} onClick={() => revoke(e)}>{t(e.withdrawal.scope === 'agent' ? 'en.retryRetirement' : 'en.retryWithdrawal')}</button>
+                    : e.requestContext?.fleetId && e.allocatedTokens > 0 && e.withdrawal?.scope !== 'agent'
+                      && !active.some(row => row.agent === e.agent)
+                      && <button className="btn" disabled={Boolean(revoking)} onClick={() => revoke(e)}>{t('en.removeFromMatrix')}</button>}
+                </td>
               </tr>
             ))}
           </tbody>

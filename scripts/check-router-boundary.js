@@ -24,6 +24,14 @@ function collectSourceFiles(dir, prefix = '') {
 }
 const files = collectSourceFiles('.');
 
+// This bridge-owned database stores transport custody, never router tasks.
+// Keep the exception exact, including its legacy-schema migration fixture;
+// router internal imports remain forbidden even in these two files.
+const OUTBOUND_SQLITE_OWNERS = new Set([
+  'lib/fleet-outbound-store.js',
+  'tests/fleet-outbound-store.test.js',
+]);
+
 const violations = [];
 for (const relative of files) {
   if (relative.startsWith('router/src/') || relative.startsWith('router/dist/')) continue;
@@ -35,7 +43,8 @@ for (const relative of files) {
   if (internalRouterImport.test(source)) {
     violations.push(`${relative}: imports a router internal module`);
   }
-  if (new RegExp(`${importPrefix}['"]better-sqlite3['"]`).test(source)) {
+  if (!OUTBOUND_SQLITE_OWNERS.has(relative)
+    && new RegExp(`${importPrefix}['"]better-sqlite3['"]`).test(source)) {
     violations.push(`${relative}: imports the router database adapter directly`);
   }
 }

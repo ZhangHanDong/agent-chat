@@ -1,12 +1,44 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { allocationValue, approvalVerdict, capabilityCount, onboardingHealthStatus, projectSideConnectionState, registrationCallback, verificationState } from '../mockup/lib/console-workflow.js';
 import { readFileSync } from 'node:fs';
-import { mapAgent, mapCapability, send } from '../mockup/lib/api.js';
+import { mapAgent, mapCapability, revokeEngagement, send } from '../mockup/lib/api.js';
+import { projectLabel } from '../mockup/lib/console-workflow.js';
 import { runtimeStatusText } from '../mockup/lib/mock-data.js';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resetModules(); });
 
 describe('live console workflow', () => {
+  it('console project labels use exact rooms and preserve unknown identifiers', () => {
+    const sides = [{ projects: [
+      { id: 'a', roomId: '!one:a.test', name: '项目规划群' },
+      { id: 'b', roomId: '!one:b.test', name: 'Other project' },
+    ] }];
+    expect(projectLabel({ project: 'a', projectRoomId: '!one:a.test' }, sides)).toBe('项目规划群');
+    expect(projectLabel({ project: 'a', projectRoomId: '!one:b.test' }, sides)).toBe('Other project');
+    expect(projectLabel({ projectRoomId: '!unnamed:a.test' }, sides)).toBe('!unnamed:a.test');
+    expect(projectLabel({ project: 'Legacy name', projectRoomId: '!legacy:a.test' })).toBe('Legacy name');
+  });
+
+  it('console reconciles a timed out revoke without repeating the write', async () => {
+    const engagement = { id: 'revoke-me', state: 'ended', allocatedTokens: 1000, withdrawal: { state: 'pending' } };
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ error: 'backend timeout' }, { status: 502 }))
+      .mockResolvedValueOnce(Response.json({ engagements: [engagement] }));
+    vi.stubGlobal('fetch', fetcher);
+    expect(await revokeEngagement('revoke-me', { reason: 'operator revoke' }))
+      .toMatchObject({ ok: true, reconciled: true, body: { engagement } });
+    expect(fetcher.mock.calls.map(([url, options]) => [url, options.method ?? 'GET']))
+      .toEqual([['/api/hafleet/engagements/revoke-me/revoke', 'POST'], ['/api/hafleet/engagements', 'GET']]);
+  });
+
+  it('console never claims a revoke succeeded from another or still active engagement', async () => {
+    for (const rows of [[], [{ id: 'other', state: 'ended', allocatedTokens: 1000 }],
+      [{ id: 'wanted', state: 'active', allocatedTokens: 1000 }], [{ id: 'wanted', state: 'ended', allocatedTokens: null }]]) {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('network failed'))
+        .mockResolvedValueOnce(Response.json({ engagements: rows })));
+      expect(await revokeEngagement('wanted', {})).toMatchObject({ ok: false, error: 'network failed' });
+    }
+  });
+
   it('project-side status requires current credentials and preserves inactive and failed states', () => {
     const connected = { active: true, hasCredential: true, accessState: 'accepted', projects: [] };
     expect(projectSideConnectionState(connected)).toBe('accepted');

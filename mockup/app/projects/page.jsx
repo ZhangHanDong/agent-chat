@@ -7,7 +7,7 @@ import { Blank } from '@/components/Blank';
 import { useT } from '@/components/Prefs';
 import { useData, Provenance } from '@/components/Data';
 import { send } from '@/lib/api';
-import { projectSideConnectionState } from '@/lib/console-workflow';
+import { projectLabel, projectSideConnectionState } from '@/lib/console-workflow';
 
 /*
  * ③ 项目 — the projects that have asked for me, and the ones I said yes to.
@@ -253,8 +253,8 @@ export default function ProjectsPage() {
               {joined.map((p) => (
                 <tr key={p.projectRoomId}>
                   <td>
-                    <code>{p.projectRoomId}</code>
-                    {p.project && <><br /><small>{p.project}</small></>}
+                    <div>{projectLabel(p, projectSides, whitelist)}</div>
+                    <small className="mono-s">{p.projectRoomId}</small>
                   </td>
                   <td>{serverOf(p.projectRoomId) ?? <Blank why="pr.why.noServer" t={t} />}</td>
                   <td>

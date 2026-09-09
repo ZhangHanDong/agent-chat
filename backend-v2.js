@@ -1,5 +1,6 @@
 import express from 'express';
 import { resolveDirectAdmission } from './lib/matrix-direct-admission.js';
+import { hasOtherAgentAllocation, retirePalpoAgent } from './lib/palpo-agent-retirement.js';
 import {
   describeMatrixReach, diagnoseEdgeInbound, discoverBaseUrl, originFor, probeHomeserver,
   verifyCallbackFromHomeserver,
@@ -8030,6 +8031,17 @@ app.post('/api/fleet-control', requireApprovalBridgeSecret, async (req, res) => 
       || sideIdForRoom(context.sourceRoomId) !== side.id || sideIdForRoom(context.ownerDmRoomId) !== side.id) {
       return res.json({ ok: false, status: 403, code: 'wrong_fleet', error: 'Fleet request scope does not match.' });
     }
+    if (typeof input.projectName === 'string' && input.projectName.trim()) {
+      const existing = side.projects?.find(project => project.roomId === context.targetRoomId);
+      const byId = side.projects?.find(project => project.id === context.targetProjectId);
+      if (!existing && byId?.roomId && byId.roomId !== context.targetRoomId) {
+        return res.json({ ok: false, status: 409, code: 'project_metadata_conflict', error: 'Project metadata belongs to another room.' });
+      }
+      projectSideStore.upsertProject(side.id, {
+        id: existing?.id ?? context.targetProjectId,
+        name: input.projectName.trim().slice(0, 255), roomId: context.targetRoomId,
+      });
+    }
     req.body = { project: context.targetProjectId, projectRoomId: context.targetRoomId,
       role: context.role, requester: context.requesterMxid, requestedTokens: context.requestedTokens,
       ratePerDay: context.ratePerDay, requestId: fleetRequestKey(context), requestContext: context };
@@ -11638,6 +11650,7 @@ app.get('/api/agents', (req, res) => {
   const records = Object.values(agents).filter(isAgentRecord);
   if ((String(req.query.view || '').trim().toLowerCase()) === 'names') {
     const names = records
+      .filter(agent => !agent.retiredAt)
       .map(agent => (typeof agent?.name === 'string' ? agent.name.trim() : ''))
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
@@ -12514,7 +12527,7 @@ app.post('/api/agents/:name/provision', requireBearer, (req, res) => {
 const stoppingAgents = new Set();
 const startingAgents = new Set();
 
-app.post('/api/agents/:name/stop', requireBearer, async (req, res) => {
+async function stopManagedAgent(req, res) {
   if (!isLocalRequest(req)) return res.status(403).json({ error: 'local-only endpoint', stopped: false });
   const name = normalizeAgentName(req.params.name);
   if (!name) return res.status(400).json({ error: 'invalid agent name', stopped: false });
@@ -12643,6 +12656,10 @@ app.post('/api/agents/:name/stop', requireBearer, async (req, res) => {
   } finally {
     stoppingAgents.delete(name);
   }
+}
+app.post('/api/agents/:name/stop', requireBearer, (req, res) => {
+  if (!isLocalRequest(req)) return res.status(403).json({ error: 'local-only endpoint', stopped: false });
+  return stopManagedAgent(req, res);
 });
 
 app.post('/api/agents/:name/start', requireBearer, (req, res) => {
@@ -14286,6 +14303,7 @@ function backendRosterAdmits(mxid, sideId, agentsMap = agents, sideStore = proje
   if (recordedMatches.length > 1) return false;
   const agent = recordedMatches[0] || agentsMap[agentName];
   if (!isAgentRecord(agent)) return false;                                  // ①
+  if (agent.retiredAt) return false;
   if (String(agent.projectSide ?? '') !== String(sideId ?? '')) return false; // ② missing ≠ admitted
   const recorded = recordedAgentMxid(agent);
   const authoritative = recorded
@@ -15120,23 +15138,65 @@ app.post('/api/engagements/:id/verdict', requireBearer, async (req, res) => {
   }
 });
 
+const engagementRevocations = new Map();
+async function retireEngagementAgent(req, engagement, credential) {
+  const agent = agents[engagement.agent];
+  const mxid = recordedAgentMxid(agent);
+  if (!agent || !mxid || agent.projectSide !== sideIdForRoom(engagement.projectRoomId)) {
+    throw new Error('Agent retirement identity is unavailable');
+  }
+  const before = structuredClone(agent);
+  agent.retiredAt ??= Date.now();
+  agent.matrixRetirement = { state: 'pending', requestId: engagement.requestContext.requestId, mxid };
+  if (!saveAgents(true)) { agents[engagement.agent] = before; throw new Error('Agent retirement fence could not be persisted'); }
+  let bindingError = null;
+  try {
+    for (const binding of approvalStore.listBindings({ agent: agent.name })) {
+      approvalStore.deactivateBinding(agent.name, binding.projectRoomId, 'allocation_revoked');
+    }
+  } catch (error) { bindingError = error.message; }
+  const stopRequest = Object.create(req);
+  stopRequest.params = { name: agent.name };
+  const stopped = await stopManagedAgent(stopRequest, { status() { return this; }, json(value) { return value; } });
+  let remote = null, error = bindingError;
+  try { remote = await retirePalpoAgent({ engagement, mxid, transport: credential.transport, localStopped: stopped.stopped }); }
+  catch (cause) { error = cause.message; }
+  if (!stopped.stopped) error ||= stopped.error || 'Local process termination is unconfirmed';
+  agent.matrixRetirement = { ...agent.matrixRetirement, state: error ? 'failed' : 'complete',
+    localStopped: stopped.stopped === true, remote, error, checkedAt: Date.now() };
+  if (!saveAgents(true)) throw new Error('Agent retirement outcome could not be persisted');
+  return { binding: { keptBound: false, reason: bindingError },
+    roomWithdrawal: { roomId: engagement.projectRoomId, left: Boolean(remote), reason: remote ? null : error },
+    retirement: { ...agent.matrixRetirement } };
+}
+
 app.post('/api/engagements/:id/revoke', requireBearer, async (req, res) => {
   try {
-    const e = engagementStore.revoke({
-      engagementId: req.params.id,
-      by: getRequestAgentName(req) || 'operator',
-      reason: req.body?.reason,
-    });
-    /*
-     * Revoking is the explicit act that ends a contribution, so it is the one that detaches. A whitelist
-     * removal deliberately does not — see engagement-store.
-     *
-     * DETACHES THE SEAT AS WELL AS THE RECORD. Until now this removed HAFleet's own binding and left the
-     * agent joined to the borrower's room, so every finished engagement leaked a member into somebody
-     * else's Matrix room — confirmed against a homeserver's own member list, not inferred.
-     */
-    const { roomWithdrawal } = await detachEngagement(e);
-    return res.json({ ok: true, engagement: e, ...(roomWithdrawal ? { roomWithdrawal } : {}) });
+    let pending = engagementRevocations.get(req.params.id);
+    if (!pending) {
+      pending = (async () => {
+        const existing = engagementStore.get(req.params.id);
+        const legacyRetirement = existing?.state === 'ended' && existing.allocatedTokens > 0 && existing.requestContext?.fleetId;
+        const e = existing?.state === 'ended' && (existing.withdrawal || legacyRetirement) ? existing : engagementStore.revoke({
+          engagementId: req.params.id,
+          by: getRequestAgentName(req) || 'operator',
+          reason: req.body?.reason,
+        });
+        // The decision is already durable. Retry only detachment, rechecking
+        // other live allocations before removing a binding or Matrix room seat.
+        const sideId = sideIdForRoom(e.projectRoomId);
+        const credential = sideId && projectSideStore.credentialFor(sideId);
+        const wholeAgent = e.agent && e.requestContext?.fleetId && credential?.kind === 'appservice'
+          && credential.transport?.mode === 'outbound' && !hasOtherAgentAllocation(e, engagementStore.list());
+        if (wholeAgent || legacyRetirement) engagementStore.beginWithdrawal(e.id, wholeAgent ? 'agent' : 'room');
+        const outcome = wholeAgent ? await retireEngagementAgent(req, e, credential) : await detachEngagement(e);
+        const updated = engagementStore.setWithdrawalOutcome(e.id, outcome);
+        return { ok: true, engagement: updated, ...outcome };
+      })();
+      engagementRevocations.set(req.params.id, pending);
+      pending.finally(() => engagementRevocations.delete(req.params.id)).catch(() => {});
+    }
+    return res.json(await pending);
   } catch (e) {
     return respondEngagementError(res, e, 'failed to revoke engagement');
   }

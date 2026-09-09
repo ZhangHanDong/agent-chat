@@ -22,6 +22,8 @@ resources, approves the exact requested configuration and provisions it.
 - Refresh the Palpo resource pool without discarding request drafts or automatically submitting requests.
 - Record verified Palpo requests without reserving capacity; fund named project definitions from their selected Resource pool and any declared shared-account limit at approval.
 - Keep legacy project-side allocation gates and show their commitments separately from pool-funded definitions.
+- Accept Chinese and other Unicode Agent names, normalize them to NFC, and preserve display text while generating ASCII runtime/Matrix identities.
+- Preserve existing ASCII identity derivation and reject path separators, controls and overlong names.
 
 ### Must Not
 - Do not silently substitute another Agent or resource for an explicit project definition.
@@ -44,6 +46,13 @@ resources, approves the exact requested configuration and provisions it.
 - Runtime credentials/data in source control and root workspace templates.
 
 ## Acceptance Criteria
+
+Scenario: Chinese display names have safe stable identities
+  Test: Unicode project names keep display text and safe distinct runtime identities
+  Given Chinese and canonically equivalent Unicode project Agent names
+  When the definition is validated and its runtime identity is derived
+  Then the normalized display name is retained and the internal identity is ASCII
+  And different scoped requests remain distinct while legacy ASCII identities remain unchanged
 
 Scenario: Definitions are authenticated request content
   Test: fleet source verification binds the project Agent definition
