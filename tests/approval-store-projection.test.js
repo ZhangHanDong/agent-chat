@@ -34,6 +34,64 @@ function drainRevision(store, revision) {
 }
 
 describe('approval projection store', () => {
+  test('prepare rejects noncanonical versions and payloads without mutation', () => {
+    const { store, file } = setup();
+    create(store);
+    const row = store.listDueProjections()[0];
+    const valid = {
+      publisher_mxid: '@bot:test',
+      homeserver: 'test',
+      credential_kind: 'local_bot',
+      credential_generation: 'g1',
+      prepared_event_type: 'm.room.message',
+      prepared_payload: { body: 'test' },
+    };
+    const diskBefore = readFileSync(file, 'utf8');
+
+    for (const payload_version of ['Infinity', Infinity, 0, -1, 1.5, 2]) {
+      expect(() => store.prepareProjection(row.cas_token, { ...valid, payload_version }))
+        .toThrowError(/payload_version/);
+    }
+    for (const prepared_payload of [undefined, null, [], 'text']) {
+      expect(() => store.prepareProjection(row.cas_token, { ...valid, prepared_payload }))
+        .toThrowError(/prepared_payload/);
+    }
+    expect(() => store.prepareProjection(row.cas_token, {
+      ...valid,
+      prepared_payload: { ciphertext: 'fixed', nested: { numeric: 1e400 } },
+    })).toThrowError(/numbers must be finite/);
+    expect(() => store.prepareProjection(row.cas_token, {
+      ...valid,
+      prepared_event_type: 'm.reaction',
+    })).toThrowError(/prepared_event_type/);
+
+    expect(store.listDueProjections()[0].plan).toBeNull();
+    expect(readFileSync(file, 'utf8')).toBe(diskBefore);
+  });
+
+  test('prepare preserves every JSON key and encrypted string across reload', () => {
+    const { store, file } = setup();
+    create(store);
+    const row = store.listDueProjections()[0];
+    const payload = JSON.parse('{"ciphertext":"a+/=\\\\byte","nested":{"__proto__":{"value":1}}}');
+    const plan = store.prepareProjection(row.cas_token, {
+      publisher_mxid: '@bot:test',
+      homeserver: 'test',
+      credential_kind: 'local_bot',
+      credential_generation: 'g1',
+      prepared_event_type: 'm.room.encrypted',
+      prepared_payload: payload,
+    }).plan;
+    expect(Object.hasOwn(plan.prepared_payload.nested, '__proto__')).toBe(true);
+    expect(plan.prepared_payload).toEqual(payload);
+
+    const reloaded = createApprovalStore(file);
+    const persisted = reloaded.listDueProjections()
+      .find((item) => item.plan?.cas_token === plan.cas_token).plan.prepared_payload;
+    expect(persisted).toEqual(plan.prepared_payload);
+    expect(persisted.ciphertext).toBe('a+/=\\byte');
+  });
+
   test('creation and transitions enqueue increasing canonical revisions privately', () => {
     const { store } = setup();
     const request = create(store);
