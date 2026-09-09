@@ -755,3 +755,9 @@ palpo-admin-e2e/2026-09-06/execution-auth-backup-20260908-154315.
 - Generation1 migration retained the same dynamic AS registration, Matrix tokens, namespace, agents, projects and allocations. The exact real Matrix receipt established proof; automatic heartbeats maintain liveness without owner browser renewal. Requests retain independent observed/received expiry. A pending historical edision request was replayed but not approved or allocated.
 - Changed Matrix API URLs require a coordinated bridge restart for existing private clients. Verify the original cached token's full user_id and device_id at the configured endpoint with timeout/redirect refusal, then update only baseUrl. Never delete crypto caches or create replacement devices merely because a tunnel URL changed. Live three-device recovery is evidenced in outbound-direct-device-after.json.
 - Operational launch helper and protected rollback/evidence files remain under Library/Caches/palpo-admin-e2e/2026-09-06. Do not commit downloaded credentials. Full acceptance, exact sources and remaining validation limits: docs/reviews/2026-09-08-palpo-outbound-implementation.md.
+
+
+## 2026-09-08 shared Agent reply archival
+
+- Outgoing Matrix event dedup is a routing-loop guard, not proof that shared conversation archival happened. Own-device echoes and peer Agent replies must still pass admitted background archival; activity events stay excluded and Agent messages never wake another worker. adf3294 fixes both early returns.
+- The Edison/xiaobai shared room's missing original answers were recovered through the normal authenticated archive API, not direct DB/task/cursor edits. Preserve group-promotion since_ts; do not import earlier private messages. A live database copy and real read_conversation capability prove that Edison's next range includes the recovered xiaobai answers. See docs/reviews/2026-09-08-shared-agent-thread-context.md.
