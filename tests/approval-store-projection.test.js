@@ -1,15 +1,133 @@
 import { describe, expect, test } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync } from 'fs';
-import os from 'os'; import path from 'path';
-import { createApprovalStore, ApprovalStoreError } from '../lib/approval-store.js';
-const binding={agent:'worker',project:'p',project_room_id:'!p:test',owner_mxid:'@owner:test',owner_dm_room_id:'!dm:test'};
-function setup(options={}) { const dir=mkdtempSync(path.join(os.tmpdir(),'approval-proj-')); const file=path.join(dir,'store.json'); const store=createApprovalStore(file,{now:()=>1000,...options}); store.upsertBinding(binding); return {store,file}; }
-function create(store,id='up-1'){return store.createRequest({agent:'worker',runtime:'codex',project:'p',project_room_id:'!p:test',upstream_request_id:id,tool_name:'Bash',input_preview:'pwd'},{routerApprovalId:id});}
-describe('approval projection store',()=>{
- test('creation and transitions enqueue increasing canonical revisions',()=>{const {store}=setup();const r=create(store);expect(r).not.toHaveProperty('projection_revision');expect(store.getRequest(r.id,{matrix:true})).not.toHaveProperty('projection_revision');let q=store.listDueProjections();expect(q.map(x=>x.channel)).toEqual(['private_request','public_notice']);const m=store.getRequest(r.id,{matrix:true});store.submitMatrixVerdict(r.id,{action:'approve_once',sender_mxid:m.owner_mxid,room_id:m.owner_dm_room_id,agent:m.agent,project:m.project,project_room_id:m.project_room_id,input_digest:m.input_digest});expect(store.listDueProjections().at(-1)).toMatchObject({revision:2,channel:'private_status',state:'approved'});store.consumeDecision(r.id,'worker',m.input_digest);expect(store.listDueProjections().at(-1)).toMatchObject({revision:3,state:'consumed'});});
- test('prepare is first-writer-wins and begin receipt use exact CAS',()=>{const {store}=setup();create(store);const row=store.listDueProjections()[0];const a=store.prepareProjection(row.cas_token,{publisher_mxid:'@bot:test',homeserver:'test',credential_kind:'local_bot',credential_generation:'g1',payload_version:1,prepared_event_type:'m.room.message',prepared_payload:{body:'x'}});const b=store.prepareProjection(row.cas_token,{publisher_mxid:'@other:test',homeserver:'test',credential_kind:'local_bot',credential_generation:'g2',payload_version:1,prepared_event_type:'m.room.message',prepared_payload:{body:'y'}});expect(b.plan).toEqual(a.plan);expect(store.beginProjectionSend(a.plan.cas_token).plan.attempt_state).toBe('attempted');expect(()=>store.receiptProjection(a.plan.cas_token,{event_id:'$e',publisher_mxid:'@other:test'})).toThrow(ApprovalStoreError);expect(store.receiptProjection(a.plan.cas_token,{event_id:'$e',publisher_mxid:'@bot:test'}).event_id).toBe('$e');});
- test('prepared payload is bounded and retry preserves immutable identity',()=>{const {store}=setup();create(store);const row=store.listDueProjections()[0];expect(()=>store.prepareProjection(row.cas_token,{publisher_mxid:'@bot:test',homeserver:'test',credential_kind:'local_bot',credential_generation:'g',prepared_event_type:'m.room.message',prepared_payload:{body:'x'.repeat(70000)}})).toThrowError(/too large/);const ready=store.prepareProjection(row.cas_token,{publisher_mxid:'@bot:test',homeserver:'test',credential_kind:'local_bot',credential_generation:'g',prepared_event_type:'m.room.message',prepared_payload:{body:'x'}}).plan;store.beginProjectionSend(ready.cas_token);expect(store.retryProjection(ready.cas_token,{retry_at:2000,error_code:'timeout'})).toEqual({attempt_state:'uncertain'});expect(store.listDueProjections()[0].plan).toMatchObject({publisher_mxid:'@bot:test',credential_generation:'g',prepared_payload:{body:'x'},attempt_state:'uncertain'});});
- test('pre-rename failure rolls memory back while post-rename failure stays committed',()=>{let phase='';const fsFault=(name)=>{if(phase===name)throw new Error(name)};const {store,file}=setup({fsFault});phase='beforeRename';expect(()=>create(store)).toThrow();expect(store.listRequests()).toHaveLength(0);expect(JSON.parse(readFileSync(file)).requests).toEqual({});phase='afterRename';expect(()=>create(store,'up-2')).not.toThrow();expect(store.listRequests()).toHaveLength(1);expect(store.persistenceHealth().degraded).toBe(true);expect(Object.keys(JSON.parse(readFileSync(file)).requests)).toHaveLength(1);});
- test('binding removal and swept expiry use the same revision path',()=>{let now=1000;const {store}=setup({now:()=>now,ttlMs:10});const a=create(store,'bind');store.removeBinding('worker','!p:test');expect(store.listDueProjections().at(-1)).toMatchObject({request_id:a.id,revision:2,state:'denied'});store.upsertBinding(binding);const b=create(store,'expire');now=2000;expect(store.sweepExpired({limit:1})).toEqual({scanned:1,expired:1});expect(store.listDueProjections().at(-1)).toMatchObject({request_id:b.id,revision:2,state:'expired'});});
- test('v1 migration is bounded and emits no actionable work',()=>{const dir=mkdtempSync(path.join(os.tmpdir(),'approval-v1-'));const file=path.join(dir,'store.json');const req={id:'old',agent:'worker',runtime:'codex',project:'p',projectRoomId:'!p:test',ownerMxid:'@owner:test',ownerDmRoomId:'!dm:test',upstreamRequestId:'u',inputDigest:'d',status:'pending',decision:null,createdAt:1,expiresAt:999999};writeFileSync(file,JSON.stringify({version:1,bindings:{},requests:{old:req},audit:[]}));const store=createApprovalStore(file,{now:()=>1000,migrationBatchSize:1});expect(store.listDueProjections()).toEqual([expect.objectContaining({channel:'private_status',state:'pending',migration_kind:'legacy_v1'})]);expect(store.listDueProjections().some(x=>x.channel==='private_request'||x.channel==='public_notice')).toBe(false);});
+import os from 'os';
+import path from 'path';
+import { ApprovalStoreError, createApprovalStore } from '../lib/approval-store.js';
+
+const binding = { agent: 'worker', project: 'p', project_room_id: '!p:test', owner_mxid: '@owner:test', owner_dm_room_id: '!dm:test' };
+function setup(options = {}) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-proj-'));
+  const file = path.join(dir, 'store.json');
+  const store = createApprovalStore(file, { now: () => 1000, ...options });
+  store.upsertBinding(binding);
+  return { store, file };
+}
+function create(store, id = 'up-1', expiresAt) {
+  return store.createRequest({ agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:test', upstream_request_id: id, tool_name: 'Bash', input_preview: 'pwd', expires_at: expiresAt }, { routerApprovalId: id });
+}
+function identity(plan, roomId) {
+  return { publisher_mxid: plan.publisher_mxid, room_id: roomId, credential_generation: plan.credential_generation, transaction_id: plan.transaction_id };
+}
+function deliver(store, row, eventId) {
+  const plan = store.prepareProjection(row.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', payload_version: 1, prepared_event_type: 'm.room.message', prepared_payload: { body: row.channel } }).plan;
+  store.beginProjectionSend(plan.cas_token, identity(plan, row.target_room_id));
+  store.receiptProjection(plan.cas_token, { ...identity(plan, row.target_room_id), event_id: eventId });
+}
+function drainRevision(store, revision) {
+  store.listDueProjections().filter((row) => row.revision === revision).forEach((row, i) => deliver(store, row, `$event${revision}${i}`));
+}
+
+describe('approval projection store', () => {
+  test('creation and transitions enqueue increasing canonical revisions privately', () => {
+    const { store } = setup();
+    const request = create(store);
+    expect(request).not.toHaveProperty('projection_revision');
+    expect(store.getRequest(request.id, { matrix: true })).not.toHaveProperty('projection_revision');
+    expect(store.listDueProjections().map((row) => row.channel)).toEqual(['private_request', 'public_notice']);
+    drainRevision(store, 1);
+    const matrix = store.getRequest(request.id, { matrix: true });
+    store.submitMatrixVerdict(request.id, { action: 'approve_once', sender_mxid: matrix.owner_mxid, room_id: matrix.owner_dm_room_id, agent: matrix.agent, project: matrix.project, project_room_id: matrix.project_room_id, input_digest: matrix.input_digest });
+    expect(store.listDueProjections()).toEqual([expect.objectContaining({ revision: 2, channel: 'private_status', state: 'approved' })]);
+    drainRevision(store, 2);
+    store.consumeDecision(request.id, 'worker', matrix.input_digest);
+    expect(store.listDueProjections()).toEqual([expect.objectContaining({ revision: 3, state: 'consumed' })]);
+  });
+
+  test('uncertain retry observes deadline and becomes receiptable with the same plan', () => {
+    let now = 1000;
+    const { store } = setup({ now: () => now });
+    create(store);
+    const row = store.listDueProjections()[0];
+    const plan = store.prepareProjection(row.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } }).plan;
+    store.beginProjectionSend(plan.cas_token, identity(plan, row.target_room_id));
+    store.retryProjection(plan.cas_token, { ...identity(plan, row.target_room_id), retry_at: 2000, error_code: 'timeout' });
+    expect(store.listDueProjections().some((item) => item.channel === row.channel)).toBe(false);
+    now = 2000;
+    const due = store.listDueProjections().find((item) => item.channel === row.channel);
+    expect(due.plan.attempt_state).toBe('uncertain');
+    expect(store.beginProjectionSend(plan.cas_token, identity(plan, row.target_room_id)).plan.attempt_state).toBe('attempted');
+    expect(store.receiptProjection(plan.cas_token, { ...identity(plan, row.target_room_id), event_id: '$same' })).toEqual({ event_id: '$same' });
+    expect(store.receiptProjection(plan.cas_token, { ...identity(plan, row.target_room_id), event_id: '$same' })).toEqual({ event_id: '$same' });
+  });
+
+  test('full prepared-plan identity is required and immutable', () => {
+    const { store } = setup();
+    create(store);
+    const row = store.listDueProjections()[0];
+    const input = { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } };
+    const winner = store.prepareProjection(row.cas_token, input).plan;
+    expect(store.prepareProjection(row.cas_token, { ...input, prepared_payload: { body: 'loser' } }).plan).toEqual(winner);
+    store.beginProjectionSend(winner.cas_token, identity(winner, row.target_room_id));
+    for (const mismatch of [{ room_id: '!wrong:test' }, { credential_generation: 'wrong' }, { transaction_id: 'wrong' }]) {
+      expect(() => store.receiptProjection(winner.cas_token, { ...identity(winner, row.target_room_id), ...mismatch, event_id: '$wrong' })).toThrowError(/identity mismatch/);
+    }
+    expect(() => store.receiptProjection(winner.cas_token, { ...identity(winner, row.target_room_id), event_id: 'not-event' })).toThrowError(/Matrix event id/);
+  });
+
+  test('invalid verdict event id cannot mutate memory before validation', () => {
+    const { store, file } = setup();
+    const request = create(store);
+    const matrix = store.getRequest(request.id, { matrix: true });
+    expect(() => store.submitMatrixVerdict(request.id, { action: 'approve_once', sender_mxid: matrix.owner_mxid, room_id: matrix.owner_dm_room_id, agent: matrix.agent, project: matrix.project, project_room_id: matrix.project_room_id, input_digest: matrix.input_digest, event_id: 'x'.repeat(256) })).toThrow(ApprovalStoreError);
+    expect(store.getRequest(request.id).status).toBe('pending');
+    expect(JSON.parse(readFileSync(file)).requests[request.id].status).toBe('pending');
+  });
+
+  test('pre-rename rolls back and post-rename degradation blocks later writes until reload', () => {
+    let phase = '';
+    const { store, file } = setup({ fsFault: (name) => { if (phase === name) throw new Error(name); } });
+    phase = 'beforeRename';
+    expect(() => create(store)).toThrowError(/failed to persist/);
+    expect(store.listRequests()).toHaveLength(0);
+    phase = 'afterRename';
+    expect(() => create(store, 'committed')).not.toThrow();
+    expect(store.persistenceHealth().degraded).toBe(true);
+    expect(() => create(store, 'blocked')).toThrowError(/requires reload/);
+    expect(store.listRequests()).toHaveLength(1);
+    expect(Object.keys(JSON.parse(readFileSync(file)).requests)).toHaveLength(1);
+    expect(createApprovalStore(file).listRequests()).toHaveLength(1);
+  });
+
+  test('expiry sweep reaches expired rows behind a long-lived prefix', () => {
+    let now = 1000;
+    const { store } = setup({ now: () => now, ttlMs: 10000 });
+    create(store, 'long-1', 9000); create(store, 'long-2', 9000); create(store, 'expired', 1100);
+    now = 1200;
+    expect(store.sweepExpired({ limit: 1 })).toEqual({ scanned: 1, expired: 1 });
+    expect(store.listRequests().find((r) => r.upstream_request_id === 'expired').status).toBe('expired');
+  });
+
+  test('legacy migration is bounded, resumable, and emits no actionable or null-target work', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-v1-'));
+    const file = path.join(dir, 'store.json');
+    const request = (id, status, expiresAt, room = '!dm:test') => ({ id, agent: 'worker', runtime: 'codex', project: 'p', projectRoomId: '!p:test', ownerMxid: '@owner:test', ownerDmRoomId: room, upstreamRequestId: id, inputDigest: `d-${id}`, status, decision: status === 'consumed' ? 'allow' : null, createdAt: 1, expiresAt });
+    writeFileSync(file, JSON.stringify({ version: 1, bindings: {}, requests: { a: request('a', 'pending', 500), b: request('b', 'consumed', 5000), c: request('c', 'pending', 5000, null) }, audit: [] }));
+    let store = createApprovalStore(file, { now: () => 1000, migrationBatchSize: 1 });
+    expect(store.listDueProjections()).toEqual([expect.objectContaining({ request_id: 'a', state: 'expired', migration_kind: 'legacy_v1' })]);
+    store = createApprovalStore(file, { now: () => 1000, migrationBatchSize: 1 });
+    store.migrateLegacyBatch();
+    store = createApprovalStore(file, { now: () => 1000, migrationBatchSize: 1 });
+    store.migrateLegacyBatch();
+    const due = store.listDueProjections({ limit: 20 });
+    expect(due.every((row) => row.channel === 'private_status' && row.target_room_id)).toBe(true);
+    expect(due.some((row) => row.state === 'pending' && row.request_id === 'a')).toBe(false);
+  });
+
+  test('denied request without binding cannot enqueue a null-target status on consume', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-unbound-'));
+    const store = createApprovalStore(path.join(dir, 'store.json'), { now: () => 1000 });
+    const denied = store.createRequest({ agent: 'worker', runtime: 'codex', upstream_request_id: 'u', tool_name: 'Bash' });
+    store.consumeDecision(denied.id, 'worker');
+    expect(store.listDueProjections()).toEqual([]);
+  });
 });
