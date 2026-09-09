@@ -2030,6 +2030,16 @@ export class RouterStore {
     }
   }
 
+  approvalThreadOrigin(approvalId: string, agentId: string, roomId: string): string | null {
+    const row = this.db.prepare<[string, string, string], { thread_root_event_id: string | null }>(
+      `SELECT s.thread_root_event_id FROM approval_waits a
+       JOIN dispatches d ON d.dispatch_id = a.dispatch_id
+       JOIN sessions s ON s.session_id = d.session_id
+       WHERE a.approval_id = ? AND s.agent_id = ? AND s.room_id = ? AND s.scope_kind = 'thread'`,
+    ).get(approvalId, agentId, roomId);
+    return row?.thread_root_event_id ?? null;
+  }
+
   readApprovalDecision(input: CapabilityInput & { approvalId: string; operationDigest: string }):
     { ok: true; decision: 'allow' | 'deny' | null } | Refusal {
     const checked = this.validateCapability(input);

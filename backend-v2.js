@@ -10245,7 +10245,11 @@ app.get('/api/approvals/:id/matrix', requireApprovalBridgeSecret, (req, res) => 
   try {
     const record = approvalStore.getRequest(req.params.id, { matrix: true });
     if (!record) return res.status(404).json({ error: 'approval request not found' });
-    return res.json({ ok: true, approval: record });
+    const agent = agents[record.agent];
+    const threadRootEventId = routerStore && agent?.agentId
+      ? routerStore.approvalThreadOrigin(record.upstream_request_id, agent.agentId, record.project_room_id)
+      : null;
+    return res.json({ ok: true, approval: { ...record, thread_root_event_id: threadRootEventId } });
   } catch (error) {
     return respondApprovalStoreError(res, error, 'failed to read Matrix approval request');
   }
