@@ -128,6 +128,32 @@ describe('approval projection store', () => {
     expect(createApprovalStore(file).listRequests()).toHaveLength(1);
   });
 
+  test('degraded reads return committed pending state without lazy expiry until reload', () => {
+    let now = 1000;
+    let phase = '';
+    const { store, file } = setup({ now: () => now, fsFault: (name) => { if (phase === name) throw new Error(name); } });
+    phase = 'afterRename';
+    const request = create(store, 'degraded-read', 1100);
+    now = 1200;
+    expect(store.getRequest(request.id).status).toBe('pending');
+    expect(store.listRequests({ status: 'approved' })).toEqual([]);
+    expect(store.state.requests[request.id].status).toBe('pending');
+    const reloaded = createApprovalStore(file, { now: () => now });
+    expect(reloaded.getRequest(request.id).status).toBe('expired');
+  });
+
+  test('healthy lazy expiry rolls back when persistence fails before rename', () => {
+    let now = 1000;
+    let phase = '';
+    const { store, file } = setup({ now: () => now, fsFault: (name) => { if (phase === name) throw new Error(name); } });
+    const request = create(store, 'lazy-fault', 1100);
+    now = 1200;
+    phase = 'beforeRename';
+    expect(() => store.getRequest(request.id)).toThrowError(/failed to persist/);
+    expect(store.state.requests[request.id].status).toBe('pending');
+    expect(JSON.parse(readFileSync(file)).requests[request.id].status).toBe('pending');
+  });
+
   test('expiry sweep reaches expired rows behind a long-lived prefix', () => {
     let now = 1000;
     const { store } = setup({ now: () => now, ttlMs: 10000 });
