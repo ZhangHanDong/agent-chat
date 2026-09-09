@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import { execFileSync, execSync, spawn } from 'child_process';
+import { spawnSync, execSync, spawn } from 'child_process';
 import { mkdtempSync, readdirSync, statSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import http from 'http';
 import os from 'os';
 import path from 'path';
 
 const repoRoot = path.resolve('.');
-const tmuxBin = execFileSync('which', ['tmux'], { encoding: 'utf8' }).trim();
+const tmuxProbe = spawnSync('which', ['tmux'], { encoding: 'utf8' });
+const tmuxBin = tmuxProbe.status === 0 ? tmuxProbe.stdout.trim() : null;
 
 function listen(handler) {
   return new Promise((resolve, reject) => {
@@ -34,7 +35,7 @@ function snap(dir) {
 }
 
 describe('12-r2: --print-pane-target is zero-side-effect', () => {
-  test('no runtime files created, no backend requests, output =<session>:1.1', async () => {
+  test.skipIf(!tmuxBin)('no runtime files created, no backend requests, output =<session>:1.1', async () => {
     const runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-12r2-'));
     // Pre-create the runtime skeleton the script would use, so we can detect writes to it.
     const agentsDir = path.join(runtimeDir, 'agents');

@@ -117,6 +117,7 @@ import {
 } from './lib/agent-home-v1.js';
 import { approvalAdapterTimeoutMs, resolveApprovalTtlMs } from './lib/runtime-approval-client.js';
 import { snapshotSessionFile, SessionFileError } from './lib/session-file.js';
+import { receiveMatrixFile } from './lib/matrix-file.js';
 import { codexPermissionRequestNeedsOwnerApproval } from './lib/codex-permission-hook.js';
 import { buildProjectBoardSnapshot } from './lib/project-board.js';
 import { createProjectInspector } from './lib/project-inspector.js';
@@ -1866,7 +1867,7 @@ const alertStore = createAlertStore({
 });
 const approvalStore = new ApprovalStore(path.join(DATA_DIR, 'approvals.json'), {
   ttlMs: APPROVAL_TTL_MS,
-  isTaskActive: id => Boolean(id && ['open', 'accepted', 'in_progress', 'waiting', 'blocked'].includes(taskStore.getTask(id)?.status)),
+  isTaskActive: id => Boolean(id && ['created', 'accepted', 'in_progress', 'blocked'].includes(taskStore.getTask(id)?.status)),
   getTaskEpoch: id => taskStore.getExecutionEpoch?.(id) ?? null,
   isAgentCurrent: (name, id) => isAgentRecord(agents[name]) && executionAgentIdentity(agents[name]) === id,
 });
@@ -2221,6 +2222,8 @@ async function routeMatrixMessageToThreadSession(agentName, msg) {
     await authorizeDirectRoom(agentName, msg.senderMxid, roomId);
     if (direct.mode === 'group') {
       threadRootEventId = threadRootEventId && threadRootEventId !== direct.privateRootEventId ? threadRootEventId : null;
+      // A public front-desk turn must never resume its former private main session.
+      if (!threadRootEventId && isFrontDeskAgent(agent)) threadRootEventId = matrixEventId;
     } else {
       const root = routerStore.conversations.directRoot(roomId, matrixEventId, agentName);
       threadRootEventId = root === matrixEventId ? null : root;
@@ -6848,8 +6851,9 @@ function serializeAgent(agent, sharedRouterSnapshot) {
     }
   }
   const runner = serializeThreadSessionRunner(agent);
+  const { executionPolicy: _executionPolicy, ...publicAgent } = agent;
   return {
-    ...agent,
+    ...publicAgent,
     server: normalizeServer(agent.server),
     state: agent.manualDown && agent.offlineReason === 'operator-stopped' ? 'stopped' : machine.state,
     healthy: machine.healthy,
@@ -6875,7 +6879,6 @@ function serializeAgent(agent, sharedRouterSnapshot) {
     human: normalizeHumanMeta(agent.human),
     task: normalizeAgentTask(agent.task, agent.name),
     runtimeProfile: redactRuntimeProfileSecrets(normalizeRuntimeProfile(agent.runtimeProfile)),
-    executionPolicy: { yolo: agent.executionPolicy?.yolo === true },
     environment: VALID_ENVIRONMENTS.has(agent.environment) ? agent.environment : classifyEnvironment(agent.name),
     activeNow: normalizeRuntimeActiveNow(runtime?.activeNow),
     activeDurationSec: Number(runtime?.activeDurationSec) || 0,
@@ -8120,8 +8123,9 @@ app.post('/api/matrix-work/claim', requireApprovalBridgeSecret, (req, res) => {
 app.post('/api/matrix-work/:id/complete', requireApprovalBridgeSecret, (req, res) => {
   try {
     const job = matrixWorkStore.complete(req.params.id, req.body?.claimToken, req.body?.outcome || {});
-    if (job.action === 'engagement-approved' && job.state === 'complete' && job.outcome?.ok) {
-      engagementStore.settleApprovalNotice(job.engagementId, { eventId: job.outcome.eventId });
+    if (job.action === 'engagement-approved' && job.state === 'complete') {
+      engagementStore.settleApprovalNotice(job.engagementId, job.outcome?.ok
+        ? { eventId: job.outcome.eventId } : { code: job.outcome?.code || 'approval_notice_delivery_failed' });
     }
     return res.json({ ok: true });
   } catch (error) { return res.status(409).json({ error: error.message }); }
@@ -8561,7 +8565,7 @@ app.post('/api/router/session-task', requireAgentToken((req) => req.body?.agent 
   }
 });
 
-app.post('/api/router/files', requireAgentToken((req) => req.body?.agent || ''), (req, res) => {
+app.post('/api/router/files', requireAgentToken((req) => req.body?.agent || ''), async (req, res) => {
   if (!THREAD_SESSIONS_ENABLED) return res.status(404).json({ error: 'thread-session router is disabled' });
   const owned = requireOwnedRunnerDescriptor(req, res);
   if (!owned) return;
@@ -8575,6 +8579,22 @@ app.post('/api/router/files', requireAgentToken((req) => req.body?.agent || ''),
     const received = routerStore.receiveFile({ ...owned.capability, eventId: req.body.event_id });
     if (!received.ok) return res.status(routerRefusalStatus(received)).json({ error: received.message, code: received.code });
     if (received.file.errorCode) return res.status(409).json({ error: received.file.error, code: received.file.errorCode });
+    if (received.file.remoteContent) {
+      try {
+        const side = projectSideStore.getSide(owned.agent.projectSide);
+        const credential = side?.active && projectSideStore.credentialFor(side.id);
+        const token = credential?.kind === 'appservice' ? credential.asToken : credential?.representativeToken;
+        if (!side || !token) return res.status(409).json({ error: 'Attachment server credential is unavailable', code: 'media_credential_unavailable' });
+        const file = await receiveMatrixFile({ content: received.file.remoteContent, baseUrl: side.apiBaseUrl, token,
+          directory: MATRIX_MEDIA_DIR, asUserId: credential.kind === 'appservice' ? side.representative?.mxid : null });
+        const stillAllowed = routerStore.authorizeFileReply(owned.capability);
+        if (!stillAllowed.ok) return res.status(routerRefusalStatus(stillAllowed)).json({ error: stillAllowed.message, code: stillAllowed.code });
+        routerStore.conversations.cacheReceivedFile(owned.capability.dispatchId, req.body.event_id, file);
+        received.file = file;
+      } catch (error) {
+        return res.status(error.permanent ? 409 : 503).json({ error: 'Attachment download failed; retry or ask the sender to upload it again', code: error.code || 'media_download_failed' });
+      }
+    }
     try {
       const verified = snapshotSessionFile({ workspace: MATRIX_MEDIA_DIR, requestedPath: received.file.path,
         name: received.file.name, directory: MATRIX_MEDIA_DIR });
@@ -10608,8 +10628,9 @@ app.delete('/api/project-sides/:id', requireBearer, async (req, res) => {
     }
     const abandonUnreachable = req.query?.force === 'true' && req.query?.abandon_unreachable === 'true';
     const terminalCleanupCodes = new Set(['agent_credential_unavailable', 'credential_side_mismatch', 'side_or_agent_unavailable']);
-    const blocking = (reason) => reason !== 'not_a_registered_agent' && !(abandonUnreachable && terminalCleanupCodes.has(reason));
-    if (withdrawals.some((w) => !w.left && blocking(w.reason))) return res.status(409).json({
+    const blocking = (reason, state = null) => reason !== 'not_a_registered_agent'
+      && !(abandonUnreachable && (state === 'unreachable' || terminalCleanupCodes.has(reason)));
+    if (withdrawals.some((w) => !w.left && blocking(w.reason, w.state))) return res.status(409).json({
       ok: false, code: 'cleanup_incomplete', side: projectSideStore.getSide(existing.id), withdrawals,
       error: 'Room withdrawal failed; credentials are retained. Repair the bridge credential and retry. Permanently unavailable credentials may be abandoned explicitly with force=true&abandon_unreachable=true.',
     });
@@ -10818,11 +10839,16 @@ app.post('/api/matrix/pending-invites/decide', requireBearer, (req, res) => {
   }
 });
 
+function consoleExecutionGrant(grant) {
+  const { id, agent, scope, project, ownerMxid, taskId, kind, description, createdAt, revokedAt, active } = grant;
+  return { id, agent, scope, project, ownerMxid, taskId, kind, description, createdAt, revokedAt, active };
+}
+
 app.get('/api/agents/:name/execution-policy', requireBearer, (req, res) => {
   const agent = agents[req.params.name];
   if (!isAgentRecord(agent)) return res.status(404).json({ error: 'agent not found' });
   return res.json({ executionPolicy: { yolo: agent.executionPolicy?.yolo === true },
-    grants: approvalStore.listGrants(agent.name, executionAgentIdentity(agent)), appliesTo: 'next_dispatch' });
+    grants: approvalStore.listGrants(agent.name, executionAgentIdentity(agent)).map(consoleExecutionGrant), appliesTo: 'next_dispatch' });
 });
 
 app.put('/api/agents/:name/execution-policy', requireBearer, (req, res) => {
@@ -10847,7 +10873,7 @@ app.delete('/api/agents/:name/execution-grants/:id', requireBearer, (req, res) =
   try {
     const grant = approvalStore.revokeGrant(req.params.id, agent.name, 'operator');
     if (!grant) return res.status(404).json({ error: 'authorization rule not found' });
-    return res.json({ ok: true, grant, appliesTo: 'subsequent_requests' });
+    return res.json({ ok: true, grant: consoleExecutionGrant(grant), appliesTo: 'subsequent_requests' });
   } catch (error) { return respondApprovalStoreError(res, error, 'failed to revoke authorization'); }
 });
 
@@ -14085,7 +14111,7 @@ function resolveOwnerFor(agentName, projectRoomId = null) {
     );
     const roomBindings = projectRoomId ? approvalStore.listBindings({ projectRoomId }) : [];
     const roomOwners = new Set(roomBindings.map((b) => JSON.stringify([b.ownerMxid, b.ownerDmRoomId])));
-    const target = bindings[0] || (roomOwners.size === 1 ? roomBindings[0] : null);
+    const target = (agentName ? bindings[0] : null) || (roomOwners.size === 1 ? roomBindings[0] : null);
     if (target?.ownerMxid && target?.ownerDmRoomId) {
       return { ownerMxid: target.ownerMxid, ownerDmRoomId: target.ownerDmRoomId, from: 'existing binding' };
     }
@@ -14372,7 +14398,7 @@ async function withdrawAgentFromProjectRoom(agentName, roomId) {
      */
     isRegisteredAgent: (mxid) => backendRosterAdmits(mxid, sideId),
   });
-  return { roomId, mxid: agentMxid, left: Boolean(result.left), reason: result.reason ?? null };
+  return { roomId, mxid: agentMxid, left: Boolean(result.left), ...(result.state ? { state: result.state } : {}), reason: result.reason ?? null };
 }
 
 async function admitAgentToProjectRoom(engagement) {
@@ -16254,6 +16280,16 @@ app.get('/api/matrix/direct-agents', requireBridgeSecret, (_req, res) => {
   res.json({ agents: [...active].filter(name => agentEligibleForRoom(agents[name])) });
 });
 
+app.post('/api/matrix/conversations/admissions', requireBridgeSecret, (req, res) => {
+  const { roomId, admissions } = req.body || {};
+  if (!Array.isArray(admissions) || !admissions.length || admissions.length > 100) return res.status(400).json({ error: 'invalid admissions' });
+  const bindings = approvalStore.listBindings({ projectRoomId: roomId });
+  if (!roomId || admissions.some(row => !bindings.some(binding => binding.agent === row.agent && binding.projectRoomId === roomId)
+    || !Number.isSafeInteger(row.sinceTs) || row.sinceTs < 0)) return res.status(403).json({ error: 'room admission is not bound' });
+  for (const row of admissions) routerStore.conversations.setAdmission(roomId, row.agent, row.sinceTs);
+  return res.json({ ok: true });
+});
+
 app.post('/api/matrix/conversations/events', requireBridgeSecret, async (req, res) => {
   try {
     const input = req.body;
@@ -16275,6 +16311,12 @@ app.post('/api/matrix/conversations/events', requireBridgeSecret, async (req, re
       if (!errors[input.attachment.errorCode]) return res.status(400).json({ error: 'invalid attachment failure' });
       attachment = { name: String(input.attachment.name || 'attachment').slice(0, 240),
         errorCode: input.attachment.errorCode, error: errors[input.attachment.errorCode] };
+    } else if (input.attachment?.remoteContent) {
+      const c = input.attachment.remoteContent;
+      if (!['m.file', 'm.image'].includes(c.msgtype) || JSON.stringify(c).length > 32_768) return res.status(400).json({ error: 'invalid attachment metadata' });
+      attachment = { name: String(c.filename || c.body || 'attachment').slice(0, 240),
+        mime: String(c.info?.mimetype || 'application/octet-stream').slice(0, 255), size: Number(c.info?.size) || null,
+        remoteContent: { msgtype: c.msgtype, body: c.body, filename: c.filename, url: c.url, file: c.file, info: c.info } };
     } else if (input.attachment) {
       attachment = snapshotSessionFile({ workspace: MATRIX_MEDIA_DIR, requestedPath: input.attachment.path,
         name: input.attachment.name, directory: MATRIX_MEDIA_DIR });

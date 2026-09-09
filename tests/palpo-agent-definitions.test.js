@@ -156,8 +156,8 @@ test('new resources automatically publish qualified Palpo roles without enabling
   const approved = await approve(submitted.engagementId).expect(200);
   expect(approved.body.engagement.fulfillment.presetId).toBe(created.id);
   expect((await request(ctx.app).get(`/api/agents/${approved.body.engagement.agent}`)).body.runtimeProfile.primary.reasoning).toBe('medium');
-  expect((await request(ctx.app).get(`/api/agents/${approved.body.engagement.agent}`)).body.executionPolicy).toEqual({ yolo: true });
-  expect((await request(ctx.app).get('/api/agents/original')).body.executionPolicy).toEqual({ yolo: false });
+  expect((await request(ctx.app).get(`/api/agents/${approved.body.engagement.agent}/execution-policy`)).body.executionPolicy).toEqual({ yolo: true });
+  expect((await request(ctx.app).get('/api/agents/original/execution-policy')).body.executionPolicy).toEqual({ yolo: false });
 });
 
 test('automatic Palpo catalog follows resource edits deletion and explicit role withdrawal', async () => {

@@ -202,3 +202,13 @@ Live Matrix, model, private approval, delegation and integration acceptance rema
 a separate gate. Development Agent Operations artifacts and the mismatched client
 namespace do not establish released interoperability; no provenance or feature
 gate is bypassed by this decision.
+
+## September 9 review closure
+
+The guardian starts a stopped shell gate, confirms the child's birth identity and
+process group, then permits exec of the requested runtime. This closes the race
+where a runtime exits before the first ownership census. Executable and arguments
+remain positional; exec preserves the owned process identity. PID reuse or missing
+inspection cannot grant ownership of unrelated descendants, and failed cleanup
+still quarantines the workspace. Missing executables finish as launch failures
+without a five-second false cleanup timeout.

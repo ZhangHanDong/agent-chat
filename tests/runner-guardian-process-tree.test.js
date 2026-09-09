@@ -15,14 +15,14 @@ const running = (pid) => {
 };
 const killFixture = (pid) => { try { process.kill(pid, 'SIGKILL'); } catch { /* already stopped */ } };
 
-function launch(env) {
+function launch(env, executable = fixture('fake-claude-runner.mjs'), args = []) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-owned-tree-'));
   roots.push(root);
   const messages = [];
   const guardian = spawn(process.execPath, [path.resolve('router/dist/runner-guardian.js')], {
     cwd: root, env: { PATH: process.env.PATH, ...env,
-      HAFLEET_GUARDIAN_EXECUTABLE: fixture('fake-claude-runner.mjs'),
-      HAFLEET_GUARDIAN_ARGS_JSON: '[]', FAKE_CLAUDE_HANG: '1' },
+      HAFLEET_GUARDIAN_EXECUTABLE: executable,
+      HAFLEET_GUARDIAN_ARGS_JSON: JSON.stringify(args), FAKE_CLAUDE_HANG: '1' },
     stdio: ['pipe', 'ignore', 'pipe', 'ipc'],
   });
   let stderr = '';
@@ -38,6 +38,15 @@ function launch(env) {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe('guardian descendant termination evidence', () => {
+  test.each([['immediate exit', '/bin/sh', ['-c', 'exit 7'], [7]], ['missing executable', '/nonexistent/hafleet-runtime', [], [126, 127]]])(
+    'guardian observes ownership before %s and finishes without quarantine delay', async (_name, executable, args, code) => {
+      const start = Date.now();
+      const run = launch({}, executable, args);
+      // POSIX shells use 126 or 127 for an unavailable executable.
+      expect(code).toContain((await run.closed).code);
+      expect(Date.now() - start).toBeLessThan(3000);
+      expect(run.messages.filter(message => message.type === 'cleanup_complete')).toHaveLength(1);
+    });
   test.each(['still-parented', 'already-reparented'])(
     'guardian confirms a detached grandchild is gone and leaves a foreign process untouched (%s)', async (mode) => {
       const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-detached-tool-'));

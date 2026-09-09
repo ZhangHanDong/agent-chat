@@ -187,8 +187,9 @@ test('ordinary invitations support two agents with independent room bindings and
   const directory = mkdtempSync(path.join(os.tmpdir(), 'invited-agents-')); dirs.push(directory);
   const router = openRouter({ dbPath: path.join(directory, 'router.db') });
   const room = '!room:test';
-  const makeState = members => members.map(state_key => ({ type: 'm.room.member', state_key, origin_server_ts: 200,
-    content: { membership: 'join' } }));
+  const makeState = members => [{ type: 'm.room.join_rules', content: { join_rule: 'invite' } },
+    ...members.map(state_key => ({ type: 'm.room.member', state_key, origin_server_ts: 200,
+    content: { membership: 'join' } }))];
   let state = makeState(['@alice:test', '@one:test']);
   const manager = new MatrixDirectChats({ directory, onMessage: vi.fn(), onBinding: vi.fn(), warning: vi.fn(),
     backend: vi.fn(async (_method, _path, input) => {
@@ -210,7 +211,7 @@ test('ordinary invitations support two agents with independent room bindings and
     expect(one.rooms[room].mode).toBe('group');
     expect(two.client.joinRoom).toHaveBeenCalledWith(room);
     const relation = { rel_type: 'm.thread', event_id: '$group-root' };
-    await manager.send(room, { msgtype: 'm.text', body: 'second reply', 'm.relates_to': relation }, 'txn-two', 'two');
+    await manager.send(room, { msgtype: 'm.text', body: 'second reply', 'm.relates_to': relation }, 'txn-two', 'two', { sourceCreatedAt: 201 });
     expect(two.client.doRequest).toHaveBeenLastCalledWith('PUT', expect.stringContaining('/txn-two'), null,
       expect.objectContaining({ body: 'second reply', 'm.relates_to': relation }));
     expect(one.client.doRequest.mock.calls.some(call => call[0] === 'PUT')).toBe(false);
@@ -221,4 +222,46 @@ test('ordinary invitations support two agents with independent room bindings and
     await manager.message(two, room, { event_id: '$old', sender: '@alice:test', origin_server_ts: 100, content: { body: 'old private' } }, true);
     expect(manager.onMessage).not.toHaveBeenCalled();
   } finally { router.close(); }
+});
+
+test('null-root private session replies are permanently refused after group promotion', async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'promoted-origin-')); dirs.push(directory);
+  const roomId = '!shared:test', binding = { roomId, agent: 'one', humanMxid: '@alice:test', mode: 'group', sinceTs: 200, privateRootEventId: null };
+  const manager = new MatrixDirectChats({ directory, onBinding: vi.fn(), backend: vi.fn(async () => ({ binding })) });
+  const entry = { sender: { agentName: 'one', agentUserId: '@one:test' }, rooms: { [roomId]: binding }, file: path.join(directory, 'rooms.json'),
+    client: { getRoomState: vi.fn(async () => ['@one:test', '@alice:test', '@bob:test'].map(state_key =>
+      ({ type: 'm.room.member', state_key, content: { membership: 'join' } }))), doRequest: vi.fn(async () => ({ event_id: '$sent' })) } };
+  manager.clients.set('@one:test', entry);
+  for (const sourceCreatedAt of [undefined, null, 199]) {
+    for (const content of [{ body: 'private response' }, { msgtype: 'm.file', body: 'secret.txt' },
+      { body: 'private status', 'm.relates_to': { rel_type: 'm.replace', event_id: '$status' }, 'm.new_content': { body: 'status' } }]) {
+      await expect(manager.send(roomId, content, 'blocked', 'one', { sourceCreatedAt }))
+        .rejects.toMatchObject({ code: 'private_reply_scope_changed', permanent: true });
+    }
+  }
+  expect(entry.client.doRequest).not.toHaveBeenCalled();
+  await expect(manager.send(roomId, { body: 'public reply' }, 'public', 'one', { sourceCreatedAt: 201 })).resolves.toBe('$sent');
+  expect(entry.client.doRequest).toHaveBeenCalledOnce();
+});
+
+test('direct history bounds pages and excludes pre-admission plaintext and encrypted events', async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'bounded-history-')); dirs.push(directory);
+  const roomId = '!dm:test', binding = { roomId, agent: 'worker', humanMxid: '@alice:test', sinceTs: 200 };
+  const manager = new MatrixDirectChats({ directory, onMessage: vi.fn(), warning: vi.fn() });
+  manager.verify = vi.fn(async () => ({}));
+  const event = (id, ts, type = 'm.room.message') => ({ type, event_id: id, sender: '@alice:test', origin_server_ts: ts, content: { body: id } });
+  const entry = { rooms: { [roomId]: binding }, file: path.join(directory, 'rooms.json'), pending: { put: vi.fn() },
+    client: { doRequest: vi.fn(async () => ({ chunk: [event('$new', 201), event('$old', 199), event('$old-secret', 199, 'm.room.encrypted')], end: 'more' })) } };
+  await manager.readHistory(entry, roomId);
+  expect(entry.client.doRequest).toHaveBeenCalledOnce();
+  expect(manager.onMessage.mock.calls.map(call => call[1].event_id)).toEqual(['$new']);
+  expect(entry.pending.put).not.toHaveBeenCalled();
+  expect(manager.verify).toHaveBeenCalledOnce();
+  await manager.message(entry, roomId, event('$prejoin-live', 100));
+  expect(manager.verify).toHaveBeenCalledOnce();
+  let page = 0;
+  entry.client.doRequest.mockImplementation(async () => ({ chunk: [event(`$page-${++page}`, 250)], end: `cursor-${page}` }));
+  await manager.readHistory(entry, roomId);
+  expect(page).toBe(5); expect(binding.historyTruncated).toBe(true);
+  expect(manager.warning).toHaveBeenCalledWith(expect.stringContaining('limited to the latest 500'));
 });

@@ -896,3 +896,17 @@ The prior protected config is palpo.toml.before-login-rate-1788971772.
 This is a deployment adjustment, not per-user or trusted-proxy isolation; do not
 claim it fixes password mismatches. Six public discovery requests and a real
 approved ordinary-account password login passed after restart.
+
+
+## 2026-09-09 review closure implementation
+
+Review follow-up lives in `docs/reviews/2026-09-09-review-followup.md` and
+`specs/task-review-followup-20260909.spec.md`. Reply scope must carry the originating
+session timestamp, because front-desk private sessions can have a null root.
+Do not infer privacy from thread relations alone. Room-history recovery must use
+Agent admission floors and defer attachment downloads until an authorized request.
+Conversation windows retain unread history and advance only complete events after
+successful delivery. Matrix fixtures must return state events with admission
+timestamps and valid event IDs for sends; old mocks can otherwise mask custody bugs.
+Native agent-spec cannot execute these Vitest scenarios; record skips separately
+from deterministic test results and use explicit repository-relative change paths.

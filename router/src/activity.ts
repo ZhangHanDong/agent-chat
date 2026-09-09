@@ -1,3 +1,14 @@
+export const RUNNER_ACTIVITY_SCHEMA = `CREATE TABLE IF NOT EXISTS runner_activity (
+      dispatch_id TEXT PRIMARY KEY REFERENCES dispatches(dispatch_id), phase TEXT NOT NULL,
+      kind TEXT, tools INTEGER NOT NULL DEFAULT 0, finished INTEGER NOT NULL DEFAULT 0,
+      started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, queued_at INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 0, anchor TEXT
+    );
+    CREATE TABLE IF NOT EXISTS runner_activity_events (
+      dispatch_id TEXT NOT NULL REFERENCES runner_activity(dispatch_id), event_key TEXT NOT NULL,
+      PRIMARY KEY(dispatch_id, event_key)
+    );`;
+
 import type Database from 'better-sqlite3';
 
 export type ToolKind = 'command' | 'files' | 'search' | 'delegate' | 'tool';
@@ -13,18 +24,7 @@ const LABELS: Record<ToolKind, string> = {
 
 /** A delivery projection only. Routing and lifecycle authority remain in RouterStore. */
 export class ActivityStore {
-  constructor(private readonly db: Database.Database) {
-    db.exec(`CREATE TABLE IF NOT EXISTS runner_activity (
-      dispatch_id TEXT PRIMARY KEY REFERENCES dispatches(dispatch_id), phase TEXT NOT NULL,
-      kind TEXT, tools INTEGER NOT NULL DEFAULT 0, finished INTEGER NOT NULL DEFAULT 0,
-      started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, queued_at INTEGER NOT NULL,
-      revision INTEGER NOT NULL DEFAULT 0, anchor TEXT
-    );
-    CREATE TABLE IF NOT EXISTS runner_activity_events (
-      dispatch_id TEXT NOT NULL REFERENCES runner_activity(dispatch_id), event_key TEXT NOT NULL,
-      PRIMARY KEY(dispatch_id, event_key)
-    );`);
-  }
+  constructor(private readonly db: Database.Database) {}
 
   read(dispatchId: string): ActivityRow | undefined {
     return this.db.prepare<[string], ActivityRow>('SELECT * FROM runner_activity WHERE dispatch_id = ?').get(dispatchId);

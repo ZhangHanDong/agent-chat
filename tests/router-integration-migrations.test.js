@@ -61,7 +61,7 @@ test('upgrades both version nine lineages without losing approval or task data',
       router = openRouter({ dbPath });
       expect(router.taskOperation({ ...claim, action: 'transition', taskId: task.taskId, toolCallId: 'done', patch: { status: 'done' } }).replayed).toBe(true);
       expect(router.db.prepare('SELECT execution_epoch FROM tasks WHERE task_id = ?').get(task.taskId).execution_epoch).toBe(1);
-      expect(router.db.prepare('SELECT version FROM router_schema_migrations ORDER BY version DESC LIMIT 1').get()).toEqual({ version: 12 });
+      expect(router.db.prepare('SELECT version FROM router_schema_migrations ORDER BY version DESC LIMIT 1').get()).toEqual({ version: 13 });
       expect(router.db.pragma('foreign_key_check')).toEqual([]);
     } finally { router.close(); }
   }

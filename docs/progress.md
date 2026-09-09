@@ -1220,7 +1220,7 @@ mini1-tunnel-restart-test.json and mini1-recovered-history-browser.png.
 ## 2026-09-08 — Open Mini1 Palpo on the operator's public domain
 
 The operator requested public access and specified crew.ominix.io on a separate
-port. Confirmed DNS points to69.194.3.128, existing certificate is valid, and18443
+port. Confirmed DNS points to the configured Mini1 host, its certificate is valid, and18443
 is occupied by an unrelated service. Added crew.ominix.io:19443 to the existing
 /etc/caddy/Caddyfile, retaining all prior routes and gracefully reloading the
 existing io.ominix.caddy process. Backed up the original configuration first.
@@ -1606,3 +1606,29 @@ overlap. Native lifecycle remains non-passing with two Node skips; optional live
 CI probes skipped without a runtime. No live changes or push. Palpo upstream
 Rust commit62fa8566 remains outside this local Web merge. Full evidence and
 restoration notes: docs/reviews/2026-09-09-account-agent-lifecycle-merge.md.
+
+## 2026-09-09 — Close the c380959/f89c746 review findings
+
+Retraced the supplied review against merged master 8dfea48 and repaired the
+remaining findings in fix/review-closure-20260909. Direct commands use their
+Agent device and cannot wedge sync on a failed reply; retired mentions no longer
+defer admission. Host-owned session provenance prevents private replies, files
+and activity from entering promoted group rooms. Explicit unreachable-side
+abandonment now uses the structured cleanup result and retains remote failures.
+
+Admission floors and bounded history windows limit context work. Historical
+attachments download only on authorized receive_file calls. Grant responses
+exclude internal approval metadata; null-Agent owner resolution requires room
+agreement. Approval rollback/retention, permanent notice settlement, schema
+migrations, runtime spawn ownership and the remaining portability/UI findings
+are covered by targeted regressions. Earlier merged fixes for SDK isolation,
+the five original tests and catalog withdrawal remain intact.
+
+Final full suite: 4,226 passed, zero failed, one platform skip in 286 files.
+CI passes with 479 spec bindings and 505 overlapping kernel/CLI tests. Console
+Webpack build and English/Chinese Playwright permission flows pass. Default
+Turbopack cannot follow the isolated worktree's external dependency symlink.
+Native agent-spec has one boundary pass and nine skipped Node scenarios, so its
+overall result remains non-passing. Optional live probes skipped; no live
+deployment or Matrix/LLM acceptance is claimed. Findings, evidence and limits:
+docs/reviews/2026-09-09-review-followup.md. The source task-writer is absent.

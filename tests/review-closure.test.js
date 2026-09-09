@@ -38,7 +38,8 @@ async function homeserver() {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(status !== 200 ? { errcode: 'M_UNAVAILABLE' }
       : url.pathname.endsWith('/whoami') ? { user_id: url.searchParams.get('user_id') }
-        : url.pathname.includes('/join/') ? { room_id: ROOM } : {}));
+        : url.pathname.includes('/join/') ? { room_id: ROOM }
+          : url.pathname.includes('/send/m.room.message/') ? { event_id: '$fixture-notice' } : {}));
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   hs = { server, calls, url: `http://127.0.0.1:${server.address().port}`,
@@ -386,4 +387,31 @@ test('permanently unavailable Matrix credentials require explicit audited cleanu
   const audit = JSON.parse(readFileSync(`${ctx.runtimeDir}/data/project-sides.json`)).audit;
   expect(audit.find((entry) => entry.type === 'side_removed').cleanup.abandonedUnreachable).toBe(true);
   expect(hs.calls.some((c) => c.auth === 'Bearer old-private')).toBe(false);
+});
+
+test('forced abandonment accepts classified unreachable App Service withdrawals', async () => {
+  await homeserver(); await boot();
+  hs.failLeave(true);
+  const failed = await request(ctx.app).delete(`/api/project-sides/${SIDE}?force=true`).expect(409);
+  expect(failed.body.withdrawals).toContainEqual(expect.objectContaining({ state: 'unreachable', left: false }));
+  await request(ctx.app).delete(`/api/project-sides/${SIDE}?abandon_unreachable=true`).expect(409);
+  const removed = await request(ctx.app).delete(`/api/project-sides/${SIDE}?force=true&abandon_unreachable=true`).expect(200);
+  expect(removed.body.cascade).toBe('partial');
+  expect(removed.body.withdrawals.some(row => row.left === false && row.state === 'unreachable')).toBe(true);
+  const audit = JSON.parse(readFileSync(`${ctx.runtimeDir}/data/project-sides.json`)).audit;
+  expect(audit.find(row => row.type === 'side_removed').cleanup.abandonedUnreachable).toBe(true);
+});
+
+test('null Agent owner resolution refuses conflicting room bindings', async () => {
+  await homeserver(); await boot({ agents: {} });
+  const store = ctx.internals.approvalStoreForTest;
+  store.upsertBinding({ agent: 'former-one', project: 'project', project_room_id: ROOM,
+    owner_mxid: '@one:palpo.test', owner_dm_room_id: '!one-private:palpo.test' });
+  store.upsertBinding({ agent: 'former-two', project: 'project', project_room_id: ROOM,
+    owner_mxid: '@two:palpo.test', owner_dm_room_id: '!two-private:palpo.test' });
+  const created = (await ask().expect(200)).body.engagement;
+  expect(created.agent).toBeNull();
+  const denied = await request(ctx.app).post(`/api/engagements/${created.id}/verdict`).send({ approve: true }).expect(409);
+  expect(denied.body.error).toMatch(/owner/i);
+  expect(hs.calls.some(row => row.path.endsWith('/register'))).toBe(false);
 });

@@ -15,6 +15,30 @@ async function fixture() {
   const bridge = new MatrixBridge(); bridge.addKnownAgent('one');
   return bridge;
 }
+
+test('project discussion backfill honors Agent admission and records attachments without downloading', async () => {
+  const bridge = await fixture(), roomId = '!project:test';
+  bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://side.test', serverName: 'test', representative: { mxid: '@rep:test' } },
+    credential: { kind: 'registrationToken', representativeToken: 'rep-fixture' } });
+  const event = (id, timestamp) => ({ type: 'm.room.message', event_id: id, sender: '@alice:test', origin_server_ts: timestamp,
+    content: { msgtype: 'm.file', body: 'report.txt', url: 'mxc://test/report', info: { size: 20 } } });
+  const fetcher = vi.fn(async raw => {
+    const url = new URL(raw);
+    if (url.pathname.endsWith('/state')) return Response.json([{ type: 'm.room.member', state_key: '@ac_one:test', origin_server_ts: 200, content: { membership: 'join' } }]);
+    if (url.pathname.endsWith('/messages')) return Response.json({ chunk: [event('$allowed', 300), event('$private-before-join', 100)], end: 'older' });
+    throw new Error(`unexpected download: ${url.pathname}`);
+  });
+  vi.stubGlobal('fetch', fetcher);
+  bridge.callBackendApi = vi.fn(async () => ({ ok: true }));
+  await bridge.archiveProjectDiscussion(roomId, { agents: new Set(['one']), agentMxids: new Map([['one', '@ac_one:test']]) });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(bridge.callBackendApi).toHaveBeenCalledWith('POST', '/api/matrix/conversations/admissions',
+    { roomId, admissions: [{ agent: 'one', sinceTs: 200 }] });
+  const events = bridge.callBackendApi.mock.calls.filter(call => call[1].endsWith('/events'));
+  expect(events).toHaveLength(1);
+  expect(events[0][2]).toMatchObject({ eventId: '$allowed', attachment: { remoteContent: { url: 'mxc://test/report' } } });
+  expect(events[0][2].attachment.path).toBeUndefined();
+});
 test('bridge persists media before send retries without upload and blocks promoted private files', async () => {
   const bridge = await fixture(), work = path.join(directory, 'work'); mkdirSync(work); writeFileSync(path.join(work, 'output.txt'), 'report');
   const file = snapshotSessionFile({ workspace: work, requestedPath: 'output.txt', directory: path.join(directory, 'stage') });

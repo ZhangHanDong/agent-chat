@@ -175,6 +175,7 @@ export declare class RouterStore {
     } | Refusal;
     settleAndRelease(input: SettleDispatchInput): SettleSuccess | Refusal;
     claimReplyCommand(claimMs?: number): ReplyCommand | null;
+    private replySessionCreatedAt;
     recordReplyDelivery(input: {
         commandId: string;
         claimToken: string;

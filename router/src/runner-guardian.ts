@@ -25,7 +25,9 @@ delete childEnv.HAFLEET_GUARDIAN_ARGS_JSON;
 delete childEnv.NODE_CHANNEL_FD;
 delete childEnv.NODE_CHANNEL_SERIALIZATION_MODE;
 
-const runtime = spawn(executable, args, {
+// Establish and census the owned process before user code can run or exit.
+// exec preserves this PID/birth identity; executable and argv stay positional.
+const runtime = spawn('/bin/sh', ['-c', 'kill -STOP "$$"; exec "$@"', 'hafleet-runtime', executable, ...args], {
   cwd: process.cwd(),
   env: childEnv,
   stdio: ['pipe', 'pipe', 'pipe'],
@@ -38,6 +40,7 @@ let cleanupPoll: NodeJS.Timeout | null = null;
 let cleanupDeadline: NodeJS.Timeout | null = null;
 let checking = false;
 let runtimeClosed = false;
+let spawnFailed = false;
 let runtimeExitCode = 1;
 let ownership: OwnedProcessTree | null = null;
 let ownershipPoll: NodeJS.Timeout | null = null;
@@ -106,7 +109,7 @@ async function finishWhenStopped(): Promise<void> {
     const members = ownership?.liveMembers(snapshot) ?? [];
     if (members.length) signalOwned(snapshot, escalating ? 'SIGKILL' : 'SIGTERM');
     if (runtimePaused) { runtime.kill('SIGCONT'); runtimePaused = false; }
-    if (!runtimeClosed || members.length || inspectionFailed || !ownership?.rootObserved) return;
+    if (!runtimeClosed || members.length || inspectionFailed || !ownership?.rootObserved && !spawnFailed) return;
     if (killTimer) clearTimeout(killTimer);
     if (cleanupPoll) clearInterval(cleanupPoll);
     if (cleanupDeadline) clearTimeout(cleanupDeadline);
@@ -149,12 +152,23 @@ runtime.stderr.pipe(process.stderr);
 runtime.once('spawn', () => {
   ownership = new OwnedProcessTree(runtime.pid!, process.pid);
   ownershipPoll = setInterval(() => { void refreshOwnership(); }, 100);
-  void refreshOwnership().then(() => {
-    if (!ownership?.rootObserved) { inspectionFailed = true; terminate(); return; }
-    if (!terminating && typeof process.send === 'function') process.send({ type: 'runtime_ready', pid: runtime.pid });
-  });
+  void (async () => {
+    const until = Date.now() + 2_000;
+    while (!terminating && Date.now() < until) {
+      const snapshot = await refreshOwnership();
+      if (!snapshot) { terminate(); return; }
+      if (ownership?.rootObserved && snapshot.get(runtime.pid!)?.state.startsWith('T')) {
+        runtime.kill('SIGCONT');
+        if (typeof process.send === 'function') process.send({ type: 'runtime_ready', pid: runtime.pid });
+        return;
+      }
+      await new Promise<void>(resolve => setTimeout(resolve, 10));
+    }
+    if (!terminating) { inspectionFailed = true; terminate(); }
+  })();
 });
 runtime.once('error', (error) => {
+  spawnFailed = runtime.pid === undefined;
   process.stderr.write(`runner guardian failed to launch runtime: ${error.message}\n`);
 });
 runtime.stdin.on('error', () => { /* The runner's exit determines delivery failure. */ });

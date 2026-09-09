@@ -17,6 +17,27 @@ const verdict = (r, action, overrides = {}) => ({ sender_mxid: r.owner_mxid, roo
   agent: r.agent, project: r.project, project_room_id: r.project_room_id, input_digest: r.input_digest,
   action, event_id: `$${r.id}`, ...overrides });
 
+test('approval rollback copies mutable records only and prunes expired historical requests without revoking grants', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'approval-retention-')); roots.push(root);
+  let now = 1000;
+  const store = new ApprovalStore(path.join(root, 'approvals.json'), { now: () => now });
+  store.upsertBinding(binding);
+  const record = store.createRequest(body('original'), { execution: command() });
+  store.submitMatrixVerdict(record.id, verdict(record, 'approve_always'));
+  const terminal = store.state.requests[record.id];
+  const originalSave = store._save.bind(store);
+  store._save = () => { throw new Error('disk full'); };
+  expect(() => store.createRequest(body('failed'))).toThrow('disk full');
+  expect(store.state.requests[record.id]).toBe(terminal);
+  expect(Object.keys(store.state.requests)).toEqual([record.id]);
+  store._save = originalSave;
+  now += 8 * 24 * 60 * 60_000;
+  const next = store.createRequest(body('next'), { execution: command() });
+  expect(store.getRequest(record.id)).toBeNull();
+  expect(next.status).toBe('approved');
+  expect(store.listGrants('edison').filter(grant => grant.active)).toHaveLength(1);
+});
+
 test('approval scopes preserve exact command and structured permissions without inferring domains', () => {
   const exact = deriveExecutionAuthorization(command());
   expect(exact.scope.kind).toBe('exact_command');

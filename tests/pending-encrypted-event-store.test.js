@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'fs';
 import os from 'os';
 import path from 'path';
@@ -11,6 +11,20 @@ describe('pending encrypted approval event store', () => {
     for (const directory of temporaryDirectories.splice(0)) {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test('an encrypted history batch writes once and rolls back completely on persistence failure', () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'hafleet-pending-batch-'));
+    temporaryDirectories.push(directory);
+    const store = new PendingEncryptedEventStore(path.join(directory, 'pending.json'));
+    const input = id => ({ roomId: '!room:test', event: { type: 'm.room.encrypted', event_id: id, content: { ciphertext: id } } });
+    const save = vi.spyOn(store, '_save');
+    store.putMany([input('$one'), input('$two')]);
+    expect(save).toHaveBeenCalledOnce();
+    save.mockImplementationOnce(() => { throw new Error('disk full'); });
+    expect(() => store.putMany([input('$three'), input('$four')])).toThrow('disk full');
+    expect(store.list().map(row => row.eventId)).toEqual(['$one', '$two']);
+    expect(new PendingEncryptedEventStore(store.filePath).list().map(row => row.eventId)).toEqual(['$one', '$two']);
   });
 
   test('retains an encrypted event across restart and removes it after recovery', () => {

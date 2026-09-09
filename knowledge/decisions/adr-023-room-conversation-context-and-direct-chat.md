@@ -90,3 +90,22 @@ Offline tests cover archival without wake, exact discussion ranges, pagination,
 cursor success/failure, duplicate delivery, restart, cross-room isolation, direct
 admission/revocation and encrypted device identity. Live acceptance separately
 uses the dedicated local HAFleet and Mini1 Palpo deployment.
+
+## September 9 review closure
+
+Reply provenance includes the host-owned session creation time, including null-root
+front-desk sessions and delayed file/activity commands. After room promotion,
+refuse replies from a session preceding the binding's visibility boundary or with
+unknown provenance. Treat that refusal as permanent. Front-desk group turns start
+fresh thread context instead of reusing their old private main session. Direct
+commands use the admitted Agent's own device; failed replies are recorded and do
+not replay already executed commands indefinitely. Only a device actually starting
+may delay a mention addressed to another Agent.
+
+Admission timestamps bound both direct and representative history. Backfill reads
+at most five pages of 100 events and reports a limited history when the cap is
+reached. A frozen discussion window contains at most 200 text parts. This updates
+the earlier unlimited-range policy: unread archived discussion remains available
+for future dispatches, and the model must disclose limited coverage when more
+history remains. On successful delivery advance through fully read events, never
+through a partially read message. Failed dispatches keep their prior position.

@@ -1,12 +1,4 @@
-const LABELS = {
-    command: '运行命令', files: '读取或修改文件', search: '搜索资料', delegate: '委派任务', tool: '调用工具',
-};
-/** A delivery projection only. Routing and lifecycle authority remain in RouterStore. */
-export class ActivityStore {
-    db;
-    constructor(db) {
-        this.db = db;
-        db.exec(`CREATE TABLE IF NOT EXISTS runner_activity (
+export const RUNNER_ACTIVITY_SCHEMA = `CREATE TABLE IF NOT EXISTS runner_activity (
       dispatch_id TEXT PRIMARY KEY REFERENCES dispatches(dispatch_id), phase TEXT NOT NULL,
       kind TEXT, tools INTEGER NOT NULL DEFAULT 0, finished INTEGER NOT NULL DEFAULT 0,
       started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, queued_at INTEGER NOT NULL,
@@ -15,7 +7,15 @@ export class ActivityStore {
     CREATE TABLE IF NOT EXISTS runner_activity_events (
       dispatch_id TEXT NOT NULL REFERENCES runner_activity(dispatch_id), event_key TEXT NOT NULL,
       PRIMARY KEY(dispatch_id, event_key)
-    );`);
+    );`;
+const LABELS = {
+    command: '运行命令', files: '读取或修改文件', search: '搜索资料', delegate: '委派任务', tool: '调用工具',
+};
+/** A delivery projection only. Routing and lifecycle authority remain in RouterStore. */
+export class ActivityStore {
+    db;
+    constructor(db) {
+        this.db = db;
     }
     read(dispatchId) {
         return this.db.prepare('SELECT * FROM runner_activity WHERE dispatch_id = ?').get(dispatchId);

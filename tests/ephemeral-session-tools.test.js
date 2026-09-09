@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import { openRouter } from '../router/dist/index.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -14,9 +15,9 @@ const cleanup = [];
 const execFileAsync = promisify(execFile);
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function fixture(fileWorkspace = false) {
+async function fixture(fileWorkspace = false, projectSide = null) {
   const agents = Object.fromEntries(['worker', 'peer', 'outsider'].map((name) => [name, {
-    name, agentId: `agent_${name}`, kind: 'agent', type: 'codex', workdir: process.cwd(), online: true,
+    name, agentId: `agent_${name}`, kind: 'agent', type: 'codex', workdir: process.cwd(), online: true, ...(projectSide ? { projectSide } : {}),
   }]));
   const context = await createBackendTestContext('hafleet-session-tools-', {
     agents, agentTokens: { worker: 'worker-secret', peer: 'peer-secret', outsider: 'outsider-secret' },
@@ -400,4 +401,35 @@ test('managed MCP sends a file through a fenced current conversation outbox', as
   expect(forged.status).toBe(400);
   expect((await request(context.app).post('/api/router/files').set({ ...headers, 'X-Agent-Token': 'peer-secret' })
     .send({ agent: 'worker', op: 'status', delivery_id: command.commandId })).status).toBeGreaterThanOrEqual(400);
+});
+
+test('historical attachments download only on an authorized receive and reuse verified bytes', async () => {
+  const { context, router, claim, headers } = await fixture(true, 'test');
+  let downloads = 0;
+  const server = createServer((req, res) => {
+    expect(req.url).toBe('/_matrix/client/v1/media/download/test/report');
+    expect(req.headers.authorization).toBe('Bearer fixture-media-token');
+    downloads++; res.end('historical report bytes');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  cleanup.push(() => new Promise(resolve => server.close(resolve)));
+  const operator = { Authorization: 'Bearer operator-secret' };
+  await request(context.app).post('/api/project-sides').set(operator)
+    .send({ server_name: 'test', api_base_url: `http://127.0.0.1:${server.address().port}` }).expect(200);
+  await request(context.app).put('/api/project-sides/test/credential').set(operator).send({ credential: {
+    kind: 'registrationToken', registrationToken: 'fixture-registration-token', representativeToken: 'fixture-media-token',
+  } }).expect(200);
+  await request(context.app).post('/api/matrix/conversations/events').set('X-Bridge-Secret', 'bridge-secret')
+    .send({ roomId: '!project:test', eventId: '$own', senderMxid: '@owner:test', body: 'report.txt', timestamp: 100,
+      attachment: { remoteContent: { msgtype: 'm.file', body: 'report.txt', url: 'mxc://test/report' } } }).expect(200);
+  router.conversations.prepare(claim.dispatchId, '!project:test', 'agent_worker');
+  expect(downloads).toBe(0);
+  await request(context.app).post('/api/router/files').set(headers).send({ agent: 'worker', op: 'receive', event_id: '$foreign' }).expect(404);
+  expect(downloads).toBe(0);
+  const receive = () => request(context.app).post('/api/router/files').set(headers).send({ agent: 'worker', op: 'receive', event_id: '$own' });
+  const result = await receive().expect(200);
+  expect(readFileSync(result.body.path, 'utf8')).toBe('historical report bytes');
+  expect(result.body.remoteContent).toBeUndefined(); expect(downloads).toBe(1);
+  expect((await receive().expect(200)).body.sha256).toBe(result.body.sha256);
+  expect(downloads).toBe(1);
 });

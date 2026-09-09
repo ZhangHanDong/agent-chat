@@ -36,7 +36,7 @@ test('direct messages continue one private conversation with project owner appro
     context.internals.approvalStoreForTest.upsertBinding({ agent: 'worker', project: 'project', project_room_id: '!project:test',
       owner_mxid: '@owner:test', owner_dm_room_id: '!owner-approval:test' });
     await request(context.app).post('/api/matrix/direct-rooms').send({ agent: 'worker', humanMxid: '@alice:test', roomId: '!dm:test' }).expect(403);
-    await bridge('/api/matrix/direct-rooms').send({ agent: 'worker', humanMxid: '@alice:test', roomId: '!dm:test' }).expect(200);
+    await bridge('/api/matrix/direct-rooms').send({ agent: 'worker', humanMxid: '@alice:test', roomId: '!dm:test', sinceTs: 50 }).expect(200);
     await post('$first', 'Remember the release is Tuesday');
     const command = router.claimMatrixCommand();
     expect(command.roomId).toBe('!dm:test');

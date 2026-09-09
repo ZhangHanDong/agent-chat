@@ -12,9 +12,11 @@ import { AGENT_OPS_SERVER_IDENTITY_SCHEMA } from './migrations/007-agent-ops-ser
 import { SESSION_OVERRIDES_SCHEMA } from './migrations/008-session-overrides.js';
 import { APPROVAL_REQUEST_IDENTITY_SCHEMA } from './migrations/009-approval-request-identity.js';
 import { TASK_AUTHORIZATION_EPOCH_SCHEMA } from './migrations/011-task-authorization-epoch.js';
-import { ConversationStore, CONVERSATION_SCHEMA } from './conversations.js';
+import { ConversationStore } from './conversations.js';
+import { CONVERSATION_SCHEMA } from './migrations/010-conversations.js';
+import { DELIVERY_STORAGE_SCHEMA } from './migrations/013-delivery-storage.js';
 import { ActivityStore } from './activity.js';
-import { FILE_REPLY_SCHEMA } from './files.js';
+import {} from './files.js';
 import { TASK_OPERATIONS_SCHEMA } from './migrations/009-task-operations.js';
 import { applyTaskOperation } from './task-operations.js';
 const SCHEMA_VERSION = 9;
@@ -164,7 +166,6 @@ export class RouterStore {
         this.applyMigrations();
         this.conversations = new ConversationStore(this.db);
         this.activity = new ActivityStore(this.db);
-        this.db.exec(FILE_REPLY_SCHEMA);
     }
     close() {
         this.db.close();
@@ -238,20 +239,26 @@ export class RouterStore {
         // Two released branches used migration 9 for different schemas. Migration
         // numbers alone cannot distinguish them. Converge their physical schemas
         // atomically, retaining the original history and recording the union as 12.
-        this.db.transaction(() => {
-            const hasColumn = (table, column) => this.db.pragma(`table_info(${table})`).some((row) => row.name === column);
-            if (!hasColumn('approval_waits', 'resumed_at'))
-                this.db.exec(APPROVAL_REQUEST_IDENTITY_SCHEMA);
-            if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runner_task_operations'").get()) {
-                this.db.exec(TASK_OPERATIONS_SCHEMA);
-            }
-            this.db.exec(CONVERSATION_SCHEMA);
-            if (!hasColumn('tasks', 'execution_epoch'))
-                this.db.exec(TASK_AUTHORIZATION_EPOCH_SCHEMA);
-            for (const version of [9, 10, 11, 12]) {
-                this.db.prepare('INSERT OR IGNORE INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(version, this.now());
-            }
-        })();
+        if (!this.db.prepare('SELECT 1 FROM router_schema_migrations WHERE version=12').get())
+            this.db.transaction(() => {
+                const hasColumn = (table, column) => this.db.pragma(`table_info(${table})`).some((row) => row.name === column);
+                if (!hasColumn('approval_waits', 'resumed_at'))
+                    this.db.exec(APPROVAL_REQUEST_IDENTITY_SCHEMA);
+                if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runner_task_operations'").get()) {
+                    this.db.exec(TASK_OPERATIONS_SCHEMA);
+                }
+                this.db.exec(CONVERSATION_SCHEMA);
+                if (!hasColumn('tasks', 'execution_epoch'))
+                    this.db.exec(TASK_AUTHORIZATION_EPOCH_SCHEMA);
+                for (const version of [9, 10, 11, 12]) {
+                    this.db.prepare('INSERT OR IGNORE INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(version, this.now());
+                }
+            })();
+        if (!this.db.prepare('SELECT 1 FROM router_schema_migrations WHERE version=13').get())
+            this.db.transaction(() => {
+                this.db.exec(DELIVERY_STORAGE_SCHEMA);
+                this.db.prepare('INSERT INTO router_schema_migrations(version,applied_at) VALUES (?,?)').run(13, this.now());
+            })();
     }
     emit(kind, payload, audience = 'operator') {
         const result = this.db.prepare('INSERT INTO router_events(schema_version, at, kind, audience_scope, payload_json) VALUES (?, ?, ?, ?, ?)').run(SCHEMA_VERSION, this.now(), kind, audience, canonicalJson(payload));
@@ -658,7 +665,9 @@ export class RouterStore {
             const senderAgentName = typeof payload.senderAgentName === 'string' ? payload.senderAgentName : '';
             if (!roomId || !threadRootEventId || !body || !senderAgentName)
                 throw new Error('stored Matrix command is corrupt');
+            const task = this.db.prepare('SELECT created_at FROM tasks WHERE task_id=?').get(row.task_id);
             return {
+                sourceCreatedAt: task ? Date.parse(task.created_at) : null,
                 commandId: row.command_id,
                 taskId: row.task_id,
                 transactionId: row.txn_id,
@@ -1708,6 +1717,7 @@ export class RouterStore {
                 const claimUntil = now + Math.max(1_000, claimMs);
                 this.db.prepare("UPDATE notice_outbox SET state = 'claimed', claim_token_hash = ?, claimed_until = ? WHERE command_id = ?").run(digest(claimToken), claimUntil, notice.command_id);
                 return {
+                    sourceCreatedAt: notice.dispatch_id ? this.replySessionCreatedAt(notice.dispatch_id) : notice.created_at,
                     commandId: notice.command_id,
                     dispatchId: notice.dispatch_id,
                     transactionId: notice.txn_id,
@@ -1729,6 +1739,7 @@ export class RouterStore {
             const claimUntil = now + Math.max(1_000, claimMs);
             this.db.prepare("UPDATE reply_outbox SET state = 'claimed', claim_token_hash = ?, claimed_until = ? WHERE command_id = ?").run(digest(claimToken), claimUntil, row.command_id);
             return {
+                sourceCreatedAt: this.replySessionCreatedAt(row.dispatch_id),
                 commandId: row.command_id,
                 dispatchId: row.dispatch_id,
                 transactionId: row.txn_id,
@@ -1742,6 +1753,10 @@ export class RouterStore {
             };
         });
         return tx();
+    }
+    replySessionCreatedAt(dispatchId) {
+        return this.db.prepare(`SELECT s.created_at FROM sessions s
+      JOIN dispatches d ON d.session_id=s.session_id WHERE d.dispatch_id=?`).get(dispatchId)?.created_at ?? null;
     }
     recordReplyDelivery(input) {
         try {

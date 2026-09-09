@@ -6,12 +6,12 @@ import { openRouter } from '../router/dist/index.js';
 
 const cleanup = [];
 afterEach(() => { for (const close of cleanup.splice(0).reverse()) close(); });
-function fixture() {
+function fixture(options = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'conversation-'));
   const dbPath = path.join(dir, 'router.db');
-  let router = openRouter({ dbPath });
+  let router = openRouter({ dbPath, ...options });
   cleanup.push(() => { router.close(); rmSync(dir, { recursive: true, force: true }); });
-  return { get router() { return router; }, restart() { router.close(); router = openRouter({ dbPath }); } };
+  return { get router() { return router; }, restart() { router.close(); router = openRouter({ dbPath, ...options }); } };
 }
 function archive(router, id, body, sender = '@alice:test', room = '!project:test') {
   return router.conversations.archive({ roomId: room, eventId: `$${id}`, senderMxid: sender, body, timestamp: 100 });
@@ -125,4 +125,55 @@ test('unread context cannot be consumed by a successful but incomplete reader', 
   expect(router.readConversation(work.capability).next).not.toBeNull();
   deliver(router, work.capability);
   expect(router.db.prepare('SELECT * FROM room_conversation_positions').all()).toEqual([]);
+});
+
+test('bounded conversation windows advance only through fully read events', () => {
+  const { router } = fixture();
+  for (let i = 0; i < 300; i++) archive(router, `event-${i}`, `discussion ${i}`);
+  archive(router, 'trigger', '@worker summarize');
+  const first = start(router, 'trigger');
+  const page = router.readConversation(first.capability);
+  expect(page.totalParts).toBe(200); expect(page.messages).toHaveLength(8);
+  expect(page.messages[0].body).toBe('discussion 0');
+  deliver(router, first.capability);
+  expect(router.db.prepare('SELECT through_seq FROM room_conversation_positions').get().through_seq).toBe(8);
+  archive(router, 'next', 'continue');
+  const next = start(router, 'next');
+  expect(router.readConversation(next.capability).messages[0].body).toBe('discussion 8');
+});
+
+test('a project Agent sees only discussion since its own admission', () => {
+  const { router } = fixture();
+  archive(router, 'earlier', 'before admission');
+  router.conversations.setAdmission('!project:test', 'worker', 200);
+  router.conversations.archive({ roomId: '!project:test', eventId: '$new', senderMxid: '@alice:test', body: 'after admission', timestamp: 300 });
+  const work = start(router, 'new');
+  expect(router.readConversation(work.capability).messages.map(message => message.body)).toEqual(['after admission']);
+});
+
+test('a bounded history window still admits the current request attachment without exposing later uploads', () => {
+  const { router } = fixture();
+  for (let i = 0; i < 220; i++) archive(router, `earlier-${i}`, 'background');
+  const file = { name: 'request.txt', remoteContent: { msgtype: 'm.file', url: 'mxc://test/request' } };
+  router.conversations.archive({ roomId: '!project:test', eventId: '$trigger', senderMxid: '@alice:test', body: 'read request.txt', timestamp: 100, attachment: file });
+  const work = start(router, 'trigger');
+  expect(router.conversations.prepare(work.capability.dispatchId, '!project:test', 'id-worker').hasMoreHistory).toBe(true);
+  expect(router.receiveFile({ ...work.capability, eventId: '$trigger' })).toMatchObject({ ok: true, file });
+  router.conversations.archive({ roomId: '!project:test', eventId: '$later', senderMxid: '@alice:test', body: 'later', timestamp: 100, attachment: file });
+  expect(router.receiveFile({ ...work.capability, eventId: '$later' }).ok).toBe(false);
+});
+
+test('reply outbox preserves null-root session origin after a later room promotion', () => {
+  let now = 300;
+  const { router } = fixture({ now: () => now });
+  router.conversations.bindDirect({ roomId: '!project:test', agent: 'worker', humanMxid: '@alice:test',
+    projectRoomId: '!source:test', engagementId: 'engagement', sinceTs: 50 });
+  archive(router, 'private', 'private task');
+  const work = start(router, 'private');
+  router.conversations.promoteRoom('!project:test', 500);
+  now = 600;
+  router.settleAndRelease({ ...work.capability, outcome: 'completed', output: { text: 'private result' } });
+  const reply = router.claimReplyCommand();
+  expect(reply).toMatchObject({ threadRootEventId: null, sourceCreatedAt: 300 });
+  expect(reply.sourceCreatedAt).toBeLessThan(router.conversations.direct('!project:test', 'worker').sinceTs);
 });

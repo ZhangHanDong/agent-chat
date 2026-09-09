@@ -3,6 +3,19 @@ import { createMatrixWorkStore, awaitMatrixWork } from '../lib/matrix-work-store
 import { executeMatrixWork } from '../lib/matrix-work-executor.js';
 import { createEngagementStore } from '../lib/engagement-store.js';
 
+test('permanently rejected approval notices settle as failures and are not retried', async () => {
+  const store = createMatrixWorkStore({ load: () => [], persist: () => true });
+  const row = store.enqueue({ action: 'engagement-approved', agent: 'worker', sideId: 'test', roomId: '!room:test', engagementId: 'engagement', content: { body: 'approved' } });
+  const claim = store.claim();
+  const outcome = await executeMatrixWork({ ...claim, side: { apiBaseUrl: 'https://matrix.test', serverName: 'test' },
+    credential: { kind: 'registrationToken', representativeToken: 'fixture-token' } }, {
+    fetchImpl: async () => Response.json({ errcode: 'M_FORBIDDEN' }, { status: 403 }),
+  });
+  expect(outcome).toMatchObject({ ok: false, permanent: true });
+  expect(store.complete(row.id, claim.claimToken, outcome)).toMatchObject({ state: 'complete', outcome: { ok: false } });
+  expect(store.claim()).toBeNull(); expect(store.unsettled('test')).toBe(false);
+});
+
 test('a lost registration acknowledgement reuses the durable credential after bridge restart', async () => {
   let clock = 1000;
   let disk = '[]';

@@ -143,6 +143,12 @@
         },
         {
           "method": "POST",
+          "path": "/api/matrix/conversations/admissions",
+          "owner": "matrix.conversation-admission",
+          "auth": "bridge-secret"
+        },
+        {
+          "method": "POST",
           "path": "/api/router/conversation",
           "owner": "router.conversation-reader",
           "auth": "agent-token"

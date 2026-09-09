@@ -37,6 +37,9 @@ test('execution policy and grant management reject agent credentials and preserv
     await request(ctx.app).put(endpoint).set(operator).send({ executionPolicy: { yolo } }).expect(200);
     const stored = JSON.parse(readFileSync(path.join(ctx.runtimeDir, 'data/agents.json'), 'utf8'));
     expect(stored.edison.executionPolicy).toEqual({ yolo });
+    const publicAgents = (await request(ctx.app).get('/api/agents').expect(200)).body;
+    expect(publicAgents.find(agent => agent.name === 'edison')).not.toHaveProperty('executionPolicy');
+    expect((await request(ctx.app).get('/api/agents/edison').expect(200)).body).not.toHaveProperty('executionPolicy');
   }
   await request(ctx.app).put(endpoint).set(operator).send({ executionPolicy: { yolo: 'false' } }).expect(400);
   await request(ctx.app).put('/api/agents/claude/execution-policy').set(operator).send({ executionPolicy: { yolo: true } }).expect(400);
@@ -52,10 +55,18 @@ test('execution policy and grant management reject agent credentials and preserv
     action: 'approve_always', event_id: '$decision' }).ok).toBe(true);
   const grants = (await request(ctx.app).get(endpoint).set(operator).expect(200)).body.grants;
   expect(grants).toHaveLength(1); expect(grants[0].active).toBe(true);
+  const assertPublic = grant => {
+    for (const key of ['ownerDmRoomId', 'workspace', 'sourceRequestId', 'sourceEventId', 'scopeKey', 'bindingAuthority']) {
+      expect(grant).not.toHaveProperty(key);
+    }
+    expect(JSON.stringify(grant)).not.toContain('!private:test');
+    expect(grant).toMatchObject({ scope: 'always', project: 'physics', ownerMxid: '@owner:test' });
+  };
+  assertPublic(grants[0]);
   const revoke = `/api/agents/edison/execution-grants/${grants[0].id}`;
   await request(ctx.app).delete(revoke).set(agentHeaders).expect(401);
   await request(ctx.app).delete(`/api/agents/other/execution-grants/${grants[0].id}`).set(operator).expect(404);
-  await request(ctx.app).delete(revoke).set(operator).expect(200);
+  assertPublic((await request(ctx.app).delete(revoke).set(operator).expect(200)).body.grant);
   expect((await request(ctx.app).get(endpoint).set(operator).expect(200)).body.grants[0].active).toBe(false);
   expect(store.consumeDecision(pending.id, 'edison', pending.input_digest).decision).toBe('deny');
 });

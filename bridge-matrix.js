@@ -20,7 +20,8 @@ import { executeMatrixWork } from './lib/matrix-work-executor.js';
 import {
   createRoomOnSide, inviteToRoomOnSide, joinRoomOnSideAsAgent, joinRoomOnSideAsRepresentative,
   sendToRoomOnSide, namespaceAdmits,
-  joinedMembersOnSide, roomMessagesOnSide, roomNameOnSide,
+  joinedMembersOnSide,
+  roomStateOnSide, roomMessagesOnSide, roomNameOnSide,
 } from './lib/matrix-representative.js';
 import { resolveAppserviceListenerConfig, startAppserviceListener } from './lib/appservice-listener.js';
 import {
@@ -5896,14 +5897,14 @@ export class MatrixBridge {
     this.agentProfileCheckedAt.set(agentName, Date.now());
   }
 
-  async fileRoomContext(agentName, roomId, content) {
+  async fileRoomContext(agentName, roomId, content, origin = {}) {
     const sender = this.agentSenderFor(agentName, roomId);
     if (!sender) throw new MatrixFileError('file_sender_unavailable', 'Agent sender is unavailable');
     const entry = this.directChats?.entryForRoom(roomId, agentName);
     let client;
     if (entry) {
       await this.directChats.verify(entry, entry.rooms[roomId]);
-      this.directChats.assertReplyScope(entry, roomId, content);
+      this.directChats.assertReplyScope(entry, roomId, content, origin);
       client = entry.client;
     } else {
       const mxid = sender.agentUserId || this.getAgentCredential(agentName)?.mxid;
@@ -5921,7 +5922,7 @@ export class MatrixBridge {
     const relation = command.threadRootEventId ? this.routerThreadRelation(command.threadRootEventId) : null;
     let content = command.file.preparedContent;
     let context = await this.fileRoomContext(command.senderAgentName, command.roomId,
-      content || (relation ? { 'm.relates_to': relation } : {}));
+      content || (relation ? { 'm.relates_to': relation } : {}), command);
     if (!content) {
       content = await prepareMatrixFile({ file: command.file, caption: command.body, relation,
         encrypted: context.encrypted, crypto: context.client.crypto,
@@ -5931,11 +5932,11 @@ export class MatrixBridge {
       if (!prepared?.ok || !prepared.content) throw new Error('Uploaded file was not durably prepared');
       content = prepared.content;
     }
-    context = await this.fileRoomContext(command.senderAgentName, command.roomId, content);
+    context = await this.fileRoomContext(command.senderAgentName, command.roomId, content, command);
     if (context.encrypted !== Boolean(content.file)) throw new MatrixFileError('file_encryption_changed', 'Room encryption changed; resend the file');
     const eventId = context.encrypted && !context.invited
       ? await sendDirectEvent(context.client, command.roomId, content, command.transactionId)
-      : await this.sendAsAgentContent(context.sender, command.roomId, content, null, { transactionId: command.transactionId, throwOnFailure: true });
+      : await this.sendAsAgentContent(context.sender, command.roomId, content, null, { transactionId: command.transactionId, throwOnFailure: true, sourceCreatedAt: command.sourceCreatedAt });
     if (!eventId) throw new Error('Matrix file send returned no event id');
     await this.callBackendApi('POST', `/api/router/reply-outbox/${encodeURIComponent(command.commandId)}/delivered`,
       { claim_token: command.claimToken, event_id: eventId });
@@ -5957,6 +5958,7 @@ export class MatrixBridge {
       : { msgtype: 'm.text', body: String(command.body || ''), ...(root ? { 'm.relates_to': this.routerThreadRelation(root) } : {}) };
     const eventId = await this.sendAsAgentContent(token, command.roomId, content, null, {
       transactionId: command.transactionId,
+      sourceCreatedAt: command.sourceCreatedAt,
       throwOnFailure: true,
     });
     if (!eventId) throw new Error('Matrix send returned no event id');
@@ -6350,12 +6352,23 @@ export class MatrixBridge {
     }
   }
 
-  async sayInRoom(roomId, content, { txnSeed = null } = {}) {
+  async sayInRoom(roomId, content, { txnSeed = null, targetAgent = null, receivedAt = null } = {}) {
     const at = String(roomId || '').indexOf(':');
     const server = at > 0 ? String(roomId).slice(at + 1).toLowerCase() : '';
     // Durable callers supply the input/work identity for retry deduplication.
     // An unkeyed call is a new send: identical text is not evidence of a retry.
     const sendSeed = txnSeed || `say:${roomId}:${randomUUID()}`;
+    if (this.directChats?.entriesForRoom(roomId)?.length) {
+      try {
+        return await this.directChats.send(roomId, content,
+          `command_${createHash('sha256').update(sendSeed).digest('hex').slice(0, 40)}`, targetAgent,
+          { sourceCreatedAt: receivedAt });
+      } catch (cause) {
+        const error = new Error('Direct-room command reply could not be delivered', { cause });
+        error.commandReplyFailure = true;
+        throw error;
+      }
+    }
     const asRepresentative = () => sendToRoomOnSide({
       ...this.actingSideFor(server),
       roomId,
@@ -6726,9 +6739,11 @@ export class MatrixBridge {
     return isMatrixActivity(event, event.sender === mxid);
   }
 
-  async archiveConversationEvent(roomId, event, parsed) {
+  async archiveConversationEvent(roomId, event, parsed, { deferAttachment = false } = {}) {
     let attachment;
-    if (['m.image', 'm.file'].includes(event.content?.msgtype)) {
+    if (['m.image', 'm.file'].includes(event.content?.msgtype) && deferAttachment) {
+      attachment = { remoteContent: event.content };
+    } else if (['m.image', 'm.file'].includes(event.content?.msgtype)) {
       let access;
       for (const entry of this.directChats?.entriesForRoom(roomId) || []) {
         try {
@@ -6760,29 +6775,42 @@ export class MatrixBridge {
 
   async archiveProjectDiscussion(roomId, room) {
     this.discussionBackfills ??= new Map();
-    if (this.discussionBackfills.has(roomId)) return this.discussionBackfills.get(roomId);
+    const key = `${roomId}:${[...room.agents].sort().join(',')}`;
+    if (this.discussionBackfills.has(key)) return this.discussionBackfills.get(key);
     const backfill = (async () => {
       const acting = this.actingSideFor(state.trustedManagedRooms?.[roomId]?.side);
       if (!acting) throw new Error('discussion history credential unavailable');
+      const currentState = await roomStateOnSide({ ...acting, roomId });
+      const admissions = [...room.agents].map(agent => {
+        const mxid = room.agentMxids.get(agent);
+        const member = currentState.find(e => e.type === 'm.room.member' && e.state_key === mxid && e.content?.membership === 'join');
+        if (!member || !Number.isSafeInteger(member.origin_server_ts)) throw new Error('Agent admission timestamp is unavailable');
+        return { agent, sinceTs: member.origin_server_ts };
+      });
+      if (!admissions.length) return;
+      await this.callBackendApi('POST', '/api/matrix/conversations/admissions', { roomId, admissions });
+      const sinceTs = Math.min(...admissions.map(row => row.sinceTs));
       const collected = []; let from = null; const cursors = new Set();
-      do {
+      for (let page = 0; page < 5; page++) {
         const history = await roomMessagesOnSide({ ...acting, roomId, from, limit: 100 });
         if (!history.known) throw new Error(history.reason || 'discussion history unavailable');
-        collected.push(...history.chunk);
+        collected.push(...history.chunk.filter(event => Number.isSafeInteger(event.origin_server_ts) && event.origin_server_ts >= sinceTs));
+        if (history.chunk.some(event => Number.isSafeInteger(event.origin_server_ts) && event.origin_server_ts < sinceTs)) break;
         if (!history.chunk.length || !history.end) break;
         if (cursors.has(history.end)) throw new Error('discussion history pagination repeated a cursor');
         cursors.add(history.end); from = history.end;
-      } while (from);
+        if (page === 4) this.postWarning(`Discussion history in ${roomId} is limited to the latest 500 events since Agent admission.`);
+      }
       for (const event of collected.reverse()) {
         if (event.type !== 'm.room.message') continue;
         if (this.isAgentActivity(event, roomId)) continue;
         const parsed = parseInboundTextMessage(event.content);
         if (parsed.skip || !event.event_id) continue;
-        await this.archiveConversationEvent(roomId, event, parsed);
+        await this.archiveConversationEvent(roomId, event, parsed, { deferAttachment: true });
       }
     })();
-    this.discussionBackfills.set(roomId, backfill);
-    try { await backfill; } catch (error) { this.discussionBackfills.delete(roomId); throw error; }
+    this.discussionBackfills.set(key, backfill);
+    try { await backfill; } catch (error) { this.discussionBackfills.delete(key); throw error; }
   }
 
   async onInvitedAgentRoomMessage(roomId, event) {
@@ -6814,7 +6842,8 @@ export class MatrixBridge {
     // An addressed Agent may still be accepting its invite. Let its device's
     // backfill retry this event instead of permanently consuming half the targets.
     if (knownMentions.some(name => !entries.some(e => e.sender.agentName === name)
-      && first.members.some(mxid => agentNameFromUserId(mxid, this) === name))) throw new Error('room Agent invitation is still being admitted');
+      && first.members.some(mxid => agentNameFromUserId(mxid, this) === name
+        && this.directChats.starting?.has(mxid)))) throw new Error('room Agent invitation is still being admitted');
     try {
       await this.archiveConversationEvent(roomId, event, parsed);
     } catch (error) { if (/403/.test(error.message)) return { ignored: true, reason: 'room_sender_not_authorized' }; throw error; }
@@ -6828,8 +6857,16 @@ export class MatrixBridge {
       if (cmdIdx > 0) cmdBody = cmdBody.slice(cmdIdx).trim();
     }
     if (!senderIsAgent && !['m.file', 'm.image'].includes(event.content?.msgtype) && cmdBody.startsWith('!')) {
-      await this.commands.handle(roomId, event.sender, cmdBody, { groupName: null,
-        targetAgent: recipients.length === 1 ? recipients[0] : null, approvalRoom: false, eventId: event.event_id });
+      try {
+        await this.commands.handle(roomId, event.sender, cmdBody, { groupName: first.mode === 'group' ? roomId : null,
+          targetAgent: recipients.length === 1 ? recipients[0] : null, approvalRoom: false,
+          eventId: event.event_id, receivedAt: event.origin_server_ts });
+      } catch (error) {
+        if (!error?.commandReplyFailure) throw error;
+        // Command execution may already have completed. Retrying the whole sync
+        // batch can repeat its effects forever; record the failed reply visibly.
+        this.postWarning(`Command reply delivery failed in ${roomId} for event ${event.event_id}. The command will not be repeated automatically.`);
+      }
       this.rememberMatrixEvent(event.event_id);
       return;
     }
@@ -10698,7 +10735,7 @@ export class MatrixBridge {
     const doSend = async () => {
       if (state.trustedManagedRooms?.[roomId]?.directChat) {
         const senderName = sender.agentName || Object.keys(state.agentTokens || {}).find(name => this.getAgentToken(name) === token);
-        const eventId = await this.directChats.send(roomId, content, txnId, senderName);
+        const eventId = await this.directChats.send(roomId, content, txnId, senderName, { sourceCreatedAt: delivery?.sourceCreatedAt });
         this.rememberMatrixEvent(eventId, sourceMsgId);
         this.endAgentWork(sender.agentName, roomId);
         return eventId;

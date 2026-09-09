@@ -56,13 +56,13 @@ export default function AgentExecutionPermissions({ agent }) {
   useEffect(() => {
     let current = true;
     setSnapshot(null);
-    if (live) send(endpoint, { method: 'GET' }).then(result => {
+    if (live && agent.framework === 'codex') send(endpoint, { method: 'GET' }).then(result => {
       if (!current) return;
       if (result.ok) { setSnapshot(result.body); setYolo(result.body.executionPolicy?.yolo === true); }
       else setNotice(result.error);
     });
     return () => { current = false; };
-  }, [endpoint, live, reload]);
+  }, [endpoint, live, reload, agent.framework]);
   if (agent.framework !== 'codex') return null;
   const grants = snapshot?.grants?.filter(grant => grant.active) || [];
   return <section className="panel" aria-label={t('exec.title')}>

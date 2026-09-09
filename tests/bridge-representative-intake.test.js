@@ -21,6 +21,7 @@ const representativeRow = (registration = 'borrower.test@generation') => ({
   representativeToken: 'representative-fixture-token', representative: { mxid: representative }, registration,
 });
 const json = body => ({ ok: true, status: 200, json: async () => body });
+const memberState = members => members.map(state_key => ({ type: 'm.room.member', state_key, origin_server_ts: 50, content: { membership: 'join' } }));
 const bindings = () => ['coding', 'docs'].map(agent => ({
   agent, projectRoomId: room, project: room, ownerMxid: borrower,
   ownerDmRoomId: `!approval-${agent}:borrower.test`, active: true,
@@ -55,6 +56,7 @@ function fixture() {
   const members = [borrower, representative, '@ac_coding:borrower.test', '@ac_docs:borrower.test'];
   vi.stubGlobal('fetch', vi.fn(async (input, options) => {
     if (new URL(input).pathname.endsWith('/messages')) return json({ chunk: [] });
+    if (new URL(input).pathname.endsWith('/state')) return json(memberState(members));
     expect(new URL(input).pathname).toMatch(/\/joined_members$/);
     expect(options.headers.Authorization).toBe('Bearer representative-fixture-token');
     expect(new URL(input).searchParams.has('user_id')).toBe(false);
@@ -293,6 +295,7 @@ describe('representative room admission and intake', () => {
       expect(options.headers.Authorization).toBe('Bearer fixture-as-token');
       expect(new URL(input).searchParams.get('user_id')).toBe(representative);
       if (new URL(input).pathname.endsWith('/messages')) return json({ chunk: [] });
+    if (new URL(input).pathname.endsWith('/state')) return json(memberState(members));
       expect(new URL(input).pathname).toMatch(/\/joined_members$/);
       return json({ joined: Object.fromEntries(members.map(mxid => [mxid, {}])) });
     }));
@@ -316,6 +319,7 @@ describe('representative room admission and intake', () => {
       expect(options.headers.Authorization).toBe('Bearer fixture-as-token');
       expect(new URL(input).searchParams.get('user_id')).toBe(rep);
       if (new URL(input).pathname.endsWith('/messages')) return json({ chunk: [] });
+    if (new URL(input).pathname.endsWith('/state')) return json(memberState(members));
       expect(new URL(input).pathname).toMatch(/\/joined_members$/);
       return json({ joined: Object.fromEntries(members.map(mxid => [mxid, {}])) });
     }));
@@ -404,6 +408,7 @@ describe('representative room admission and intake', () => {
       expect(url.searchParams.has('user_id')).toBe(false);
       if (url.pathname.includes('/join/')) { joined = true; return json({ room_id: room }); }
       if (url.pathname.endsWith('/messages')) return json({ chunk: [] });
+      if (url.pathname.endsWith('/state')) { expect(joined).toBe(true); return json(memberState(members)); }
       if (url.pathname.endsWith('/joined_members')) {
         if (!joined) return { ok: false, status: 403, json: async () => ({ errcode: 'M_FORBIDDEN' }) };
         return json({ joined: Object.fromEntries(members.map(mxid => [mxid, {}])) });

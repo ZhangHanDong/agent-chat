@@ -73,3 +73,6 @@ export type {
   TaskIntentResult,
   WorkspaceMode,
 } from './types.js';
+
+export { OwnedProcessTree, parseProcessSnapshot } from './owned-process-tree.js';
+export type { ProcessIdentity } from './owned-process-tree.js';

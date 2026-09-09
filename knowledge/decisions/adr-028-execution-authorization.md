@@ -38,3 +38,18 @@ Verified reference: Codex 0.153.4 generated app-server JSON schema and
 https://learn.chatgpt.com/docs/app-server#approvals (2026-09-08). The installed
 schema differs from the documentation in optional experimental fields, so
 unsupported or unfamiliar data must not widen a grant.
+
+## September 9 review closure
+
+The console receives an explicit grant management projection, excluding private
+approval-room IDs, source event/request IDs, and internal workspace fields. Keep
+the human-readable exact permission description so operators can understand and
+revoke the actual rule. Public Agent summaries omit execution policy; authenticated
+policy endpoints remain authoritative. Created canonical tasks count as live;
+unknown statuses never authorize a task grant.
+
+Rollback snapshots copy maps and the mutable request/grant records rather than
+deep-cloning historical payloads. Terminal request receipts are retained through
+seven days after expiry and pruned on subsequent creation. A pruned request cannot
+be replayed as an authorization. Independent persistent grants retain their full
+binding/incarnation authority and continue to be explicitly revocable.

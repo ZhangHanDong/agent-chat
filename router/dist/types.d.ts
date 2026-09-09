@@ -101,6 +101,7 @@ export interface AttachInputsSuccess {
 }
 export type AttachInputsResult = AttachInputsSuccess | Refusal;
 export interface MatrixCommand {
+    sourceCreatedAt: number | null;
     commandId: string;
     taskId: string;
     transactionId: string;
@@ -113,6 +114,7 @@ export interface MatrixCommand {
     claimUntil: number;
 }
 export interface ReplyCommand {
+    sourceCreatedAt: number | null;
     file?: import('./files.js').FileReplyManifest & {
         preparedContent: Readonly<Record<string, unknown>> | null;
     };

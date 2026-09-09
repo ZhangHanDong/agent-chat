@@ -52,3 +52,15 @@ Encrypted-file keys stay in the bridge transport and never enter model context.
 Use the same Matrix Rust attachment primitive as matrix-bot-sdk for bounded
 inbound decryption, declared as a direct dependency. This avoids starting a
 second room crypto engine or allowing the SDK downloader to buffer unbounded media.
+
+## September 9 review closure
+
+Historical recovery stores attachment metadata without downloading bytes. Only an
+authenticated current-dispatch receive_file call downloads such an attachment,
+using the configured homeserver credential and the existing size/integrity checks.
+Cache the verified manifest and revalidate dispatch authority after asynchronous
+download. The current request's attachment remains readable when its event falls
+beyond a bounded background-history window; unrelated later uploads remain hidden.
+Encrypted descriptors remain in private transport/router storage and never reach
+model context. Private-session origin checks apply before upload and again before
+file send, including files with no thread relation.

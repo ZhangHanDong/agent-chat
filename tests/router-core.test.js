@@ -1136,7 +1136,7 @@ describe('approval parking and read projection', () => {
       INSERT INTO approval_waits_legacy SELECT ${columns} FROM approval_waits;
       DROP TABLE approval_waits;
       ALTER TABLE approval_waits_legacy RENAME TO approval_waits;
-      DELETE FROM router_schema_migrations WHERE version = 9;`);
+      DELETE FROM router_schema_migrations WHERE version >= 9;`);
     router.close();
     const reopened = openRouter({ dbPath: path.join(root, 'router.db'), now: () => 1_800_000_000_000 });
     try {

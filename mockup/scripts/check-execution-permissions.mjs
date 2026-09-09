@@ -28,10 +28,12 @@ try {
         unexpected.push(`${req.method()} ${p}`); return route.abort();
       }
       if (p === 'framework-presets') return reply(presets);
-      if (p === 'agents') return reply([agent]);
+      if (p === 'agents') return reply([agent, { name: 'claude-worker', kind: 'agent', type: 'claude' }]);
       if (p === 'agents/edison/execution-policy') return reply({ executionPolicy: agent.executionPolicy, grants: [grant] });
       if (p === 'agents/edison/pane') return reply({ lines: [] });
       if (p === 'agents/edison/tasks') return reply([]);
+      if (p === 'agents/claude-worker/pane') return reply({ lines: [] });
+      if (p === 'agents/claude-worker/tasks') return reply([]);
       if (p === 'engagements') return reply({ engagements: [] });
       if (p === 'project-sides') return reply({ sides: [] });
       if (['frameworks', 'alerts'].includes(p)) return reply([]);
@@ -69,6 +71,9 @@ try {
       await page.locator('.btn.primary').click();
       await page.waitForURL('**/resources');
       assert.equal(presets.find(p => p.id === 'created').executionPolicy.yolo, true);
+      await page.goto(base + '/agents/claude-worker#runtime');
+      await page.getByTestId('prov-live').waitFor();
+      assert.equal(await page.getByRole('region', { name: locale === 'zh' ? '执行权限' : 'Execution permissions', exact: true }).count(), 0);
       assert.deepEqual(errors, []); assert.deepEqual(unexpected, []);
       assert.equal(writes.length, 5);
       console.log(`PASS ${locale}: new resource YOLO, existing resource future default, Agent save/reload, scoped rule revocation`);
