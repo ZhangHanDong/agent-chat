@@ -29,6 +29,7 @@ import {
   mintAgentIdentity,
   registerRepresentative,
   sendToRoomOnSide,
+  sendEmptyStateToRoomOnSide,
   whoami,
   RepresentativeError,
   DEFAULT_REPRESENTATIVE_LOCALPART,
@@ -784,6 +785,77 @@ describe('sending into a room on a project side', () => {
     });
     expect(impl.calls[0].url).toContain('/send/m.reaction/');
   });
+
+  test('projection send uses final transaction id and prepared event type verbatim', async () => {
+    const impl = fakeFetch([ok({ event_id: '$encrypted' })]);
+    const r = await sendToRoomOnSide({
+      side: SIDE, credential: asCred(), roomId: ROOM,
+      content: { algorithm: 'm.megolm.v1.aes-sha2', ciphertext: 'opaque' },
+      finalTxnId: 'hafleet_final.txn~1', preparedEventType: 'm.room.encrypted',
+      expectedPublisherMxid: `@hafleet:${SERVER}`, fetchImpl: impl,
+    });
+    expect(r).toMatchObject({ sent: true, eventId: '$encrypted' });
+    expect(impl.calls[0].url).toContain('/send/m.room.encrypted/hafleet_final.txn~1');
+  });
+
+  test('projection publisher binding follows authenticated actor mode', async () => {
+    const appserviceFetch = fakeFetch([ok({ event_id: '$as' })]);
+    await sendToRoomOnSide({
+      side: SIDE, credential: asCred(), roomId: ROOM, content: CONTENT,
+      finalTxnId: 'hafleet_as', preparedEventType: 'm.room.message',
+      expectedPublisherMxid: `@hafleet:${SERVER}`, fetchImpl: appserviceFetch,
+    });
+    expect(appserviceFetch.calls[0].url).toContain(`user_id=%40hafleet%3A${SERVER}`);
+
+    const registrationFetch = fakeFetch([ok({ event_id: '$reg' })]);
+    await sendToRoomOnSide({
+      side: SIDE,
+      credential: regCred({ representativeToken: REP_TOKEN, representativeMxid: `@ownerbot:${SERVER}` }),
+      roomId: ROOM, content: CONTENT, finalTxnId: 'hafleet_reg',
+      preparedEventType: 'm.room.message', expectedPublisherMxid: `@ownerbot:${SERVER}`,
+      fetchImpl: registrationFetch,
+    });
+    expect(registrationFetch.calls[0].url).not.toContain('user_id=');
+  });
+
+  test('projection send rejects an incomplete authenticated credential before fetch', async () => {
+    const impl = fakeFetch([]);
+    await expect(sendToRoomOnSide({
+      side: SIDE,
+      credential: asCred({ asToken: null }),
+      roomId: ROOM,
+      content: CONTENT,
+      finalTxnId: 'hafleet_final',
+      preparedEventType: 'm.room.message',
+      expectedPublisherMxid: `@hafleet:${SERVER}`,
+      fetchImpl: impl,
+    })).rejects.toThrow(/credential/i);
+    expect(impl.calls).toHaveLength(0);
+  });
+
+  test('projection send rejects mismatched publisher before fetch', async () => {
+    const impl = fakeFetch([]);
+    await expect(sendToRoomOnSide({
+      side: SIDE, credential: asCred(), roomId: ROOM, content: CONTENT,
+      finalTxnId: 'hafleet_final', preparedEventType: 'm.room.message',
+      expectedPublisherMxid: `@other:${SERVER}`, fetchImpl: impl,
+    })).rejects.toThrow(/publisher/i);
+    expect(impl.calls).toHaveLength(0);
+  });
+
+  test('projection send rejects invalid final context before fetch', async () => {
+    for (const context of [
+      { finalTxnId: 'bad/id', preparedEventType: 'm.room.message', expectedPublisherMxid: `@hafleet:${SERVER}` },
+      { finalTxnId: 'hafleet_ok', preparedEventType: 'm.reaction', expectedPublisherMxid: `@hafleet:${SERVER}` },
+      { finalTxnId: 'hafleet_ok', preparedEventType: 'm.room.message' },
+    ]) {
+      const impl = fakeFetch([]);
+      await expect(sendToRoomOnSide({
+        side: SIDE, credential: asCred(), roomId: ROOM, content: CONTENT, fetchImpl: impl, ...context,
+      })).rejects.toThrow();
+      expect(impl.calls).toHaveLength(0);
+    }
+  });
 });
 
 /*
@@ -1228,5 +1300,58 @@ describe('reading a room\'s history on a project side', () => {
     const impl = fakeFetch([ok({ chunk: 'not an array', end: 42 })]);
     const r = await roomMessagesOnSide({ side: SIDE, credential: asCred(), roomId: ROOM, fetchImpl: impl });
     expect(r).toEqual({ known: false, chunk: [], end: null, reason: 'history unreadable: malformed messages page' });
+  });
+});
+
+
+describe('approval room marker state transport', () => {
+  const ROOM = `!approval:${SERVER}`;
+  const TYPE = 'com.agentchat.approval.room.v1';
+  const CONTENT = { version: 1, agent: 'alpha' };
+
+  test('approval marker writes custom empty state key through actor binding', async () => {
+    const impl = fakeFetch([ok({ event_id: '$marker' })]);
+    const r = await sendEmptyStateToRoomOnSide({
+      side: SIDE, credential: asCred(), roomId: ROOM, eventType: TYPE, stateKey: '',
+      content: CONTENT, expectedPublisherMxid: `@hafleet:${SERVER}`, fetchImpl: impl,
+    });
+    expect(r).toMatchObject({ sent: true, eventId: '$marker' });
+    expect(impl.calls[0].method).toBe('PUT');
+    expect(new URL(impl.calls[0].url).pathname).toBe(
+      `/_matrix/client/v3/rooms/${encodeURIComponent(ROOM)}/state/${TYPE}/`,
+    );
+    expect(impl.calls[0].url).toContain(`user_id=%40hafleet%3A${SERVER}`);
+    expect(JSON.parse(impl.calls[0].body)).toEqual(CONTENT);
+
+    const registrationFetch = fakeFetch([ok({ event_id: '$registration-marker' })]);
+    await sendEmptyStateToRoomOnSide({
+      side: SIDE,
+      credential: regCred({
+        representativeToken: REP_TOKEN,
+        representativeMxid: `@ownerbot:${SERVER}`,
+      }),
+      roomId: ROOM,
+      eventType: TYPE,
+      stateKey: '',
+      content: CONTENT,
+      expectedPublisherMxid: `@ownerbot:${SERVER}`,
+      fetchImpl: registrationFetch,
+    });
+    expect(registrationFetch.calls[0].headers.Authorization).toBe(`Bearer ${REP_TOKEN}`);
+    expect(registrationFetch.calls[0].url).not.toContain('user_id=');
+  });
+
+  test('approval marker rejects mismatched publisher and invalid state input', async () => {
+    for (const input of [
+      { eventType: TYPE, stateKey: '', expectedPublisherMxid: `@other:${SERVER}` },
+      { eventType: TYPE, stateKey: 'not-empty', expectedPublisherMxid: `@hafleet:${SERVER}` },
+      { eventType: 'm.room.message', stateKey: '', expectedPublisherMxid: `@hafleet:${SERVER}` },
+    ]) {
+      const impl = fakeFetch([]);
+      await expect(sendEmptyStateToRoomOnSide({
+        side: SIDE, credential: asCred(), roomId: ROOM, content: CONTENT, fetchImpl: impl, ...input,
+      })).rejects.toThrow();
+      expect(impl.calls).toHaveLength(0);
+    }
   });
 });
