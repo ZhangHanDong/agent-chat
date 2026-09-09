@@ -49,6 +49,22 @@ describe('approval projection store', () => {
     expect(store.listDueProjections()).toEqual([expect.objectContaining({ revision: 3, state: 'consumed' })]);
   });
 
+  test('ready plan cannot retry or receipt before durable begin', () => {
+    const { store, file } = setup();
+    create(store);
+    const row = store.listDueProjections()[0];
+    const plan = store.prepareProjection(row.cas_token, {
+      publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot',
+      credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' },
+    }).plan;
+    const expectedIdentity = identity(plan, row.target_room_id);
+    expect(() => store.retryProjection(plan.cas_token, { ...expectedIdentity, retry_at: 2000, error_code: 'early' })).toThrowError(/has not begun/);
+    expect(() => store.receiptProjection(plan.cas_token, { ...expectedIdentity, event_id: '$never-begun' })).toThrowError(/receipt mismatch/);
+    expect(store.listDueProjections().find((item) => item.plan?.cas_token === plan.cas_token).plan.attempt_state).toBe('ready');
+    const diskRow = JSON.parse(readFileSync(file)).projectionOutbox.find((item) => item.planCasToken === plan.cas_token);
+    expect(diskRow).toMatchObject({ attemptState: 'ready', nextAttemptAt: 0, eventId: null });
+  });
+
   test('uncertain retry observes deadline and becomes receiptable with the same plan', () => {
     let now = 1000;
     const { store } = setup({ now: () => now });
