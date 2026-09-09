@@ -51,14 +51,91 @@ describe('approval projection production request adapter', () => {
       .resolves.toMatchObject({ scope: `side-representative:${server}`, publisher_mxid: `@hafleet:${server}` });
   });
 
+  test('side plaintext policy requires a positively absent encryption state', async () => {
+    const side = { side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
+      credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
+        outboundGeneration: 'side-generation' } };
+    const io = approvalProjectionIoForTest({ actingSideFor: () => side });
+    const row = { request_id: 'approval_side', revision: 1, channel: 'private_request', state: 'pending',
+      migration_kind: 'native_v2', target_room_id: `!owner:${server}`,
+      approval: { agent: 'worker', project: 'adapter', project_room_id: `!project:${server}`,
+        owner_mxid: `@owner:${server}`, input_digest: 'b'.repeat(64), expires_at: Date.now() + 1000 } };
+    const actor = await io.resolveActor(row);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 404, ok: false,
+      clone() { return this; }, json: async () => ({ errcode: 'M_NOT_FOUND' }) })));
+    await expect(io.prepareContent(row, actor)).resolves.toMatchObject({ event_type: 'm.room.message' });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 200, ok: true,
+      clone() { return this; }, json: async () => ({ algorithm: 'm.megolm.v1.aes-sha2' }) })));
+    await expect(io.prepareContent(row, actor)).rejects.toThrow(/encrypted project-side/);
+  });
+
   test('local private preparation fails closed when crypto readiness disappears', async () => {
     const bridge = { botClient: { crypto: null }, botUserId: `@bot:${server}`, approvalDmMode: 'encrypted',
       actingSideFor: () => null, ensureApprovalDmSecurity: vi.fn(async () => {}) };
+    bridge.approvalBotPublisherReady = { client: bridge.botClient, mxid: bridge.botUserId,
+      credentialGeneration: 'adapter-bot-generation' };
     const io = approvalProjectionIoForTest(bridge);
     const row = { channel: 'private_request', target_room_id: `!owner:${server}`,
       approval: { id: 'approval_x', agent: 'worker', project: 'adapter', expires_at: Date.now() + 1000 } };
     const actor = await io.resolveActor(row);
     await expect(io.prepareContent(row, actor)).rejects.toThrow(/encryption is unavailable/);
+  });
+
+  test('saved bot fields alone are not publisher readiness and selected status state wins', async () => {
+    const client = { crypto: {} };
+    const bridge = { botClient: client, botUserId: `@bot:${server}`, actingSideFor: () => null,
+      approvalDmMode: 'plaintext-test', ensureApprovalDmSecurity: vi.fn(async () => {}) };
+    let io = approvalProjectionIoForTest(bridge);
+    const row = { request_id: 'approval_status', revision: 2, channel: 'private_status', state: 'approved',
+      migration_kind: 'native_v2', target_room_id: `!owner:${server}`,
+      publisher: { scope: 'local_bot' },
+      approval: { id: 'approval_status', agent: 'worker', project: 'adapter',
+        project_room_id: `!project:${server}`, owner_mxid: `@owner:${server}`,
+        input_digest: 'a'.repeat(64), status: 'consumed', decision: 'approve_once' } };
+    await expect(io.resolveActor(row)).resolves.toBeNull();
+    bridge.approvalBotPublisherReady = { client, mxid: bridge.botUserId,
+      credentialGeneration: 'adapter-bot-generation' };
+    io = approvalProjectionIoForTest(bridge);
+    const actor = await io.resolveActor(row);
+    const prepared = await io.prepareContent(row, actor);
+    expect(prepared.content['com.agentchat.approval']).toMatchObject({
+      version: 1, request_id: row.request_id, revision: 2, state: 'approved', decision: 'approve_once',
+      migration: 'native_v2', agent: 'worker', project: 'adapter',
+      project_room_id: `!project:${server}`, owner_mxid: `@owner:${server}`,
+      publisher_mxid: `@bot:${server}`, input_digest: 'a'.repeat(64),
+    });
+  });
+
+  test('bot readiness installation binds the exact verified client and clears on replacement failure', () => {
+    const verified = { crypto: {} };
+    const bridge = { botClient: verified, botUserId: `@bot:${server}`, approvalBotPublisherReady: null,
+      clearApprovalBotPublisherReady: MatrixBridge.prototype.clearApprovalBotPublisherReady };
+    MatrixBridge.prototype.installApprovalBotPublisherReady.call(
+      bridge, verified, bridge.botUserId, 'adapter-bot-generation',
+    );
+    expect(bridge.approvalBotPublisherReady).toEqual({ client: verified, mxid: bridge.botUserId,
+      credentialGeneration: 'adapter-bot-generation' });
+    bridge.botClient = { crypto: {} };
+    expect(() => MatrixBridge.prototype.installApprovalBotPublisherReady.call(
+      bridge, verified, bridge.botUserId, 'adapter-bot-generation',
+    )).toThrow(/verified.*context/);
+    expect(bridge.approvalBotPublisherReady).toBeNull();
+  });
+
+  test('stored local plaintext is security-checked and refused before raw replay', async () => {
+    const client = { crypto: {}, doRequest: vi.fn() };
+    const bridge = { botClient: client, botUserId: `@bot:${server}`, approvalDmMode: 'encrypted',
+      actingSideFor: () => null, ensureApprovalDmSecurity: vi.fn(async () => {}) };
+    bridge.approvalBotPublisherReady = { client, mxid: bridge.botUserId,
+      credentialGeneration: 'adapter-bot-generation' };
+    const io = approvalProjectionIoForTest(bridge);
+    const row = { request_id: 'approval_plain', revision: 1, channel: 'private_request',
+      target_room_id: `!owner:${server}`, approval: { agent: 'worker' } };
+    const actor = await io.resolveActor(row);
+    await expect(io.send({ prepared_event_type: 'm.room.message', prepared_payload: { body: 'old' },
+      transaction_id: 'stored_plain' }, actor, row)).rejects.toThrow(/stored plaintext/);
+    expect(bridge.ensureApprovalDmSecurity).toHaveBeenCalledOnce();
+    expect(client.doRequest).not.toHaveBeenCalled();
   });
 
   test('real store/API prepares encrypted bytes once, begins before exact raw PUT, and receipts', async () => {
@@ -91,6 +168,11 @@ describe('approval projection production request adapter', () => {
       expect(stored.plan.attempt_state).toBe('attempted');
       expect(path.endsWith(`/${stored.plan.transaction_id}`)).toBe(true);
       expect(content).toEqual(stored.plan.prepared_payload);
+      const canonical = JSON.parse(content.ciphertext)['com.agentchat.approval'];
+      expect(canonical).toMatchObject({ version: 1, request_id: row.request_id, revision: 1,
+        state: 'pending', migration: 'native_v2', owner_mxid: `@owner:${server}`,
+        publisher_mxid: `@bot:${server}`, project_room_id: `!project:${server}`,
+        input_digest: expect.stringMatching(/^[a-f0-9]{64}$/) });
       if (matrixAttempts === 1) throw Object.assign(new Error('connection reset'), { code: 'timeout' });
       return { event_id: '$adapter-event' };
     });
@@ -113,6 +195,8 @@ describe('approval projection production request adapter', () => {
         return response.body;
       },
     };
+    bridge.approvalBotPublisherReady = { client: bridge.botClient, mxid: bridge.botUserId,
+      credentialGeneration: 'adapter-bot-generation' };
     const first = await publishApprovalProjectionWithBridgeForTest(bridge, row);
     expect(first).toMatchObject({ ok: false, uncertain: true });
     expect(encryptRoomEvent).toHaveBeenCalledTimes(1);

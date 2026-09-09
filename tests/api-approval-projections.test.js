@@ -283,6 +283,10 @@ describe('approval projection bridge API', () => {
     });
     const statusRow = (await bridge('get', '/api/approvals/matrix/projections?limit=200')).body.projections
       .find((item) => item.request_id === requestRow.request_id && item.channel === 'private_status');
+    expect(statusRow.publisher).toMatchObject({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'status-g1',
+    });
     await bridge('put', '/api/approvals/matrix/publishers').send({
       scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
       credential_kind: 'local_bot', credential_generation: 'status-g2',

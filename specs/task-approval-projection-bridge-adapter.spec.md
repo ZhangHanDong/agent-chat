@@ -13,12 +13,17 @@ Connect canonical approval projection rows to the existing bridge actor, securit
 - The adapter reads and mutates projection state only through bridge-secret backend routes.
 - Private local content passes the established approval-room security policy and is encrypted once before durable prepare.
 - Matrix receives only the durable winning event type, payload, transaction identity, and pinned current actor.
+- Native private content includes the canonical binding tuple and selected outbox revision/state while retaining wire version 1.
+- A local bot becomes eligible only after the actual started client and crypto device are verified; stored plaintext is security-checked again before replay.
+- Private status rows expose their original request publisher through the protected due API and validate that original scope against current authority.
 - Scheduling, shared-room markers, and legacy publication remain later checkpoints.
 
 ## Boundaries
 
 ### Allowed Changes
 - bridge-matrix.js
+- backend-v2.js
+- tests/api-approval-projections.test.js
 - tests/bridge-approval-projection-adapter.test.js
 - tests/bridge-approval-projection.test.js
 - tests/bridge-appservice-send.test.js
@@ -48,6 +53,13 @@ Scenario: Current identity gates transport
   Given a pinned projection actor
   When the captured or current credential generation differs
   Then no later Matrix request uses that context.
+
+Scenario: Status keeps original publisher and selected state
+  Test: protected due provenance and canonical content regression
+  Given a terminal status whose approval record has since changed
+  When the adapter resolves and prepares that selected row
+  Then it uses the original private request publisher
+  And the wire version remains 1 with the selected revision state decision migration and full binding tuple.
 
 ## Out of Scope
 

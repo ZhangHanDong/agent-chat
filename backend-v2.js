@@ -10326,10 +10326,18 @@ app.get('/api/approvals/matrix/projections', requireApprovalBridgeSecret, (req, 
   try {
     runApprovalProjectionMaintenance();
     const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 200);
-    const projections = approvalStore.listDueProjections({ limit, after: req.query?.after }).map((projection) => ({
-      ...projection,
-      approval: approvalStore.getProjectionRequest(projection.request_id),
-    }));
+    const projections = approvalStore.listDueProjections({ limit, after: req.query?.after }).map((projection) => {
+      const original = projection.channel === 'private_status'
+        ? approvalStore.privateRequestPublisher(projection.request_id) : null;
+      return {
+        ...projection,
+        approval: approvalStore.getProjectionRequest(projection.request_id),
+        ...(projection.channel === 'private_status' ? { publisher: original ? {
+          scope: original.scope, publisher_mxid: original.publisherMxid, homeserver: original.homeserver,
+          credential_kind: original.credentialKind, credential_generation: original.credentialGeneration,
+        } : null } : {}),
+      };
+    });
     return res.json({
       ok: true,
       projections,
@@ -10411,12 +10419,19 @@ function validateProjectionPublisher(body = {}) {
   const room = String(row.target_room_id || '');
   const server = room.includes(':') ? room.slice(room.indexOf(':') + 1).toLowerCase() : '';
   const localServer = String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase();
-  const expectedScope = row.channel === 'public_notice'
+  const originalPublisher = row.channel === 'private_status'
+    ? approvalStore.privateRequestPublisher(row.request_id) : null;
+  const expectedScope = row.channel === 'private_status'
+    ? originalPublisher?.scope
+    : row.channel === 'public_notice'
     ? `agent:${approval?.agent || ''}:${server}`
     : (server === localServer && MATRIX_BOT_MXID_FOR_PROBE ? 'local_bot' : `side-representative:${server}`);
+  if (row.channel === 'private_status'
+    && expectedScope !== 'local_bot' && expectedScope !== `side-representative:${server}`) {
+    throw new ApprovalStoreError('conflict', 'private status original publisher scope is unavailable');
+  }
   const publisher = row.channel === 'private_status'
-    ? approvalStore.privateRequestPublisher(row.request_id)
-    : approvalStore.projectionPublisher(expectedScope);
+    ? originalPublisher : approvalStore.projectionPublisher(expectedScope);
   const proposed = row.plan || body;
   if (!publisher || proposed.publisher_scope !== expectedScope || publisher.publisherMxid !== proposed.publisher_mxid
     || publisher.homeserver !== server || publisher.credentialKind !== proposed.credential_kind
