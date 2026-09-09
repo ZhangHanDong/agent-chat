@@ -21,6 +21,37 @@ const render = (exportName, a = agent, source = 'live') => renderDashboard(
 );
 
 describe('Dashboard agent detail evidence', () => {
+  test('renders hybrid dispatch activity without hiding the terminal', async () => {
+    for (const [activity, key] of [['running', 'ag.runnerRunning'], ['parked', 'ag.runnerParked'],
+      ['queued', 'ag.runnerQueued'], ['unknown', 'ag.runnerActivityUnknown']]) {
+      const hybrid = { ...agent, name: 'hybrid', framework: 'claude', runner: null, online: true,
+        tmux: 'hybrid:0.0', transport: 'tmux', idleDurationSec: 119745,
+        dispatchActivity: { source: 'router-ledger', activity } };
+      const header = await render('Header', hybrid);
+      const runtime = await render('Runtime', hybrid);
+      expect(header).toContain(t(key));
+      expect(header).not.toContain('IDLE 1d9h');
+      expect(header).toContain('TMUX · hybrid:0.0');
+      expect(runtime).toContain(t(key));
+      expect(runtime).toContain(t('ag.livePaneLoading'));
+      expect(runtime).not.toContain(t('ag.headlessPaneNote'));
+      expect(runtime).not.toContain(t('ag.runnerReady'));
+      expect(hasLivePane(hybrid, 'live')).toBe(true);
+    }
+  });
+
+  test('falls back to observed legacy state when hybrid dispatches are idle', () => {
+    for (const dispatchActivity of [null, { source: 'router-ledger', activity: 'idle' }]) {
+      const hybrid = { ...agent, runner: null, online: true, tmux: 'hybrid:0.0', transport: 'tmux',
+        idleDurationSec: 119745, dispatchActivity };
+      expect(runtimeLabel(hybrid, t)).toBe('IDLE 1d9h');
+      expect(runtimeLabel({ ...hybrid, activeNow: true, activeDurationSec: 42 }, t)).toBe('ACTIVE 42s');
+      expect(runtimeLabel({ ...hybrid, online: false, healthy: false }, t)).toBe('OFFLINE');
+      expect(hasLivePane(hybrid, 'live')).toBe(true);
+      expect(transportLabel(hybrid, t)).toBe('TMUX · hybrid:0.0');
+    }
+  });
+
   test('renders an explicit ready on-demand runner without a fabricated terminal', async () => {
     const html = await render('Header');
     expect(html).toContain(t('ag.onDemand'));

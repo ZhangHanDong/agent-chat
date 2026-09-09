@@ -13,6 +13,8 @@ tags: [dashboard, runner, regression]
 
 Explicit legacy tmux/ACP transport, configured panes, unsupported frameworks, remote agents and missing stable identities must not be upgraded to ready by inference. Manual stops, missing workspace or credential and unrelated offline reasons must remain unavailable. Tmux sweeps must not invent missing panes or ghost alerts for an on-demand runner. Existing POST /api/messages warning eligibility remains unchanged; its routing eligibility also includes agents with a legacy transport declaration.
 
+Local stable Claude/Codex agents with legacy transports can also receive ADR-011 dispatches. Expose their ledger-derived dispatch activity independently of on-demand readiness and terminal liveness. A running, parked, queued or unknown dispatch observation takes precedence over terminal activity in the dashboard status label; an idle ledger retains the existing terminal status fallback. Preserve legacy tmux/ACP probes, missing-pane reasons and real pane access. Terminal dispatch history, including outcome_unknown, does not imply current work or readiness.
+
 Declared runtime-profile models may be displayed as configuration; absent models remain null with provider-default provenance. No global model configuration is read. Metering may use an on-demand agent's managed workdir as a transcript search key without claiming a live or historically observed workspace. Missing transcripts remain unavailable.
 
 ## Source Trace

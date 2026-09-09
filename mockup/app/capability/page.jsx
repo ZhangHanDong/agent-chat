@@ -265,7 +265,7 @@ export default function CapabilityPage() {
                       * console is not allowed to print.
                       */}
                     {[c.offer.count, c.offer.budgetCapPerEngagement, c.offer.rateCap].every((v) => v == null)
-                      ? t('cp.offerNoTerms')
+                      ? t(c.offer.published ? 'cp.offerNoTerms' : 'cp.withheldNoTerms')
                       : t('cp.offerTerms', {
                         n: c.offer.count ?? t('cp.unset'),
                         cap: fmtTokens(c.offer.budgetCapPerEngagement) ?? t('cp.unset'),
