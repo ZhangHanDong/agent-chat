@@ -13,6 +13,7 @@ Project every canonical approval state durably and idempotently to Matrix while 
 
 - HAFleet `fc0906c3bd54275b09fb17f4abbe850b1743134e` plus the coordinator's eventual published Phase A runner/loopback/dashboard integration.
 - Do not copy Phase A commits into this task.
+- Legacy load performs one disclosed O(N) JSON parse and construction of persisted migration/expiry indexes; each later migration or expiry tick examines at most its configured batch, excluding the unavoidable atomic snapshot serialization.
 
 ## Boundaries
 

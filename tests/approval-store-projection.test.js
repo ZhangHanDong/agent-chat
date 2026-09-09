@@ -180,6 +180,71 @@ describe('approval projection store', () => {
     expect(due.some((row) => row.state === 'pending' && row.request_id === 'a')).toBe(false);
   });
 
+  test('stale expiry heap entries consume a bounded slot and later overdue work progresses', () => {
+    let now = 1000;
+    const { store } = setup({ now: () => now, ttlMs: 10000 });
+    const stale = create(store, 'stale', 1050);
+    create(store, 'overdue', 1100);
+    store.denyPending(stale.id, 'fixture');
+    now = 1200;
+    expect(store.sweepExpired({ limit: 1 })).toEqual({ scanned: 1, expired: 0 });
+    expect(store.sweepExpired({ limit: 1 })).toEqual({ scanned: 1, expired: 1 });
+  });
+
+  test('migration offset rolls back on pre-rename failure and resumes after reload', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-migration-fault-'));
+    fixtureDirs.push(dir);
+    const file = path.join(dir, 'store.json');
+    const rows = {};
+    for (const id of ['a', 'b', 'c']) rows[id] = { id, agent: 'worker', runtime: 'codex', project: 'p', projectRoomId: '!p:test', ownerMxid: '@owner:test', ownerDmRoomId: '!dm:test', upstreamRequestId: id, inputDigest: id, status: 'pending', createdAt: 1, expiresAt: 5000 };
+    writeFileSync(file, JSON.stringify({ version: 1, bindings: {}, requests: rows, audit: [] }));
+    let phase = '';
+    let store = createApprovalStore(file, { now: () => 1000, migrationBatchSize: 1, fsFault: (name) => { if (phase === name) throw new Error(name); } });
+    expect(store.state.migration.offset).toBe(1);
+    phase = 'beforeRename';
+    expect(() => store.migrateLegacyBatch()).toThrowError(/failed to persist/);
+    expect(store.state.migration.offset).toBe(1);
+    expect(JSON.parse(readFileSync(file)).migration.offset).toBe(1);
+    store = createApprovalStore(file, { now: () => 1000, migrationBatchSize: 1 });
+    expect(store.state.migration.offset).toBe(2);
+  });
+
+  test('verdict expiry and binding removal keep unmigrated legacy work read-only', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-legacy-direct-'));
+    fixtureDirs.push(dir);
+    const file = path.join(dir, 'store.json');
+    const row = (id, expiresAt = 5000) => ({ id, agent: 'worker', runtime: 'codex', project: 'p', projectRoomId: '!p:test', ownerMxid: '@owner:test', ownerDmRoomId: '!dm:test', upstreamRequestId: id, inputDigest: id, status: 'pending', createdAt: 1, expiresAt });
+    const bindingKey = `worker\0!p:test`;
+    writeFileSync(file, JSON.stringify({ version: 1, bindings: { [bindingKey]: { agent: 'worker', project: 'p', projectRoomId: '!p:test', ownerMxid: '@owner:test', ownerDmRoomId: '!dm:test', active: true } }, requests: { a: row('a'), b: row('b'), c: row('c', 500), d: row('d') }, audit: [] }));
+    const store = createApprovalStore(file, { now: () => 1000, migrationBatchSize: 1 });
+    store.submitMatrixVerdict('b', { action: 'approve_once', sender_mxid: '@owner:test', room_id: '!dm:test', agent: 'worker', project: 'p', project_room_id: '!p:test', input_digest: 'b' });
+    expect(store.getRequest('c').status).toBe('expired');
+    store.removeBinding('worker', '!p:test');
+    const work = store.listDueProjections({ limit: 20 }).filter((item) => ['b', 'c', 'd'].includes(item.request_id));
+    expect(work).toEqual(expect.arrayContaining([
+      expect.objectContaining({ request_id: 'b', revision: 1, state: 'approved', migration_kind: 'legacy_v1' }),
+      expect.objectContaining({ request_id: 'c', revision: 1, state: 'expired', migration_kind: 'legacy_v1' }),
+      expect.objectContaining({ request_id: 'd', revision: 1, state: 'denied', migration_kind: 'legacy_v1' }),
+    ]));
+    expect(work.every((item) => item.channel === 'private_status')).toBe(true);
+  });
+
+  test('superseded ready plan cannot begin while an attempted plan can receipt', () => {
+    const { store } = setup();
+    const readyRequest = create(store, 'ready');
+    const readyRow = store.listDueProjections().find((item) => item.request_id === readyRequest.id && item.channel === 'private_request');
+    const readyPlan = store.prepareProjection(readyRow.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g', prepared_event_type: 'm.room.message', prepared_payload: { body: 'ready' } }).plan;
+    store.denyPending(readyRequest.id, 'terminal');
+    expect(() => store.beginProjectionSend(readyPlan.cas_token, identity(readyPlan, readyRow.target_room_id))).toThrowError(/superseded/);
+
+    const attemptedRequest = create(store, 'attempted');
+    const attemptedRow = store.listDueProjections({ limit: 20 }).find((item) => item.request_id === attemptedRequest.id && item.channel === 'private_request');
+    const attemptedPlan = store.prepareProjection(attemptedRow.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g', prepared_event_type: 'm.room.message', prepared_payload: { body: 'attempted' } }).plan;
+    store.beginProjectionSend(attemptedPlan.cas_token, identity(attemptedPlan, attemptedRow.target_room_id));
+    store.denyPending(attemptedRequest.id, 'terminal');
+    expect(store.receiptProjection(attemptedPlan.cas_token, { ...identity(attemptedPlan, attemptedRow.target_room_id), event_id: '$landed' })).toEqual({ event_id: '$landed' });
+  });
+
   test('denied request without binding cannot enqueue a null-target status on consume', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-unbound-'));
     fixtureDirs.push(dir);
