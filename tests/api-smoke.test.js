@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { restoreEnv, snapshotEnv } from './helpers/env.js';
+import { createLoopbackTestServer } from './helpers/loopback-test-server.js';
 
 function writeJson(filePath, value) {
   writeFileSync(filePath, JSON.stringify(value, null, 2));
@@ -13,6 +14,8 @@ function writeJson(filePath, value) {
 describe('backend API smoke', () => {
   let runtimeDir;
   let app;
+  let backendModule;
+  let listener;
   let computeAdaptiveSweepIntervalMs;
   let envSnapshot;
 
@@ -49,10 +52,15 @@ describe('backend API smoke', () => {
     process.env.AGENT_SCOPE_MONITOR_ENABLED = 'false';
 
     const backendUrl = pathToFileURL(path.resolve('backend-v2.js')).href;
-    ({ app, computeAdaptiveSweepIntervalMs } = await import(`${backendUrl}?test=${Date.now()}`));
+    backendModule = await import(`${backendUrl}?test=${Date.now()}`);
+    ({ computeAdaptiveSweepIntervalMs } = backendModule);
+    listener = await createLoopbackTestServer(backendModule.app);
+    app = listener.server;
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await listener?.close();
+    await backendModule?.stopServer();
     rmSync(runtimeDir, { recursive: true, force: true });
     restoreEnv(envSnapshot);
   });

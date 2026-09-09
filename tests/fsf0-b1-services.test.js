@@ -8,6 +8,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import request from 'supertest';
+import { createLoopbackTestServer } from './helpers/loopback-test-server.js';
 
 import {
   LocalServiceSupervisor,
@@ -25,6 +26,7 @@ const envSnapshots = [];
 const fixtureFiles = [];
 const networkServers = [];
 const networkSockets = [];
+const requestListeners = [];
 
 function snapshotEnv(keys) {
   const snapshot = new Map(keys.map((key) => [key, process.env[key]]));
@@ -81,7 +83,9 @@ async function importBackend(runtime) {
   const url = pathToFileURL(path.join(repoRoot, 'backend-v2.js')).href;
   const mod = await import(`${url}?fsf0-b1=${Date.now()}-${Math.random()}`);
   modulesToStop.push(mod);
-  return mod;
+  const listener = await createLoopbackTestServer(mod.app);
+  requestListeners.push(listener);
+  return { ...mod, requestApp: listener.server };
 }
 
 async function fixtureSupervisor({ restartDelayMs = 40 } = {}) {
@@ -142,6 +146,7 @@ async function waitFor(predicate, timeoutMs = 3000) {
 }
 
 afterEach(async () => {
+  await Promise.all(requestListeners.splice(0).map((listener) => listener.close()));
   for (const supervisor of supervisors.splice(0).reverse()) await supervisor.stop().catch(() => {});
   for (const mod of modulesToStop.splice(0).reverse()) {
     if (typeof mod.resetServerTestHooks === 'function') mod.resetServerTestHooks();
@@ -210,12 +215,12 @@ test('restart_preserves_agent_registry', async () => {
   const runtime = createBackendRuntime('hafleet-fsf0-b1-registry-');
   const first = await importBackend(runtime);
   for (const name of ['worker-alpha', 'worker-beta', 'worker-gamma']) {
-    await request(first.app).post('/api/agents').send({ name, role: 'coding' }).expect(200);
+    await request(first.requestApp).post('/api/agents').send({ name, role: 'coding' }).expect(200);
   }
-  const before = await request(first.app).get('/api/agents').query({ view: 'names' }).expect(200);
+  const before = await request(first.requestApp).get('/api/agents').query({ view: 'names' }).expect(200);
   await first.stopServer();
   const second = await importBackend(runtime);
-  const after = await request(second.app).get('/api/agents').query({ view: 'names' }).expect(200);
+  const after = await request(second.requestApp).get('/api/agents').query({ view: 'names' }).expect(200);
   expect(after.body).toEqual(before.body);
 });
 
