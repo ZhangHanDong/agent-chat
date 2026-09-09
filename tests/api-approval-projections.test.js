@@ -15,8 +15,22 @@ beforeAll(async () => {
   context = await createBackendTestContext('hafleet-projection-api-', {
     agents: { worker: { name: 'worker', type: 'agent', kind: 'agent', online: true } },
     agentTokens: { worker: AGENT_TOKEN },
-    env: { MATRIX_BRIDGE_SECRET: BRIDGE_SECRET, HAFLEET_AGENT_TOKEN_MODE: 'hard' },
+    env: {
+      MATRIX_BRIDGE_SECRET: BRIDGE_SECRET,
+      HAFLEET_AGENT_TOKEN_MODE: 'hard',
+      MATRIX_SERVER_NAME: 'test',
+      MATRIX_BOT_USERNAME: 'bot',
+    },
   });
+  const publisher = await bridge('put', '/api/approvals/matrix/publishers').send({
+    scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+    credential_kind: 'local_bot', credential_generation: 'g1',
+  });
+  expect(publisher.status).toBe(200);
+  expect((await bridge('put', '/api/approvals/matrix/publishers').send({
+    scope: 'agent:worker:test', agent: 'worker', side_id: 'test', publisher_mxid: '@ac_worker:test',
+    homeserver: 'test', credential_kind: 'agent_token', credential_generation: 'agent-g1',
+  })).status).toBe(200);
   await bridge('put', '/api/approval-bindings').send({
     agent: 'worker', project: 'p', project_room_id: '!p:test',
     owner_mxid: '@owner:test', owner_dm_room_id: '!dm:test',
@@ -105,23 +119,26 @@ describe('approval projection bridge API', () => {
   });
 
   test('page cursor survives receipt of its anchor row', async () => {
-    const first = await bridge('get', '/api/approvals/matrix/projections?limit=1');
+    const first = await bridge('get', '/api/approvals/matrix/projections?limit=200');
     expect(first.status).toBe(200);
-    const row = first.body.projections[0];
+    const row = first.body.projections.find((item) => item.channel === 'private_request' && !item.plan);
+    const actor = row.channel === 'public_notice'
+      ? { publisher_scope: 'agent:worker:test', publisher_mxid: '@ac_worker:test', credential_kind: 'agent_token', credential_generation: 'agent-g1' }
+      : { publisher_scope: 'local_bot', publisher_mxid: '@bot:test', credential_kind: 'local_bot', credential_generation: 'g1' };
     const prepared = await bridge('post', `/api/approvals/${row.request_id}/matrix/projections/${row.revision}/prepare`).send({
-      cas_token: row.cas_token, channel: row.channel, publisher_mxid: '@bot:test', homeserver: 'test',
-      credential_kind: 'local_bot', credential_generation: 'cursor-g', payload_version: 1,
+      cas_token: row.cas_token, channel: row.channel, ...actor, homeserver: 'test', payload_version: 1,
       prepared_event_type: 'm.room.message', prepared_payload: { body: 'cursor' },
     });
     const plan = prepared.body.plan;
-    const identity = { cas_token: plan.cas_token, channel: row.channel, publisher_mxid: plan.publisher_mxid,
+    const identity = { cas_token: plan.cas_token, channel: row.channel, publisher_scope: plan.publisher_scope,
+      publisher_mxid: plan.publisher_mxid,
       room_id: row.target_room_id, credential_generation: plan.credential_generation, transaction_id: plan.transaction_id };
     expect((await bridge('post', `/api/approvals/${row.request_id}/matrix/projections/${row.revision}/begin-send`).send(identity)).status).toBe(200);
     expect((await bridge('post', `/api/approvals/${row.request_id}/matrix/projections/${row.revision}/receipt`).send({ ...identity, event_id: '$cursor-anchor' })).status).toBe(200);
-    const next = await bridge('get', `/api/approvals/matrix/projections?limit=1&after=${encodeURIComponent(first.body.next)}`);
+    const next = await bridge('get', `/api/approvals/matrix/projections?limit=1&after=${encodeURIComponent(row.cursor)}`);
     expect(next.status).toBe(200);
     expect(next.body.projections).toHaveLength(1);
-    expect(next.body.projections[0].cursor).not.toBe(first.body.next);
+    expect(next.body.projections[0].cursor).not.toBe(row.cursor);
   });
 
   test('listing expires first and returns one coherent committed projection', async () => {
@@ -174,7 +191,7 @@ describe('approval projection bridge API', () => {
     const listed = await bridge('get', '/api/approvals/matrix/projections?limit=20');
     const row = listed.body.projections.find((projection) => projection.request_id === requestId);
     const prepareInput = {
-      cas_token: row.cas_token, publisher_mxid: '@bot:test', homeserver: 'test',
+      cas_token: row.cas_token, publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
       credential_kind: 'local_bot', credential_generation: 'g1', payload_version: 1,
       channel: row.channel, prepared_event_type: 'm.room.message', prepared_payload: { body: 'approval' },
     };
@@ -183,7 +200,7 @@ describe('approval projection bridge API', () => {
     const prepared = await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/prepare`).send(prepareInput);
     expect(prepared.status).toBe(200);
     const plan = prepared.body.plan;
-    const identity = { cas_token: plan.cas_token, channel: row.channel, publisher_mxid: plan.publisher_mxid, room_id: row.target_room_id, credential_generation: plan.credential_generation, transaction_id: plan.transaction_id };
+    const identity = { cas_token: plan.cas_token, channel: row.channel, publisher_scope: plan.publisher_scope, publisher_mxid: plan.publisher_mxid, room_id: row.target_room_id, credential_generation: plan.credential_generation, transaction_id: plan.transaction_id };
     expect((await bridge('post', `/api/approvals/wrong/matrix/projections/1/begin-send`).send(identity)).status).toBe(409);
     expect((await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/begin-send`).send({ ...identity, channel: 'private_status' })).status).toBe(409);
     expect((await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/begin-send`).send(identity)).body.plan.attempt_state).toBe('attempted');
@@ -191,5 +208,133 @@ describe('approval projection bridge API', () => {
     expect(retried.body.attempt_state).toBe('uncertain');
     const receipt = await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/receipt`).send({ ...identity, event_id: '$projection' });
     expect(receipt.body).toMatchObject({ ok: true, event_id: '$projection' });
+  });
+
+  test('publisher generation is authoritative for prepare begin and retry but not an exact late receipt', async () => {
+    const created = await request(context.app).post('/api/approvals')
+      .set('X-Agent-Token', AGENT_TOKEN)
+      .send({ agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:test', upstream_request_id: 'u-generation', tool_name: 'Bash' });
+    const requestId = created.body.approval.id;
+    const listed = await bridge('get', '/api/approvals/matrix/projections?limit=200');
+    const row = listed.body.projections.find((projection) => projection.request_id === requestId);
+    const proposed = {
+      cas_token: row.cas_token, channel: row.channel, publisher_scope: 'local_bot',
+      publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot',
+      credential_generation: 'caller-selected', payload_version: 1,
+      prepared_event_type: 'm.room.message', prepared_payload: { body: 'approval' },
+    };
+    expect((await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/prepare`).send(proposed)).status).toBe(409);
+    const prepared = await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/prepare`)
+      .send({ ...proposed, credential_generation: 'g1' });
+    expect(prepared.status).toBe(200);
+    const plan = prepared.body.plan;
+    const identity = {
+      cas_token: plan.cas_token, channel: row.channel, publisher_scope: plan.publisher_scope,
+      publisher_mxid: plan.publisher_mxid, room_id: row.target_room_id,
+      credential_generation: plan.credential_generation, transaction_id: plan.transaction_id,
+    };
+    await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'g2',
+    });
+    expect((await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/begin-send`).send(identity)).status).toBe(409);
+
+    await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'g1',
+    });
+    expect((await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/begin-send`).send(identity)).status).toBe(200);
+    await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'g2',
+    });
+    expect((await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/retry`).send({ ...identity, error_code: 'timeout' })).status).toBe(409);
+    expect((await bridge('post', `/api/approvals/${requestId}/matrix/projections/1/receipt`).send({ ...identity, event_id: '$late' })).status).toBe(200);
+  });
+
+  test('public notice publisher is the registered agent identity rather than a representative', async () => {
+    const created = await request(context.app).post('/api/approvals')
+      .set('X-Agent-Token', AGENT_TOKEN)
+      .send({ agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:test', upstream_request_id: 'u-public-publisher', tool_name: 'Bash' });
+    const listed = await bridge('get', '/api/approvals/matrix/projections?limit=200');
+    const row = listed.body.projections.find((item) => item.request_id === created.body.approval.id && item.channel === 'public_notice');
+    expect((await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'agent:worker:test', agent: 'other', side_id: 'test', publisher_mxid: '@ac_worker:test',
+      homeserver: 'test', credential_kind: 'agent_token', credential_generation: 'agent-g1',
+    })).status).toBe(400);
+    expect((await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'agent:worker:test', agent: 'worker', side_id: 'test', publisher_mxid: '@bot:test',
+      homeserver: 'test', credential_kind: 'agent_token', credential_generation: 'agent-g1',
+    })).status).toBe(409);
+    expect((await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'agent:worker:test', agent: 'worker', side_id: 'test', publisher_mxid: '@ac_worker:test',
+      homeserver: 'test', credential_kind: 'agent_token', credential_generation: 'agent-g1',
+    })).status).toBe(200);
+    const prepared = await bridge('post', `/api/approvals/${row.request_id}/matrix/projections/${row.revision}/prepare`).send({
+      cas_token: row.cas_token, channel: row.channel, publisher_scope: 'agent:worker:test',
+      publisher_mxid: '@ac_worker:test', homeserver: 'test', credential_kind: 'agent_token',
+      credential_generation: 'agent-g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'notice' },
+    });
+    expect(prepared.status).toBe(200);
+  });
+
+  test('botless same-server private delivery resolves to the verified side representative', async () => {
+    const botless = await createBackendTestContext('hafleet-projection-botless-', {
+      agents: { worker: { name: 'worker', type: 'agent', kind: 'agent', online: true } },
+      agentTokens: { worker: AGENT_TOKEN },
+      env: {
+        MATRIX_BRIDGE_SECRET: BRIDGE_SECRET, HAFLEET_AGENT_TOKEN_MODE: 'hard',
+        MATRIX_SERVER_NAME: 'same.test', MATRIX_BOT_USERNAME: '',
+      },
+    });
+    try {
+      const sideStore = botless.internals.projectSideStoreForTest;
+      sideStore.upsertSide({
+        server_name: 'same.test', api_base_url: 'http://127.0.0.1:8008',
+        credential: { kind: 'appservice', asToken: 'as-private', hsToken: 'hs-private', namespace: '@ac_.*', senderLocalpart: 'hafleet' },
+      });
+      sideStore.observeAccess('same.test', { state: 'accepted' });
+      sideStore.setRepresentative('same.test', { mxid: '@hafleet:same.test' });
+      const sideCredential = sideStore.credentialFor('same.test');
+      const api = (method, url) => request(botless.app)[method](url).set('X-Bridge-Secret', BRIDGE_SECRET);
+      await api('put', '/api/approval-bindings').send({
+        agent: 'worker', project: 'p', project_room_id: '!p:same.test',
+        owner_mxid: '@owner:same.test', owner_dm_room_id: '!dm:same.test',
+      });
+      const created = await request(botless.app).post('/api/approvals').set('X-Agent-Token', AGENT_TOKEN).send({
+        agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:same.test',
+        upstream_request_id: 'u-botless-same', tool_name: 'Bash',
+      });
+      const listed = await api('get', '/api/approvals/matrix/projections?limit=20');
+      const row = listed.body.projections.find((item) => item.request_id === created.body.approval.id && item.channel === 'private_request');
+      expect((await api('put', '/api/approvals/matrix/publishers').send({
+        scope: 'local_bot', publisher_mxid: '@bot:same.test', homeserver: 'same.test',
+        credential_kind: 'local_bot', credential_generation: 'wrong',
+      })).status).toBe(409);
+      expect((await api('put', '/api/approvals/matrix/publishers').send({
+        scope: 'side-representative:same.test', side_id: 'same.test',
+        publisher_mxid: '@hafleet:same.test', homeserver: 'same.test', credential_kind: 'appservice',
+        credential_generation: sideCredential.outboundGeneration,
+      })).status).toBe(200);
+      const prepared = await api('post', `/api/approvals/${row.request_id}/matrix/projections/1/prepare`).send({
+        cas_token: row.cas_token, channel: row.channel, publisher_scope: 'side-representative:same.test',
+        publisher_mxid: '@hafleet:same.test', homeserver: 'same.test', credential_kind: 'appservice',
+        credential_generation: sideCredential.outboundGeneration, prepared_event_type: 'm.room.message',
+        prepared_payload: { body: 'private' },
+      });
+      expect(prepared.status).toBe(200);
+      sideStore.setCredential('same.test', {
+        kind: 'appservice', asToken: 'as-rotated', hsToken: 'hs-private', namespace: '@ac_.*', senderLocalpart: 'hafleet',
+      });
+      sideStore.observeAccess('same.test', { state: 'accepted' });
+      const plan = prepared.body.plan;
+      expect((await api('post', `/api/approvals/${row.request_id}/matrix/projections/1/begin-send`).send({
+        cas_token: plan.cas_token, channel: row.channel, publisher_scope: plan.publisher_scope,
+        publisher_mxid: plan.publisher_mxid, room_id: row.target_room_id,
+        credential_generation: plan.credential_generation, transaction_id: plan.transaction_id,
+      })).status).toBe(409);
+    } finally {
+      botless.cleanup();
+    }
   });
 });

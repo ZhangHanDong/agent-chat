@@ -22,10 +22,10 @@ function create(store, id = 'up-1', expiresAt) {
   return store.createRequest({ agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:test', upstream_request_id: id, tool_name: 'Bash', input_preview: 'pwd', expires_at: expiresAt }, { routerApprovalId: id });
 }
 function identity(plan, roomId) {
-  return { publisher_mxid: plan.publisher_mxid, room_id: roomId, credential_generation: plan.credential_generation, transaction_id: plan.transaction_id };
+  return { publisher_scope: plan.publisher_scope, publisher_mxid: plan.publisher_mxid, room_id: roomId, credential_generation: plan.credential_generation, transaction_id: plan.transaction_id };
 }
 function deliver(store, row, eventId) {
-  const plan = store.prepareProjection(row.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', payload_version: 1, prepared_event_type: 'm.room.message', prepared_payload: { body: row.channel } }).plan;
+  const plan = store.prepareProjection(row.cas_token, { publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', payload_version: 1, prepared_event_type: 'm.room.message', prepared_payload: { body: row.channel } }).plan;
   store.beginProjectionSend(plan.cas_token, identity(plan, row.target_room_id));
   store.receiptProjection(plan.cas_token, { ...identity(plan, row.target_room_id), event_id: eventId });
 }
@@ -39,6 +39,7 @@ describe('approval projection store', () => {
     create(store);
     const row = store.listDueProjections()[0];
     const valid = {
+      publisher_scope: 'local_bot',
       publisher_mxid: '@bot:test',
       homeserver: 'test',
       credential_kind: 'local_bot',
@@ -75,6 +76,7 @@ describe('approval projection store', () => {
     const row = store.listDueProjections()[0];
     const payload = JSON.parse('{"ciphertext":"a+/=\\\\byte","nested":{"__proto__":{"value":1}}}');
     const plan = store.prepareProjection(row.cas_token, {
+      publisher_scope: 'local_bot',
       publisher_mxid: '@bot:test',
       homeserver: 'test',
       credential_kind: 'local_bot',
@@ -107,11 +109,63 @@ describe('approval projection store', () => {
     expect(store.listDueProjections()).toEqual([expect.objectContaining({ revision: 3, state: 'consumed' })]);
   });
 
+  test('private status keeps the private request publisher across a binding or credential change', () => {
+    const { store, file } = setup();
+    const request = create(store);
+    const requestRow = store.listDueProjections().find((row) => row.channel === 'private_request');
+    const original = store.prepareProjection(requestRow.cas_token, {
+      publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'original',
+      prepared_event_type: 'm.room.message', prepared_payload: { body: 'request' },
+    }).plan;
+    store.beginProjectionSend(original.cas_token, identity(original, requestRow.target_room_id));
+    store.receiptProjection(original.cas_token, { ...identity(original, requestRow.target_room_id), event_id: '$request' });
+    const matrix = store.getRequest(request.id, { matrix: true });
+    store.submitMatrixVerdict(request.id, {
+      action: 'approve_once', sender_mxid: matrix.owner_mxid, room_id: matrix.owner_dm_room_id,
+      agent: matrix.agent, project: matrix.project, project_room_id: matrix.project_room_id,
+      input_digest: matrix.input_digest,
+    });
+    const statusRow = store.listDueProjections().find((row) => row.channel === 'private_status');
+    const before = readFileSync(file, 'utf8');
+    expect(() => store.prepareProjection(statusRow.cas_token, {
+      publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'rotated',
+      prepared_event_type: 'm.room.message', prepared_payload: { body: 'approved' },
+    })).toThrowError(/private request publisher/);
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(store.prepareProjection(statusRow.cas_token, {
+      publisher_scope: original.publisher_scope, publisher_mxid: original.publisher_mxid,
+      homeserver: original.homeserver, credential_kind: original.credential_kind,
+      credential_generation: original.credential_generation,
+      prepared_event_type: 'm.room.message', prepared_payload: { body: 'approved' },
+    }).plan).toMatchObject({ credential_generation: 'original' });
+  });
+
+  test('publisher registry rotates transactionally and reloads without exposing a credential', () => {
+    const { store, file } = setup();
+    const first = store.upsertProjectionPublisher({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'g1',
+    });
+    expect(first).not.toHaveProperty('credential');
+    expect(createApprovalStore(file).projectionPublisher('local_bot')).toMatchObject({ credentialGeneration: 'g1' });
+    const before = readFileSync(file, 'utf8');
+    store.fsFault = (phase) => { if (phase === 'beforeRename') throw new Error('publisher write failed'); };
+    expect(() => store.upsertProjectionPublisher({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'g2',
+    })).toThrowError(/publisher write failed/);
+    expect(store.projectionPublisher('local_bot')).toMatchObject({ credentialGeneration: 'g1' });
+    expect(readFileSync(file, 'utf8')).toBe(before);
+  });
+
   test('ready plan cannot retry or receipt before durable begin', () => {
     const { store, file } = setup();
     create(store);
     const row = store.listDueProjections()[0];
     const plan = store.prepareProjection(row.cas_token, {
+      publisher_scope: 'local_bot',
       publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot',
       credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' },
     }).plan;
@@ -128,7 +182,7 @@ describe('approval projection store', () => {
     const { store } = setup({ now: () => now });
     create(store);
     const row = store.listDueProjections()[0];
-    const plan = store.prepareProjection(row.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } }).plan;
+    const plan = store.prepareProjection(row.cas_token, { publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } }).plan;
     store.beginProjectionSend(plan.cas_token, identity(plan, row.target_room_id));
     store.retryProjection(plan.cas_token, { ...identity(plan, row.target_room_id), retry_at: 2000, error_code: 'timeout' });
     expect(store.listDueProjections().some((item) => item.channel === row.channel)).toBe(false);
@@ -144,7 +198,7 @@ describe('approval projection store', () => {
     const { store } = setup();
     create(store);
     const row = store.listDueProjections()[0];
-    const input = { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } };
+    const input = { publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } };
     const winner = store.prepareProjection(row.cas_token, input).plan;
     expect(store.prepareProjection(row.cas_token, { ...input, prepared_payload: { body: 'loser' } }).plan).toEqual(winner);
     store.beginProjectionSend(winner.cas_token, identity(winner, row.target_room_id));
@@ -167,7 +221,7 @@ describe('approval projection store', () => {
     const { store, file } = setup();
     create(store);
     const row = store.listDueProjections()[0];
-    const plan = store.prepareProjection(row.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } }).plan;
+    const plan = store.prepareProjection(row.cas_token, { publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } }).plan;
     store.beginProjectionSend(plan.cas_token, identity(plan, row.target_room_id));
     expect(() => store.retryProjection(plan.cas_token, { ...identity(plan, row.target_room_id), retry_at: 2000, error_code: 'x'.repeat(129) })).toThrowError(/exceeds 128/);
     expect(store.listDueProjections().find((item) => item.plan?.cas_token === plan.cas_token).plan.attempt_state).toBe('attempted');
@@ -307,13 +361,13 @@ describe('approval projection store', () => {
     const { store } = setup();
     const readyRequest = create(store, 'ready');
     const readyRow = store.listDueProjections().find((item) => item.request_id === readyRequest.id && item.channel === 'private_request');
-    const readyPlan = store.prepareProjection(readyRow.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g', prepared_event_type: 'm.room.message', prepared_payload: { body: 'ready' } }).plan;
+    const readyPlan = store.prepareProjection(readyRow.cas_token, { publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g', prepared_event_type: 'm.room.message', prepared_payload: { body: 'ready' } }).plan;
     store.denyPending(readyRequest.id, 'terminal');
     expect(() => store.beginProjectionSend(readyPlan.cas_token, identity(readyPlan, readyRow.target_room_id))).toThrowError(/superseded/);
 
     const attemptedRequest = create(store, 'attempted');
     const attemptedRow = store.listDueProjections({ limit: 20 }).find((item) => item.request_id === attemptedRequest.id && item.channel === 'private_request');
-    const attemptedPlan = store.prepareProjection(attemptedRow.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g', prepared_event_type: 'm.room.message', prepared_payload: { body: 'attempted' } }).plan;
+    const attemptedPlan = store.prepareProjection(attemptedRow.cas_token, { publisher_scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g', prepared_event_type: 'm.room.message', prepared_payload: { body: 'attempted' } }).plan;
     store.beginProjectionSend(attemptedPlan.cas_token, identity(attemptedPlan, attemptedRow.target_room_id));
     store.denyPending(attemptedRequest.id, 'terminal');
     expect(store.receiptProjection(attemptedPlan.cas_token, { ...identity(attemptedPlan, attemptedRow.target_room_id), event_id: '$landed' })).toEqual({ event_id: '$landed' });

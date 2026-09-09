@@ -5,7 +5,7 @@ import {
   SimpleFsStorageProvider,
 } from 'matrix-bot-sdk';
 import { validateMasqueradeUserId, setMasqueradeUserParam } from './lib/matrix-representative.js';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { createAppserviceRouter } from './lib/appservice-receiver.js';
 import {
   createRoomOnSide, inviteToRoomOnSide, joinRoomOnSideAsAgent, joinRoomOnSideAsRepresentative,
@@ -671,7 +671,7 @@ let stateWritesBlockedReason = null;
 
 function loadState() {
   const statePath = path.join(DATA_DIR, 'bridge-state.json');
-  const fresh = { botToken: null, agentTokens: {}, roomGroupMap: {}, groupRoomMap: {}, pendingMatrixRouteQueue: [] };
+  const fresh = { botToken: null, botMxid: null, botCredentialGeneration: null, botCredentialVerifier: null, agentTokens: {}, roomGroupMap: {}, groupRoomMap: {}, pendingMatrixRouteQueue: [] };
   try {
     const parsed = JSON.parse(readFileSync(statePath, 'utf-8'));
     /*
@@ -978,7 +978,7 @@ function normalizeAgentCredential(value) {
   if (typeof value === 'string') {
     const token = value.trim();
     return token
-      ? { homeserver: HOMESERVER, serverName: MATRIX_SERVER_NAME, mxid: null, accessToken: token }
+      ? { homeserver: HOMESERVER, serverName: MATRIX_SERVER_NAME, mxid: null, accessToken: token, credentialGeneration: null }
       : null;
   }
   if (!value || typeof value !== 'object') return null;
@@ -993,7 +993,9 @@ function normalizeAgentCredential(value) {
     ? value.serverName.trim().toLowerCase()
     : MATRIX_SERVER_NAME;
   const mxid = typeof value.mxid === 'string' && value.mxid.trim() ? value.mxid.trim() : null;
-  return { homeserver, serverName, mxid, accessToken: token };
+  const credentialGeneration = typeof value.credentialGeneration === 'string' && value.credentialGeneration
+    ? value.credentialGeneration : null;
+  return { homeserver, serverName, mxid, accessToken: token, credentialGeneration };
 }
 
 /**
@@ -1316,7 +1318,14 @@ async function ensureBotAccount() {
   if (state.botToken) {
     try {
       const client = new MatrixClient(HOMESERVER, state.botToken, new SimpleFsStorageProvider(path.join(DATA_DIR, 'bot-store.json')));
-      await client.getUserId();
+      const userId = await client.getUserId();
+      const verifier = createHash('sha256').update(state.botToken).digest('hex');
+      if (!state.botCredentialGeneration || state.botCredentialVerifier !== verifier || state.botMxid !== userId) {
+        state.botCredentialGeneration = randomBytes(16).toString('hex');
+        state.botCredentialVerifier = verifier;
+        state.botMxid = userId;
+        saveState();
+      }
       return state.botToken;
     } catch { /* token expired, re-login */ }
   }
@@ -1330,6 +1339,9 @@ async function ensureBotAccount() {
     try {
       const data = await matrixLogin(BOT_USERNAME, BOT_PASSWORD, HOMESERVER);
       state.botToken = data.access_token;
+      state.botMxid = data.user_id;
+      state.botCredentialGeneration = randomBytes(16).toString('hex');
+      state.botCredentialVerifier = createHash('sha256').update(data.access_token).digest('hex');
       saveState();
       console.log(`Bot logged in as ${data.user_id}`);
       return data.access_token;
@@ -1337,6 +1349,9 @@ async function ensureBotAccount() {
       try {
         const data = await matrixRegister(BOT_USERNAME, BOT_PASSWORD, HOMESERVER);
         state.botToken = data.access_token;
+        state.botMxid = data.user_id;
+        state.botCredentialGeneration = randomBytes(16).toString('hex');
+        state.botCredentialVerifier = createHash('sha256').update(data.access_token).digest('hex');
         saveState();
         console.log(`Bot registered as ${data.user_id}`);
         return data.access_token;
@@ -1526,7 +1541,8 @@ async function ensureAgentAccount(agentName, { servedOtherwise = null } = {}) {
      * after the homeserver accepted it AND proved it is this agent's, so neither a typo nor another
      * agent's credential can displace a working one.
      */
-    if (state.agentTokens[canonicalAgentName]?.accessToken !== candidate.token) {
+    const existingCredential = normalizeAgentCredential(state.agentTokens[canonicalAgentName]);
+    if (existingCredential?.accessToken !== candidate.token || !existingCredential?.credentialGeneration) {
       /*
        * Stored as a record, with the MXID the homeserver just reported in `session.userId`.
        *
@@ -1542,6 +1558,9 @@ async function ensureAgentAccount(agentName, { servedOtherwise = null } = {}) {
         serverName: MATRIX_SERVER_NAME,
         mxid: session.userId,
         accessToken: candidate.token,
+        credentialGeneration: existingCredential?.accessToken === candidate.token
+          ? (existingCredential.credentialGeneration || randomBytes(16).toString('hex'))
+          : randomBytes(16).toString('hex'),
       });
       saveState();
       console.log(`[agent-credential] adopted ${candidate.source} Matrix token for '${canonicalAgentName}' (${session.userId})`);
@@ -10060,9 +10079,24 @@ export class MatrixBridge {
         return existing.primaryEventId;
       }
     }
-    const suppliedTxnId = typeof delivery?.transactionId === 'string' ? delivery.transactionId.trim() : '';
-    if (suppliedTxnId && !/^[A-Za-z0-9._~-]{1,128}$/.test(suppliedTxnId)) {
+    const hasSuppliedTxnId = delivery?.transactionId !== undefined && delivery?.transactionId !== null;
+    const suppliedTxnId = hasSuppliedTxnId ? delivery.transactionId : '';
+    if (hasSuppliedTxnId && (typeof suppliedTxnId !== 'string'
+      || !/^[A-Za-z0-9._~-]{1,128}$/.test(suppliedTxnId)
+      || suppliedTxnId === '.' || suppliedTxnId === '..')) {
       throw new Error('invalid explicit Matrix transaction id');
+    }
+    const preparedEventType = delivery?.preparedEventType || 'm.room.message';
+    if (preparedEventType !== 'm.room.message' && preparedEventType !== 'm.room.encrypted') {
+      throw new Error('invalid prepared Matrix event type');
+    }
+    if (delivery?.expectedPublisherMxid) {
+      const actualPublisher = sender.kind === 'appservice'
+        ? sender.agentUserId
+        : credentialForToken(token)?.mxid;
+      if (!actualPublisher || actualPublisher !== delivery.expectedPublisherMxid) {
+        throw new Error('Matrix projection publisher changed');
+      }
     }
     const txnSeed = persistPrimary
       ? `primary:${sourceMsgId}`
@@ -10094,7 +10128,7 @@ export class MatrixBridge {
       const authToken = sender.kind === 'token' ? token : sender.credential.asToken;
       const url = new URL(
         `${base}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}`
-        + `/send/m.room.message/${txnId}`,
+        + `/send/${encodeURIComponent(preparedEventType)}/${txnId}`,
       );
       if (sender.kind === 'appservice') {
         /*
@@ -10556,6 +10590,74 @@ export {
 export function saveStateForTest() {
   return saveState();
 }
+
+function sameProjectionActor(left, right) {
+  return Boolean(left && right)
+    && left.scope === right.scope
+    && left.publisher_mxid === right.publisher_mxid
+    && left.homeserver === right.homeserver
+    && left.credential_kind === right.credential_kind
+    && left.credential_generation === right.credential_generation;
+}
+
+function projectionPlanIdentityForBridge(plan, row) {
+  return {
+    cas_token: plan.cas_token,
+    channel: row.channel,
+    publisher_scope: plan.publisher_scope,
+    publisher_mxid: plan.publisher_mxid,
+    room_id: row.target_room_id,
+    credential_generation: plan.credential_generation,
+    transaction_id: plan.transaction_id,
+  };
+}
+
+async function publishApprovalProjection(row, io) {
+  const pinnedActor = await io.resolveActor(row);
+  if (!pinnedActor) throw new Error('approval projection publisher unavailable');
+  const prepared = await io.prepareContent(row, pinnedActor);
+  if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
+    throw new Error('approval projection publisher changed during content preparation');
+  }
+  await io.registerPublisher(pinnedActor, row);
+  if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
+    throw new Error('approval projection publisher changed during registration');
+  }
+  const proposal = {
+    cas_token: row.cas_token,
+    channel: row.channel,
+    publisher_scope: pinnedActor.scope,
+    publisher_mxid: pinnedActor.publisher_mxid,
+    homeserver: pinnedActor.homeserver,
+    credential_kind: pinnedActor.credential_kind,
+    credential_generation: pinnedActor.credential_generation,
+    payload_version: 1,
+    prepared_event_type: prepared.event_type,
+    prepared_payload: prepared.content,
+  };
+  const plan = (await io.prepare(proposal, row)).plan;
+  if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
+    throw new Error('approval projection publisher changed after durable preparation');
+  }
+  const identity = projectionPlanIdentityForBridge(plan, row);
+  let began = false;
+  try {
+    await io.begin(identity, row);
+    began = true;
+    if (!sameProjectionActor(pinnedActor, await io.resolveActor(row))) {
+      throw new Error('approval projection publisher changed before Matrix send');
+    }
+    const eventId = await io.send(plan, pinnedActor, row);
+    await io.receipt(identity, eventId, row);
+    return { ok: true, event_id: eventId };
+  } catch (error) {
+    if (!began) throw error;
+    await io.retry(identity, error, row);
+    return { ok: false, uncertain: true, error };
+  }
+}
+
+export { publishApprovalProjection as publishApprovalProjectionForTest };
 
 const isMainModule = (() => {
   const entry = process.argv[1];

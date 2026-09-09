@@ -10340,16 +10340,104 @@ app.get('/api/approvals/matrix/projections', requireApprovalBridgeSecret, (req, 
   }
 });
 
+app.put('/api/approvals/matrix/publishers', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    const body = req.body || {};
+    const scope = String(body.scope || '');
+    const server = String(body.homeserver || '').toLowerCase();
+    if (scope === 'local_bot') {
+      if (!MATRIX_BOT_MXID_FOR_PROBE || body.publisher_mxid !== MATRIX_BOT_MXID_FOR_PROBE
+        || server !== String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase()
+        || body.credential_kind !== 'local_bot') {
+        throw new ApprovalStoreError('conflict', 'local projection publisher does not match configured bot identity');
+      }
+    } else if (scope.startsWith('side-representative:')) {
+      const sideId = scope.slice('side-representative:'.length);
+      const side = projectSideStore.getSide(sideId);
+      const credential = projectSideStore.credentialFor(sideId);
+      const expected = credential?.kind === 'appservice'
+        ? `@${credential.senderLocalpart}:${side?.serverName}`
+        : side?.representative?.mxid;
+      if (!side || !side.active || side.accessState !== 'accepted' || !credential
+        || credential.outboundGeneration !== body.credential_generation
+        || body.credential_kind !== credential.kind || body.publisher_mxid !== expected || server !== side.serverName) {
+        throw new ApprovalStoreError('conflict', 'project-side projection publisher is stale or mismatched');
+      }
+    } else if (scope.startsWith('agent:')) {
+      const agentName = normalizeAgentName(body.agent);
+      const sideId = String(body.side_id || '').trim().toLowerCase();
+      if (!agentName || !sideId || scope !== `agent:${agentName}:${sideId}`) {
+        throw new ApprovalStoreError('bad_request', 'agent publisher scope must match agent and side_id');
+      }
+      const side = projectSideStore.getSide(sideId);
+      const credential = side ? projectSideStore.credentialFor(sideId) : null;
+      const agent = agents[agentName];
+      const expectedMxid = `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}${agentName}:${sideId}`.toLowerCase();
+      const sideMismatch = side && (!side.active || side.accessState !== 'accepted'
+        || !credential || credential.kind !== 'appservice'
+        || credential.outboundGeneration !== body.credential_generation
+        || body.credential_kind !== 'appservice' || body.publisher_mxid !== expectedMxid);
+      const localMismatch = !side && (sideId !== String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase()
+        || body.credential_kind !== 'agent_token' || body.publisher_mxid !== expectedMxid);
+      if (!agent || server !== sideId || sideMismatch || localMismatch) {
+        throw new ApprovalStoreError('conflict', 'agent projection publisher is stale or mismatched');
+      }
+    } else {
+      throw new ApprovalStoreError('bad_request', 'unknown projection publisher scope');
+    }
+    return res.json({ ok: true, publisher: approvalStore.upsertProjectionPublisher(body) });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to register approval projection publisher');
+  }
+});
+
 function projectionPlanIdentity(body = {}, params = {}) {
   return {
     request_id: params.id,
     revision: params.revision,
     channel: body.channel,
+    publisher_scope: body.publisher_scope,
     publisher_mxid: body.publisher_mxid,
     room_id: body.room_id,
     credential_generation: body.credential_generation,
     transaction_id: body.transaction_id,
   };
+}
+
+function validateProjectionPublisher(body = {}) {
+  const row = approvalStore.projectionForCas(body.cas_token);
+  if (!row) throw new ApprovalStoreError('conflict', 'projection row changed');
+  const approval = approvalStore.getProjectionRequest(row.request_id);
+  const room = String(row.target_room_id || '');
+  const server = room.includes(':') ? room.slice(room.indexOf(':') + 1).toLowerCase() : '';
+  const localServer = String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase();
+  const expectedScope = row.channel === 'public_notice'
+    ? `agent:${approval?.agent || ''}:${server}`
+    : (server === localServer && MATRIX_BOT_MXID_FOR_PROBE ? 'local_bot' : `side-representative:${server}`);
+  const publisher = row.channel === 'private_status'
+    ? approvalStore.privateRequestPublisher(row.request_id)
+    : approvalStore.projectionPublisher(expectedScope);
+  const proposed = row.plan || body;
+  if (!publisher || proposed.publisher_scope !== expectedScope || publisher.publisherMxid !== proposed.publisher_mxid
+    || publisher.homeserver !== server || publisher.credentialKind !== proposed.credential_kind
+    || publisher.credentialGeneration !== proposed.credential_generation) {
+    throw new ApprovalStoreError('conflict', 'projection publisher is unavailable, stale, or mismatched');
+  }
+  if (publisher.scope.startsWith('side-representative:') || publisher.credentialKind === 'appservice') {
+    const sideId = publisher.sideId || publisher.homeserver;
+    const side = projectSideStore.getSide(sideId);
+    const credential = projectSideStore.credentialFor(sideId);
+    const expectedMxid = publisher.scope.startsWith('side-representative:')
+      ? (credential?.kind === 'appservice'
+        ? `@${credential.senderLocalpart}:${side?.serverName}`
+        : side?.representative?.mxid)
+      : publisher.publisherMxid;
+    if (!side || !side.active || side.accessState !== 'accepted' || !credential
+      || credential.outboundGeneration !== publisher.credentialGeneration
+      || credential.kind !== publisher.credentialKind || expectedMxid !== publisher.publisherMxid) {
+      throw new ApprovalStoreError('conflict', 'projection publisher credential is no longer current');
+    }
+  }
 }
 
 let approvalProjectionMaintenanceRunning = false;
@@ -10381,6 +10469,7 @@ function runApprovalProjectionMaintenance() {
 
 app.post('/api/approvals/:id/matrix/projections/:revision/prepare', requireApprovalBridgeSecret, (req, res) => {
   try {
+    validateProjectionPublisher(req.body || {});
     const result = approvalStore.prepareProjection(req.body?.cas_token, {
       ...(req.body || {}), request_id: req.params.id, revision: req.params.revision,
     });
@@ -10395,6 +10484,7 @@ for (const operation of ['begin-send', 'receipt', 'retry']) {
     try {
       const body = req.body || {};
       const identity = projectionPlanIdentity(body, req.params);
+      if (operation !== 'receipt') validateProjectionPublisher(body);
       const result = operation === 'begin-send'
         ? approvalStore.beginProjectionSend(body.cas_token, identity)
         : operation === 'receipt'
@@ -16340,6 +16430,7 @@ export const __backendV2TestInternals = {
   },
   dispatchLeaseStoreForTest: dispatchLeaseStore,
   approvalStoreForTest: approvalStore,
+  projectSideStoreForTest: projectSideStore,
   runApprovalProjectionMaintenanceForTest: runApprovalProjectionMaintenance,
   approvalAdapterTimeoutMsForTest: APPROVAL_ADAPTER_TIMEOUT_MS,
   routerStoreForTest: routerStore,

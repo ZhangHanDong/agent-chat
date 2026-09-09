@@ -112,6 +112,25 @@ describe('sending as an agent that has no token of its own', () => {
     expect(JSON.parse(call.body)).toMatchObject({ body: 'hello from the site' });
   });
 
+  test('projection delivery uses the stored event type transaction id and exact publisher', async () => {
+    const calls = captureFetch();
+    const bridge = bridgeStub();
+    const content = { algorithm: 'm.megolm.v1.aes-sha2', ciphertext: 'fixed' };
+    await bridge.sendAsAgentContent(appserviceSender(), ROOM, content, null, {
+      transactionId: 'hafleet_fixed', preparedEventType: 'm.room.encrypted',
+      expectedPublisherMxid: AGENT_MXID, throwOnFailure: true,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toContain('/send/m.room.encrypted/hafleet_fixed');
+    expect(JSON.parse(calls[0].body)).toEqual(content);
+
+    await expect(bridge.sendAsAgentContent(appserviceSender(), ROOM, content, null, {
+      transactionId: 'hafleet_other', preparedEventType: 'm.room.encrypted',
+      expectedPublisherMxid: '@ac_someone-else:side.test', throwOnFailure: true,
+    })).rejects.toThrow(/publisher/);
+    expect(calls).toHaveLength(1);
+  });
+
   test('the work indicator ends by NAME, because there is no token to look the name up from', async () => {
     captureFetch();
     const bridge = bridgeStub();
