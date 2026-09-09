@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveDirectAdmission } from '../lib/matrix-direct-admission.js';
@@ -12,6 +12,96 @@ function admission() { return { agent: { name: 'worker' }, eligible: true, human
   engagements: [{ id: 'engagement', agent: 'worker', state: 'active', projectRoomId: '!project:test' }],
   bindings: [{ agent: 'worker', projectRoomId: '!project:test', ownerMxid: '@owner:test', ownerDmRoomId: '!approval:test' }],
   membersForProject: vi.fn(async () => ({ known: true, members: ['@alice:test'] })) }; }
+
+function cachedDevice() {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'direct-endpoint-')); dirs.push(directory);
+  const sender = { agentUserId: '@ac_worker:test', side: { apiBaseUrl: 'https://new-matrix.invalid' },
+    credential: { namespace: '^@ac_.*:test$', asToken: 'appservice-token' } };
+  const session = { user_id: sender.agentUserId, device_id: 'original-device', access_token: 'original-device-token',
+    refresh_token: 'original-refresh-token', baseUrl: 'http://127.0.0.1:18010' };
+  mkdirSync(path.join(directory, 'crypto'));
+  writeFileSync(path.join(directory, 'session.json'), JSON.stringify(session), { mode: 0o600 });
+  for (const file of ['sync.json', 'rooms.json', 'crypto/crypto.sqlite']) writeFileSync(path.join(directory, file), `preserve ${file}`);
+  const contents = () => Object.fromEntries(['session.json', 'sync.json', 'rooms.json', 'crypto/crypto.sqlite']
+    .map(file => [file, readFileSync(path.join(directory, file), 'utf8')]));
+  return { sender, directory, session, contents };
+}
+
+test('unchanged direct device endpoint reuses cached identity without a request or file rewrite', async () => {
+  const f = cachedDevice(); f.sender.side.apiBaseUrl = f.session.baseUrl;
+  const before = f.contents(), fetchImpl = vi.fn();
+  expect(await ensureDirectDevice({ ...f, fetchImpl })).toEqual(f.session);
+  expect(fetchImpl).not.toHaveBeenCalled(); expect(f.contents()).toEqual(before);
+});
+
+test('changed direct device endpoint verifies the original token and preserves device and crypto state', async () => {
+  const f = cachedDevice(), before = f.contents();
+  const fetchImpl = vi.fn(async () => ({ ok: true, status: 200,
+    json: async () => ({ user_id: f.session.user_id, device_id: f.session.device_id }) }));
+  const migrated = await ensureDirectDevice({ ...f, fetchImpl });
+  expect(fetchImpl).toHaveBeenCalledOnce();
+  expect(fetchImpl).toHaveBeenCalledWith('https://new-matrix.invalid/_matrix/client/v3/account/whoami', {
+    method: 'GET', headers: { Authorization: `Bearer ${f.session.access_token}` }, redirect: 'error', signal: expect.any(AbortSignal),
+  });
+  expect(migrated).toEqual({ ...f.session, baseUrl: f.sender.side.apiBaseUrl });
+  expect(f.contents()).toEqual({ ...before, 'session.json': JSON.stringify(migrated) });
+  expect(statSync(path.join(f.directory, 'session.json')).mode & 0o777).toBe(0o600);
+  expect(await ensureDirectDevice({ ...f, fetchImpl })).toEqual(migrated);
+  expect(fetchImpl).toHaveBeenCalledOnce();
+});
+
+test.each([
+  ['foreign homeserver identity', { user_id: '@ac_worker:foreign', device_id: 'original-device' }],
+  ['different user', { user_id: '@ac_other:test', device_id: 'original-device' }],
+  ['different device', { user_id: '@ac_worker:test', device_id: 'another-device' }],
+  ['missing device', { user_id: '@ac_worker:test' }],
+  ['missing user', { device_id: 'original-device' }],
+  ['empty response', null],
+  ['array response', []],
+])('direct endpoint migration refuses %s without rewriting any cached state', async (_name, identity) => {
+  const f = cachedDevice(), before = f.contents();
+  const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => identity }));
+  await expect(ensureDirectDevice({ ...f, fetchImpl })).rejects.toThrow('endpoint verification failed');
+  expect(f.contents()).toEqual(before); expect(fetchImpl).toHaveBeenCalledOnce();
+});
+
+test.each(['HTTP error', 'malformed JSON', 'network error'])('direct endpoint migration preserves cached state after %s', async failure => {
+  const f = cachedDevice(), before = f.contents();
+  const fetchImpl = vi.fn(async () => {
+    if (failure === 'network error') throw new Error(`untrusted error ${f.session.access_token}`);
+    return { ok: failure !== 'HTTP error', status: failure === 'HTTP error' ? 401 : 200,
+      json: async () => { throw new Error(`untrusted body ${f.session.access_token}`); } };
+  });
+  const error = await ensureDirectDevice({ ...f, fetchImpl }).catch(value => value);
+  expect(error.message).toBe('direct device endpoint verification failed');
+  expect(f.contents()).toEqual(before); expect(fetchImpl).toHaveBeenCalledOnce();
+});
+
+test('direct endpoint migration has a finite verification timeout and retains the original cache on abort', async () => {
+  const f = cachedDevice(), before = f.contents(), controller = new AbortController();
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+  const fetchImpl = vi.fn(async (_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  }));
+  try {
+    const pending = ensureDirectDevice({ ...f, fetchImpl });
+    const failed = expect(pending).rejects.toThrow('endpoint verification failed');
+    expect(timeout).toHaveBeenCalledWith(8000);
+    controller.abort(new Error('fixture endpoint timeout')); await failed;
+    expect(f.contents()).toEqual(before); expect(fetchImpl).toHaveBeenCalledOnce();
+  } finally { timeout.mockRestore(); }
+});
+
+test('direct endpoint migration refuses a mismatched or incomplete cached identity before sending its token', async () => {
+  const f = cachedDevice(), fetchImpl = vi.fn();
+  for (const mutation of [{ user_id: '@ac_other:test' }, { device_id: null }, { device_id: '' }, { access_token: null }, { access_token: '' }]) {
+    writeFileSync(path.join(f.directory, 'session.json'), JSON.stringify({ ...f.session, ...mutation }));
+    const before = f.contents();
+    await expect(ensureDirectDevice({ ...f, fetchImpl })).rejects.toThrow();
+    expect(f.contents()).toEqual(before);
+  }
+  expect(fetchImpl).not.toHaveBeenCalled();
+});
 
 test('direct admission requires a unique active project and current human membership', async () => {
   const f = admission();
