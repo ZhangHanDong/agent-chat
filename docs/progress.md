@@ -1291,3 +1291,124 @@ card click, fresh-runner rule reuse, webpage revocation/reapproval and isolated
 real Codex YOLO verified. Initial shell-mode mismatch and blocked-task probe
 timeouts preserved in evidence. Deployed locally after idle check and backup;
 no Palpo changes, commits or PRs. Review: docs/reviews/2026-09-08-execution-authorization.md.
+
+## 2026-09-08 — Hagency website research and plan
+
+Inspected the HAFleet source checkout, Robrix2 source checkout, Palpo source and
+its separate web-admin worktree. Fetched the relevant public remote refs without
+checking out or merging branches; read GitHub release metadata and public project
+pages. Confirmed distinct local integration, public default-branch and released
+states. Latest published releases observed: HAFleet1.2.0, Robrix/Robrix2 1.1.0,
+Palpo0.4.0. Existing bilingual HAgency book and historical console/native imagery
+are reusable only after naming, behavior and revision review.
+
+Prepared docs/design/hagency-website-plan.md with positioning, audience paths,
+16 core localized routes, project narratives, an eight-step demonstration,
+visual direction, ten integrated guides, implementation architecture, maintenance
+and measurable acceptance criteria. English/Chinese and developer-first audience
+remain proposed defaults. Website implementation and publication were not started;
+no application source, service, account or runtime profile was changed.
+
+Research uses existing dated product-test reports, not a new application test run.
+No executable website Task Contract is active: this artifact is an editorial
+proposal; the independent website's implementation contract belongs to its next
+stage. Agent-spec1.4 was inspected; an unretained draft's lint rejected manual
+editorial scenarios without test selectors, so no lifecycle success is claimed
+and no artificial test bindings were added. Root task-writer is absent; no
+canonical task-state update was fabricated.
+
+## 2026-09-08 — Adora website style and hero script review
+
+The operator selected ymote/adora-website as the design reference and requested
+inspection of its hero generation script. Local44ff68f matches remote HEAD.
+Read dark/light generation scripts, Hero.astro, theme tokens, layout, theme
+switcher and architecture section. Viewed both generated PNGs and captured
+the deployed desktop hero in dark/light CSS states with an isolated headless
+browser. Public page returned200. Screenshot captures are temporary review
+artifacts under /tmp/hagency-adora-reference-{dark,light}.png.
+
+The scripts use Google GenAI with gemini-3.1-flash-image-preview, separate prompts
+and static PNG output. Their1920×1080 prose request is not an enforced API size;
+both saved images are1376×768. Updated the Hagency proposal with the selected
+charcoal/teal/amber design, HTML-over-generated-art hero, original collaboration
+motif, a concrete generation brief, dark/light consistency and responsive image
+checks. Product screenshots move below the hero. No image-generation request,
+Adora source edit, website implementation or publication was performed.
+
+## 2026-09-08 — Bilingual Hagency website implemented
+
+The operator confirmed English and Chinese i18n. Created the independent Git
+repository at projects/hagency-website (not a symlink). Implemented 29 routes per
+language: 16 main pages, 10 guides, and 3 articles. Included all three project
+narratives, eight-step illustrative workflow, search, theme/locale persistence,
+verified download filters, documentation, security, roadmap, community, media,
+localized metadata, RSS, sitemap, and 404. Generated original matching dark/light
+hero art using the native image tool; prompts and outputs are documented in the
+website's docs/artwork.md. This follows the reviewed Adora style.
+
+Verified latest published releases through the GitHub API (11 binary/archive
+assets), checked 16 source/documentation URLs (all HTTP 200), and retained the
+distinction between published packages and local September 8 integration work.
+No live product screenshots are invented; interface diagrams are labeled as
+conceptual and the walkthrough explicitly uses illustrative data.
+
+Validation from the edited website tree: Astro typecheck 0 errors/warnings/hints,
+static build passes, all 8 Node/Playwright tests pass. Coverage includes 58 routes
+and internal links/anchors, both locales, theme persistence, walkthrough/search/
+downloads, all 16 main pages at 320/390/768px, and representative axe checks in
+both themes. Native agent-spec 1.4 lifecycle boundary passes; six Node scenarios
+remain native skips and its overall result remains non-passing. Independent Node
+execution passes; see website docs/verification.md and lifecycle-result.json.
+
+Static preview is running at http://127.0.0.1:4328/en/ and /zh-cn/, managed by
+the website's Astro preview command. Original application source and services
+were not modified. No public deployment, remote creation, commit, or push.
+The root task-writer wrapper remains absent, so no canonical state was invented.
+
+## 2026-09-08 — Matrix, federation, and agent-native positioning
+
+The operator requested Matrix protocol education, its advantages over centralized
+chat, open-source WeChat positioning, federation, and agents granted the same
+privileges as humans. Added /en/matrix/ and /zh-cn/matrix/, a prominent homepage
+section and hero copy, primary/footer navigation, and an expanded Matrix article.
+The site now has 60 localized content pages. The new page explains clients,
+homeservers and rooms, a five-row centralized/federated comparison, and explicit
+room-role parity for human and agent identities. It distinguishes room grants
+from runtime execution authority and explains relevant federation tradeoffs.
+
+Added local-only interactive network and room-role illustrations. Actual Matrix
+accounts, roles, servers and HAFleet runtime permissions were not changed. Six
+primary Matrix source URLs returned HTTP 200. Typecheck/build pass; all ten Node
+browser tests pass, including both new interactions, 60-route link validation,
+17 main pages at 320/390/768px, and axe checks in both themes and languages.
+
+Active website contract is specs/task-matrix-positioning.spec.md. Native
+agent-spec1.4 boundary passes; four scenarios remain native skips because Node
+is not executed, and the native overall result remains non-passing. Independent
+browser evidence and lifecycle output are retained in the website docs. Local
+preview remains on 127.0.0.1:4328; no public deployment, commit, or push.
+
+## 2026-09-08 — Real project screenshot galleries
+
+Added six genuine integration screenshots to the Hagency website: HAFleet
+resources/engagements, Robrix2 native group/encrypted-room file collaboration,
+and Palpo companion admin project access/resource catalog. Homepage previews
+and two-image project galleries have English/Chinese descriptions, original
+UI-language labels, and development-version context. Palpo's separate companion
+app is explicitly distinguished from its server release. Original PNGs remain
+byte-identical to their reviewed test captures; SHA-256 provenance and optimized
+WebP previews are retained in the website tree. No live service was contacted
+or changed for the captures.
+
+The image viewer supports keyboard open/close and focus return, actual-size
+scrolling, direct original links, no-JavaScript navigation, and localized load
+errors. Typecheck and build pass. The complete browser suite passed 13/13;
+after a final CSS-only catalog framing adjustment, all three screenshot tests
+passed again (0 skips). Automated mobile checks cover 320/390/768px; visual
+review covers both themes, both languages, desktop/mobile and long images.
+
+Active contract: specs/task-project-screenshots.spec.md. Native agent-spec1.4
+reports one boundary pass and five skips; its overall result remains non-passing
+because it does not execute Node tests. Separate browser logs, lifecycle output,
+and provenance are under the website docs. Preview is running at 127.0.0.1:4328.
+No public deployment, commit, or push. The absent task-writer was not replaced.

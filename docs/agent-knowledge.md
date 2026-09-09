@@ -1,5 +1,27 @@
 # Repository audit knowledge
 
+- **Selected website style, 2026-09-08:** the operator selected
+  `https://github.com/ymote/adora-website`. Local/public revision `44ff68f` matches.
+  Read both `generate-hero*.cjs` scripts and inspected both images plus the deployed
+  desktop hero. Scripts use Google GenAI and configured model
+  `gemini-3.1-flash-image-preview` for separate charcoal and pale geometric
+  backgrounds; real HTML supplies typography. Actual assets are1376×768 despite
+  1920×1080 in the prompts. Adopt the charcoal/teal/amber, spacious geometric
+  direction with original human/agent/network artwork. See section8 of the
+  [website plan](design/hagency-website-plan.md). No generation call was made.
+
+- **Hagency website planning, 2026-09-08:** the operator requested latest-project
+  research and a comprehensive promotional website plan. See
+  [the proposal](design/hagency-website-plan.md). Public defaults inspected:
+  HAFleet `4fb9749`, Robrix2 `e28e118e`, Palpo `c96c8e33`; local integration
+  revisions are `c380959`, `88ebf221`, and Palpo admin worktree `c8748200`.
+  These branches diverge; do not imply they are merged releases. GitHub's latest
+  published releases inspected were HAFleet1.2.0, Robrix2/Robrix1.1.0 and
+  Palpo0.4.0. Robrix2 has an existing bilingual HAgency book, but its older
+  agent-chat naming/behavior and HAFleet's historical screenshots need review
+  before website reuse. The plan proposes an independent bilingual static site;
+  implementation, hosting and publication have not been performed.
+
 - **Mini1 public Matrix, 2026-09-08:** operator explicitly requested public access
   using crew.ominix.io on another port. Public homeserver URL is now
   `https://crew.ominix.io:19443`; Matrix server identity remains
@@ -684,3 +706,47 @@ Local rig updated to console .next-execution-auth-v12, backend60400, bridge60453
 console60472, Robrix61492. Palpo unchanged. Existing Agent YOLO remains false;
 real UI-created test grant revoked. Preserve runtime/config/binary backup at
 palpo-admin-e2e/2026-09-06/execution-auth-backup-20260908-154315.
+
+## 2026-09-08 — Hagency website ownership and maintenance
+
+The English/Simplified Chinese website lives in projects/hagency-website, an
+independent new Git tree with no remote and no symlink. The user selected
+ymote/adora-website's visual style and explicitly requested both languages.
+Use the website README for commands; Astro preview is managed in the background
+on 127.0.0.1:4328. Theme uses localStorage; locale stays in /en/ or /zh-cn/ URLs.
+Refresh release data using scripts/update-releases.mjs, then update version
+labels and copy in both languages together. Public packages do not contain all
+September 8 local integration features; preserve the development labels.
+
+Original dark/light hero PNGs and optimized WebPs are under public/images.
+Exact generation prompts are in docs/artwork.md. Website testing uses Node and
+Playwright. Native agent-spec 1.4 cannot execute those selectors: six skips are
+recorded separately from the eight passing browser tests. No production domain
+is assumed; default static builds are unindexed until SITE_URL is supplied.
+
+The operator's added positioning is an open-source, agent-native alternative to
+WeChat for communication/collaboration. /en/matrix/ and /zh-cn/matrix/ explain
+Matrix, federation, independent operators, and agents with explicitly granted
+human-equivalent room roles. Preserve the distinction between room authority and
+host/runtime approvals; do not imply payment/Mini Programs parity, automatic
+admin grants, account migration, or universal outage/privacy guarantees. The
+interactive role cards and network diagrams are illustrations with no live
+requests. Site count is now60 localized pages; browser suite has10 passing tests.
+
+## Hagency real project screenshots (2026-09-08)
+
+The website now retains six real development integration captures under
+`projects/hagency-website/public/images/screenshots/`, with bilingual source
+context in `src/data/screenshots.ts` and provenance/hashes documented in
+`docs/screenshots.md` and `src/data/screenshot-assets.json`. The captures came
+from the local palpo-admin-e2e/2026-09-06 cache archive but have September 7–8
+modification dates. They show HAFleet, actual native Robrix2 (not Element Web),
+and the separate Palpo companion admin app. The companion app is not bundled
+in the published Palpo v0.4.0 server package; preserve this distinction.
+
+Use `scripts/optimize-screenshots.mjs` from the website repo to verify original
+hashes and recreate WebP previews. Do not rewrite product UI pixels. The native
+viewer provides original-size scrolling, direct original links, keyboard close,
+focus restoration, and localized error recovery. Active Task Contract is
+`specs/task-project-screenshots.spec.md`; Node browser execution is independent
+of agent-spec's native skips. The workspace task-writer remains absent.
