@@ -115,20 +115,32 @@ describe('sending as an agent that has no token of its own', () => {
   test('projection delivery uses the stored event type transaction id and exact publisher', async () => {
     const calls = captureFetch();
     const bridge = bridgeStub();
+    const sender = appserviceSender();
+    sender.credential.outboundGeneration = 'generation-1';
+    bridge.actingSideFor = () => ({ side: sender.side, credential: sender.credential });
     const content = { algorithm: 'm.megolm.v1.aes-sha2', ciphertext: 'fixed' };
-    await bridge.sendAsAgentContent(appserviceSender(), ROOM, content, null, {
+    await bridge.sendAsAgentContent(sender, ROOM, content, null, {
       transactionId: 'hafleet_fixed', preparedEventType: 'm.room.encrypted',
-      expectedPublisherMxid: AGENT_MXID, throwOnFailure: true,
+      expectedPublisherMxid: AGENT_MXID, expectedCredentialGeneration: 'generation-1', throwOnFailure: true,
     });
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toContain('/send/m.room.encrypted/hafleet_fixed');
     expect(JSON.parse(calls[0].body)).toEqual(content);
 
-    await expect(bridge.sendAsAgentContent(appserviceSender(), ROOM, content, null, {
+    await expect(bridge.sendAsAgentContent(sender, ROOM, content, null, {
       transactionId: 'hafleet_other', preparedEventType: 'm.room.encrypted',
-      expectedPublisherMxid: '@ac_someone-else:side.test', throwOnFailure: true,
+      expectedPublisherMxid: '@ac_someone-else:side.test', expectedCredentialGeneration: 'generation-1', throwOnFailure: true,
     })).rejects.toThrow(/publisher/);
     expect(calls).toHaveLength(1);
+  });
+
+  test('projection delivery rejects incomplete publisher context before Matrix I/O', async () => {
+    const calls = captureFetch();
+    await expect(bridgeStub().sendAsAgentContent(appserviceSender(), ROOM, { body: 'fixed' }, null, {
+      transactionId: 'hafleet_incomplete', preparedEventType: 'm.room.message',
+      expectedPublisherMxid: AGENT_MXID, throwOnFailure: true,
+    })).rejects.toThrow(/incomplete.*context/);
+    expect(calls).toHaveLength(0);
   });
 
   test('projection membership recovery revalidates current send context before retry PUT', async () => {
@@ -146,12 +158,38 @@ describe('sending as an agent that has no token of its own', () => {
       return { ok: true, status: 200, json: async () => ({ event_id: '$unexpected' }) };
     });
     const bridge = bridgeStub();
-    bridge.agentSenderFor = () => current;
+    bridge.actingSideFor = () => ({ side: current.side, credential: current.credential });
     await expect(bridge.sendAsAgentContent(original, ROOM, { body: 'fixed' }, null, {
       transactionId: 'hafleet_recovery', preparedEventType: 'm.room.message',
       expectedPublisherMxid: AGENT_MXID, expectedCredentialGeneration: 'generation-1', throwOnFailure: true,
     })).rejects.toThrow(/generation changed/);
     expect(calls).toHaveLength(1);
+  });
+
+  test('projection membership recovery revalidates after invite before join', async () => {
+    const calls = [];
+    const original = appserviceSender();
+    original.credential.outboundGeneration = 'generation-1';
+    let current = original;
+    vi.stubGlobal('fetch', async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      if (calls.length === 1) {
+        return { ok: false, status: 403, json: async () => ({ errcode: 'M_FORBIDDEN', error: 'membership leave' }) };
+      }
+      if (String(url).includes('/invite')) {
+        current = appserviceSender();
+        current.credential.outboundGeneration = 'generation-2';
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    const bridge = bridgeStub();
+    bridge.actingSideFor = () => ({ side: current.side, credential: current.credential });
+    await expect(bridge.sendAsAgentContent(original, ROOM, { body: 'fixed' }, null, {
+      transactionId: 'hafleet_invite_rotation', preparedEventType: 'm.room.message',
+      expectedPublisherMxid: AGENT_MXID, expectedCredentialGeneration: 'generation-1', throwOnFailure: true,
+    })).rejects.toThrow(/generation changed/);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].url).toContain('/invite');
   });
 
   test('the work indicator ends by NAME, because there is no token to look the name up from', async () => {

@@ -10103,12 +10103,31 @@ export class MatrixBridge {
       : `${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
     const txnId = suppliedTxnId || `bridge_${createHash('sha256').update(txnSeed).digest('hex').slice(0, 32)}`;
     const validateProjectionSendContext = async () => {
+      const isProjection = delivery?.expectedPublisherMxid !== undefined
+        || delivery?.expectedCredentialGeneration !== undefined
+        || delivery?.preparedEventType !== undefined
+        || typeof delivery?.validateSendContext === 'function';
+      if (!isProjection) return;
+      if (typeof delivery?.expectedPublisherMxid !== 'string' || !delivery.expectedPublisherMxid
+        || typeof delivery?.expectedCredentialGeneration !== 'string'
+        || !delivery.expectedCredentialGeneration) {
+        throw new Error('incomplete Matrix projection publisher context');
+      }
       if (typeof delivery?.validateSendContext === 'function') {
         await delivery.validateSendContext(sender);
+        return;
       }
-      if (!delivery?.expectedCredentialGeneration || !sender.agentName
-        || typeof this.agentSenderFor !== 'function') return;
-      const current = MatrixBridge.normalizeSender(this.agentSenderFor(sender.agentName, roomId));
+      let current = null;
+      if (sender.kind === 'appservice' && typeof this.actingSideFor === 'function') {
+        const sideId = sender.side?.side?.serverName || sender.side?.serverName;
+        const acting = sideId ? this.actingSideFor(sideId) : null;
+        if (acting) current = MatrixBridge.normalizeSender({
+          kind: 'appservice', ...acting, agentUserId: sender.agentUserId, agentName: sender.agentName,
+        });
+      } else if (sender.agentName && typeof this.agentSenderFor === 'function') {
+        current = MatrixBridge.normalizeSender(this.agentSenderFor(sender.agentName, roomId));
+      }
+      if (!current) throw new Error('Matrix projection publisher context cannot be revalidated');
       const currentPublisher = current?.kind === 'appservice'
         ? current.agentUserId
         : credentialForToken(current?.token)?.mxid;
@@ -10241,6 +10260,7 @@ export class MatrixBridge {
             if (!invited.invited && !invited.already) {
               throw new Error(`representative could not re-invite ${sender.agentUserId}: ${invited.reason}`);
             }
+            await validateProjectionSendContext();
             const rejoined = await joinRoomOnSideAsAgent({
               side: sender.side,
               credential: sender.credential,
@@ -10256,11 +10276,13 @@ export class MatrixBridge {
             }
           } else {
             // Invite via bot, then join as agent
+            await validateProjectionSendContext();
             await fetch(`${HOMESERVER}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`, {
               method: 'POST',
               headers: { Authorization: `Bearer ${state.botToken}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: await getUserId(token, baseUrlForToken(token)) }),
             });
+            await validateProjectionSendContext();
             await fetch(`${baseUrlForToken(token)}/_matrix/client/v3/join/${encodeURIComponent(roomId)}`, {
               method: 'POST',
               headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
