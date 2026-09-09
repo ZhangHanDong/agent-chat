@@ -1,12 +1,18 @@
-import { describe, expect, test } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import { afterEach, describe, expect, test } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { ApprovalStoreError, createApprovalStore } from '../lib/approval-store.js';
 
+const fixtureDirs = [];
+afterEach(() => {
+  for (const dir of fixtureDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 const binding = { agent: 'worker', project: 'p', project_room_id: '!p:test', owner_mxid: '@owner:test', owner_dm_room_id: '!dm:test' };
 function setup(options = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-proj-'));
+  fixtureDirs.push(dir);
   const file = path.join(dir, 'store.json');
   const store = createApprovalStore(file, { now: () => 1000, ...options });
   store.upsertBinding(binding);
@@ -83,6 +89,30 @@ describe('approval projection store', () => {
     expect(JSON.parse(readFileSync(file)).requests[request.id].status).toBe('pending');
   });
 
+  test('retry validation failure restores attempted state in memory and on disk', () => {
+    const { store, file } = setup();
+    create(store);
+    const row = store.listDueProjections()[0];
+    const plan = store.prepareProjection(row.cas_token, { publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot', credential_generation: 'g1', prepared_event_type: 'm.room.message', prepared_payload: { body: 'x' } }).plan;
+    store.beginProjectionSend(plan.cas_token, identity(plan, row.target_room_id));
+    expect(() => store.retryProjection(plan.cas_token, { ...identity(plan, row.target_room_id), retry_at: 2000, error_code: 'x'.repeat(129) })).toThrowError(/exceeds 128/);
+    expect(store.listDueProjections().find((item) => item.plan?.cas_token === plan.cas_token).plan.attempt_state).toBe('attempted');
+    const diskRow = JSON.parse(readFileSync(file)).projectionOutbox.find((item) => item.planCasToken === plan.cas_token);
+    expect(diskRow).toMatchObject({ attemptState: 'attempted', nextAttemptAt: 0 });
+  });
+
+  test('create conflict rolls back incidental expiry in memory and on disk', () => {
+    let now = 1000;
+    const { store, file } = setup({ now: () => now });
+    const expiring = create(store, 'early', 1100);
+    create(store, 'same');
+    now = 1200;
+    expect(() => store.createRequest({ agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:test', upstream_request_id: 'same', tool_name: 'Bash' })).toThrowError(/different approval origin/);
+    expect(store.state.requests[expiring.id].status).toBe('pending');
+    const disk = JSON.parse(readFileSync(file));
+    expect(disk.requests[expiring.id].status).toBe('pending');
+  });
+
   test('pre-rename rolls back and post-rename degradation blocks later writes until reload', () => {
     let phase = '';
     const { store, file } = setup({ fsFault: (name) => { if (phase === name) throw new Error(name); } });
@@ -109,6 +139,7 @@ describe('approval projection store', () => {
 
   test('legacy migration is bounded, resumable, and emits no actionable or null-target work', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-v1-'));
+    fixtureDirs.push(dir);
     const file = path.join(dir, 'store.json');
     const request = (id, status, expiresAt, room = '!dm:test') => ({ id, agent: 'worker', runtime: 'codex', project: 'p', projectRoomId: '!p:test', ownerMxid: '@owner:test', ownerDmRoomId: room, upstreamRequestId: id, inputDigest: `d-${id}`, status, decision: status === 'consumed' ? 'allow' : null, createdAt: 1, expiresAt });
     writeFileSync(file, JSON.stringify({ version: 1, bindings: {}, requests: { a: request('a', 'pending', 500), b: request('b', 'consumed', 5000), c: request('c', 'pending', 5000, null) }, audit: [] }));
@@ -125,6 +156,7 @@ describe('approval projection store', () => {
 
   test('denied request without binding cannot enqueue a null-target status on consume', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'approval-unbound-'));
+    fixtureDirs.push(dir);
     const store = createApprovalStore(path.join(dir, 'store.json'), { now: () => 1000 });
     const denied = store.createRequest({ agent: 'worker', runtime: 'codex', upstream_request_id: 'u', tool_name: 'Bash' });
     store.consumeDecision(denied.id, 'worker');
