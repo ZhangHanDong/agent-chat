@@ -8012,7 +8012,8 @@ app.post('/api/fleet-control', requireApprovalBridgeSecret, async (req, res) => 
   const credential = side && projectSideStore.credentialFor(side.id);
   const fleetId = fleetIdForSender(credential?.senderLocalpart);
   const registration = side && credential?.hsToken ? inboundCredentialsProjection(side, credential)?.registration : null;
-  if (!side?.active || credential?.kind !== 'appservice' || !fleetId || input.registration !== registration) {
+  if (!side?.active || credential?.kind !== 'appservice' || !fleetId || input.registration !== registration
+    || credential.transport && input.transportGeneration !== credential.transport.generation) {
     return res.json({ ok: false, status: 403, code: 'fleet_unavailable', error: 'Fleet registration is unavailable.' });
   }
   try {
@@ -9719,6 +9720,7 @@ app.get('/api/project-sides/acting-credentials', requireApprovalBridgeSecret, (r
           apiBaseUrl: side.apiBaseUrl,
           kind: 'appservice',
           asToken: credential.asToken,
+          ...(credential.transport ? { transport: credential.transport } : {}),
           representative: side.representative ?? null,
           senderLocalpart: credential.senderLocalpart,
           namespace: credential.namespace,

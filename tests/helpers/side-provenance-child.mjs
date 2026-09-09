@@ -64,6 +64,8 @@ self.handleAppserviceEvents = proto.handleAppserviceEvents.bind(self);
 self.assertSideProvenanceForEvent = proto.assertSideProvenanceForEvent.bind(self);
 self.executeTypedForClaim = proto.executeTypedForClaim.bind(self);
 self.refreshAppserviceSides = proto.refreshAppserviceSides.bind(self);
+self.refreshOutboundFleets = proto.refreshOutboundFleets.bind(self);
+self.reconcileOutboundFleets = proto.reconcileOutboundFleets.bind(self);
 self.refreshActingCredentials = proto.refreshActingCredentials.bind(self);
 // THE ONLY SEAM: the backend HTTP hop returns the real projection over this child's real store.
 self.backendApiForSides = async () => ({ sides: [projected] });

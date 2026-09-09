@@ -13,6 +13,8 @@ import { matrixMarkdownContent } from './lib/matrix-markdown.js';
 import { isMatrixActivity, matrixActivityContent } from './lib/matrix-activity.js';
 import { reconcileAgentDisplayName } from './lib/matrix-agent-profile.js';
 import { createFleetProtocol, FLEET_PROBE_EVENT, FLEET_REQUEST_EVENT } from './lib/fleet-protocol.js';
+import { FleetOutboundClient } from './lib/fleet-outbound-client.js';
+import { FleetOutboundStore, outboundDigest } from './lib/fleet-outbound-store.js';
 import { projectSideAgentPrefix, projectSideAgentMxid } from './lib/matrix-agent-identity.js';
 import { executeMatrixWork } from './lib/matrix-work-executor.js';
 import {
@@ -4395,6 +4397,7 @@ export class MatrixBridge {
      * itself opens, so start() never carries its own reading of "is there an inbound path".
      */
     const hasInboundPath = hasConfiguredInboundPath(process.env)
+      || [...(this.actingCredentials?.values() ?? [])].some(row => row.kind === 'appservice' && row.transport?.mode === 'outbound')
       || [...(this.actingCredentials?.values() ?? [])].some(row => row.kind === 'registrationToken'
         && row.representativeToken && row.representative?.mxid && row.registration);
     try {
@@ -5112,6 +5115,7 @@ export class MatrixBridge {
      */
     const gone = [...(this.actingCredentials?.keys() ?? [])].filter((sideId) => !next.has(sideId));
     this.actingCredentials = next;
+    if (this.appserviceRouter) await this.refreshOutboundFleets();
     if (gone.length) this.forgetRoomsOnSides(gone);
     if (this.representativeIntakeReady) this.refreshRepresentativeCollectors();
     if (this.directChats) {
@@ -5287,6 +5291,7 @@ export class MatrixBridge {
         ? {
           kind: 'appservice', asToken: row.asToken, senderLocalpart: row.senderLocalpart,
           namespace: row.namespace,
+          ...(row.transport ? { transport: row.transport } : {}),
           /*
            * 16-impl-r5 rotation: the acting credential carries the SAME derived registration the
            * inbound snapshot holds, so the gate can refuse a mixed-generation pair (two refreshes
@@ -5416,6 +5421,71 @@ export class MatrixBridge {
     return this.fleetProtocol;
   }
 
+  refreshOutboundFleets() {
+    // Credential and registry refreshes may overlap while an old poll is aborting.
+    // Serialize replacements so no untracked collector can survive rotation.
+    const previous = this.outboundRefreshPromise ?? Promise.resolve();
+    this.outboundRefreshPromise = previous.catch(() => {}).then(() => this.reconcileOutboundFleets());
+    return this.outboundRefreshPromise;
+  }
+
+  async reconcileOutboundFleets() {
+    if (!this.appserviceRouter) return;
+    this.outboundFleets ??= new Map();
+    const desired = new Map([...(this.actingCredentials ?? new Map())].filter(([sideId, row]) =>
+      row.kind === 'appservice' && row.transport?.mode === 'outbound'
+      && row.registration && this.appserviceInboundSnapshot?.get(sideId)?.registration === row.registration));
+    for (const [sideId, entry] of this.outboundFleets) {
+      const row = desired.get(sideId);
+      if (!row || entry.fingerprint !== outboundDigest({ registration: row.registration, transport: row.transport })) {
+        await entry.client.stop(); this.outboundFleets.delete(sideId);
+      }
+    }
+    for (const [sideId, row] of desired) {
+      if (this.outboundFleets.has(sideId)) continue;
+      const edge = resolveEdgeLinkConfig(process.env), sync = resolveAppserviceSyncConfig(process.env);
+      if (edge.enabled && edge.side === sideId || sync.enabled && sync.side === sideId) {
+        console.error(`[outbound] remove the legacy edge/sync intake for ${sideId} before enabling its outbound transport`);
+        continue;
+      }
+      const fleetId = /^(hf_[a-f0-9]{32})_representative$/.exec(row.senderLocalpart ?? '')?.[1];
+      if (!fleetId) { console.warn(`[outbound] invalid managed fleet identity for ${sideId}`); continue; }
+      const fingerprint = outboundDigest({ registration: row.registration, transport: row.transport });
+      const options = {
+        fleetId, transport: row.transport,
+        protocol: request => this.fleetProtocolForBridge().handle({ ...request, sideId, registration: row.registration }),
+        transaction: (payload, origin = {}) => {
+          if (!payload || typeof payload.transactionId !== 'string' || !Array.isArray(payload.body?.events)) throw new Error('invalid outbound Matrix transaction');
+          // This mode is supplied only by our authenticated outbound collector.
+          // Event JSON can neither select it nor change the registered side.
+          return this.appserviceRouter.handle({ method: 'PUT',
+            path: `/_matrix/app/v1/transactions/${encodeURIComponent(payload.transactionId)}`,
+            headers: { authorization: `Bearer ${this.appserviceSideTokens?.get(sideId) ?? ''}` },
+            body: origin.generation !== undefined && origin.generation !== row.transport.generation
+              ? { ...payload.body, events: payload.body.events.filter(event => event.type !== FLEET_PROBE_EVENT) }
+              : payload.body, transport: { mode: 'edge', sideId } });
+        },
+        warning: message => console.warn(`[outbound:${sideId}] ${message}`),
+      };
+      try {
+        let client;
+        if (this.outboundClientFactory) client = this.outboundClientFactory(options);
+        else {
+          // Machine rotation keeps the same Matrix registration and its owned
+          // durable messages. A new machine lease cannot discard acknowledged work.
+          const binding = { sideId, fleetId, registration: row.registration };
+          const store = new FleetOutboundStore(path.join(DATA_DIR, 'outbound', `${outboundDigest(binding)}.sqlite`), binding);
+          try {
+            store.activateTransport({ generation: row.transport.generation, fingerprint });
+            client = new FleetOutboundClient({ ...options, store });
+          } catch (error) { store.close(); throw error; }
+        }
+        this.outboundFleets.set(sideId, { fingerprint, client }); client.start();
+        console.log(`[outbound] collecting Matrix and fleet work for ${sideId}`);
+      } catch (error) { console.warn(`[outbound] could not start ${sideId}: ${error.message}`); }
+    }
+  }
+
   async refreshAppserviceSides() {
     if (!this.appserviceRouter) return;
     let payload;
@@ -5483,7 +5553,11 @@ export class MatrixBridge {
       hsToken: side.hsToken,
       onFleetRequest: request => this.fleetProtocolForBridge().handle({ ...request,
         sideId: side.sideId, registration: side.registration }),
-      onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, {
+      onEvents: (events, meta) => {
+        if (this.actingCredentials?.get(normalizeSideKey(side.sideId))?.transport?.mode === 'outbound' && meta?.mode !== 'edge') {
+          throw new Error('outbound side only accepts its authenticated outbound collector');
+        }
+        return this.handleAppserviceEvents(side.sideId, events, {
         ...meta,
         /*
          * F06: provenance is attached HERE, at the bridge-owned adapter boundary, outside the event
@@ -5497,11 +5571,13 @@ export class MatrixBridge {
           sideId: side.sideId,
           mode: meta?.mode ?? 'push',
         }),
-      }),
+      });
+      },
       onUserQuery: async (userId) => Boolean(findCaseInsensitiveKey(state.agentTokens || {}, String(userId)))
         || Boolean(agentNameFromUserId(userId, this)
           && String(userId).slice(String(userId).indexOf(':') + 1).toLowerCase() === side.serverName.toLowerCase()),
     })));
+    await this.refreshOutboundFleets();
     const ids = this.appserviceRouter.sideIds();
     console.log(`[appservice] serving ${ids.length} project side(s)${ids.length ? `: ${ids.join(', ')}` : ''}`);
   }
@@ -5552,14 +5628,17 @@ export class MatrixBridge {
       throw new Error(`[appservice] multiple intakes configured for the same side(s): ${conflicts.join('; ')}. `
         + 'Pick one way in per side — running two on one side would deliver every event twice.');
     }
+    // Imported outbound credentials must activate even when no legacy intake
+    // environment variables or listening socket have ever been configured.
+    this.appserviceRouter = createAppserviceRouter();
+    await this.refreshAppserviceSides();
+    this.appserviceRefreshTimer = setInterval(() => this.refreshAppserviceSides(), APPSERVICE_SIDE_REFRESH_MS);
     if (!config.enabled && !edge.enabled && !sync.enabled) {
       console.log(`[appservice] inbound listener disabled (${config.reason})`);
       console.log(`[appservice] co-located edge not in use (${edge.reason})`);
       console.log(`[appservice] sync intake not in use (${sync.reason})`);
       return;
     }
-    this.appserviceRouter = createAppserviceRouter();
-    await this.refreshAppserviceSides();
 
     if (edge.enabled) {
       /*
@@ -5678,7 +5757,6 @@ export class MatrixBridge {
      * used to return early here, so no timer ran and a credential issued after start-up never
      * reached the router until the process restarted — the exact gap sync must not copy (gap #9).
      */
-    setInterval(() => this.refreshAppserviceSides(), APPSERVICE_SIDE_REFRESH_MS);
     if (!config.enabled) {
       console.log(`[appservice] no local socket (${config.reason}); ${edge.enabled ? 'the edge link' : 'the sync loop'} is the only way in`);
       return;
@@ -5694,7 +5772,6 @@ export class MatrixBridge {
        * port was busy. Reported loudly instead.
        */
       console.error(`[appservice] could not listen on ${config.host}:${config.port}: ${error?.message || error}`);
-      this.appserviceRouter = null;
       return;
     }
     if (config.exposedBeyondLoopback) {
@@ -5703,7 +5780,6 @@ export class MatrixBridge {
         + 'homeserver on another machine and is stated here so it is a decision rather than a discovery.',
       );
     }
-    setInterval(() => this.refreshAppserviceSides(), APPSERVICE_SIDE_REFRESH_MS);
   }
 
   async pollMatrixWork() {

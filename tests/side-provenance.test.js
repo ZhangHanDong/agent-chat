@@ -857,6 +857,8 @@ describe('16-impl-r2 additions: claim lifecycle, key disambiguation, refresh seq
     const origBackendApi = globalThis.__backendApiForTest;
     const snapshotA = new Map([[SIDE, { sideId: SIDE, registration: REG, representative: { mxid: REP } }]]);
     self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.refreshOutboundFleets = m.MatrixBridge.prototype.refreshOutboundFleets.bind(self);
+    self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
     self.backendApiForSides = async () => ({ sides: [{ sideId: SIDE, hsToken: HS, registration: REG, serverName: SIDE, apiBaseUrl: palpo.url, senderLocalpart: 'hafleet', namespace: '@ac_.*' }] });
     // sequence 1: success loads A
     await self.refreshAppserviceSides();
@@ -1084,6 +1086,8 @@ describe('16-impl-r3 additions', () => {
     // COLD: no prior snapshot at all
     self.appserviceInboundSnapshot = null;
     self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.refreshOutboundFleets = m.MatrixBridge.prototype.refreshOutboundFleets.bind(self);
+    self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
     self.backendApiForSides = async () => ({
       sides: [{
         sideId: SIDE, hsToken: HS, registration: REG, serverName: SIDE, apiBaseUrl: palpo.url,
@@ -1513,6 +1517,8 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
     self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
     self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.refreshOutboundFleets = m.MatrixBridge.prototype.refreshOutboundFleets.bind(self);
+    self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
     self.backendApiForSides = async () => ({ sides: res.body.sides }); // ONLY the HTTP hop is replaced
     self.appserviceRouter = { setSides() {}, sideIds: () => [SIDE] };
     self.appserviceInboundSnapshot = null;                            // COLD start
@@ -1535,6 +1541,8 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
       self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
       self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
       self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.refreshOutboundFleets = m.MatrixBridge.prototype.refreshOutboundFleets.bind(self);
+    self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
       self.backendApiForSides = async () => ({ sides: [{
         sideId: rawId, serverName: SIDE, apiBaseUrl: palpo.url, hsToken: HS, registration: REG,
         senderLocalpart: 'hafleet', namespace: '@ac_.*', representative: { mxid: REP },
@@ -1577,6 +1585,8 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     self.assertSideProvenanceForEvent = m.MatrixBridge.prototype.assertSideProvenanceForEvent.bind(self);
     self.executeTypedForClaim = m.MatrixBridge.prototype.executeTypedForClaim.bind(self);
     self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.refreshOutboundFleets = m.MatrixBridge.prototype.refreshOutboundFleets.bind(self);
+    self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
     self.backendApiForSides = async () => ({ sides: [{
       sideId: SIDE, serverName: SIDE, apiBaseUrl: palpo.url, hsToken: newToken, registration: newReg,
       senderLocalpart: 'hafleet', namespace: '@ac_.*', representative: { mxid: REP },
@@ -2332,6 +2342,8 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
     self.actingSideFor = m.MatrixBridge.prototype.actingSideFor.bind(self);
     self.refreshActingCredentials = m.MatrixBridge.prototype.refreshActingCredentials.bind(self);
     self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
+    self.refreshOutboundFleets = m.MatrixBridge.prototype.refreshOutboundFleets.bind(self);
+    self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
     self.appserviceRouter = { setSides() {}, sideIds: () => [SIDE] };
     // BOTH endpoints served from the REAL backend app over supertest (HTTP hop only)
     const fetchEndpoints = async () => {

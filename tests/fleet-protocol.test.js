@@ -53,6 +53,25 @@ function fixture() {
 }
 
 describe('fleet protocol authorization', () => {
+  test('outbound probe receipt requires configured authenticated edge', async () => {
+    const f = fixture();
+    f.side.credential = { transport: { mode: 'outbound', generation: 1 } };
+    const call = (name, body, generation = 1) => f.protocol.handle({ sideId, registration,
+      method: 'POST', path: `/api/fleet/v1/${name}`, body, generation });
+    for (const mode of ['push', 'sync']) {
+      await f.record(mode); expect((await call('probe', probe)).body.code).toBe('probe_pending');
+    }
+    await f.record('edge'); expect((await call('probe', probe)).status).toBe(200);
+    expect((await call('requests', context)).status).toBe(200);
+    expect(f.backend).toHaveBeenCalledWith(expect.objectContaining({ transportGeneration: 1 }));
+    f.side.credential.transport.generation = 2;
+    expect((await call('requests', context, 1)).body.code).toBe('fleet_unavailable');
+    expect((await call('requests', context, 2)).body.code).toBe('reception_unverified');
+    expect((await call('probe', probe, 2)).body.code).toBe('probe_pending');
+    await f.record('edge'); expect((await call('probe', probe, 2)).status).toBe(200);
+    expect((await call('requests', context, 2)).status).toBe(200);
+  });
+
   test('fleet source verification binds the project Agent definition', async () => {
     const f = fixture(); await f.ready();
     const agentDefinition = { name: 'fast-one', resourceId: `resource_${'a'.repeat(24)}` };

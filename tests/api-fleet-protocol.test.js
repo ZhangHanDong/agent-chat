@@ -22,7 +22,7 @@ const context = { v: 1, fleetId, requestId: 'request_1', sourceEventId: '$source
 let ctx;
 afterEach(async () => { vi.unstubAllGlobals(); await ctx?.cleanup(); ctx = null; });
 
-async function boot({ emptyAgents = false } = {}) {
+async function boot({ emptyAgents = false, transport } = {}) {
   ctx = await createBackendTestContext('fleet-protocol-', {
     agents: emptyAgents ? {} : { worker: { name: 'worker', kind: 'agent', type: 'claude', role: 'coding', projectSide: SIDE,
       presetId: 'fixture-resource', server: 'local', online: true, manualDown: false,
@@ -37,7 +37,8 @@ async function boot({ emptyAgents = false } = {}) {
         active: true, createdAt: 1, updatedAt: 1, projects: {}, allocatedTokens: 500000,
         representative: { mxid: `@${fleetId}_representative:${SIDE}` },
         credential: { kind: 'appservice', asToken: 'fixture-as-token', hsToken,
-          senderLocalpart: `${fleetId}_representative`, namespace: `^@${fleetId}_[a-z0-9_]+:palpo\\.test$` } },
+          senderLocalpart: `${fleetId}_representative`, namespace: `^@${fleetId}_[a-z0-9_]+:palpo\\.test$`,
+          ...(transport ? { transport } : {}) } },
     } }) },
   });
   await request(ctx.app).post('/api/whitelist').send({ projectRoomId: source }).expect(200);
@@ -47,6 +48,21 @@ async function boot({ emptyAgents = false } = {}) {
   return body => request(ctx.app).post('/api/fleet-control').set('X-Bridge-Secret', bridgeSecret)
     .send({ sideId: SIDE, registration, ...body });
 }
+
+
+test('outbound backend gates machine generation and returns credentials only to the bridge', async () => {
+  const transport = { mode: 'outbound', url: `https://palpo.test/api/fleet/v2/${fleetId}`, token: 'private-machine-test-credential', generation: 2 };
+  const call = await boot({ transport });
+  for (const transportGeneration of [undefined, 1, 3]) {
+    expect((await call({ action: 'capabilities', transportGeneration })).body.ok).toBe(false);
+  }
+  await call({ action: 'capabilities', transportGeneration: 2 }).expect(200);
+  await request(ctx.app).get('/api/project-sides/acting-credentials').expect(403);
+  const acting = await request(ctx.app).get('/api/project-sides/acting-credentials').set('X-Bridge-Secret', bridgeSecret).expect(200);
+  expect(acting.body.sides[0].transport).toEqual(transport);
+  const publicSides = await request(ctx.app).get('/api/project-sides').expect(200);
+  expect(JSON.stringify(publicSides.body)).not.toContain(transport.token);
+});
 
 test('verified reception request remains pending and its context survives replay', async () => {
   const call = await boot();

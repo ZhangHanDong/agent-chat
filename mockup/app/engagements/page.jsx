@@ -192,6 +192,10 @@ function ProjectSides({ t }) {
                       : <span className="stranded">{t('en.credNone')}</span>}
                     {/* Entering one was a curl-only act until now (ADR-016 decision 8). The form can
                         write a credential it can never read back — the read side stays closed. */}
+                    {side.connectionMode === 'outbound' && <p className="why-inline">
+                      纯出站 · HAFleet 主动连接 Palpo
+                      <span className="mono"> {side.outboundEndpoint}</span>
+                    </p>}
                     <CredentialForm
                       side={side}
                       live={provenance.projectSides === 'live'}

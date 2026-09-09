@@ -174,14 +174,19 @@ export default function NewProjectSide() {
     setVerifyError(null);
     setCbCheck(null);
     setCallback(registrationCallback(appservice));
-    const check = await send('matrix/callback-check', {
-      method: 'POST', body: { homeserver_url: chosen?.url },
-    });
-    if (check.ok !== false) {
-      setCbCheck(check.body);
-      setCallback(registrationCallback(appservice, check.body));
-    }
   }
+
+  useEffect(() => {
+    if (step !== 2 || credKind !== 'appservice' || asMethod !== 'generate') return;
+    let current = true;
+    send('matrix/callback-check', { method: 'POST', body: { homeserver_url: chosen?.url } }).then(check => {
+      if (current && check.ok !== false) {
+        setCbCheck(check.body);
+        setCallback(registrationCallback(appservice, check.body));
+      }
+    });
+    return () => { current = false; };
+  }, [step, credKind, asMethod, chosen?.url, appservice]);
 
   async function probeManual() {
     const name = draftName.trim();
@@ -346,13 +351,13 @@ export default function NewProjectSide() {
           <span className="dim">凭据验证通过后，接单员通过 Matrix /sync 接收项目消息；不需要 Appservice 入站端口。</span>
         </div>
       )}
-      {credKind === 'appservice' && appservice?.inboundVia === 'edge' && (
+      {credKind === 'appservice' && asMethod === 'generate' && appservice?.inboundVia === 'edge' && (
         <div className="notice">
           <span className="pill ok-text">入站走 co-located edge</span>{' '}
           <span className="dim">{appservice.reason}</span>
         </div>
       )}
-      {credKind === 'appservice' && appservice && !appservice.listening && appservice.inboundVia !== 'edge' && (
+      {credKind === 'appservice' && asMethod === 'generate' && appservice && !appservice.listening && appservice.inboundVia !== 'edge' && (
         <div className="notice">
           <strong className="warn-text">没有任何东西会接收入站事务。</strong>
           <p className="dim">{appservice.reason}</p>
@@ -531,10 +536,10 @@ export default function NewProjectSide() {
                   onChange={() => chooseCredential('appservice')}
               />
               <div>
-                <strong>Appservice</strong> <span className="pill warn-text">需要你的 homeserver 能反向找到 HAFleet</span>
+                <strong>Appservice</strong> <span className="pill ok-text">Palpo 授权配置支持纯出站</span>
                 <div className="why-inline">
-                  入站：homeserver 把事件<strong>推</strong>给 HAFleet，所以 HAFleet 必须从它那一侧可达。
-                  两边在同一台机器或同一内网时合适；HAFleet 在内网而 homeserver 在外面时，这条要求你把 HAFleet 暴露出去。
+                  导入 Palpo 纯出站授权配置后，HAFleet 主动领取消息和申请，并自动发布资源、心跳和处理结果。
+                  HAFleet 在内网或 NAT 后也能使用。手工生成的传统回调配置仍要求 homeserver 能访问 HAFleet。
                 </div>
                 <div className="why-inline">
                   好处：一份凭据覆盖项目方授权的 Agent 命名空间，由 HAFleet 自动准备其中的 Agent 身份。
@@ -594,13 +599,14 @@ export default function NewProjectSide() {
                 <input id="palpo-registration" type="file" accept="application/json,.json"
                   disabled={busy} onChange={readPalpoImport} />
               </div>
-              <p className="why-inline">回调地址和接单员身份从授权文件读取。选择文件只在本页校验，点击保存后才会提交凭据。</p>
+              <p className="why-inline">连接方式和接单员身份从授权文件读取。纯出站配置保存后会自动连接 Palpo，无需配置 HAFleet 公网地址或 SSH 转发。选择文件只在本页校验，点击保存后才会提交凭据。</p>
               {readingImport && <p role="status">正在读取配置…</p>}
               {importFile && <p role="status">已读取：{importFile.name}。请核对以下授权配置。</p>}
               {importFile && <dl className="kv" aria-label="授权配置预览">
                 <dt>服务器</dt><dd>{importFile.summary.serverName}</dd>
                 <dt>接单员</dt><dd className="mono-s">{importFile.summary.representative}</dd>
-                <dt>回调地址</dt><dd className="mono-s">{importFile.summary.url}</dd>
+                <dt>连接方式</dt><dd>{importFile.summary.connectionMode === 'outbound' ? '纯出站 · HAFleet 主动连接 Palpo' : 'Appservice 回调'}</dd>
+                <dt>{importFile.summary.connectionMode === 'outbound' ? 'Palpo 地址' : '回调地址'}</dt><dd className="mono-s">{importFile.summary.endpoint ?? importFile.summary.url}</dd>
                 <dt>命名空间</dt><dd className="mono-s">{importFile.summary.namespace}</dd>
               </dl>}
               {importError && <p className="warn-text" role="alert">{importError}</p>}
@@ -728,7 +734,8 @@ export default function NewProjectSide() {
               <dl className="kv">
                 <dt>服务器</dt><dd>{issued.serverName}</dd>
                 <dt>接单员</dt><dd className="mono-s">{issued.representative}</dd>
-                <dt>回调地址</dt><dd className="mono-s">{issued.url}</dd>
+                <dt>连接方式</dt><dd>{issued.connectionMode === 'outbound' ? '纯出站 · 后台自动连接' : 'Appservice 回调'}</dd>
+                <dt>{issued.connectionMode === 'outbound' ? 'Palpo 地址' : '回调地址'}</dt><dd className="mono-s">{issued.endpoint ?? issued.url}</dd>
                 <dt>命名空间</dt><dd className="mono-s">{issued.namespace}</dd>
               </dl>
               <p className="dim">凭据验证检查 HAFleet 能否以接单员身份访问 Matrix。

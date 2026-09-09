@@ -159,7 +159,11 @@ export default function CredentialForm({ side, live, onDone }) {
       </label>
       <div className="dim">{t(kind === 'appservice' ? 'cr.kindAs' : 'cr.kindReg')}</div>
 
-      {Object.keys(fields).map((name) => (
+      {fields.transport?.mode === 'outbound' && <p role="status">
+        纯出站连接：保存后 HAFleet 自动连接 Palpo，无需填写 HAFleet 公网地址或配置 SSH 转发。
+        <span className="mono"> {fields.transport.url}</span>
+      </p>}
+      {Object.keys(fields).filter(name => name !== 'transport').map((name) => (
         <label className="cred-row" key={name}>
           <span className="mono">{name}</span>
           <input

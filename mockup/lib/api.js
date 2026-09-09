@@ -396,6 +396,8 @@ export async function fetchLive() {
             id: side.id,
             label: side.label ?? null,
             credentialKind: side.credentialKind ?? null,
+            connectionMode: side.connectionMode ?? null,
+            outboundEndpoint: side.outboundEndpoint ?? null,
             /*
              * CARRIED, and its absence is why the operator asked 「设置凭据 还在啊」 three times.
              *

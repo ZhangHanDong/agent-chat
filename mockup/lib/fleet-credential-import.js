@@ -25,6 +25,22 @@ export function parseFleetCredentialImport(text, side) {
     if (typeof registration[key] !== 'string' || !registration[key].trim() || registration[key].length > 4096) invalid();
   }
   if (registration.as_token === registration.hs_token) invalid();
+  let transport;
+  if (envelope.transport !== undefined) {
+    const value = envelope.transport;
+    if (!value || typeof value !== 'object' || Array.isArray(value) || value.mode !== 'outbound'
+      || Object.keys(value).some(key => !['mode', 'url', 'token', 'generation'].includes(key))
+      || !Number.isSafeInteger(value.generation) || value.generation < 1
+      || typeof value.token !== 'string' || value.token.length < 16 || value.token.length > 4096
+      || /\s/.test(value.token) || [registration.as_token, registration.hs_token].includes(value.token)) invalid();
+    try {
+      const url = new URL(value.url);
+      if (url.username || url.password || url.search || url.hash
+        || url.pathname.replace(/\/$/, '') !== `/api/fleet/v2/${fleetId}`
+        || !(url.protocol === 'https:' || url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) invalid();
+      transport = { mode: 'outbound', url: url.href.replace(/\/$/, ''), token: value.token, generation: value.generation };
+    } catch { invalid(); }
+  }
   try {
     const url = new URL(registration.url);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) invalid();
@@ -32,6 +48,7 @@ export function parseFleetCredentialImport(text, side) {
   return { fleetId, serverName, agentPrefix: `${fleetId}_agent_`, credential: {
     kind: 'appservice', asToken: registration.as_token, hsToken: registration.hs_token,
     namespace, senderLocalpart: registration.sender_localpart, url: registration.url,
+    ...(transport ? { transport } : {}),
   } };
 }
 
@@ -44,6 +61,7 @@ export function fleetImportSummary(imported) {
     representative: `@${imported.credential.senderLocalpart}:${imported.serverName}`,
     namespace: imported.credential.namespace,
     url: imported.credential.url,
+    ...(imported.credential.transport ? { connectionMode: 'outbound', endpoint: imported.credential.transport.url } : {}),
   };
 }
 

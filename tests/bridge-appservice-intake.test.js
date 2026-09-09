@@ -249,7 +249,7 @@ describe('which project sides the bridge serves', () => {
       ok: true,
       sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000', registration: 'a.example@deadbeef' }],
     }];
-    const self = { appserviceRouter: createAppserviceRouter() };
+    const self = Object.assign(Object.create(bridgeModule.MatrixBridge.prototype), { appserviceRouter: createAppserviceRouter() });
     await bridgeModule.MatrixBridge.prototype.refreshAppserviceSides.call(self);
 
     const hit = backendCalls.find((c) => c.path === '/api/project-sides/inbound-credentials');
@@ -267,7 +267,7 @@ describe('which project sides the bridge serves', () => {
     backendReply = () => [200, {
       ok: true, sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000', registration: 'a.example@deadbeef' }],
     }];
-    const self = { appserviceRouter: createAppserviceRouter() };
+    const self = Object.assign(Object.create(bridgeModule.MatrixBridge.prototype), { appserviceRouter: createAppserviceRouter() });
     await bridgeModule.MatrixBridge.prototype.refreshAppserviceSides.call(self);
     expect(self.appserviceRouter.sideIds()).toEqual(['a.example']);
 
@@ -284,16 +284,18 @@ describe('which project sides the bridge serves', () => {
 });
 
 describe('the socket is off unless the deployment asked for one', () => {
-  test('with no port set, nothing is created and the reason is logged', async () => {
+  test('with no port set, the registry refreshes without opening a socket', async () => {
     /*
      * Silent-by-default matters here: a deployment using only registration-token sides has no reason
      * to expose a socket, and a warning on every start would train an operator to ignore this log.
      */
     delete process.env.HAFLEET_APPSERVICE_PORT;
-    const self = {};
-    await bridgeModule.MatrixBridge.prototype.startAppserviceIntake.call(self);
-    expect(self.appserviceRouter).toBeUndefined();
+    backendReply = () => [200, { ok: true, sides: [] }];
+    const self = Object.create(bridgeModule.MatrixBridge.prototype);
+    await self.startAppserviceIntake();
+    expect(self.appserviceRouter.sideIds()).toEqual([]);
     expect(self.appserviceListener).toBeUndefined();
+    clearInterval(self.appserviceRefreshTimer);
   });
 });
 
