@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import request from 'supertest';
+import { createLoopbackTestServer } from './helpers/loopback-test-server.js';
 
 function writeJson(filePath, value) {
   writeFileSync(filePath, JSON.stringify(value, null, 2));
@@ -74,9 +75,12 @@ describe('backend-v2 lifecycle', () => {
   let backendModule = null;
   let restoreEnv = null;
   const blockers = new Set();
+  const requestListeners = new Set();
 
   afterEach(async () => {
     try {
+      for (const listener of requestListeners) await listener.close();
+      requestListeners.clear();
       if (backendModule?.stopServer) await backendModule.stopServer();
       for (const blocker of blockers) {
         await new Promise((resolve) => blocker.close(resolve));
@@ -190,18 +194,24 @@ describe('backend-v2 lifecycle', () => {
     ]);
     runtimeDir = createRuntimeDir('hafleet-backend-registry-restart-');
     const first = await importBackend(runtimeDir);
+    backendModule = first;
+    const firstListener = await createLoopbackTestServer(first.app);
+    requestListeners.add(firstListener);
     for (const name of ['worker-alpha', 'worker-beta', 'worker-gamma']) {
-      const response = await request(first.app)
+      const response = await request(firstListener.server)
         .post('/api/agents')
         .send({ name, role: 'coding', identity: `registered ${name}` });
       expect(response.status).toBe(200);
     }
-    const before = await request(first.app).get('/api/agents').query({ view: 'names' });
+    const before = await request(firstListener.server).get('/api/agents').query({ view: 'names' });
     expect(before.body).toEqual(['worker-alpha', 'worker-beta', 'worker-gamma']);
+    await firstListener.close();
     await first.stopServer();
 
     backendModule = await importBackend(runtimeDir);
-    const after = await request(backendModule.app).get('/api/agents').query({ view: 'names' });
+    const secondListener = await createLoopbackTestServer(backendModule.app);
+    requestListeners.add(secondListener);
+    const after = await request(secondListener.server).get('/api/agents').query({ view: 'names' });
     expect(after.status).toBe(200);
     expect(after.body).toEqual(before.body);
   });

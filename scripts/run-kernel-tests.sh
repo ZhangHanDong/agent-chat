@@ -83,21 +83,12 @@ trap 'trap - EXIT; cleanup_shards HUP; exit 129' HUP
 trap 'trap - EXIT; cleanup_shards INT; exit 130' INT
 trap 'trap - EXIT; cleanup_shards TERM; exit 143' TERM
 
-# Concurrent shards are capped because each one leaks memory badly:
-# tests/helpers/backend-test-runtime.js imports backend-v2.js with a unique
-# cache-buster per context, so the ESM registry retains ~12MB per call and never
-# releases it (212 call sites across the suite, ~2.5GB total). Running all five
-# shards at once multiplied that peak until a worker was recycled mid-run,
-# leaving a partially-evaluated module whose express app had only some of its
-# ~101 routes registered — which surfaced as a valid route returning 404, in
-# whichever heavy file happened to cross the line. See docs/TESTING.md.
-#
-# Capping concurrency removes the trigger. The underlying leak is the real fix.
-# Default 1. Measured on this suite:
-#   concurrency 5 -> ~69s, fails ~2 runs in 3
-#   concurrency 2 -> ~118s, still fails
-#   concurrency 1 -> ~171s, passes
-# Slower but never wrong. Override when you want speed and can tolerate flakes:
+# Keep the existing shard concurrency cap for the retained backend module cost.
+# The former claim that it fixed intermittent 404s was not established: the
+# 2026-09-09 owned-server probe reproduced address misrouting independently of
+# backend modules or memory pressure. See docs/TESTING.md. This transport fix
+# does not change the memory budget or concurrency policy.
+# Default 1; an operator can still explicitly choose a different cap:
 #   HAFLEET_KERNEL_MAX_CONCURRENCY=5 npm run test:kernel
 KERNEL_MAX_CONCURRENCY="${HAFLEET_KERNEL_MAX_CONCURRENCY:-1}"
 
@@ -150,6 +141,7 @@ start_shard() {
 }
 
 start_shard "api messaging" \
+  tests/backend-test-loopback.test.js \
   tests/api-smoke.test.js \
   tests/api-messages.test.js \
   tests/api-groups.test.js \
