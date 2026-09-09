@@ -111,3 +111,53 @@ test('invited room targets keep separate allocations and reject unauthorized rec
     expect(context.internals.routerStoreForTest.snapshot().tasks).toHaveLength(2);
   } finally { await context.cleanup(); await new Promise(resolve => hs.close(resolve)); }
 });
+
+test('cross-agent thread creation preserves human mentions and private promotion gates', async () => {
+  const members = ['@alice:test', '@owner:test', '@rep:test', '@ac_one:test', '@ac_two:test'];
+  const hs = createServer((_req, res) => { res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ joined: Object.fromEntries(members.map(id => [id, {}])) })); });
+  await new Promise(resolve => hs.listen(0, '127.0.0.1', resolve));
+  const names = ['one', 'two'];
+  const context = await createBackendTestContext('cross-agent-private-', {
+    agents: Object.fromEntries(names.map(name => [name, { name, agentId: `agent_${name}`, type: 'codex', kind: 'agent',
+      online: true, workdir: process.cwd(), workspaceMode: 'shared', projectSide: 'test' }])),
+    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'bridge-secret' },
+    rawDataFiles: {
+      'engagements.json': JSON.stringify({ engagements: Object.fromEntries(names.map(name => [name,
+        { id: name, agent: name, state: 'active', projectRoomId: '!project:test', allocatedTokens: 100000 }])) }),
+      'project-sides.json': JSON.stringify({ sides: { test: { id: 'test', serverName: 'test', active: true,
+        apiBaseUrl: `http://127.0.0.1:${hs.address().port}`, representative: { mxid: '@rep:test' },
+        credential: { kind: 'appservice', asToken: 'as-secret', senderLocalpart: 'rep', namespace: '^@ac_.*:test$' } } } }),
+    },
+  });
+  const router = context.internals.routerStoreForTest;
+  context.internals.stopRouterPumpForTest();
+  const post = url => request(context.app).post(url).set('X-Bridge-Secret', 'bridge-secret');
+  const message = (overrides = {}) => ({ from: 'alice', to: 'one', type: 'human', target_type: 'agent',
+    summary: 'private material', mentions: [], room_agent_targets: ['one'], source: 'matrix',
+    source_room: '!invited:test', source_event_id: '$private-root', sender_mxid: '@alice:test', ...overrides });
+  try {
+    for (const name of names) context.internals.approvalStoreForTest.upsertBinding({ agent: name, project: 'project',
+      project_room_id: '!project:test', owner_mxid: '@owner:test', owner_dm_room_id: '!approval:test' });
+    await post('/api/matrix/direct-rooms').send({ agent: 'one', roomId: '!invited:test', humanMxid: '@alice:test' }).expect(200);
+    await post('/api/messages').send(message()).expect(200);
+    const privateCommand = router.claimMatrixCommand();
+    const privateTask = router.recordMatrixDelivery({ commandId: privateCommand.commandId,
+      claimToken: privateCommand.claimToken, eventId: '$private-anchor' });
+    await post('/api/matrix/direct-rooms').send({ agent: 'two', roomId: '!invited:test', humanMxid: '@alice:test', mode: 'group', sinceTs: 200 }).expect(200);
+    expect(router.conversations.direct('!invited:test', 'one')).toMatchObject({ mode: 'group', privateRootEventId: '$private-root' });
+    const second = message({ to: 'two', room_agent_targets: ['two'], source_event_id: '$second', thread_root_event_id: '$shared-thread', mentions: ['two'] });
+    await post('/api/messages').send({ ...second, mentions: [] }).expect(403);
+    await post('/api/messages').send({ ...second, sender_mxid: '@alice:foreign' }).expect(403);
+    await post('/api/messages').send({ ...second, from: 'one', type: 'agent', sender_mxid: '@ac_one:test' }).expect(400);
+    expect(router.snapshot().tasks).toHaveLength(1);
+    await post('/api/messages').send(message({ source_event_id: '$public-promotion', thread_root_event_id: '$private-root',
+      mentions: ['one'], summary: '@one new public work' })).expect(200);
+    const publicCommand = router.claimMatrixCommand();
+    expect(publicCommand.threadRootEventId).toBe('$public-promotion');
+    const publicTask = router.recordMatrixDelivery({ commandId: publicCommand.commandId,
+      claimToken: publicCommand.claimToken, eventId: '$public-anchor' });
+    expect(publicTask.taskId).not.toBe(privateTask.taskId);
+    expect(router.assembleContext(publicTask.sessionId).messages.map(m => m.body)).toEqual(['@one new public work']);
+  } finally { await context.cleanup(); await new Promise(resolve => hs.close(resolve)); }
+});

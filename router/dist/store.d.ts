@@ -3,6 +3,18 @@ import { type ActivityEvent } from './activity.js';
 import { type FileReplyManifest, type FileReplyResult } from './files.js';
 import { type TaskOperationInput, type TaskOperationResult } from './task-operations.js';
 import type { ActivationResult, ActiveTaskBinding, ApprovalDecisionEvent, AttachInputsResult, AttachTaskInputsInput, AuthenticatedMessageInput, CapabilityInput, ClaimDispatchInput, ClaimResult, CreateTaskIntentInput, EnqueueDispatchInput, EnqueueResult, EventPage, IngestResult, MatrixCommand, MatrixDeliveryFailure, MatrixDeliveryReceipt, LaunchDescriptor, OutcomeInspectionResult, OutcomeResolutionResult, ParkDispatchInput, ReconcileReport, Refusal, ReplyCommand, RouterOptions, RouterSnapshot, ResolveOutcomeUnknownInput, RunnerEffectInput, SessionInboxMessage, SessionView, SetSessionOverridesInput, SettleDispatchInput, SettleSuccess, StartedPayload, StoredMessageResult, TaskDeliveryResult, TaskDispatchFailureResult, TaskIntentResult } from './types.js';
+interface TaskBindingRow {
+    task_id: string;
+    creator_agent_id: string | null;
+    assignee_agent_id: string;
+    room_id: string;
+    thread_root_event_id: string;
+    thread_anchor_event_id: string | null;
+    activation_state: 'pending_thread' | 'active' | 'thread_delivery_failed' | 'closed';
+    request_scope: string;
+    request_key: string;
+    request_digest: string;
+}
 interface DispatchRow {
     dispatch_id: string;
     session_id: string;
@@ -76,6 +88,10 @@ export declare class RouterStore {
     recordMatrixFailure(input: MatrixDeliveryFailure): TaskDeliveryResult;
     recordTaskDispatchFailure(taskIdInput: string, errorCodeInput: string): TaskDispatchFailureResult;
     private findThreadSession;
+    findThreadTaskBinding(agentIdInput: string, roomIdInput: string, rootInput: string): {
+        taskId: string;
+        activationState: TaskBindingRow['activation_state'];
+    } | Refusal | null;
     findActiveTaskBinding(agentIdInput: string, roomIdInput: string, rootInput: string): ActiveTaskBinding | Refusal;
     enqueueDispatch(input: EnqueueDispatchInput): EnqueueResult;
     private ensureResource;

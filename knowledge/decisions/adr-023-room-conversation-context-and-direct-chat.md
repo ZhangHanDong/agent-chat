@@ -68,6 +68,16 @@ https://markdown-it.github.io/markdown-it/ .
 
 ## Validation
 
+An authenticated human's explicit mention can add a previously unbound worker
+to an existing group thread. Create that worker's own canonical task, rooted in
+the existing Matrix thread, and activate it only after the normal durable
+acknowledgement. Do not borrow the other worker's task authority. Messages that
+arrive before acknowledgement remain dormant inputs of this same task. Preserve
+the original event ID and per-agent/room/thread uniqueness across source retry
+and startup reconciliation. Private-to-group promotion still discards the old
+private root before choosing a new group task; unmentioned discussion and agent
+output remain context only.
+
 Offline tests cover archival without wake, exact discussion ranges, pagination,
 cursor success/failure, duplicate delivery, restart, cross-room isolation, direct
 admission/revocation and encrypted device identity. Live acceptance separately

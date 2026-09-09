@@ -2,11 +2,110 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import request from 'supertest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 import { createRouterTaskStore } from '../router/dist/index.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
+
+test('explicit cross-agent thread mention creates an independent acknowledged task', async () => {
+  const context = await createBackendTestContext('cross-agent-thread-', {
+    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'cross-bridge' },
+    agents: Object.fromEntries(['edison', 'xiaobai'].map(name => [name, { name, agentId: `agent_${name}`,
+      type: 'codex', kind: 'agent', online: true, workdir: process.cwd(), workspaceMode: 'shared' }])),
+  });
+  const router = context.internals.routerStoreForTest;
+  context.internals.stopRouterPumpForTest();
+  const send = (agent, event, body, thread = null) => request(context.app).post('/api/messages')
+    .set('X-Bridge-Secret', 'cross-bridge').send({ from: 'alice', to: agent, target_type: 'agent',
+      type: 'human', source: 'matrix', summary: body, full: body, mentions: [agent],
+      source_room: '!shared:test', source_event_id: event, sender_mxid: '@alice:test', thread_root_event_id: thread });
+  const acknowledge = command => request(context.app).post(`/api/router/matrix-outbox/${command.commandId}/delivered`)
+    .set('X-Bridge-Secret', 'cross-bridge').send({ claim_token: command.claimToken, event_id: `$anchor-${command.senderAgentName}` }).expect(200);
+  const take = runnerId => {
+    const claim = router.claimDispatch({ runnerId, leaseMs: 60000, capabilityTtlMs: 60000, maxLiveRunners: 3 });
+    expect(claim?.ok).toBe(true);
+    const payload = router.takePayload(claim); expect(payload.ok).toBe(true);
+    return { claim, payload };
+  };
+  try {
+    await send('edison', '$topic', '@edison first opinion').expect(200);
+    await acknowledge(router.claimMatrixCommand());
+    const first = take('edison-runner');
+    createRouterTaskStore(router).transitionTask(first.payload.taskId, 'done');
+    router.settleAndRelease({ ...first.claim, outcome: 'completed', output: { text: 'first opinion delivered' } });
+
+    const accepted = await send('xiaobai', '$second-agent', '@xiaobai second opinion', '$topic').expect(200);
+    await send('xiaobai', '$second-agent', '@xiaobai second opinion', '$topic').expect(200);
+    await send('xiaobai', '$supplement', '@xiaobai include the evidence', '$topic').expect(200);
+    await send('xiaobai', '$supplement', '@xiaobai include the evidence', '$topic').expect(200);
+    expect(router.snapshot().tasks).toHaveLength(2);
+    expect(router.snapshot().dispatches).toHaveLength(1);
+    expect(router.snapshot().sessions.filter(s => s.agentName === 'xiaobai')).toHaveLength(0);
+    expect(router.db.prepare('SELECT activated_at FROM task_inputs WHERE message_id = ?').get(accepted.body.id).activated_at).toBeNull();
+    const command = router.claimMatrixCommand();
+    expect(command).toMatchObject({ roomId: '!shared:test', threadRootEventId: '$topic', senderAgentName: 'xiaobai' });
+    await acknowledge(command);
+    const second = take('xiaobai-runner');
+    expect(second.payload.taskId).not.toBe(first.payload.taskId);
+    expect(second.payload.sessionId).not.toBe(first.payload.sessionId);
+    expect(router.sessionById(second.payload.sessionId).threadRootEventId).toBe('$topic');
+    expect(second.payload.inbox.map(m => m.body)).toEqual(['@xiaobai second opinion', '@xiaobai include the evidence']);
+    expect(second.payload.context.messages.map(m => m.body)).not.toContain('@edison first opinion');
+    createRouterTaskStore(router).transitionTask(second.payload.taskId, 'done');
+    router.settleAndRelease({ ...second.claim, outcome: 'completed', output: { text: 'second opinion delivered' } });
+    await send('xiaobai', '$second-agent', '@xiaobai second opinion', '$topic').expect(200);
+    await send('xiaobai', '$supplement', '@xiaobai include the evidence', '$topic').expect(200);
+    expect(router.snapshot().tasks).toHaveLength(2);
+    expect(router.snapshot().dispatches).toHaveLength(2);
+    expect(router.claimMatrixCommand()).toBeNull();
+    await send('xiaobai', '$new-followup', '@xiaobai a fresh follow-up', '$topic').expect(200);
+    const third = take('xiaobai-followup');
+    expect(third.payload.taskId).toBe(second.payload.taskId);
+    expect(third.payload.inbox.map(m => m.body)).toEqual(['@xiaobai a fresh follow-up']);
+  } finally { await context.cleanup(); }
+});
+
+test('accepted cross-agent thread input recovers without replacing its source event', async () => {
+  const msg = { id: 'msg_0045', ts: 100, from: 'alice', to: 'xiaobai', group: null, type: 'human',
+    summary: '@xiaobai second opinion', full: '@xiaobai second opinion', mentions: ['xiaobai'],
+    source: 'matrix', sourceRoom: '!shared:test', sourceEventId: '$accepted-source', senderMxid: '@alice:test',
+    matrixContext: { roomId: '!shared:test', eventId: '$accepted-source', threadRootEventId: '$edison-topic' } };
+  const receipt = { eventId: msg.sourceEventId, messageId: msg.id, status: 'accepted', message: msg,
+    dispatch: { senderIsAgent: false, directTargetKind: 'agent' }, response: { ok: true, id: msg.id }, updatedAt: new Date(100).toISOString() };
+  const context = await createBackendTestContext('cross-agent-restart-', {
+    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'cross-bridge' },
+    agents: { xiaobai: { name: 'xiaobai', agentId: 'agent_xiaobai', type: 'codex', kind: 'agent', online: true, workdir: process.cwd() } },
+    messages: [msg], msgCounter: 45,
+    rawDataFiles: { 'matrix/source-events.jsonl': `${JSON.stringify(receipt)}\n` },
+  });
+  const router = context.internals.routerStoreForTest;
+  context.internals.stopRouterPumpForTest();
+  try {
+    // The old refusal had ingested the input/session before discovering that
+    // this worker lacked a task. Reproduce that partial state as well.
+    router.ingestMessage({ messageId: msg.id, roomId: msg.sourceRoom, matrixEventId: msg.sourceEventId,
+      threadRootEventId: msg.matrixContext.threadRootEventId, senderMxid: msg.senderMxid, senderName: msg.from,
+      recipientAgentId: 'agent_xiaobai', recipientAgentName: 'xiaobai', normalizedBody: msg.full, receivedAt: msg.ts });
+    router.initializeIngestionCursor('messages.json:matrix-thread-router-v1', JSON.stringify({ ts: 0, id: '' }));
+    expect(await context.internals.reconcileThreadSessionSourceMessagesForTest()).toMatchObject({ scanned: 1 });
+    const post = (event, thread) => request(context.app).post('/api/messages').set('X-Bridge-Secret', 'cross-bridge')
+      .send({ from: 'alice', to: 'xiaobai', target_type: 'agent', type: 'human', source: 'matrix',
+        summary: msg.full, mentions: ['xiaobai'], source_room: msg.sourceRoom, source_event_id: event,
+        thread_root_event_id: thread, sender_mxid: msg.senderMxid });
+    const recovered = await post(msg.sourceEventId, msg.matrixContext.threadRootEventId).expect(200);
+    expect(recovered.body.id).toBe(msg.id);
+    await post(msg.sourceEventId, msg.matrixContext.threadRootEventId).expect(200);
+    const journal = readFileSync(path.join(context.internals.runtimeRootForTest, 'data/matrix/source-events.jsonl'), 'utf8')
+      .trim().split('\n').map(line => JSON.parse(line));
+    expect(journal.filter(r => r.eventId === msg.sourceEventId).at(-1)).toMatchObject({ status: 'committed', messageId: msg.id });
+    expect(router.snapshot().tasks).toHaveLength(1);
+    expect(router.snapshot().dispatches).toHaveLength(0);
+    await post('$later-top-level', null).expect(200);
+    expect(router.snapshot().tasks).toHaveLength(2);
+  } finally { await context.cleanup(); }
+});
 
 describe('canonical mentionless thread addressing', () => {
   test('thread recipient lookup requires one active bound task for the exact room root and requester', async () => {

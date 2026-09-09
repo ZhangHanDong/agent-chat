@@ -2310,14 +2310,14 @@ async function routeMatrixMessageToThreadSession(agentName, msg) {
     explicitTask,
   };
 
-  if (!threadRootEventId && !isFrontDeskAgent(agent)) {
+  const createWorkerTask = () => {
     const stored = routerStore.storeTaskMessage(authenticatedInput);
     if (!stored.ok) return stored;
     return routerStore.createTaskIntent({
       requestScope: `matrix-direct:${agent.agentId}`,
       requestKey: matrixEventId,
       roomId,
-      threadRootEventId: matrixEventId,
+      threadRootEventId: threadRootEventId || matrixEventId,
       rootMessageId: msg.id,
       inputMessageIds: [msg.id],
       task: {
@@ -2329,14 +2329,35 @@ async function routeMatrixMessageToThreadSession(agentName, msg) {
       },
       acknowledgementBody: `Task created for @${agent.name}: ${makePromotedTaskTitle(msg.full || msg.summary)}`,
     });
-  }
+  };
 
-  const ingested = routerStore.ingestMessage(authenticatedInput);
-  if (!ingested.ok) return ingested;
+  if (!threadRootEventId && !isFrontDeskAgent(agent)) return createWorkerTask();
 
   if (threadRootEventId && !isFrontDeskAgent(agent)) {
+    const existing = routerStore.findThreadTaskBinding(agent.agentId, roomId, threadRootEventId);
+    if (existing?.ok === false) return existing;
+    if (!existing) {
+      // A human can address a new worker inside another worker's thread. It
+      // needs its own task and confirmed Matrix anchor, never the peer's task
+      // credential. Keep the source event/root so durable retry is identical.
+      if (msg.type !== 'human' || !/^@[^:]+:.+/.test(msg.senderMxid || '')
+        || !msg.mentions?.includes(agentName)) {
+        return { ok: false, code: 'missing_task_binding', message: 'joining a worker to a thread requires an authenticated human mention' };
+      }
+      return createWorkerTask();
+    }
+    if (existing.activationState === 'pending_thread') {
+      // Sync can deliver more input before the acknowledgement is confirmed.
+      // Keep it dormant on that same task; activation projects all inputs.
+      const stored = routerStore.storeTaskMessage(authenticatedInput);
+      if (!stored.ok) return stored;
+      return routerStore.attachTaskInputs({ taskId: existing.taskId,
+        requestScope: `matrix-thread:${agent.agentId}`, requestKey: matrixEventId, messageIds: [msg.id] });
+    }
     const binding = routerStore.findActiveTaskBinding(agent.agentId, roomId, threadRootEventId);
     if (!binding.ok && binding.code) return binding;
+    const ingested = routerStore.ingestMessage(authenticatedInput);
+    if (!ingested.ok) return ingested;
     const attached = routerStore.attachTaskInputs({
       taskId: binding.taskId,
       requestScope: `matrix-thread:${agent.agentId}`,
@@ -2353,6 +2374,8 @@ async function routeMatrixMessageToThreadSession(agentName, msg) {
     });
   }
 
+  const ingested = routerStore.ingestMessage(authenticatedInput);
+  if (!ingested.ok) return ingested;
   return await enqueueThreadSessionDispatch({
     agent,
     sessionId: ingested.session.sessionId,

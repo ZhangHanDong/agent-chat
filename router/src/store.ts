@@ -1253,6 +1253,26 @@ export class RouterStore {
     ).get(agentId, roomId, root);
   }
 
+  findThreadTaskBinding(agentIdInput: string, roomIdInput: string, rootInput: string): {
+    taskId: string; activationState: TaskBindingRow['activation_state'];
+  } | Refusal | null {
+    try {
+      const agentId = requiredText(agentIdInput, 'agent_id', 255);
+      const roomId = requiredText(roomIdInput, 'room_id', 512);
+      const root = requiredText(rootInput, 'thread_root_event_id', 512);
+      const bindings = this.db.prepare<[string, string, string], TaskBindingRow>(
+        `SELECT * FROM task_bindings WHERE assignee_agent_id = ? AND room_id = ?
+         AND thread_root_event_id = ?`,
+      ).all(agentId, roomId, root);
+      if (bindings.length > 1) return refusal('missing_task_credential', 'multiple task bindings make this thread ambiguous');
+      const binding = bindings[0];
+      return binding ? { taskId: binding.task_id, activationState: binding.activation_state } : null;
+    } catch (error) {
+      if (error instanceof RouterInputError) return refusal('bad_request', error.message);
+      throw error;
+    }
+  }
+
   findActiveTaskBinding(agentIdInput: string, roomIdInput: string, rootInput: string): ActiveTaskBinding | Refusal {
     try {
       const agentId = requiredText(agentIdInput, 'agent_id', 255);

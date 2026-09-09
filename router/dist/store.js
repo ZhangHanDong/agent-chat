@@ -809,6 +809,24 @@ export class RouterStore {
     findThreadSession(agentId, roomId, root) {
         return this.db.prepare("SELECT * FROM sessions WHERE agent_id = ? AND room_id = ? AND scope_kind = 'thread' AND thread_root_event_id = ?").get(agentId, roomId, root);
     }
+    findThreadTaskBinding(agentIdInput, roomIdInput, rootInput) {
+        try {
+            const agentId = requiredText(agentIdInput, 'agent_id', 255);
+            const roomId = requiredText(roomIdInput, 'room_id', 512);
+            const root = requiredText(rootInput, 'thread_root_event_id', 512);
+            const bindings = this.db.prepare(`SELECT * FROM task_bindings WHERE assignee_agent_id = ? AND room_id = ?
+         AND thread_root_event_id = ?`).all(agentId, roomId, root);
+            if (bindings.length > 1)
+                return refusal('missing_task_credential', 'multiple task bindings make this thread ambiguous');
+            const binding = bindings[0];
+            return binding ? { taskId: binding.task_id, activationState: binding.activation_state } : null;
+        }
+        catch (error) {
+            if (error instanceof RouterInputError)
+                return refusal('bad_request', error.message);
+            throw error;
+        }
+    }
     findActiveTaskBinding(agentIdInput, roomIdInput, rootInput) {
         try {
             const agentId = requiredText(agentIdInput, 'agent_id', 255);
