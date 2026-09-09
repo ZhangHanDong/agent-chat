@@ -13,20 +13,55 @@ const room = `!project:${side}`, ownerMxid = `@owner:${side}`, rep = `@${fleetId
 const owner = { ownerMxid, ownerDmRoomId: `!private:${side}` };
 const presets = ['strong', 'medium'].map(id => ({ id, name: `${id} resource`, framework: 'codex', model: 'gpt-5.6-sol',
   reasoning: id === 'medium' ? 'medium' : 'high', catalogPublished: id === 'medium', ceiling: { tokens: 10000, period: 'monthly' } }));
-let ctx, server, joined, allowOwner;
+let ctx, server, joined, allowOwner, outboundGeneration, retirementRequests, retirementFailures;
 afterEach(async () => { await ctx?.cleanup(); ctx = null; if (server) await new Promise(resolve => server.close(resolve)); server = null; });
 const askContext = (name, requestId = name) => ({ v: 1, fleetId, requestId, sourceEventId: `$${requestId}`,
   sourceRoomId: `!reception:${side}`, targetProjectId: 'project_1', targetRoomId: room,
   requesterMxid: ownerMxid, ...owner, authVersion: 1, role: 'coding', requestedTokens: 1000, ratePerDay: 100,
   agentDefinition: { name, resourceId: publicResourceId(presets[1]) } });
 const call = context => request(ctx.app).post('/api/fleet-control').set('X-Bridge-Secret', bridgeSecret)
-  .send({ action: 'request', sideId: side, registration: derivedRegistrationId(side, hsToken), context });
+  .send({ action: 'request', sideId: side, registration: derivedRegistrationId(side, hsToken), context,
+    ...(outboundGeneration ? { transportGeneration: outboundGeneration } : {}) });
 const approve = (id, body = {}) => request(ctx.app).post(`/api/engagements/${id}/verdict`).send({ approve: true, owner, ...body });
 const rows = async () => (await request(ctx.app).get('/api/engagements').expect(200)).body.engagements;
-async function boot({ manualOffers = true } = {}) {
+test('verified fleet project labels populate console metadata without changing request identity', async () => {
+  await boot();
+  const context = askContext('named-project');
+  const send = projectName => request(ctx.app).post('/api/fleet-control').set('X-Bridge-Secret', bridgeSecret)
+    .send({ action: 'request', sideId: side, registration: derivedRegistrationId(side, hsToken), context, projectName });
+  const first = (await send('项目规划群').expect(200)).body;
+  expect(first).toMatchObject({ ok: true, state: 'pending' });
+  const projects = (await request(ctx.app).get('/api/project-sides').expect(200)).body.sides[0].projects;
+  expect(projects).toContainEqual(expect.objectContaining({ id: 'project_1', name: '项目规划群', roomId: room }));
+  const retry = (await send('Renamed project').expect(200)).body;
+  expect(retry.engagementId).toBe(first.engagementId);
+  const [record] = await rows();
+  expect(record.project).toBe('project_1');
+  expect(record.requestContext).toEqual(context);
+  expect(record.requestContext).not.toHaveProperty('projectName');
+  const wrongRoom = (await request(ctx.app).post('/api/fleet-control').set('X-Bridge-Secret', bridgeSecret)
+    .send({ action: 'request', sideId: side, registration: derivedRegistrationId(side, hsToken),
+      context: { ...context, targetRoomId: `!different:${side}` }, projectName: 'Cannot move this project' }).expect(200)).body;
+  expect(wrongRoom).toMatchObject({ ok: false, status: 409, code: 'project_metadata_conflict' });
+  expect((await request(ctx.app).get('/api/project-sides')).body.sides[0].projects[0].roomId).toBe(room);
+});
+
+async function boot({ manualOffers = true, outbound = false } = {}) {
   joined = []; allowOwner = true;
+  outboundGeneration = outbound ? 1 : null; retirementRequests = []; retirementFailures = 0;
   server = createServer((req, res) => {
     const url = new URL(req.url, 'http://fixture'); req.resume(); res.setHeader('Content-Type', 'application/json');
+    if (url.pathname.endsWith('/retire-agent')) {
+      let raw = '';
+      req.on('data', chunk => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw); retirementRequests.push({ body, headers: req.headers });
+        if (retirementFailures-- > 0) { res.statusCode = 503; res.end(JSON.stringify({ code: 'retirement_unavailable' })); return; }
+        res.end(JSON.stringify({ fleetId, requestId: body.requestId,
+          agent: { mxid: body.agentMxid, state: 'retired', matrixIdentity: 'deactivated', joinedRooms: [], appserviceAccess: 'revoked' } }));
+      });
+      return;
+    }
     let value = {};
     if (url.pathname.endsWith('/whoami')) value = { user_id: url.searchParams.get('user_id') };
     else if (url.pathname.includes('/join/')) { joined.push(url.searchParams.get('user_id')); value = { room_id: room }; }
@@ -45,12 +80,55 @@ async function boot({ manualOffers = true } = {}) {
     rawDataFiles: { 'project-sides.json': JSON.stringify({ version: 1, audit: [], sides: { [side]: {
       id: side, serverName: side, active: true, apiBaseUrl: `http://127.0.0.1:${server.address().port}`, projects: {},
       allocatedTokens: 20000, representative: { mxid: rep }, credential: { kind: 'appservice', asToken: 'fixture-as', hsToken,
+        ...(outbound ? { transport: { mode: 'outbound', url: `http://127.0.0.1:${server.address().port}/api/fleet/v2/${fleetId}`, token: 'fixture-machine-token-long', generation: 1 } } : {}),
         senderLocalpart: `${fleetId}_representative`, namespace: `^@${fleetId}_[a-z0-9_]+:palpo\\.test$` },
     } } }) },
   });
   ctx.internals.stopRouterPumpForTest(); ctx.internals.setEngagementLauncherForTest(async () => {});
   if (manualOffers) await request(ctx.app).put('/api/offers/coding').send({ published: true, count: 10 }).expect(200);
 }
+
+test('last Palpo allocation retirement fences admission and verifies remote removal', async () => {
+  await boot({ outbound: true });
+  const submitted = (await call(askContext('retire-edison')).expect(200)).body;
+  const approved = (await approve(submitted.engagementId).expect(200)).body.engagement;
+  const response = (await request(ctx.app).post(`/api/engagements/${approved.id}/revoke`).send({ reason: 'operator revoke' }).expect(200)).body;
+  expect(response.engagement).toMatchObject({ state: 'ended', bound: false, withdrawal: { scope: 'agent', state: 'complete', retirement: { localStopped: true, remote: { state: 'retired' } } } });
+  expect(retirementRequests).toHaveLength(1);
+  expect(retirementRequests[0]).toMatchObject({ headers: { authorization: 'Bearer fixture-machine-token-long', 'x-hafleet-generation': '1' }, body: { requestId: 'retire-edison', localStopped: true } });
+  expect((await request(ctx.app).get('/api/agents?view=names')).body).not.toContain(approved.agent);
+  expect((await request(ctx.app).get('/api/contributions')).body.contributions.some(row => row.agent === approved.agent && row.active)).toBe(false);
+  expect((await request(ctx.app).get('/api/agents/original')).body.retiredAt).toBeUndefined();
+});
+
+test('incomplete Palpo retirement stays fenced and retries the original identity', async () => {
+  await boot({ outbound: true });
+  const submitted = (await call(askContext('retry-retirement')).expect(200)).body;
+  const approved = (await approve(submitted.engagementId).expect(200)).body.engagement;
+  retirementFailures = 1;
+  const revoke = () => request(ctx.app).post(`/api/engagements/${approved.id}/revoke`).send({});
+  const first = (await revoke().expect(200)).body.engagement;
+  expect(first.withdrawal).toMatchObject({ state: 'failed', scope: 'agent' });
+  expect((await request(ctx.app).get('/api/agents?view=names')).body).not.toContain(approved.agent);
+  const second = (await revoke().expect(200)).body.engagement;
+  expect(second).toMatchObject({ endedAt: first.endedAt, withdrawal: { state: 'complete' } });
+  expect(retirementRequests[1].body).toEqual(retirementRequests[0].body);
+});
+
+test('revoking one of two allocations keeps the Agent on Matrix', async () => {
+  await boot({ outbound: true });
+  const submitted = (await call(askContext('shared-edison')).expect(200)).body;
+  const first = (await approve(submitted.engagementId).expect(200)).body.engagement;
+  const next = (await request(ctx.app).post('/api/engagements').send({
+    project: 'project_1', projectRoomId: room, role: 'coding', agent: first.agent, requester: ownerMxid,
+    requestedTokens: 1000, requestId: 'second-funded-allocation',
+  }).expect(200)).body.engagement;
+  await approve(next.id).expect(200);
+  const ended = (await request(ctx.app).post(`/api/engagements/${first.id}/revoke`).send({}).expect(200)).body;
+  expect(ended.engagement.withdrawal.state).toBe('retained');
+  expect(retirementRequests).toHaveLength(0);
+  expect((await request(ctx.app).get('/api/agents?view=names')).body).toContain(first.agent);
+});
 
 const catalog = async () => (await request(ctx.app).post('/api/fleet-control').set('X-Bridge-Secret', bridgeSecret)
   .send({ action: 'capabilities', sideId: side, registration: derivedRegistrationId(side, hsToken) }).expect(200)).body.offers;
@@ -197,8 +275,8 @@ test('concurrent Palpo definitions reserve the selected pool only once and prese
 test('Palpo definitions provision distinct agents on the requested resource without provider definitions', async () => {
   await boot();
   const names = [], mxids = [];
-  for (const name of ['fast-one', 'fast-two']) {
-    const context = askContext(name), created = await call(context).expect(200);
+  for (const name of ['fast-one', 'fast-two', '小白', '孙悟空-01']) {
+    const context = askContext(name, `definition-${names.length}`), created = await call(context).expect(200);
     expect(created.body).toMatchObject({ ok: true, state: 'pending', agentMxid: null, agentDefinition: context.agentDefinition });
     const id = created.body.engagementId;
     expect((await request(ctx.app).get('/api/agents')).body).toHaveLength(names.length + 1);
@@ -209,6 +287,8 @@ test('Palpo definitions provision distinct agents on the requested resource with
     expect(verdict.body.engagement.fulfillment.presetId).toBe('medium');
     names.push(verdict.body.engagement.agent);
     const agent = (await request(ctx.app).get(`/api/agents/${names.at(-1)}`).expect(200)).body;
+    expect(agent.displayName).toBe(name);
+    expect(agent.name).toMatch(/^pa_[a-z0-9_]+$/);
     expect(agent.runtimeProfile.primary.reasoning).toBe('medium');
     expect(agent.presetId).toBe('medium');
     const status = await call(context); mxids.push(status.body.agentMxid);
@@ -217,13 +297,14 @@ test('Palpo definitions provision distinct agents on the requested resource with
     const stored = JSON.parse(readFileSync(path.join(ctx.runtimeDir, 'data/engagements.json'), 'utf8'));
     expect(createEngagementStore({ load: () => stored }).get(id).requestContext.agentDefinition).toEqual(context.agentDefinition);
   }
-  expect(new Set(names).size).toBe(2); expect(new Set(mxids).size).toBe(2);
+  expect(new Set(names).size).toBe(4); expect(new Set(mxids).size).toBe(4);
+  expect(mxids.every(mxid => /^@[a-z0-9_]+:palpo\.test$/.test(mxid))).toBe(true);
   expect(joined).toEqual(expect.arrayContaining(mxids));
   expect((await request(ctx.app).get('/api/framework-presets')).body.every(p => p.agentDefinitions.length === 0)).toBe(true);
-  expect((await request(ctx.app).get('/api/agents')).body).toHaveLength(3);
+  expect((await request(ctx.app).get('/api/agents')).body).toHaveLength(5);
   const third = (await call(askContext('third'))).body.engagementId;
   await approve(third, { allocatedTokens: 9500 }).expect(409);
-  expect((await request(ctx.app).get('/api/agents')).body).toHaveLength(3);
+  expect((await request(ctx.app).get('/api/agents')).body).toHaveLength(5);
   const other = (await request(ctx.app).post('/api/engagements').send({ project: 'other', projectRoomId: `!other:${side}`, role: 'coding',
     requester: ownerMxid, requestedTokens: 100, requestId: 'other-project' }).expect(200)).body.engagement;
   await approve(other.id, { allocation: { kind: 'agent', agent: names[0] } }).expect(409);

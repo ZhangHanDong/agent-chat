@@ -3720,7 +3720,9 @@ export class MatrixBridge {
     if (!this._rosterWasArray) {
       console.error(`[roster] /api/agents?view=names returned ${typeof payload}, not an array — treating the roster as untrusted`);
     }
-    return normalizeAgentNameList(payload);
+    const names = normalizeAgentNameList(payload);
+    if (this._rosterWasArray) this.authoritativeAgentNames = new Set(names.map(name => this.nameKey(name)));
+    return names;
   }
 
   /**
@@ -3919,7 +3921,8 @@ export class MatrixBridge {
    */
   isKnownAgentMxid(mxid) {
     const name = agentNameFromUserId(mxid, this);
-    return Boolean(name && this.isKnownAgentName(name));
+    return Boolean(name && this.isKnownAgentName(name)
+      && (!this.authoritativeAgentNames || this.authoritativeAgentNames.has(this.nameKey(name))));
   }
 
   /*

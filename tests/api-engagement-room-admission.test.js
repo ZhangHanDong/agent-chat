@@ -70,8 +70,9 @@ async function fakeHomeserver({
        * fake 404'd it, so the withdrawal below would have read as failed for the wrong reason.
        */
       if (req.url.includes('/leave')) {
-        res.writeHead(leaveStatus, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify(leaveStatus === 200 ? {} : { errcode: 'M_UNKNOWN' }));
+        const status = Array.isArray(leaveStatus) ? leaveStatus.shift() ?? 200 : leaveStatus;
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(status === 200 ? {} : { errcode: 'M_UNKNOWN' }));
       }
       res.writeHead(404, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ errcode: 'M_NOT_FOUND' }));
@@ -331,6 +332,30 @@ describe('a revoked engagement gives the room seat back', () => {
     return request(app).post(`/api/engagements/${id}/revoke`)
       .send({ reason: 'test revoke' }).expect(expectStatus);
   }
+
+  test('revoked room cleanup survives refresh and retries without releasing twice', async () => {
+    const hs = await fakeHomeserver({ leaveStatus: [503, 200] });
+    const app = await boot({ hs, credential: asCredential() });
+    const approved = await approve(app);
+    const id = approved.body.engagement.id;
+    const first = (await revoke(app, id)).body.engagement;
+    expect(first).toMatchObject({ state: 'ended', bound: false, withdrawal: { state: 'failed' } });
+    const saved = (await request(app).get('/api/engagements').expect(200)).body.engagements.find(e => e.id === id);
+    expect(saved.withdrawal).toEqual(first.withdrawal);
+    const retried = (await revoke(app, id)).body.engagement;
+    expect(retried).toMatchObject({ state: 'ended', endedAt: first.endedAt, endedReason: first.endedReason,
+      allocatedTokens: first.allocatedTokens, withdrawal: { state: 'complete', roomWithdrawal: { left: true } } });
+    expect(leaves()).toHaveLength(2);
+  });
+
+  test('concurrent revocation retries share one Matrix departure', async () => {
+    const hs = await fakeHomeserver();
+    const app = await boot({ hs, credential: asCredential() });
+    const id = (await approve(app)).body.engagement.id;
+    const results = await Promise.all([revoke(app, id), revoke(app, id)]);
+    expect(results.map(r => r.body.engagement.state)).toEqual(['ended', 'ended']);
+    expect(leaves()).toHaveLength(1);
+  });
 
   test('THE DEFECT: the agent leaves the room, as itself, with the side\'s credential', async () => {
     const hs = await fakeHomeserver();

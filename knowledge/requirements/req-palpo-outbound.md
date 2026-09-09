@@ -26,3 +26,10 @@ authenticated Matrix delivery receipt is still required for initial connection.
 Implement and verify in isolated HAFleet and Palpo worktrees. Preserve concurrent
 website work and the separate live Edison/xiaobai incident investigation. Coordinate
 service replacement only after deterministic verification and an idle-state check.
+
+The bridge owns a separate registration-bound transport inbox/outbox database;
+it is not a second router task store. Its module `lib/fleet-outbound-store.js`
+and the old-schema migration fixture `tests/fleet-outbound-store.test.js` may use
+the pinned SQLite adapter directly. Router database access still goes through
+`router/dist/index.js`, and these two files receive no exception for importing
+router internals. Dependency checks reject all other non-router adapter owners.

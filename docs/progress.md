@@ -1,5 +1,16 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-09 — Project names and revoke feedback
+
+Verified Edison's prior revocation and the missing project-name projection.
+Implemented observed Matrix name metadata, room-keyed labels, persisted departure
+results, explicit retries and lost-response reconciliation.144 distinct tests,
+production console build, scoped lint and fixture Playwright pass. Live names and
+unchanged allocations verified; one unrelated usage read still returned502.
+Native lifecycle boundary passes with five behavioral skips. Local idle services
+restarted; no Palpo deployment, commit/push or canonical task mutation.
+Details: docs/reviews/2026-09-09-engagement-console-recovery.md.
+
 Latest update: the operator subsequently requested closing the findings. The fixes
 and their evidence are recorded in the
 [closure report](reviews/2026-09-05-review-closure.md), on
@@ -1509,3 +1520,89 @@ reports one boundary pass and five skips; its overall result remains non-passing
 because it does not execute Node tests. Separate browser logs, lifecycle output,
 and provenance are under the website docs. Preview is running at 127.0.0.1:4328.
 No public deployment, commit, or push. The absent task-writer was not replaced.
+
+
+## 2026-09-09 — Chinese Agent name validation repaired
+
+Updated Palpo form/API and HAFleet protocol validation. Chinese display names
+survive approval/provisioning fixtures while runtime/Matrix IDs remain ASCII.
+67 Palpo and23 HAFleet tests pass, plus the Chinese-name Playwright fixture.
+Deployed Mini1 web136171fcade9cd56 and restarted idle HAFleet backend/bridge.
+Live 中文验证-0909 request reached HAFleet as pending without allocation.
+Native agent-spec boundary passes;10 Node scenarios remain skipped.
+Full evidence: docs/reviews/2026-09-09-unicode-agent-names.md. No commit/push.
+
+## 2026-09-09 — Final-allocation Matrix Agent retirement
+
+Implemented and deployed the operator's Edison retirement request: local runtime
+stop and admission fencing, outbound fleet/request-scoped deactivation, zero-room
+and denied-AS-authentication verification, durable retry and console feedback.
+Other active allocations prevent whole-account retirement. Reconciled legacy
+management aliases by exact MXID after real acceptance found one stale registered
+row. Original revocation time and chat history remain intact.
+
+Playwright invoked the deployed console action. Edison is now deactivated, has
+zero joined rooms, fails AS authentication403 and AS discovery404; its
+representative remains200 and four sibling identities remain active accounts.
+All four sampled historical messages remain unchanged. 165 HAFleet tests and71
+Palpo tests pass; production console build and468 spec bindings pass. Native
+lifecycle boundary passes but four Node scenarios remain Skip (non-passing).
+Unrelated usage502s remain recorded. Local backend7238/bridge7239/console7240;
+Mini1 Web image177462cdd1d6be2d. Matrix Rust service unchanged. No commit/push or
+fabricated canonical task transition. See
+docs/reviews/2026-09-09-agent-matrix-retirement.md.
+
+## 2026-09-09 — Account requests approved through Robrix
+
+Implemented and deployed the requested Palpo Web signup → private administrator
+room → native Robrix Approve/Reject → Matrix registration → ordinary-user login
+flow in the isolated Palpo account-approval worktree. Real Mini1 approval created
+a usable ordinary account; real rejection prevented login. The approved user
+created a project and sent Agent request f3b7e3d6-49e1-4655-9da0-dfafd226e1fb,
+which HAFleet received and left pending its owner's resource decision.
+
+66 Node tests and four fixture browser scripts pass. Separate native evidence
+records actual Matrix verdict events and post-restart receipt/login recovery.
+Closed the first-use administrator history gap and stale project-readiness UI.
+The earlier web release required forced shutdown and left a stale lock; recovered
+only after confirming its owner stopped, then bounded shutdown and tested worker
+I/O cancellation. Later upgrade exited0 and kept both request decisions.
+
+Final web image: palpo-web-admin:cc23a8c98efb31c9. HAFleet runtime, Matrix Rust
+binary and operator Robrix desktop profile were preserved. Source changes are
+uncommitted in feat/account-approval-20260909; no push/merge was performed for
+this batch. The source checkout still has no provisioned task-writer, so no
+canonical task-state transition was fabricated.
+
+
+## 2026-09-09 — Investigate approved ymote login failure
+
+Verified actual administrator verdict and successful registration of @ymote at
+2026-09-09T16:31:14Z. Matrix reports an active ordinary account, unlocked and
+not deactivated; the pending encrypted password was removed after registration.
+Observed two HTTP403 login attempts, followed by HTTP429 even for login
+discovery. Adjusted only the live Matrix login rate configuration (burst20,
+refill0.1/sec), backed it up and restarted the homeserver. Six consecutive
+public login discovery checks returned200, an existing approved ordinary test
+account authenticated successfully, and the account approval worker is ready.
+No password reset, account recreation, Matrix source edit, commit or push.
+The operator was asked for the exact remaining error and to retry with the
+password chosen for ymote; that user's password has not been independently
+verified.
+
+## 2026-09-09 — Account and Agent workflow integration
+
+Committed the HAFleet changes as1e2d279 and Palpo Web as3d63ae11; the latter is
+now on local main. Integrated HAFleet with local master in an isolated worktree,
+retaining both sides of two additive documentation conflicts and preserving
+the primary workspace's unrelated website edits separately. CI exposed an
+extracted-handler visibility issue and a separate outbound inbox ownership gap;
+the explicit local guard and exact adapter-owner rule now pass, with negative
+coverage retaining the router internal-import restriction.
+
+Final CI:505 kernel/CLI tests and470 spec bindings pass. Related regression190,
+new boundary1 and Palpo71 tests pass; all four Palpo browser scripts pass. Counts
+overlap. Native lifecycle remains non-passing with two Node skips; optional live
+CI probes skipped without a runtime. No live changes or push. Palpo upstream
+Rust commit62fa8566 remains outside this local Web merge. Full evidence and
+restoration notes: docs/reviews/2026-09-09-account-agent-lifecycle-merge.md.

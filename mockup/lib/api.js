@@ -81,6 +81,21 @@ export async function send(path, { method = 'POST', body } = {}) {
   }
 }
 
+export async function revokeEngagement(id, body) {
+  const result = await send(`engagements/${encodeURIComponent(id)}/revoke`, { body });
+  if (result.ok || result.status && result.status < 500) return result;
+  // A timeout may follow a committed write. Read once; never repeat it blindly.
+  try {
+    const payload = await get('engagements');
+    const engagement = payload.engagements?.find(row => row.id === id);
+    if (engagement?.state === 'ended' && engagement.allocatedTokens > 0) {
+      return { ok: true, reconciled: true, body: { engagement,
+        roomWithdrawal: engagement.withdrawal?.roomWithdrawal ?? null } };
+    }
+  } catch { /* No authoritative outcome: retain the original failure. */ }
+  return result;
+}
+
 /**
  * GET /api/agents -> the shape pages already read.
  *

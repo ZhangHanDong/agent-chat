@@ -147,6 +147,16 @@ describe('F5 — credentials are not pruned against a roster that cannot be trus
     expect(bridge._mayPruneAgentTokens(agents)).toBe(false);
   });
 
+  test('bridge excludes retired agents from its App Service roster', async () => {
+    const { bridge } = await bridgeWithTokens({ edison: 'syt_edison', active: 'syt_active' });
+    bridge.addKnownAgent('edison'); bridge.addKnownAgent('active');
+    expect(bridge.isKnownAgentMxid('@ac_edison:hs.test')).toBe(true);
+    bridge.callBackendApi = vi.fn().mockResolvedValue(['active']);
+    await bridge.fetchKnownAgentNames();
+    expect(bridge.isKnownAgentMxid('@ac_edison:hs.test')).toBe(false);
+    expect(bridge.isKnownAgentMxid('@ac_active:hs.test')).toBe(true);
+  });
+
   test('an empty roster refuses pruning even when well-formed', async () => {
     /*
      * A genuinely empty fleet then keeps its orphaned entries forever. That is the intended trade:
