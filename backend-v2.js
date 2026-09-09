@@ -8603,6 +8603,9 @@ app.post('/api/approval-bindings/matrix/markers/migrate-v2', requireApprovalBrid
 
 app.post('/api/approval-bindings/matrix/markers/reconcile-retirements', requireApprovalBridgeSecret, (req, res) => {
   try {
+    if (req.body?.legacy_state_observed_nonempty === true) {
+      validateMarkerPublisher(req.body);
+    }
     return res.json({
       ok: true,
       reconciliation: approvalStore.reconcileMarkerRetirements(req.body || {}),

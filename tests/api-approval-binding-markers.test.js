@@ -70,15 +70,68 @@ describe('approval binding marker bridge API', () => {
       credential_kind: row.credential_kind, credential_generation: row.credential_generation,
     });
     expect(prepared.status).toBe(200);
+    const planIdentity = {
+      cas_token: prepared.body.plan.cas_token,
+      approval_room_id: row.approval_room_id,
+      binding_generation: row.binding_generation,
+      marker_channel: row.marker_channel,
+      publisher_scope: row.publisher_scope,
+      publisher_mxid: row.marker.publisher_mxid,
+      credential_kind: row.credential_kind,
+      credential_generation: row.credential_generation,
+    };
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/begin-send')
+      .send(planIdentity)).status).toBe(200);
     expect((await bridge('put', '/api/approvals/matrix/publishers').send({
       scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
       credential_kind: 'local_bot', credential_generation: 'g3',
     })).status).toBe(200);
-    expect((await bridge('post', '/api/approval-bindings/matrix/markers/begin-send').send({
-      cas_token: prepared.body.plan.cas_token, approval_room_id: row.approval_room_id,
-      binding_generation: row.binding_generation, marker_channel: row.marker_channel,
-      publisher_scope: row.publisher_scope, publisher_mxid: row.marker.publisher_mxid,
-      credential_kind: row.credential_kind, credential_generation: row.credential_generation,
-    })).status).toBe(409);
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/begin-send')
+      .send(planIdentity)).status).toBe(409);
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/receipt').send({
+      ...planIdentity,
+      event_id: '$v2-api',
+    })).status).toBe(200);
+
+    const afterReceipt = await bridge('get', '/api/approval-bindings/matrix/markers?limit=100');
+    const retirement = afterReceipt.body.markers.find((item) => (
+      item.marker_channel === 'room_marker_v1_retirement'
+    ));
+    const retirementPrepared = await bridge('post', '/api/approval-bindings/matrix/markers/prepare').send({
+      cas_token: retirement.cas_token,
+      approval_room_id: retirement.approval_room_id,
+      binding_generation: retirement.binding_generation,
+      marker_channel: retirement.marker_channel,
+      publisher_scope: retirement.publisher_scope,
+      publisher_mxid: retirement.publisher_mxid,
+      credential_kind: retirement.credential_kind,
+      credential_generation: retirement.credential_generation,
+    });
+    expect(retirementPrepared.status).toBe(200);
+    const retirementIdentity = {
+      cas_token: retirementPrepared.body.plan.cas_token,
+      approval_room_id: retirement.approval_room_id,
+      binding_generation: retirement.binding_generation,
+      marker_channel: retirement.marker_channel,
+      publisher_scope: retirement.publisher_scope,
+      publisher_mxid: retirement.publisher_mxid,
+      credential_kind: retirement.credential_kind,
+      credential_generation: retirement.credential_generation,
+    };
+    const retirementBegin = await bridge('post', '/api/approval-bindings/matrix/markers/begin-send')
+      .send(retirementIdentity);
+    expect(retirementBegin.status, JSON.stringify(retirementBegin.body)).toBe(200);
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/receipt').send({
+      ...retirementIdentity,
+      event_id: '$retirement-api',
+    })).status).toBe(200);
+    expect((await bridge('post', '/api/approval-bindings/matrix/markers/reconcile-retirements').send({
+      approval_room_id: '!dm:test',
+      legacy_state_observed_nonempty: true,
+      publisher_scope: 'local_bot',
+      publisher_mxid: '@bot:test',
+      credential_kind: 'local_bot',
+      credential_generation: 'g3',
+    })).body.reconciliation).toEqual({ examined: 1, queued: 1 });
   });
 });

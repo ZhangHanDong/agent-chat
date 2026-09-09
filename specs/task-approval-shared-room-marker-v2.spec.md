@@ -126,6 +126,30 @@ Scenario: Late legacy receipts are reconciled within a bound
   When bounded retirement reconciliation examines that room
   Then exactly one fresh retirement is queued without fabricating a remote receipt or CAS result.
 
+Scenario: Conflicting governance disables uncertain resend
+  Test: conflicting binding blocks uncertain resend but preserves its exact receipt
+  Given a marker send has an uncertain outcome before a conflicting owner binding is committed
+  When due work, begin, retry, and the exact old receipt are evaluated
+  Then resend paths fail closed while the exact post-send receipt remains admissible.
+
+Scenario: Resolving governance conflict creates fresh work
+  Test: removing a conflicting binding creates fresh work after invalidation
+  Given a conflicting binding invalidated the only unreceipted marker generation
+  When that binding is removed and the canonical manifest is synchronized again
+  Then a higher generation becomes due even when its associations match the last valid snapshot.
+
+Scenario: Publisher rotation replaces stale retirement work
+  Test: publisher rotation replaces an unusable pending retirement
+  Given a pending retirement is pinned to an obsolete private credential generation
+  When a v2 snapshot is accepted under the current private publisher
+  Then the old retirement is superseded and one usable current-context retirement remains.
+
+Scenario: Authenticated observation repairs a lost legacy response
+  Test: observed legacy state requeues retirement without fabricating a legacy receipt
+  Given a v1 state write resurfaced after retirement but its send receipt was lost
+  When the authenticated bridge reports the nonempty v1 slot for the exact room
+  Then bounded reconciliation queues canonical retirement work from accepted v2 history without inventing a v1 receipt.
+
 ## Out of Scope
 
 Matrix state publication and reconciliation scheduling are B1.4. Robrix dual-read ships in its independently owned frontend unit. This draft does not authorize production implementation before B1.3 review and explicit coordinator release.
