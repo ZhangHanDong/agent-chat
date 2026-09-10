@@ -1492,3 +1492,15 @@ output timeout. EOF/exit never proves rollback, Done or process-tree cleanup.
 The pinned SDK sends _meta on tools/list; accept bounded metadata without
 authority. Unknown tools / malformed call envelopes are JSON-RPC -32602, while
 canonical/value failures use isError. SDK remains a test-only dependency.
+
+- Codex 0.153.4 `serverRequest/resolved` is callback termination, not proof of the
+  chosen permission's application. Pinned source emits it before parsing and
+  submitting command/file/permission responses and also after cancellation.
+  ADR-046 records exact primary-source paths. The native permissions coordinator
+  must keep Applying/Uncertain; do not infer Applied from flush, resolved, model
+  text or item completion. A future post-core-application acknowledgment or
+  validated host inspection must close this gate before native cutover.
+- Native `hagency-permissions` owns the opted-in validated session/capability and
+  invokes schema13 request/consume/observation commands. Runtime remains database
+  independent; default OwnedSession still rejects approvals. Host workspace ID
+  plus session cwd/read-only settings are checked against an actual current lease.

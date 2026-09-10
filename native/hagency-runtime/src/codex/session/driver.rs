@@ -19,6 +19,7 @@ pub struct SessionDriver<R, W, E> {
     response_timeout_ms: u64,
     deferred: VecDeque<Event>,
     deferred_bytes: usize,
+    approvals_enabled: bool,
 }
 
 impl<R, W, E> SessionDriver<R, W, E> {
@@ -41,7 +42,19 @@ impl<R, W, E> SessionDriver<R, W, E> {
             response_timeout_ms,
             deferred: VecDeque::new(),
             deferred_bytes: 0,
+            approvals_enabled: false,
         })
+    }
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+    /// Explicit host opt-in after the upstream thread and turn were validated.
+    pub fn enable_approvals(&mut self) -> Result<(), Error> {
+        if self.phase() != Phase::Running || self.approvals_enabled {
+            return Err(Error::State);
+        }
+        self.approvals_enabled = true;
+        Ok(())
     }
     pub fn phase(&self) -> Phase {
         self.state.phase
@@ -329,6 +342,32 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
         }
     }
 
+    pub async fn respond_approval(
+        &mut self,
+        response: crate::codex::approval::ApprovalResponse,
+    ) -> Result<(), Error> {
+        if self.phase() != Phase::Running || !self.approvals_enabled {
+            return Err(Error::State);
+        }
+        if self.thread_id() != Some(response.request.thread_id())
+            || self.turn_id() != Some(response.request.turn_id())
+        {
+            return Err(Error::Scope);
+        }
+        let operation = Operation {
+            session: self,
+            finished: false,
+        };
+        let result = operation
+            .session
+            .wire
+            .send(transport::Command::RespondApproval { response })
+            .await
+            .map(|_| ())
+            .map_err(Error::Transport);
+        operation.finish(result)
+    }
+
     pub async fn next_update(&mut self) -> Result<Update, Error> {
         if self.phase() != Phase::Running {
             return Err(Error::State);
@@ -346,6 +385,25 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
             Some(event) => event,
             None => self.receive().await?,
         };
+        let event = match event {
+            Event::ServerRequest {
+                id,
+                method,
+                params: Some(params),
+            } if self.approvals_enabled => {
+                let request = crate::codex::approval::ApprovalRequest::parse(id, method, params)?;
+                if self.thread_id() != Some(request.thread_id())
+                    || self.turn_id() != Some(request.turn_id())
+                {
+                    return Err(Error::Scope);
+                }
+                // Patch and permission requests can precede item/started in
+                // Codex 0.153.4. Bind their exact callback item without inventing
+                // an active timeline item or host session identity.
+                return Ok(Update::Approval(request));
+            }
+            event => event,
+        };
         let Event::Notification {
             method,
             params: Some(params),
@@ -353,7 +411,13 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
         else {
             return Err(Error::Scope);
         };
-        let update = self.state.notification(&method, &params)?;
+        let mut update = self.state.notification(&method, &params)?;
+        if self.approvals_enabled && method == "serverRequest/resolved" {
+            let id =
+                serde_json::from_value(params.get("requestId").ok_or(Error::Malformed)?.clone())
+                    .map_err(|_| Error::Malformed)?;
+            update = Update::ApprovalResolved { id };
+        }
         if self.phase() == Phase::Ended {
             self.drain_terminal().await?;
             self.wire.close();
@@ -431,7 +495,9 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
     }
     async fn receive(&mut self) -> Result<Event, Error> {
         let event = self.wire.next_event().await.map_err(Error::Transport)?;
-        if let Event::ServerRequest { id, .. } = event {
+        if !self.approvals_enabled
+            && let Event::ServerRequest { id, .. } = event
+        {
             return self.unsupported(id).await;
         }
         Ok(event)

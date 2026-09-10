@@ -1059,6 +1059,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hagency-permissions"
+version = "0.1.0"
+dependencies = [
+ "hagency-core",
+ "hagency-runtime",
+ "hagency-store",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "hagency-platform"
 version = "0.1.0"
 dependencies = [

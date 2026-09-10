@@ -73,6 +73,11 @@ pub enum ItemPhase {
 }
 
 pub enum Update {
+    Approval(super::approval::ApprovalRequest),
+    /// Upstream callback ended, possibly by cancellation and before applying.
+    ApprovalResolved {
+        id: super::RequestId,
+    },
     Notice,
     TurnStarted,
     ThreadStatus,
@@ -138,6 +143,9 @@ impl Settings {
     pub fn read_only(mut self) -> Self {
         self.read_only = true;
         self
+    }
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
     }
     pub fn cwd(&self) -> &str {
         &self.cwd

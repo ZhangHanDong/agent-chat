@@ -94,6 +94,9 @@ pub enum Command {
         scope: TurnScope,
         response_timeout_ms: u64,
     },
+    RespondApproval {
+        response: super::approval::ApprovalResponse,
+    },
     RejectServerRequest {
         id: RequestId,
     },
@@ -391,6 +394,10 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> Driver<R
                 .connection
                 .interrupt(scope, now, response_timeout_ms)
                 .map(|(id, bytes)| (Some(id), bytes)),
+            Command::RespondApproval { response } => self
+                .connection
+                .respond_approval(response, now)
+                .map(|bytes| (None, bytes)),
             Command::RejectServerRequest { id } => self
                 .connection
                 .reject_server_request(&id, now)

@@ -2911,3 +2911,38 @@ tests; Clippy with warnings denied, formatting and diff checks passed. Agent-spe
 zero fail/skip/uncertain). Evidence is in the operator cache at
 `codex-protocol/child-progress-tests.log` and `child-progress-lifecycle.json`.
 This local result is not a rerun of the failed GitHub macOS job.
+
+### 2026-09-10 — M6 Codex approval protocol seam (ADR-046)
+
+- Added opt-in typed command/file/permission approval events and exact once/deny
+  responses while retaining default refusal. Correlation keeps request ID type,
+  thread/turn/item and original content; consumed responses cannot be resent.
+- Added `hagency-permissions` as the host coordinator over the unchanged schema13
+  writer and independent runtime crate. It derives session execution context,
+  proves current resource/owner authority, parks before approval and persists
+  Applying before a response-byte attempt. No runtime payload supplies host
+  identity, workspace lease, owner verdict, reusable grant or application truth.
+- Audited official Codex 0.153.4 source at commit 3d2ee51: all three callbacks emit
+  resolved before typed response parsing/core submission, including cancellation.
+  The adapter therefore records uncertainty and never marks Applied or resumes
+  dispatch from flush/resolution/model text. Live native approval remains gated
+  on evidence after core application, not merely response delivery.
+- Regression fixtures use real SQLite and fake bounded streams. They assert
+  Applying in the writer before its first byte; cover allow/deny/profile shapes,
+  default refusal, exact numeric/string IDs, stale private/device/lease authority,
+  revoked grant becoming deny, DB rollback, 16 pending limit, multiple approvals,
+  cancellation, timeout, EOF and durable restart. Early fixture model/opaque-ID
+  mistakes were corrected; boxed fixture futures avoid test-stack overflow
+  without changing stack settings. No production store rule was loosened.
+- Final verification: 197 full native tests and 51 focused runtime/permissions
+  tests pass, with zero failures or ignored tests. Clippy, rustfmt and diff
+  whitespace checks pass. Task lifecycle has four passing scenarios plus the
+  passing explicit boundary, zero skip/uncertain/pending-review; 134 native spec
+  selectors resolve. Logs are in the external operator cache as
+  `codex-approval-{workspace,tests,clippy,lifecycle-final,inventory}.log`.
+- Review-added cancellation tests hold a SQLite write lock, poll attach/consume
+  once, release the lock and confirm durable commit without repolling the caller.
+  Dropping that future closes the channel; lost consumed decisions emit no bytes,
+  cannot resend and reopen as Uncertain. The initial lifecycle boundary failure
+  was the root-manifest path spelling; explicit `./Cargo.toml` and `./Cargo.lock`
+  now match the already authorized files.

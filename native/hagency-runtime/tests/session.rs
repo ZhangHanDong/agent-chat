@@ -828,3 +828,74 @@ async fn native_codex_session_items_final_contradictions_and_separator_overflow_
         unknown(&session, expected);
     }
 }
+
+fn approval_event(id: Value) -> Value {
+    json!({"id":id,"method":"item/commandExecution/requestApproval","params":{"threadId":"thread-one","turnId":"turn-one","itemId":"command-one","startedAtMs":1,"command":"echo approved","cwd":cwd()}})
+}
+#[tokio::test]
+async fn native_codex_approval_session() {
+    use hagency_runtime::codex::RequestId;
+    let (mut session, mut peer) = running().await;
+    // Existing default behavior must stay fail closed.
+    assert!(matches!(
+        update(&mut session, &mut peer, approval_event(json!(7))).await,
+        Err(Error::UnsupportedRequest)
+    ));
+    let error = read(&mut peer.stdin).await;
+    assert_eq!(error["error"]["code"], -32601);
+    let (mut session, mut peer) = running().await;
+    session.enable_approvals().unwrap();
+    let Update::Approval(request) = update(&mut session, &mut peer, approval_event(json!(7)))
+        .await
+        .unwrap()
+    else {
+        panic!("typed request")
+    };
+    assert_eq!(request.id(), &RequestId::Number(7));
+    session
+        .respond_approval(request.response(true))
+        .await
+        .unwrap();
+    assert_eq!(
+        read(&mut peer.stdin).await,
+        json!({"id":7,"result":{"decision":"accept"}})
+    );
+    assert!(matches!(
+        update(
+            &mut session,
+            &mut peer,
+            note(
+                "serverRequest/resolved",
+                json!({"threadId":"thread-one","requestId":7})
+            )
+        )
+        .await
+        .unwrap(),
+        Update::ApprovalResolved {
+            id: RequestId::Number(7)
+        }
+    ));
+    assert!(
+        session
+            .respond_approval(request.response(true))
+            .await
+            .is_err()
+    );
+    for key in ["threadId", "turnId"] {
+        let (mut session, mut peer) = running().await;
+        session.enable_approvals().unwrap();
+        let mut event = approval_event(json!(7));
+        event["params"][key] = json!("substitution");
+        assert!(matches!(
+            update(&mut session, &mut peer, event).await,
+            Err(Error::Scope)
+        ));
+    }
+    let (mut session, mut peer) = running().await;
+    session.enable_approvals().unwrap();
+    let first = approval_event(json!(7));
+    update(&mut session, &mut peer, first.clone())
+        .await
+        .unwrap();
+    assert!(update(&mut session, &mut peer, first).await.is_err());
+}

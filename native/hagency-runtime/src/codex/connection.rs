@@ -76,6 +76,9 @@ struct Pending {
     deadline: u64,
 }
 struct ServerPending {
+    method: String,
+    params: Option<Value>,
+    responded: bool,
     deadline: u64,
     thread_id: Option<String>,
 }
@@ -283,8 +286,7 @@ impl Connection {
         )
     }
 
-    /// No success/allow response exists in this foundation. M6 must add a typed,
-    /// durably authorized decision adapter before a server request can be allowed.
+    /// Refuse requests when no typed host coordinator is attached.
     pub fn reject_server_request(&mut self, id: &RequestId, now_ms: u64) -> Result<Vec<u8>, Error> {
         self.tick(now_ms)?;
         if !self.server_pending.contains_key(id) {
@@ -299,6 +301,34 @@ impl Connection {
             },
         })?;
         self.server_pending.remove(id);
+        Ok(bytes)
+    }
+
+    /// Exact typed host response; ownership/decision consumption is the
+    /// permissions coordinator's responsibility. Retain the pending scope until
+    /// upstream resolution, which proves neither selected policy nor execution.
+    pub fn respond_approval(
+        &mut self,
+        response: super::approval::ApprovalResponse,
+        now_ms: u64,
+    ) -> Result<Vec<u8>, Error> {
+        self.tick(now_ms)?;
+        let request = &response.request;
+        let pending = self
+            .server_pending
+            .get_mut(request.id())
+            .ok_or(Error::Identity)?;
+        if pending.responded
+            || pending.method != request.method()
+            || pending.params.as_ref() != Some(request.params())
+        {
+            return Err(Error::Identity);
+        }
+        let bytes = encode(Message::Response {
+            id: request.id().clone(),
+            result: response.result,
+        })?;
+        pending.responded = true;
         Ok(bytes)
     }
 
@@ -364,12 +394,37 @@ impl Connection {
                             .ok_or(Error::Envelope)
                     })
                     .transpose()?;
+                // Only typed approval responses need a content-bound copy.
+                // Bound it before cloning; unrelated unsupported callbacks keep
+                // no payload copy in the connection's pending table.
+                let approval = matches!(
+                    method.as_str(),
+                    "item/commandExecution/requestApproval"
+                        | "item/fileChange/requestApproval"
+                        | "item/permissions/requestApproval"
+                );
+                let response_params = if approval
+                    && serde_json::to_vec(&params)
+                        .map_err(|_| Error::Envelope)?
+                        .len()
+                        <= super::approval::MAX_APPROVAL_BYTES
+                {
+                    params.clone()
+                } else {
+                    // Generic protocol ingress keeps its existing frame/queue
+                    // bounds. Oversized requests have no response capability;
+                    // the typed session rejects them without another copy.
+                    None
+                };
                 self.server_seen.insert(id.clone());
                 self.server_pending.insert(
                     id.clone(),
                     ServerPending {
                         deadline,
                         thread_id,
+                        method: method.clone(),
+                        params: response_params,
+                        responded: false,
                     },
                 );
                 Ok(Event::ServerRequest { id, method, params })
