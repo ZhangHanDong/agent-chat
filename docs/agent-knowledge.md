@@ -1474,3 +1474,12 @@ Native CI 34518706774 at 47b6a51 passed all three OSes, including the corrected
 Windows SystemRoot-only CLI environment and CRLF-independent SQL fixture slices.
 This is pre-ADR-044 Windows IO evidence. Do not use cross-target Clippy or the
 shared macOS lifecycle to claim execution of Windows-specific named-pipe tests.
+
+ADR-049: native MCP task tools use the same scoped loopback client as task CLI.
+RPC IDs are typed and connection-local; explicit mutation call_id is stable
+across connections and replay belongs to the domain writer. The dedicated
+helper's binary-private watchdog may terminate only itself on partial-frame or
+output timeout. EOF/exit never proves rollback, Done or process-tree cleanup.
+The pinned SDK sends _meta on tools/list; accept bounded metadata without
+authority. Unknown tools / malformed call envelopes are JSON-RPC -32602, while
+canonical/value failures use isError. SDK remains a test-only dependency.

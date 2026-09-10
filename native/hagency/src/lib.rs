@@ -1,5 +1,6 @@
 use hagency_core::custody::{Delivery, MAX_DELIVERY_BYTES};
 use hagency_store::{DomainStore, Error, Store};
+pub mod mcp;
 mod resources;
 mod runner;
 pub mod task_client;

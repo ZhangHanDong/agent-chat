@@ -1,3 +1,5 @@
+#[path = "mcp/stdio.rs"]
+mod mcp_stdio;
 use clap::{Parser, Subcommand};
 use hagency_store::{DomainRepository, DomainStore, Repository, Store, private};
 use salvo::prelude::*;
@@ -15,6 +17,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Serve scoped task tools over MCP stdio using inherited runner context.
+    Mcp,
     /// Maintain the canonical task from the host-provisioned runner environment.
     Task {
         /// Stable identifier for a mutation; reuse only with identical content.
@@ -50,6 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         hagency_platform::run_guardian()?;
         return Ok(());
     }
+    if matches!(command, Command::Mcp) {
+        mcp_stdio::run_stdio()?;
+        return Ok(());
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -63,6 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     match command {
+        Command::Mcp => unreachable!("MCP runs on the dedicated main thread"),
         Command::Task { call_id, command } => {
             let context = hagency::task_client::Context::from_env()?;
             let output = hagency::task_client::run(

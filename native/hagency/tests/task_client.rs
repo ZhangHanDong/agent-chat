@@ -420,3 +420,6 @@ fn isolated_cli() -> std::process::Command {
     );
     command
 }
+
+#[path = "task_client/mcp.rs"]
+mod mcp;

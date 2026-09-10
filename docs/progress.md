@@ -2856,3 +2856,34 @@ new Windows IO code. Local full-workspace evidence at 47b6a51 remains 204 unique
 tests plus the isolated proxy-environment child check. Node CI 34518706889 was
 still running when this entry was recorded. Logs remain in the private operator
 migration cache. No live service or original dirty checkout changed.
+
+## 2026-09-10 — Native MCP assigned-task helper (ADR-049)
+
+Added an executable stdio MCP helper using the existing task-client transport
+and sole canonical writer. Its five tools preserve exact task/capability scope
+and stable mutation call IDs. Native fixtures exercise lifecycle, task transitions,
+replay/conflict, wrong task, wrong secret, parked authority, bounded malformed
+frames, duplicate IDs, EOF and whole-helper IO deadlines. The actual pinned
+rmcp 1.8 client initializes a native child and reads/mutates a fresh API task.
+
+The first SDK run exposed its automatic _meta progress data on tools/list; the
+adapter now accepts bounded metadata without deriving authority. Independent
+review caught unknown tools being represented as execution errors; they and
+invalid call envelopes now return JSON-RPC -32602 while leaving the connection
+usable. Added independent connection replay coverage. The watchdog was confined
+to the binary's private module; a library caller cannot invoke process exit.
+
+Initial compilation lacked the test-only Tokio process feature; it is explicit
+now. Offline dependency resolution tried unrelated WASM/Hermit downgrades; all
+preexisting package versions were restored before locked verification. Eight
+focused task-client/MCP tests passed before the final fresh-connection addition;
+final checks and lifecycle are recorded below after completion. No live or
+generated MCP configuration changed.
+
+Final focused verification passed all eight MCP/task-client tests, and the added
+fresh-connection replay/conflict test passed separately. Workspace Clippy with
+warnings denied, formatting and diff checks passed. Agent-spec 1.4 lifecycle
+passed all four scenarios plus the explicit 16-file boundary (5/5), zero
+fail/skip/uncertain. Review independently exercised the rebuilt executable's
+protocol-error recovery. SDK remains pinned as a dev dependency; native packaging
+has no SDK requirement. New three-OS execution remains a CI gate.

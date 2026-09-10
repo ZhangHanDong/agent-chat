@@ -61,6 +61,9 @@ impl Context {
             task_id,
         })
     }
+    pub(crate) fn task_id(&self) -> &str {
+        &self.task_id
+    }
     pub fn from_env() -> Result<Self, Error> {
         let get = |name, max| {
             std::env::var(name)
@@ -145,10 +148,18 @@ pub async fn run(
     call_id: Option<&str>,
     deadline: Duration,
 ) -> Result<Output, Error> {
+    run_operation(context, command.operation()?, call_id, deadline).await
+}
+
+pub(crate) async fn run_operation(
+    context: &Context,
+    operation: Option<TaskMutation>,
+    call_id: Option<&str>,
+    deadline: Duration,
+) -> Result<Output, Error> {
     if deadline.is_zero() || deadline > Duration::from_secs(30) {
         return Err(Error::Invalid);
     }
-    let operation = command.operation()?;
     let (path, body) = if let Some(operation) = &operation {
         let call = call_id.ok_or(Error::Invalid)?;
         identifier(call, 512).map_err(|_| Error::Invalid)?;

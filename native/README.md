@@ -368,3 +368,22 @@ Protocol requests and events cannot grant approval. The crate remains unlinked
 from Agent execution; typed session, sandbox and guardian integration are open.
 See [ADR-032](../knowledge/decisions/adr-032-native-codex-protocol.md) and
 [ADR-034](../knowledge/decisions/adr-034-native-codex-transport.md).
+
+## Native MCP task maintenance
+
+`hagency mcp` serves five task tools over stdio: get_task, accept_task,
+transition_task, comment_task and update_task_execution. The host must supply
+the same inherited HAGENCY_RUNNER_API_ADDR, HAGENCY_RUNNER_CAPABILITY and
+HAGENCY_TASK_ID context as the native task CLI. Each call names that assigned
+task; mutations additionally require a stable call_id, preserved for an exact
+retry across MCP connections. State changes go through the existing scoped API.
+
+This helper advertises MCP 2025-11-25 tools only. It bounds newline frames and
+request IDs, serializes tool calls, and uses a private executable watchdog for
+partial input and blocked output. Exit 74 means its IO deadline expired; it does
+not prove that a submitted mutation failed. Inspect or repeat the exact call ID
+and content through the canonical writer. The watchdog is not linked as a public
+library service function. The pinned Rust MCP SDK is a test-only dependency.
+
+Delegation, graphs, files, approvals, generated runner configuration and live
+rollout are separate work; existing deployed MCP configuration is unchanged.
