@@ -15,6 +15,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Internal native guardian. Requires a private inherited channel on stdin.
+    #[cfg(unix)]
+    #[command(hide = true)]
+    Guardian,
     /// Initialize fresh state. Requires an empty, private directory or a new path.
     Init {
         #[arg(long)]
@@ -40,6 +44,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(std::io::stderr)
         .init();
     match Cli::parse().command {
+        #[cfg(unix)]
+        Command::Guardian => hagency_platform::run_guardian()?,
         Command::Init { state_dir } => {
             private::directory(&state_dir)?;
             if std::fs::read_dir(&state_dir)?.next().is_some() {

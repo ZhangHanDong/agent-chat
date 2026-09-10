@@ -929,6 +929,7 @@ dependencies = [
  "clap",
  "getrandom 0.3.4",
  "hagency-core",
+ "hagency-platform",
  "hagency-store",
  "rusqlite",
  "salvo",
@@ -975,6 +976,8 @@ name = "hagency-platform"
 version = "0.1.0"
 dependencies = [
  "rustix",
+ "serde",
+ "serde_json",
  "tempfile",
  "windows-sys",
 ]

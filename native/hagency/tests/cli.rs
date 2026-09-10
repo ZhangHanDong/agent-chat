@@ -136,3 +136,40 @@ fn native_binary_survives_crash_without_node() {
         serde_json::json!([resource])
     );
 }
+
+#[test]
+fn native_guardian_cli_entry() {
+    use hagency_platform::{Launch, StopCause, SupervisedProcess};
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("监管 fresh state");
+    let executable = std::path::PathBuf::from(env!("CARGO_BIN_EXE_hagency"));
+    let mut environment = std::collections::BTreeMap::new();
+    environment.insert("PATH".into(), "".into());
+    if let Some(value) = std::env::var_os("SystemRoot") {
+        environment.insert("SystemRoot".into(), value);
+    }
+    let mut process = SupervisedProcess::spawn(
+        &executable,
+        &Launch {
+            executable: executable.clone(),
+            arguments: vec![
+                "init".into(),
+                "--state-dir".into(),
+                state.as_os_str().into(),
+            ],
+            directory: root.path().into(),
+            environment,
+            require_crash_containment: cfg!(windows),
+        },
+    )
+    .unwrap();
+    let report = process
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .expect("native guardian did not report leader exit");
+    assert_eq!(report.cause, StopCause::LeaderExited);
+    assert!(report.scope.leader_exited);
+    assert_eq!(report.scope.whole_tree_stopped, cfg!(windows));
+    assert!(state.join("operator.token").is_file());
+    assert!(state.join("domain.sqlite3").is_file());
+}

@@ -1089,3 +1089,19 @@ exact if later encoded on a protocol (Windows FILETIME is beyond JS safe integer
 Future descendant capture must separately prove ancestry; do not add a public
 PID-to-signal constructor. Mac NOTE_TRACK/NOTE_CHILD are unsupported since 10.5;
 do not assume kqueue automatically follows descendants. Guardian/discovery remain.
+
+Native guardian (2026-09-10): hagency guardian receives an anonymous Unix socket on
+stdin. It validates Prepare/version before Start, bounds frames at 512 KiB and
+partial-frame lifetime at one second, and handles owner EOF or malformed control
+input by stopping its owned scope. The copied socket must use
+fcntl_dupfd_cloexec, not dup: otherwise work can inherit the reply endpoint.
+Work receives null stdio and the fixture counts inherited sockets. Windows keeps
+direct Job Object ownership; it does not need this Unix helper. Never kill a
+guardian on timeout and infer cleanup. Full detached-descendant discovery and
+guardian-loss recovery are still open; required full crash containment refuses
+before POSIX spawn. Process reports are not task or dispatch completion.
+macOS kill(-group, SIGKILL) can return EPERM when only a zombie remains; reproduced
+with /usr/bin/true and traced to the XNU group zombie filter. Attempt the retained
+child signal and reap even when group signalling fails; retain signals_accepted
+false and never infer group emptiness from that error. The real CLI entry test
+exposed this case after the simpler parent-plus-grandchild fixtures passed.

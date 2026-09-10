@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
-    Foundation::WAIT_OBJECT_0,
+    Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::{JobObjects::*, Threading::*},
 };
 
@@ -202,6 +202,14 @@ impl Process {
     pub(super) fn id(&self) -> u32 {
         self.pid
     }
+    pub(super) fn is_leader_running(&self) -> io::Result<bool> {
+        // SAFETY: Live retained process handle, nonblocking observation only.
+        match unsafe { WaitForSingleObject(self.child.as_raw_handle(), 0) } {
+            WAIT_TIMEOUT => Ok(true),
+            WAIT_OBJECT_0 => Ok(false),
+            _ => Err(io::Error::last_os_error()),
+        }
+    }
     pub(super) fn stop(&mut self, timeout: Duration) -> io::Result<StopReport> {
         // SAFETY: A retained job handle targets this job, never a recycled PID.
         if unsafe { TerminateJobObject(self.job.as_raw_handle(), 125) } == 0 {
@@ -228,6 +236,7 @@ impl Process {
                 unsafe { WaitForSingleObject(self.child.as_raw_handle(), 0) } == WAIT_OBJECT_0;
             let report = StopReport {
                 leader_exited,
+                signals_accepted: true,
                 whole_tree_stopped: info.ActiveProcesses == 0 && leader_exited,
             };
             if report.whole_tree_stopped || Instant::now() >= until {

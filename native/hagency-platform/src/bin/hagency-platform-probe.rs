@@ -1,5 +1,5 @@
 //! Controlled native fixture for platform ownership checks; never launches models.
-use hagency_platform::{Launch, OwnedProcess};
+use hagency_platform::{Launch, OwnedProcess, SupervisedProcess};
 use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
@@ -31,6 +31,10 @@ fn pulse(marker: &Path) -> io::Result<()> {
 }
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    #[cfg(unix)]
+    if args.first().is_some_and(|v| v == "guardian") {
+        return hagency_platform::run_guardian();
+    }
     if args.len() < 2 {
         return Err(io::Error::other("probe mode and marker required"));
     }
@@ -63,6 +67,17 @@ fn main() -> io::Result<()> {
                 .exec())
         }
         Some("leader") | Some("early") => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileTypeExt;
+                let mut sockets = 0;
+                for entry in fs::read_dir("/dev/fd")? {
+                    if fs::metadata(entry?.path()).is_ok_and(|v| v.file_type().is_socket()) {
+                        sockets += 1;
+                    }
+                }
+                fs::write(marker.with_extension("sockets"), sockets.to_string())?;
+            }
             fs::write(
                 marker.with_extension("environment"),
                 format!(
@@ -116,6 +131,28 @@ fn main() -> io::Result<()> {
             }
             fs::write(marker.with_extension("ready"), b"ready")?;
             // Models abrupt owner exit: destructors are intentionally not run.
+            std::process::exit(0);
+        }
+        Some("supervisor-crash") => {
+            let executable = std::env::current_exe()?;
+            let _owned = SupervisedProcess::spawn(
+                &executable,
+                &Launch {
+                    executable: executable.clone(),
+                    arguments: vec!["leader".into(), marker.as_os_str().into()],
+                    directory: std::env::current_dir()?,
+                    environment: environment(),
+                    require_crash_containment: cfg!(windows),
+                },
+            )?;
+            let until = Instant::now() + Duration::from_secs(5);
+            while fs::metadata(marker.with_extension("pulse")).map_or(true, |v| v.len() < 2) {
+                if Instant::now() >= until {
+                    return Err(io::Error::other("supervised fixture did not start"));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            fs::write(marker.with_extension("ready"), b"ready")?;
             std::process::exit(0);
         }
         _ => Err(io::Error::other("unknown native probe mode")),

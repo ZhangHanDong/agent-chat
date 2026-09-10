@@ -3,6 +3,10 @@ use std::{collections::BTreeMap, ffi::OsString, io, path::PathBuf, time::Duratio
 
 mod child_identity;
 pub use child_identity::{ChildIdentity, OwnedChildIdentity, SignalOutcome};
+mod supervisor;
+#[cfg(unix)]
+pub use supervisor::run_guardian;
+pub use supervisor::{StopCause, SupervisedProcess, SupervisedReport};
 
 #[cfg(unix)]
 mod unix;
@@ -71,6 +75,9 @@ fn invalid() -> io::Error {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StopReport {
     pub leader_exited: bool,
+    /// Every requested cancellation signal was accepted (or had no live target).
+    /// False retains a signal failure even if the leader was subsequently reaped.
+    pub signals_accepted: bool,
     /// POSIX group-only cancellation always leaves this false. Detached children
     /// and owner-crash cleanup require the later guardian/identity adapter.
     pub whole_tree_stopped: bool,
@@ -88,6 +95,10 @@ impl OwnedProcess {
     /// Informational only: ownership is the private child/job handle, never this PID.
     pub fn id(&self) -> u32 {
         self.inner.id()
+    }
+    /// Observe without reaping: the retained leader still anchors final signals.
+    pub fn is_leader_running(&self) -> io::Result<bool> {
+        self.inner.is_leader_running()
     }
     pub fn stop(&mut self, timeout: Duration) -> io::Result<StopReport> {
         if timeout.is_zero() || timeout > Duration::from_secs(5) {

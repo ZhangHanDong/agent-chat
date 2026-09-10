@@ -2040,3 +2040,35 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - Native guardian handoff, complete descendant discovery, runner IO and effective
   sandbox integration remain next. No model or live service was contacted; the
   platform primitives are not yet connected to Agent dispatch.
+
+## 2026-09-10 — Native guardian startup and owner-loss cleanup
+
+- Child-identity commit 2f44bd9 passed native three-OS CI (34479002630) and
+  Node CI (34479002645). Its predecessor e78f274 also passed both pipelines.
+- Added a native guardian entrypoint and shared SupervisedProcess API. Unix uses
+  an anonymous socket with separate Prepare and Start messages, bounded frames,
+  absolute partial-frame deadlines and explicit launch environment. Windows
+  retains direct atomic Job Object ownership without an unnecessary helper.
+- Owner EOF, malformed control input and leader exit now cancel the owned scope.
+  Guardian startup failure launches no fallback. A host timeout closes its channel
+  and preserves independent guardian cleanup; it does not kill the guardian and
+  infer descendant stop. POSIX reports still refuse full cleanup guarantees.
+- Auditing found that a plain dup would leak the reply endpoint into work. The
+  implementation now duplicates it with CLOEXEC; real fixtures verify that no
+  socket descriptor reaches the work process. No runtime secrets are printed.
+- The actual hagency CLI integration test found macOS group signalling returning
+  EPERM for a zombie-only group. A standalone native reproduction and XNU source
+  confirmed the behavior. Stop now attempts both group and owned-child signals,
+  reaps the leader and retains signal failure in signals_accepted. It never treats
+  EPERM as evidence that a group is empty or complete descendant cleanup succeeded.
+- All 73 native tests passed locally on macOS, zero failed/ignored. Four guardian
+  scenarios plus the boundary passed; 67 native selectors resolve with none
+  missing. Workspace Clippy/rustfmt, Windows all-target Clippy cross-compilation
+  and diff checks passed. Actual new Linux/Windows behavior remains a CI gate.
+- Tests exercise controller exit without Drop, grandchildren, early leader exit,
+  unrelated-process survival, repeated stop, Unicode/literal argv, uncommitted
+  startup, oversized and partial frames, active protocol failure and the actual
+  native CLI. No model, deployed store or live service was contacted.
+- Complete detached-descendant discovery, guardian-loss recovery, bounded runner
+  IO, effective sandbox/approval adapters and M3/M5–M9 parity remain open. Agent
+  execution remains disabled; this checkpoint does not complete the migration.

@@ -35,5 +35,9 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    Opaque child signal identities now use pidfds/process handles/macOS audit-token
    versions, with read-only birth metadata kept separate from signal authority.
    Extend those primitives to verified descendant adoption and guardian handoff.
+   Native guardian handoff now uses an anonymous bounded prepare/start protocol;
+   owner EOF, malformed input and leader exit cancel the owned process group.
+   Continue detached-descendant adoption and guardian-loss recovery; a POSIX
+   group report still does not establish full cleanup or sandbox enforcement.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

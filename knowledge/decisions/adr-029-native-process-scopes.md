@@ -60,3 +60,25 @@ observation and signal, so callers must observe again rather than infer that all
 work stopped. Birth metadata is native-only and not a JSON authority DTO (Windows
 FILETIME exceeds JavaScript's safe integer range). Descendant adoption must prove
 ancestry before it can construct equivalent internal signal authority.
+
+Unix supervision now has a native `hagency guardian` entrypoint. The controlling
+host supplies an anonymous Unix socket as stdin; there is no listening address,
+state repository or runtime-token parser. Prepare/version validation precedes a
+separate Start message. Launch data preserves native argv/environment values and
+has bounded size. Partial frames expire; EOF, malformed commands and leader exit
+trigger scope cancellation. A timed-out owner closes its endpoint rather than
+killing the guardian and assuming work stopped. Windows uses the existing owned
+Job Object directly, including kernel cleanup when its owner exits without Drop.
+
+The guardian duplicates its socket atomically with CLOEXEC and gives work null
+stdio. The controlled fixture checks that no socket survives into the work
+process. A descriptor capable of writing guardian replies must never reach a
+runner. This channel is process custody, not Matrix or runner authorization.
+
+Native observation preserves the unreaped group anchor. On macOS, signalling a
+group containing only a zombie can return EPERM (reproduced with a real native
+child and consistent with XNU's group-iteration zombie filter). Cancellation must
+still attempt the owned child and reap it. `signals_accepted` preserves a failed
+signal in the report; an error is not proof that a group is empty. Whole-tree stop
+remains false for POSIX. Detached-descendant discovery, guardian-loss recovery and
+effective sandbox enforcement remain mandatory before advertising real runners.
