@@ -9,9 +9,14 @@ import { createHash, randomBytes } from 'crypto';
 import { createAppserviceRouter } from './lib/appservice-receiver.js';
 import {
   createRoomOnSide, inviteToRoomOnSide, joinRoomOnSideAsAgent, joinRoomOnSideAsRepresentative,
-  sendToRoomOnSide, namespaceAdmits,
+  sendToRoomOnSide, sendEmptyStateToRoomOnSide, namespaceAdmits,
   joinedMembersOnSide, roomMessagesOnSide,
 } from './lib/matrix-representative.js';
+import {
+  publishApprovalMarker,
+  reconcileObservedLegacyMarker,
+  syncApprovalRoomMarker,
+} from './lib/approval-marker-bridge.js';
 import { resolveAppserviceListenerConfig, startAppserviceListener } from './lib/appservice-listener.js';
 import {
   SideProvenanceError, buildSideProvenance, assertRoomRelation, representativeMxidFor,
@@ -3480,6 +3485,18 @@ export class MatrixBridge {
 
   callBackendApi(method, routePath, body, contextLabel = '') {
     return backendApi(method, routePath, body, contextLabel);
+  }
+
+  syncApprovalRoomMarker(binding) {
+    return syncApprovalRoomMarker(binding, approvalMarkerIo(this));
+  }
+
+  publishApprovalMarker(row) {
+    return publishApprovalMarker(row, approvalMarkerIo(this));
+  }
+
+  reconcileObservedLegacyMarker(room) {
+    return reconcileObservedLegacyMarker(room, approvalMarkerIo(this));
   }
 
   // ── Task 8: standalone cross-component doctor — business-health record ──────
@@ -10697,6 +10714,233 @@ function projectionPlanIdentityForBridge(plan, row) {
 function projectionServer(roomId) {
   const at = String(roomId || '').indexOf(':');
   return at > 0 ? String(roomId).slice(at + 1).toLowerCase() : null;
+}
+
+const CONFIGURED_APPROVAL_BOT_MXID = (() => {
+  const localpart = String(process.env.MATRIX_BOT_USERNAME || '').trim().toLowerCase();
+  const server = String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase();
+  if (!localpart || !server) return null;
+  return localpart.startsWith('@') ? localpart : `@${localpart}:${server}`;
+})();
+
+function markerActorForBridge(bridge, row) {
+  const roomId = row.approval_room_id;
+  const server = projectionServer(roomId);
+  if (!server) return null;
+  if (server === MATRIX_SERVER_NAME && CONFIGURED_APPROVAL_BOT_MXID) {
+    const ready = bridge.approvalBotPublisherReady;
+    if (!ready?.client || ready.client !== bridge.botClient
+      || ready.mxid !== bridge.botUserId
+      || ready.mxid !== CONFIGURED_APPROVAL_BOT_MXID
+      || !ready.credentialGeneration
+      || ready.credentialGeneration !== state.botCredentialGeneration) {
+      return null;
+    }
+    const actor = {
+      scope: 'local_bot',
+      publisher_mxid: ready.mxid,
+      homeserver: server,
+      credential_kind: 'local_bot',
+      credential_generation: ready.credentialGeneration,
+      sender: { kind: 'local_bot', client: ready.client },
+    };
+    return markerRowAcceptsActor(row, actor) ? actor : null;
+  }
+  const acting = typeof bridge.actingSideFor === 'function' ? bridge.actingSideFor(server) : null;
+  if (!acting?.credential) return null;
+  const publisher = acting.credential.kind === 'appservice'
+    ? `@${acting.credential.senderLocalpart}:${server}`.toLowerCase()
+    : acting.side?.representative?.mxid;
+  if (!publisher) return null;
+  const actor = {
+    scope: `side-representative:${server}`,
+    publisher_mxid: publisher,
+    homeserver: server,
+    credential_kind: acting.credential.kind,
+    credential_generation: acting.credential.outboundGeneration,
+    sender: { kind: 'side-representative', ...acting },
+    side_id: server,
+  };
+  return markerRowAcceptsActor(row, actor) ? actor : null;
+}
+
+function markerRowAcceptsActor(row, actor) {
+  const expected = row.plan || row;
+  if (!expected.publisher_scope) return true;
+  return expected.publisher_scope === actor.scope
+    && expected.publisher_mxid === actor.publisher_mxid
+    && expected.credential_kind === actor.credential_kind
+    && expected.credential_generation === actor.credential_generation;
+}
+
+function markerTimeoutMs(bridge) {
+  const configured = Number(bridge.approvalMarkerMatrixTimeoutMs);
+  return Number.isFinite(configured) ? Math.min(Math.max(configured, 1), 30_000) : 10_000;
+}
+
+function boundedMarkerFetch(bridge, expectedActor, row) {
+  const fetchImpl = bridge.approvalMarkerFetchImpl || fetch;
+  return async (url, init = {}) => {
+    if (!sameProjectionActor(expectedActor, markerActorForBridge(bridge, row))) {
+      throw new Error('approval marker publisher changed before side request');
+    }
+    if (!rateLimitGate.beforeRequest()) {
+      throw new Error('approval marker state request is rate limited');
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), markerTimeoutMs(bridge));
+    const signal = init.signal
+      ? AbortSignal.any([init.signal, controller.signal])
+      : controller.signal;
+    try {
+      const response = await fetchImpl(url, { ...init, signal });
+      const limited = await rateLimitGate.observeResponse(response);
+      controller.signal.throwIfAborted();
+      if (limited) throw new Error('approval marker state request is rate limited');
+      const json = response.json.bind(response);
+      return new Proxy(response, {
+        get(target, property, receiver) {
+          if (property !== 'json') return Reflect.get(target, property, target);
+          return async () => {
+            try {
+              const body = await json();
+              controller.signal.throwIfAborted();
+              if (!sameProjectionActor(expectedActor, markerActorForBridge(bridge, row))) {
+                throw new Error('approval marker publisher changed during side response');
+              }
+              return body;
+            } finally {
+              clearTimeout(timer);
+              controller.abort();
+            }
+          };
+        },
+      });
+    } catch (error) {
+      clearTimeout(timer);
+      controller.abort();
+      throw error;
+    }
+  };
+}
+
+async function sendMarkerStateWithBridge(bridge, plan, actor, row) {
+  if (!sameProjectionActor(actor, markerActorForBridge(bridge, row))) {
+    throw new Error('approval marker publisher changed before Matrix state send');
+  }
+  if (plan.state_key !== '') throw new Error('approval marker state key must be empty');
+  if (!['com.agentchat.approval.room.v1', 'com.agentchat.approval.room.v2']
+    .includes(plan.prepared_event_type)) {
+    throw new Error('unsupported approval marker state type');
+  }
+  if (!plan.prepared_payload || typeof plan.prepared_payload !== 'object'
+    || Array.isArray(plan.prepared_payload)) {
+    throw new Error('approval marker state content must be an object');
+  }
+  if (actor.sender.kind === 'local_bot') {
+    const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(row.approval_room_id)}`
+      + `/state/${encodeURIComponent(plan.prepared_event_type)}/`;
+    let response;
+    try {
+      response = await actor.sender.client.doRequest(
+        'PUT', endpoint, null, plan.prepared_payload, markerTimeoutMs(bridge),
+      );
+    } catch (error) {
+      rateLimitGate.observeError(error);
+      throw error;
+    }
+    if (!sameProjectionActor(actor, markerActorForBridge(bridge, row))) {
+      throw new Error('approval marker publisher changed during local state response');
+    }
+    return response?.event_id || null;
+  }
+  if (actor.sender.kind !== 'side-representative') {
+    throw new Error('unsupported approval marker publisher');
+  }
+  const result = await sendEmptyStateToRoomOnSide({
+    side: actor.sender.side,
+    credential: actor.sender.credential,
+    roomId: row.approval_room_id,
+    eventType: plan.prepared_event_type,
+    stateKey: plan.state_key,
+    content: plan.prepared_payload,
+    expectedPublisherMxid: plan.publisher_mxid,
+    fetchImpl: boundedMarkerFetch(bridge, actor, row),
+  });
+  if (!result.sent) throw new Error(result.reason || 'side approval marker state send failed');
+  return result.eventId;
+}
+
+async function readLegacyMarkerWithBridge(bridge, roomId, actor, eventType) {
+  const row = { approval_room_id: roomId };
+  if (actor.sender.kind === 'local_bot') {
+    const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}`
+      + `/state/${encodeURIComponent(eventType)}/`;
+    try {
+      return await actor.sender.client.doRequest(
+        'GET', endpoint, null, null, markerTimeoutMs(bridge),
+      );
+    } catch (error) {
+      rateLimitGate.observeError(error);
+      if (error?.statusCode === 404 || error?.status === 404 || error?.body?.errcode === 'M_NOT_FOUND') {
+        return null;
+      }
+      throw error;
+    }
+  }
+  const { side, credential } = actor.sender;
+  const token = credential.kind === 'appservice'
+    ? credential.asToken
+    : credential.representativeToken;
+  if (!token) throw new Error('approval marker observation credential unavailable');
+  const url = new URL(`${String(side.apiBaseUrl).replace(/\/+$/, '')}/_matrix/client/v3/rooms/`
+    + `${encodeURIComponent(roomId)}/state/${encodeURIComponent(eventType)}/`);
+  if (credential.kind === 'appservice') url.searchParams.set('user_id', actor.publisher_mxid);
+  const response = await boundedMarkerFetch(bridge, actor, row)(url.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await response.json().catch(() => null);
+  if (response.status === 404 && body?.errcode === 'M_NOT_FOUND') return null;
+  if (!response.ok) throw new Error(`approval marker state observation failed with HTTP ${response.status}`);
+  return body;
+}
+
+function approvalMarkerIo(bridge) {
+  const markerPost = (operation, body) => bridge.callBackendApi(
+    'POST',
+    `/api/approval-bindings/matrix/markers/${operation}`,
+    body,
+    `context=approval-marker:${operation}`,
+  );
+  return {
+    resolveActor: async row => markerActorForBridge(bridge, row),
+    registerPublisher: actor => bridge.callBackendApi('PUT', '/api/approvals/matrix/publishers', {
+      scope: actor.scope,
+      publisher_mxid: actor.publisher_mxid,
+      homeserver: actor.homeserver,
+      credential_kind: actor.credential_kind,
+      credential_generation: actor.credential_generation,
+      ...(actor.side_id ? { side_id: actor.side_id } : {}),
+    }, 'context=approval-marker:publisher'),
+    sync: body => markerPost('sync', body),
+    prepare: body => markerPost('prepare', body),
+    begin: body => markerPost('begin-send', body),
+    receipt: (body, eventId) => markerPost('receipt', { ...body, event_id: eventId }),
+    retry: (body, error) => markerPost('retry', {
+      ...body,
+      error_code: String(error?.code || 'matrix_state_send_failed').slice(0, 128),
+    }),
+    reconcile: body => markerPost('reconcile-retirements', body),
+    send: (plan, actor, row) => sendMarkerStateWithBridge(bridge, plan, actor, row),
+    readLegacyState: (roomId, actor, eventType) => (
+      readLegacyMarkerWithBridge(bridge, roomId, actor, eventType)
+    ),
+  };
+}
+
+export function approvalMarkerIoForTest(bridge) {
+  return approvalMarkerIo(bridge);
 }
 
 function projectionActorForBridge(bridge, row) {
