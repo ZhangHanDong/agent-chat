@@ -59,7 +59,9 @@
         "markAgentInboxChecked(",
         "advanceGroupCursor(",
         "clearQueuedNotificationsForAgent(",
-        "appendDeliveryEvent("
+        "appendDeliveryEvent(",
+        "approvalStore.getRequest(",
+        "runApprovalProjectionMaintenance()"
       ],
       "statefulGetRoutes": [
         {
@@ -126,6 +128,24 @@
           "method": "GET",
           "path": "/health",
           "owner": "server-runtime.health-liveness"
+        },
+        {
+          "method": "GET",
+          "path": "/api/approvals/:id",
+          "owner": "approvals.runtime-read-expiry",
+          "auth": "agent-token"
+        },
+        {
+          "method": "GET",
+          "path": "/api/approvals/:id/matrix",
+          "owner": "approvals.matrix-read-expiry",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "GET",
+          "path": "/api/approvals/matrix/projections",
+          "owner": "approvals.projection-maintenance-read",
+          "auth": "approval-bridge-secret"
         }
       ],
       "mutationRoutes": [
@@ -764,6 +784,54 @@
           "path": "/api/agent-ops/v1/commands/resolve-outcome",
           "owner": "agent-ops.scoped-mutation-adapter",
           "auth": "agent-ops-session-proof"
+        },
+        {
+          "method": "POST",
+          "path": "/api/approval-bindings/matrix/markers/sync",
+          "owner": "approvals.marker-synchronization",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/approval-bindings/matrix/markers/migrate-v2",
+          "owner": "approvals.marker-migration",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/approval-bindings/matrix/markers/reconcile-retirements",
+          "owner": "approvals.marker-retirement",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/approval-bindings/matrix/markers/${operation}",
+          "owner": "approvals.marker-delivery",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/approvals/:id/matrix/legacy-original",
+          "owner": "approvals.legacy-original-attestation",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/approvals/matrix/publishers",
+          "owner": "approvals.publisher-observation",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/approvals/:id/matrix/projections/:revision/prepare",
+          "owner": "approvals.projection-prepare",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "POST",
+          "path": "/api/approvals/:id/matrix/projections/:revision/${operation}",
+          "owner": "approvals.projection-delivery",
+          "auth": "approval-bridge-secret"
         }
       ],
       "sensitiveRoutes": [
@@ -856,6 +924,24 @@
           "path": "/api/groups/:name/messages",
           "owner": "groups.member-read",
           "auth": "agent-credential"
+        },
+        {
+          "method": "GET",
+          "path": "/api/approval-bindings/matrix/rooms",
+          "owner": "approvals.marker-inventory-read",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "GET",
+          "path": "/api/approval-bindings/matrix/markers",
+          "owner": "approvals.marker-queue-read",
+          "auth": "approval-bridge-secret"
+        },
+        {
+          "method": "GET",
+          "path": "/api/approvals/:id/matrix/legacy-original",
+          "owner": "approvals.legacy-original-read",
+          "auth": "approval-bridge-secret"
         }
       ]
     },
