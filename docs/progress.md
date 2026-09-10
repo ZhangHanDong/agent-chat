@@ -2456,3 +2456,25 @@ plus the explicit 13-file boundary check (5/5, quality 100%, zero fail/skip/unce
 its selectors ran 3 settings, 4 identity, 4 item and 6 outcome tests. Native execution
 stays disabled until actual guardian/stdio,
 input acknowledgement, sandbox, host authority and durable-domain gates close.
+
+## 2026-09-10 — Native execution permission scope port
+
+- Integrated the reviewed typed Codex session as 7a16b86, then added ADR-039's
+  pure permission-scope and YOLO policy validation. Scope derivation never applies
+  an owner decision or changes runtime permissions. Exact commands, structured
+  network hosts and explicit permission profiles bind workspace/write/environment.
+- Sixty-four vectors are generated from the existing pure JavaScript module with
+  both standard path flavors. Native entry ordering is deliberately deterministic
+  UTF-16 rather than locale-dependent; unsupported Windows device/root-relative
+  paths remain once/deny-only. Metadata, description and array limits fail closed.
+- All 143 combined native tests pass, zero failed or ignored. Workspace Clippy,
+  rustfmt, diff and vector/ESLint checks pass; all 103 native selectors resolve.
+  Logs: combined-session-execution-{tests,clippy}.log and bindings.json in the
+  2026-09-10 local migration validation cache. Execution scope lifecycle passes
+  four scenarios plus the 12-file boundary, quality 100%, zero fail/skip/uncertain.
+- Integrated prior head 6906851 passed Native CI 34511063114 on all three OSes
+  and Node CI 34511063106. New combined head still requires CI.
+- Native grant persistence, exact private owner decisions, binding/task epochs,
+  runner responses, YOLO dispatch and effective sandbox remain implementation
+  work. The parallel guardian-owned stdio, verified ingress and outbound custody
+  slices continue; production runtimes and live Matrix state remain unchanged.

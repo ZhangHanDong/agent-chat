@@ -4,6 +4,7 @@ pub mod authority;
 pub mod canonical;
 pub mod conversations;
 pub mod custody;
+pub mod execution;
 pub mod graphs;
 pub mod messages;
 pub mod peers;

@@ -1276,3 +1276,14 @@ trailing frame under an absolute bound so normal completed-plus-idle packets are
 independent of stream splits. Cancellation/EOF/timeout is unresolved execution,
 not child termination or lease release. Actual process, sandbox and authority
 integration remains open, and native Agent execution remains disabled.
+
+Native permission scopes (2026-09-10, ADR-039): derive only from host-owned
+structured runner metadata. Scope keys bind exact command/escalation or structured
+network/profile value plus workspace, mayWrite and environment; agent and task
+identities remain separate matching inputs. A scope is never an approval. Explicit
+path flavor keeps native results independent of test OS. Windows rooted drive/UNC
+paths are lexical context only; device/root-relative forms are not reusable scopes.
+Entry-array identity sorts canonical JSON by UTF-16, not process locale. Fresh
+native stores do not import legacy grants. Preserve private projections and couple
+future persisted decisions to exact current owner/binding/task epochs before any
+runtime allow response. YOLO normalization alone changes no dispatch policy.
