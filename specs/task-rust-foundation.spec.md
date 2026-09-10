@@ -33,6 +33,7 @@ development and make unfinished migration boundaries visible.
 - ./Cargo.toml
 - ./Cargo.lock
 - ./rust-toolchain.toml
+- ./.gitattributes
 - native/**
 - .github/workflows/rust.yml
 - scripts/check-spec-bindings.js

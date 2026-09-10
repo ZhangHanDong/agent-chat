@@ -36,6 +36,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
 node native/scripts/canonical-vectors.mjs --check
+node native/scripts/allocation-vectors.mjs --check
 node native/scripts/check-rust-spec-bindings.mjs
 ```
 
@@ -58,3 +59,9 @@ explain the transaction model, bounded work, platform requirements and recovery.
 and 201 literal routes from the pinned baseline; dynamic registration and helper
 classification remain open M0 work. No inventory row is marked ported merely
 because the native HTTP server starts.
+
+M2 has started with the selected-pool/shared-seat budget calculator in
+`hagency-core::allocation`. It matches29 current JavaScript vectors, preserves
+missing versus null periods, and rejects unsafe token arithmetic. Admission,
+transactional reservation and Agent provisioning are still pending; no native
+HTTP approval route exposes this calculator yet.

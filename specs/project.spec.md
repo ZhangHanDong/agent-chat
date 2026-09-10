@@ -38,6 +38,7 @@ an executable task contract.
 - ./Cargo.toml
 - ./Cargo.lock
 - ./rust-toolchain.toml
+- ./.gitattributes
 - native/**
 - bin/**
 - remote/**

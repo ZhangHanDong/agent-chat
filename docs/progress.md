@@ -1706,3 +1706,11 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   all8 scenarios plus the explicit boundary check (9/9, no skips). Windows GNU
   cross-compilation/Clippy of the native app/store/tests passed; native OS CI
   is still required. Production listeners remain PID46398/13202 and PID7238/18194.
+
+- M2 started: ported the selected-resource/shared-seat projection with29 golden
+  vectors from the current JS function. Added JSON-safe token values, checked
+  accumulation and missing/null period distinction. The native API still cannot
+  allocate or provision Agents. All15 local Rust tests pass; the allocation task
+  lifecycle passes2 scenarios plus its boundary check. Native CI for080cf90 passed
+  on Linux and macOS; Windows stopped at CRLF-converted golden JSON. Added explicit
+  LF attributes for those byte fixtures before rerunning native Windows checks.
