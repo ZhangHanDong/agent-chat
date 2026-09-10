@@ -6,7 +6,7 @@ status: Accepted
 ---
 
 `hagency-progress-runtime` attaches ADR052's bounded in-memory policy to actual
-ADR031/044 Codex `SessionDriver` and `OwnedSession` events. It produces host-local
+ADR036/040 Codex `SessionDriver` and `OwnedSession` events. It produces host-local
 redacted progress emissions only. It does not install hooks, add a runner service,
 change launch policy, write domain state, send Matrix messages, or complete
 ADR026's durable editable status behavior. Existing `Update` payloads, default
@@ -113,7 +113,7 @@ canonical or runtime state. Process stop/drop retain their existing bounded,
 blocking platform operations and must remain off HTTP/UI threads.
 
 Bounds are shared and explicit: runtime frames/JSON/item IDs retain existing
-ADR031 bounds, per-turn evidence tracking is at most MAX_ITEMS, and the adapter
+ADR032/036 bounds, per-turn evidence tracking is at most MAX_ITEMS, and the adapter
 retains at most1024 redacted receipts. Runtime sequences use checked arithmetic;
 policy retains at most256 tool IDs and1024 significant events (including host
 start/finish), and at most256 submission attempts. Receipts contain bounded opaque
