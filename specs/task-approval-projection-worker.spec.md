@@ -21,12 +21,15 @@ Drain canonical approval request projections after startup, SSE wakes, reconnect
 ### Allowed Changes
 - bridge-matrix.js
 - backend-v2.js
+- lib/approval-store.js
 - tests/api-approval-projections.test.js
 - tests/bridge-approval-projection-adapter.test.js
 - tests/bridge-approval-reconciliation.test.js
 - tests/bridge-matrix-approval.test.js
 - tests/approval-fail-closed.test.js
 - tests/approval-owner-can-see-it.test.js
+- tests/api-project-sides.test.js
+- tests/side-provenance.test.js
 - specs/task-approval-projection-worker.spec.md
 
 ### Forbidden
@@ -65,6 +68,12 @@ Scenario: Legacy event path only wakes canonical work
   Given an approval requested event
   When the bridge handles it
   Then it queues the canonical worker without direct Matrix delivery or delivery-failed denial.
+
+Scenario: Public notice follows durable private delivery
+  Test: actual store private-failure ordering regression
+  Given the private request has no durable Matrix receipt
+  When due projection pages are read again after retry backoff
+  Then the public notice remains ineligible and the canonical decision remains unchanged.
 
 ## Out of Scope
 

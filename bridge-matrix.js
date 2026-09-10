@@ -1630,9 +1630,9 @@ function requireBaseUrl(baseUrl, fnName) {
   return baseUrl.replace(/\/+$/, '');
 }
 
-async function getUserId(token, baseUrl) {
+async function getUserId(token, baseUrl, fetchImpl = fetch) {
   const base = requireBaseUrl(baseUrl, 'getUserId');
-  const res = await fetch(`${base}/_matrix/client/v3/account/whoami`, {
+  const res = await fetchImpl(`${base}/_matrix/client/v3/account/whoami`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await res.json();
@@ -5245,11 +5245,14 @@ export class MatrixBridge {
     const row = this.actingCredentials?.get(sideId);
     if (!row) return null;
     return {
-      side: { id: sideId, apiBaseUrl: row.apiBaseUrl, serverName: row.serverName },
+      side: { id: sideId, apiBaseUrl: row.apiBaseUrl, serverName: row.serverName,
+        active: row.active, accessState: row.accessState,
+        representative: row.representativeMxid ? { mxid: row.representativeMxid } : null },
       credential: row.kind === 'appservice'
         ? {
           kind: 'appservice', asToken: row.asToken, senderLocalpart: row.senderLocalpart,
           namespace: row.namespace,
+          outboundGeneration: row.outboundGeneration,
           /*
            * 16-impl-r5 rotation: the acting credential carries the SAME derived registration the
            * inbound snapshot holds, so the gate can refuse a mixed-generation pair (two refreshes
@@ -5257,7 +5260,9 @@ export class MatrixBridge {
            */
           registration: row.registration ?? null,
         }
-        : { kind: 'registrationToken', representativeToken: row.representativeToken, registrationToken: null },
+        : { kind: 'registrationToken', representativeToken: row.representativeToken,
+          representativeMxid: row.representativeMxid, outboundGeneration: row.outboundGeneration,
+          registrationToken: null },
     };
   }
 
@@ -10231,6 +10236,7 @@ export class MatrixBridge {
         throw new Error('Matrix projection publisher credential generation changed');
       }
     };
+    const sendFetch = typeof delivery?.fetchImpl === 'function' ? delivery.fetchImpl : fetch;
     const doSend = async () => {
       await validateProjectionSendContext();
       /*
@@ -10291,7 +10297,6 @@ export class MatrixBridge {
           throw masqueradeError;
         }
       }
-      const sendFetch = typeof delivery?.fetchImpl === 'function' ? delivery.fetchImpl : fetch;
       const res = await sendFetch(url.toString(), {
         method: 'PUT',
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
@@ -10349,6 +10354,7 @@ export class MatrixBridge {
               roomId,
               userId: sender.agentUserId,
               reason: 'readmitted to deliver a message',
+              fetchImpl: sendFetch,
             });
             if (!invited.invited && !invited.already) {
               throw new Error(`representative could not re-invite ${sender.agentUserId}: ${invited.reason}`);
@@ -10363,6 +10369,7 @@ export class MatrixBridge {
               isRegisteredAgent: typeof this.isKnownAgentMxid === 'function'
                 ? (mxid) => this.isKnownAgentMxid(mxid)
                 : null,
+              fetchImpl: sendFetch,
             });
             if (!rejoined.joined) {
               throw new Error(`${sender.agentUserId} could not rejoin ${roomId}: ${rejoined.reason}`);
@@ -10370,17 +10377,21 @@ export class MatrixBridge {
           } else {
             // Invite via bot, then join as agent
             await validateProjectionSendContext();
-            await fetch(`${HOMESERVER}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`, {
+            const inviteResponse = await sendFetch(`${HOMESERVER}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`, {
               method: 'POST',
               headers: { Authorization: `Bearer ${state.botToken}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ user_id: await getUserId(token, baseUrlForToken(token)) }),
+              body: JSON.stringify({ user_id: await getUserId(token, baseUrlForToken(token), sendFetch) }),
             });
+            const inviteBody = await inviteResponse.json().catch(() => ({}));
+            if (!inviteResponse.ok) throw new Error(inviteBody?.error || `invite failed: HTTP ${inviteResponse.status}`);
             await validateProjectionSendContext();
-            await fetch(`${baseUrlForToken(token)}/_matrix/client/v3/join/${encodeURIComponent(roomId)}`, {
+            const joinResponse = await sendFetch(`${baseUrlForToken(token)}/_matrix/client/v3/join/${encodeURIComponent(roomId)}`, {
               method: 'POST',
               headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
               body: '{}',
             });
+            const joinBody = await joinResponse.json().catch(() => ({}));
+            if (!joinResponse.ok) throw new Error(joinBody?.error || `join failed: HTTP ${joinResponse.status}`);
           }
           eventId = await doSend();
         } catch (retryErr) {
@@ -11033,7 +11044,8 @@ function projectionActorForBridge(bridge, row) {
     && ready.mxid === bridge.botUserId && ready.credentialGeneration
     && ready.credentialGeneration === state.botCredentialGeneration;
   const acting = typeof bridge.actingSideFor === 'function' ? bridge.actingSideFor(server) : null;
-  if (acting?.credential && requiredScope === `side-representative:${server}`) {
+  if (acting?.credential && acting.side?.active === true && acting.side?.accessState === 'accepted'
+    && acting.credential.outboundGeneration && requiredScope === `side-representative:${server}`) {
     const publisher = acting.credential.kind === 'appservice'
       ? `@${acting.credential.senderLocalpart}:${server}`.toLowerCase() : acting.side?.representative?.mxid;
     return { scope: `side-representative:${server}`, publisher_mxid: publisher, homeserver: server,
@@ -11117,11 +11129,18 @@ function approvalProjectionFetch(bridge, validateContext) {
     const controller = new AbortController();
     const timeoutMs = Number.isFinite(bridge.approvalProjectionSendTimeoutMs)
       ? Math.max(1, bridge.approvalProjectionSendTimeoutMs) : 25_000;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let deadlineExpired = false;
+    const timeout = setTimeout(() => {
+      deadlineExpired = true;
+      controller.abort();
+    }, timeoutMs);
+    const throwIfDeadlineExpired = () => {
+      if (deadlineExpired) throw controller.signal.reason;
+    };
     let response;
     try {
       response = await fetch(url, { ...options, signal: controller.signal });
-      controller.signal.throwIfAborted();
+      throwIfDeadlineExpired();
     } catch (error) {
       controller.abort();
       clearTimeout(timeout);
@@ -11130,7 +11149,7 @@ function approvalProjectionFetch(bridge, validateContext) {
     const consume = async (method) => {
       try {
         const value = await response[method]();
-        controller.signal.throwIfAborted();
+        throwIfDeadlineExpired();
         return value;
       } finally {
         controller.abort();
@@ -11138,8 +11157,8 @@ function approvalProjectionFetch(bridge, validateContext) {
       }
     };
     return {
-      get ok() { controller.signal.throwIfAborted(); return response.ok; },
-      get status() { controller.signal.throwIfAborted(); return response.status; },
+      get ok() { throwIfDeadlineExpired(); return response.ok; },
+      get status() { throwIfDeadlineExpired(); return response.status; },
       headers: response.headers,
       json: () => consume('json'),
       text: () => consume('text'),

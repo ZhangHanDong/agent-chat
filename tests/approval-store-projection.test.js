@@ -34,6 +34,39 @@ function drainRevision(store, revision) {
 }
 
 describe('approval projection store', () => {
+  test('public notice is ineligible until private request has a durable receipt', () => {
+    const { store } = setup();
+    const request = create(store, 'private-before-public');
+    let due = store.listDueProjections({ limit: 20 });
+    const privateRow = due.find((row) => row.request_id === request.id && row.channel === 'private_request');
+    expect(privateRow).toBeTruthy();
+    expect(due.some((row) => row.request_id === request.id && row.channel === 'public_notice')).toBe(false);
+
+    const plan = store.prepareProjection(privateRow.cas_token, { publisher_scope: 'local_bot',
+      publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot',
+      credential_generation: 'g1', payload_version: 1, prepared_event_type: 'm.room.message',
+      prepared_payload: { body: 'private' } }).plan;
+    store.beginProjectionSend(plan.cas_token, identity(plan, privateRow.target_room_id));
+    store.retryProjection(plan.cas_token, { ...identity(plan, privateRow.target_room_id), retry_at: 2000,
+      error_code: 'unavailable' });
+    due = store.listDueProjections({ limit: 20 });
+    expect(due.some((row) => row.request_id === request.id && row.channel === 'public_notice')).toBe(false);
+    expect(store.getRequest(request.id).status).toBe('pending');
+
+    store.receiptProjection(plan.cas_token, { ...identity(plan, privateRow.target_room_id), event_id: '$private' });
+    due = store.listDueProjections({ limit: 20 });
+    const publicRow = due.find((row) => row.request_id === request.id && row.channel === 'public_notice');
+    expect(publicRow).toBeTruthy();
+    const publicPlan = store.prepareProjection(publicRow.cas_token, { publisher_scope: 'agent:worker:test',
+      publisher_mxid: '@worker:test', homeserver: 'test', credential_kind: 'agent_token',
+      credential_generation: 'agent-g1', payload_version: 1, prepared_event_type: 'm.room.message',
+      prepared_payload: { body: 'redacted public notice' } }).plan;
+    store.beginProjectionSend(publicPlan.cas_token, identity(publicPlan, publicRow.target_room_id));
+    store.retryProjection(publicPlan.cas_token, { ...identity(publicPlan, publicRow.target_room_id),
+      retry_at: 3000, error_code: 'public_unavailable' });
+    expect(store.getRequest(request.id).status).toBe('pending');
+  });
+
   test('prepare rejects noncanonical versions and payloads without mutation', () => {
     const { store, file } = setup();
     create(store);
@@ -99,7 +132,7 @@ describe('approval projection store', () => {
     const request = create(store);
     expect(request).not.toHaveProperty('projection_revision');
     expect(store.getRequest(request.id, { matrix: true })).not.toHaveProperty('projection_revision');
-    expect(store.listDueProjections().map((row) => row.channel)).toEqual(['private_request', 'public_notice']);
+    expect(store.listDueProjections().map((row) => row.channel)).toEqual(['private_request']);
     drainRevision(store, 1);
     const matrix = store.getRequest(request.id, { matrix: true });
     store.submitMatrixVerdict(request.id, { action: 'approve_once', sender_mxid: matrix.owner_mxid, room_id: matrix.owner_dm_room_id, agent: matrix.agent, project: matrix.project, project_room_id: matrix.project_room_id, input_digest: matrix.input_digest });

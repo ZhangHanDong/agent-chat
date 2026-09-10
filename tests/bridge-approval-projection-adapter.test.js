@@ -40,8 +40,38 @@ afterAll(async () => {
 });
 
 describe('approval projection production request adapter', () => {
+  test.each([
+    ['appservice', { kind: 'appservice', hsToken: 'hs', asToken: 'as', senderLocalpart: 'hafleet',
+      namespace: '@ac_.*', url: null, outboundGeneration: 'appservice-generation' }],
+    ['registrationToken', { kind: 'registrationToken', registrationToken: 'registration-secret',
+      representativeToken: 'representative-secret', outboundGeneration: 'registration-generation' }],
+  ])('actual protected endpoint refreshes an accepted %s actor with its generation', async (_kind, credential) => {
+    const isolated = await createBackendTestContext(`hafleet-acting-${_kind}-`, {
+      env: { MATRIX_BRIDGE_SECRET: SECRET },
+      rawRuntimeFiles: { 'data/project-sides.json': JSON.stringify({ version: 1, sides: { [server]: {
+        id: server, serverName: server, apiBaseUrl: 'http://127.0.0.1:8008', active: true,
+        accessState: 'accepted', createdAt: 1, updatedAt: 1, projects: {}, credential,
+        representative: { mxid: `@hafleet:${server}`, localpart: 'hafleet', observedAt: 1 },
+      } }, audit: [] }) },
+    });
+    try {
+      const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
+        actingCredentials: new Map(), forgetRoomsOnSides: () => {},
+        backendApiForActing: async () => (await request(isolated.app)
+          .get('/api/project-sides/acting-credentials').set('X-Bridge-Secret', SECRET)).body,
+      });
+      await bridge.refreshActingCredentials();
+      expect(bridge.actingSideFor(server)).toMatchObject({
+        side: { active: true, accessState: 'accepted', representative: { mxid: `@hafleet:${server}` } },
+        credential: { kind: _kind, outboundGeneration: expect.any(String) },
+      });
+    } finally {
+      await isolated.cleanup();
+    }
+  });
+
   test('public agent and botless private representative resolve as distinct canonical actors', async () => {
-    const side = { side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
+    const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: 'https://side.invalid' },
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
         outboundGeneration: 'side-generation' } };
     const publicSender = { kind: 'appservice', ...side, agentUserId: `@ac_worker:${server}`, agentName: 'worker' };
@@ -55,7 +85,7 @@ describe('approval projection production request adapter', () => {
   });
 
   test('side plaintext policy requires a positively absent encryption state', async () => {
-    const side = { side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
+    const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: 'https://side.invalid' },
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
         outboundGeneration: 'side-generation' } };
     const io = approvalProjectionIoForTest({ actingSideFor: () => side });
@@ -79,7 +109,7 @@ describe('approval projection production request adapter', () => {
   });
 
   test('registration representative security uses its verified token without masquerade', async () => {
-    const side = { side: { serverName: server, apiBaseUrl: 'https://side.invalid',
+    const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: 'https://side.invalid',
       representative: { mxid: `@representative:${server}` } },
     credential: { kind: 'registrationToken', representativeToken: 'representative-secret',
       representativeMxid: `@representative:${server}`, outboundGeneration: 'registration-generation' } };
@@ -99,7 +129,7 @@ describe('approval projection production request adapter', () => {
     const socket = createServer((_req, _res) => {});
     await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
     const address = socket.address();
-    const side = { side: { serverName: server, apiBaseUrl: `http://127.0.0.1:${address.port}` },
+    const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: `http://127.0.0.1:${address.port}` },
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
         outboundGeneration: 'side-generation' } };
     const bridge = { actingSideFor: () => side, approvalProjectionSecurityTimeoutMs: 25 };
@@ -139,7 +169,7 @@ describe('approval projection production request adapter', () => {
         : '"errcode":"M_NOT_FOUND"}'), delay));
     });
     await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
-    const side = { side: { serverName: server, apiBaseUrl: `http://127.0.0.1:${socket.address().port}` },
+    const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: `http://127.0.0.1:${socket.address().port}` },
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
         outboundGeneration: 'side-generation' } };
     const io = approvalProjectionIoForTest({ actingSideFor: () => side,
@@ -286,7 +316,7 @@ describe('approval projection production request adapter', () => {
       botUserId: `@bot:${server}`,
       approvalDmMode: 'encrypted',
       // Both contexts exist. The protected due row's backend-owned scope must select local_bot.
-      actingSideFor: () => ({ side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
+      actingSideFor: () => ({ side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: 'https://side.invalid' },
         credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'side-secret',
           outboundGeneration: 'side-generation' } }),
       ensureApprovalDmEncrypted: MatrixBridge.prototype.ensureApprovalDmEncrypted,
@@ -333,7 +363,7 @@ describe('approval projection production request adapter', () => {
     });
     expect(created.status).toBe(201);
     const client = { crypto: {}, doRequest: vi.fn(async () => ({ event_id: '$worker-event' })) };
-    const side = { side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
+    const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: 'https://side.invalid' },
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
         outboundGeneration: 'side-generation' } };
     const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
@@ -367,8 +397,52 @@ describe('approval projection production request adapter', () => {
     }
   });
 
+  test('failed private publication keeps public notice ineligible and decision pending', async () => {
+    const isolated = await createBackendTestContext('hafleet-private-order-', {
+      agents: { worker: { name: 'worker', type: 'agent', kind: 'agent', online: true } },
+      agentTokens: { worker: AGENT_TOKEN },
+      env: { MATRIX_BRIDGE_SECRET: SECRET, HAFLEET_AGENT_TOKEN_MODE: 'hard',
+        MATRIX_SERVER_NAME: server, MATRIX_BOT_USERNAME: 'bot' },
+    });
+    const api = (method, url, body) => {
+      const pending = request(isolated.app)[method.toLowerCase()](url).set('X-Bridge-Secret', SECRET);
+      return body === undefined ? pending : pending.send(body);
+    };
+    try {
+      await api('put', '/api/approval-bindings', { agent: 'worker', project: 'ordered',
+        project_room_id: `!ordered:${server}`, owner_mxid: `@owner:${server}`,
+        owner_dm_room_id: `!ordered-owner:${server}` });
+      const created = await request(isolated.app).post('/api/approvals').set('X-Agent-Token', AGENT_TOKEN).send({
+        agent: 'worker', runtime: 'codex', project: 'ordered', project_room_id: `!ordered:${server}`,
+        upstream_request_id: 'ordered-private', tool_name: 'Bash', input_preview: 'secret command',
+      });
+      const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
+        botClient: { crypto: {} }, botUserId: `@bot:${server}`, approvalDmMode: 'required',
+        approvalBotPublisherReady: { client: null, mxid: `@bot:${server}`,
+          credentialGeneration: 'adapter-bot-generation' },
+        actingSideFor: () => null,
+        ensureApprovalDmSecurity: vi.fn(async () => { throw new Error('private unavailable'); }),
+        _approvalProjectionStopped: false, _approvalProjectionEpoch: 1, _approvalProjectionCursor: null,
+        callBackendApi: async (method, url, body) => {
+          const response = await api(method, url, body);
+          if (response.status >= 400) throw new Error(`backend ${response.status}`);
+          return response.body;
+        },
+      });
+      bridge.approvalBotPublisherReady.client = bridge.botClient;
+      const publicSend = vi.spyOn(bridge, 'sendAsAgentContent');
+      for (let tick = 0; tick < 4; tick += 1) await bridge.drainApprovalProjectionsOnce();
+      expect(publicSend).not.toHaveBeenCalled();
+      const current = await request(isolated.app).get(`/api/approvals/${created.body.approval.id}`)
+        .set('X-Agent-Token', AGENT_TOKEN);
+      expect(current.body.approval.status).toBe('pending');
+    } finally {
+      await isolated.cleanup();
+    }
+  });
+
   test('side security 429 performs one bounded request and defers publication', async () => {
-    const side = { side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
+    const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: 'https://side.invalid' },
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
         outboundGeneration: 'side-generation' } };
     const io = approvalProjectionIoForTest({ actingSideFor: () => side });
@@ -399,7 +473,7 @@ describe('approval projection production request adapter', () => {
       });
       await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
       const address = socket.address();
-      const side = { side: { serverName: server, apiBaseUrl: `http://127.0.0.1:${address.port}` },
+      const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: `http://127.0.0.1:${address.port}` },
         credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
           outboundGeneration: 'side-generation', namespace: '@ac_.*' } };
       const sender = { kind: 'appservice', ...side, agentUserId: `@ac_worker:${server}`, agentName: 'worker' };
@@ -423,6 +497,51 @@ describe('approval projection production request adapter', () => {
       try {
         await expect(approvalProjectionIoForTest(bridge).send(plan, actor, row))
           .rejects.toThrow(/abort/i);
+      } finally {
+        socket.closeAllConnections();
+        await new Promise(resolve => socket.close(resolve));
+      }
+    },
+  );
+
+  test.each(['side-representative', 'public-agent'])(
+    '%s final PUT accepts a complete response before cleanup aborts the stream', async (kind) => {
+      vi.unstubAllGlobals();
+      matrixRateLimitGateForTest.reset();
+      const socket = createServer((req, res) => {
+        if (req.url.includes('/state/m.room.encryption/')) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ errcode: 'M_NOT_FOUND' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ event_id: '$complete' }));
+      });
+      await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
+      const address = socket.address();
+      const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: `http://127.0.0.1:${address.port}` },
+        credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
+          outboundGeneration: 'side-generation', namespace: '@ac_.*' } };
+      const sender = { kind: 'appservice', ...side, agentUserId: `@ac_worker:${server}`, agentName: 'worker' };
+      const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
+        approvalProjectionSendTimeoutMs: 100,
+        actingSideFor: () => side,
+        agentSenderFor: () => sender,
+        isKnownAgentMxid: () => true,
+        postWarning: vi.fn(), endAgentWork: vi.fn(), recentMatrixEvents: new Map(),
+      });
+      const row = { request_id: 'approval_complete', revision: 1,
+        channel: kind === 'side-representative' ? 'private_request' : 'public_notice',
+        publisher_scope: kind === 'side-representative' ? `side-representative:${server}` : `agent:worker:${server}`,
+        target_room_id: `!room:${server}`, state: 'pending', migration_kind: 'native_v2',
+        approval: { agent: 'worker', project: 'adapter', project_room_id: `!room:${server}` } };
+      const io = approvalProjectionIoForTest(bridge);
+      const actor = await io.resolveActor(row);
+      try {
+        await expect(io.send({ publisher_mxid: actor.publisher_mxid,
+          credential_generation: actor.credential_generation, prepared_event_type: 'm.room.message',
+          prepared_payload: { body: 'fixed' }, transaction_id: 'final-complete' }, actor, row))
+          .resolves.toBe('$complete');
       } finally {
         socket.closeAllConnections();
         await new Promise(resolve => socket.close(resolve));

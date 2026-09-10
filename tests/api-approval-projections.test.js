@@ -306,6 +306,24 @@ describe('approval projection bridge API', () => {
     const created = await request(context.app).post('/api/approvals')
       .set('X-Agent-Token', AGENT_TOKEN)
       .send({ agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:test', upstream_request_id: 'u-public-publisher', tool_name: 'Bash' });
+    await bridge('put', '/api/approvals/matrix/publishers').send({
+      scope: 'local_bot', publisher_mxid: '@bot:test', homeserver: 'test',
+      credential_kind: 'local_bot', credential_generation: 'public-private-g1',
+    });
+    const privateRow = (await bridge('get', '/api/approvals/matrix/projections?limit=200')).body.projections
+      .find((item) => item.request_id === created.body.approval.id && item.channel === 'private_request');
+    const privatePrepared = await bridge('post', `/api/approvals/${privateRow.request_id}/matrix/projections/${privateRow.revision}/prepare`).send({
+      cas_token: privateRow.cas_token, channel: privateRow.channel, publisher_scope: 'local_bot',
+      publisher_mxid: '@bot:test', homeserver: 'test', credential_kind: 'local_bot',
+      credential_generation: 'public-private-g1', prepared_event_type: 'm.room.message',
+      prepared_payload: { body: 'private request' },
+    });
+    const privateIdentity = { cas_token: privatePrepared.body.plan.cas_token, channel: privateRow.channel,
+      publisher_scope: 'local_bot', publisher_mxid: '@bot:test', room_id: privateRow.target_room_id,
+      credential_generation: 'public-private-g1', transaction_id: privatePrepared.body.plan.transaction_id };
+    await bridge('post', `/api/approvals/${privateRow.request_id}/matrix/projections/${privateRow.revision}/begin-send`).send(privateIdentity);
+    await bridge('post', `/api/approvals/${privateRow.request_id}/matrix/projections/${privateRow.revision}/receipt`)
+      .send({ ...privateIdentity, event_id: '$public-private-receipt' });
     const listed = await bridge('get', '/api/approvals/matrix/projections?limit=200');
     const row = listed.body.projections.find((item) => item.request_id === created.body.approval.id && item.channel === 'public_notice');
     expect((await bridge('put', '/api/approvals/matrix/publishers').send({

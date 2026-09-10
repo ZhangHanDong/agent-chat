@@ -9338,6 +9338,10 @@ app.get('/api/project-sides/acting-credentials', requireApprovalBridgeSecret, (r
           asToken: credential.asToken,
           senderLocalpart: credential.senderLocalpart,
           namespace: credential.namespace,
+          outboundGeneration: credential.outboundGeneration,
+          active: side.active,
+          accessState: side.accessState,
+          representativeMxid: side.representative?.mxid || null,
           /*
            * 16-impl-r5 rotation: the SAME derived identity the inbound projection emits, so the
            * bridge can compare the acting generation against the snapshot generation.
@@ -9352,6 +9356,10 @@ app.get('/api/project-sides/acting-credentials', requireApprovalBridgeSecret, (r
           apiBaseUrl: side.apiBaseUrl,
           kind: 'registrationToken',
           representativeToken: credential.representativeToken,
+          outboundGeneration: credential.outboundGeneration,
+          active: side.active,
+          accessState: side.accessState,
+          representativeMxid: side.representative?.mxid || null,
         };
       }
       /*
