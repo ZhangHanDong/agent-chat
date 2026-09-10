@@ -33,6 +33,7 @@ pub struct IntakeSummary {
     pub admitted: usize,
     pub replayed: usize,
     pub filtered: usize,
+    pub rejected: usize,
 }
 /// Safe inspection metadata. Raw events, private rooms, devices and frozen
 /// credentials never appear here; exact data remain in the encrypted journal.
@@ -43,6 +44,7 @@ pub struct IntakeStatus {
     pub targets: usize,
     pub events: usize,
     pub acknowledged: usize,
+    pub rejected: usize,
     pub raw_bytes: usize,
 }
 impl IntakeStatus {
@@ -54,6 +56,7 @@ impl IntakeStatus {
                 targets: 0,
                 events: 0,
                 acknowledged: 0,
+                rejected: 0,
                 raw_bytes: 0,
             },
             Some(b) => Self {
@@ -63,6 +66,7 @@ impl IntakeStatus {
                     Phase::Derived => "domain_handoff",
                     Phase::Quarantined => "quarantined",
                 },
+                rejected: b.rejected(),
                 batch_digest: Some(b.digest),
                 targets: b.targets.len(),
                 events: b.events.len(),
@@ -218,6 +222,7 @@ impl Inner {
                 admitted: 0,
                 replayed: 0,
                 filtered: 0,
+                rejected: 0,
             });
         };
         self.handoff(batch, cancel).await
@@ -334,11 +339,13 @@ impl Inner {
                 .intake_ack(batch.digest.clone(), index, Acknowledgement::from(&receipt))
                 .await?;
         }
+        let rejected = batch.rejected();
         owner.intake_finish(batch.digest).await?;
         Ok(IntakeSummary {
             admitted,
             replayed,
             filtered: batch.filtered,
+            rejected,
         })
     }
 }

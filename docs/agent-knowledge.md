@@ -1840,9 +1840,8 @@ activation receipt. Actual notice HTTP acceptance projects task inputs before
 normal inbox dispatch. Explicit native helper finish commits Done independently
 of runtime terminal output; the retained actual owner must qualify cleanup before
 final admission. macOS still proves refusal with a retained lease/no final send,
-not positive complete delivery. Encrypted-DM plaintext rejection currently retires the whole
-transport, not just the bad event; distinguishing event refusal from transport
-uncertainty remains open. Full crypto-plus-helper integration and native service cutover
+not positive complete delivery. The original ADR062 plaintext-DM refusal retired the whole transport; ADR065
+below replaces that conclusive event failure with a terminal source disposition. Full crypto-plus-helper integration and native service cutover
 remain open. All new SQL is read-only fixture assertions.
 
 
@@ -1894,3 +1893,13 @@ job preserves internal sequencing; no external-writer snapshot guarantee exists.
 Absent source/period evidence must stay null, and historical lower bounds are
 not quotas. Keep source IDs, digests, task/room/workspace and credentials out of
 this typed report; future console code must preserve its uncertainty indicators.
+
+ADR065 changes only conclusive Matrix SDK event refusal: a complete private
+source/disposition ledger persists before eligible input admission, and terminal
+rejected/non-target sources stay rejected across tokens, target plans and later
+keys/trust. Missing-key refusal requires a newly sent event or future explicit
+manual recovery; no automatic replay/decrypt is claimed. SDK Applying ambiguity,
+full-room/account negatives and domain authority conflicts retain their fences.
+Old filtered receipts without tombstones are inspectable but cannot silently
+start the new mode. ADR062's plaintext-DM fixture now expects healthy transport
+and a rejected count, backed by actual verified encrypted continuation fixtures.

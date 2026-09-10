@@ -359,9 +359,7 @@ async fn native_matrix_intake_crypto_verified_human_dm_no_mention_and_spoof_refu
         let (result, ()) = common::scripted(c.intake(plan(), &cancel), async {
             fake.next().await.json(200, common::who());
             fake.next().await.json(200, value);
-            if variant == "verified" {
-                fake.next().await.json(200, state(true));
-            }
+            fake.next().await.json(200, state(true));
         })
         .await;
         if variant == "verified" {
@@ -373,10 +371,12 @@ async fn native_matrix_intake_crypto_verified_human_dm_no_mention_and_spoof_refu
             assert_eq!(inbox[0].message.thread_root, None);
             assert_eq!(inbox[0].message.body, "小白：已验证的私聊，无需提及");
         } else {
-            assert_eq!(result, Err(Error::Unsupported), "{variant}");
+            let result = result.unwrap();
+            assert_eq!(result.admitted, 0, "{variant}");
+            assert_eq!(result.rejected, 1, "{variant}");
             assert_eq!(rows(&f, "admitted_messages"), 0);
-            assert_eq!(status(&c, &mut fake).await.stage, "quarantined");
-            assert!(!f.available().await);
+            assert_eq!(status(&c, &mut fake).await.stage, "idle");
+            assert!(f.available().await);
         }
         c.close().await.unwrap();
         f.store.shutdown().await.unwrap();
@@ -551,8 +551,8 @@ async fn native_matrix_intake_handoff_concurrent_cancel_and_negative_room_cannot
 }
 
 #[tokio::test]
-async fn native_matrix_intake_bounds_limited_duplicate_and_media_preserve_raw() {
-    for variant in ["limited", "duplicate", "media", "overflow"] {
+async fn native_matrix_intake_bounds_limited_duplicate_preserve_raw() {
+    for variant in ["limited", "duplicate", "overflow"] {
         let f = common::Fixture::new();
         let mut fake = common::Fake::start(false).await;
         let c = Collector::new(
@@ -567,10 +567,6 @@ async fn native_matrix_intake_bounds_limited_duplicate_and_media_preserve_raw() 
         match variant {
             "limited" => timeline["limited"] = json!(true),
             "duplicate" => timeline["events"] = json!([event.clone(), event]),
-            "media" => {
-                timeline["events"][0]["content"]["msgtype"] = json!("m.file");
-                timeline["events"][0]["content"]["url"] = json!("mxc://example.test/file");
-            }
             _ => {
                 timeline["events"] = json!(
                     (0..101)
@@ -1110,3 +1106,5 @@ async fn native_matrix_intake_handoff_changed_event_cannot_reuse_old_receipt() {
     f.store.shutdown().await.unwrap();
     fake.close().await;
 }
+
+mod rejections;

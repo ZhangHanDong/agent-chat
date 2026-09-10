@@ -233,11 +233,13 @@ async fn native_matrix_owned_private_plaintext_refused() {
         async {
             fake.next().await.json(200, common::who());
             fake.next().await.json(200, sync(event));
+            fake.next().await.json(200, room(true));
         },
     )
     .await;
-    assert_eq!(result, Err(hagency_matrix::Error::Unsupported));
-    assert!(!w.f.available().await);
+    let result = result.unwrap();
+    assert_eq!((result.admitted, result.rejected), (0, 1));
+    assert!(w.f.available().await);
     assert_eq!(w.count("SELECT COUNT(*) FROM admitted_messages"), 0);
     assert_eq!(w.count("SELECT COUNT(*) FROM canonical_tasks"), 0);
     w.assert_no_execution();

@@ -79,12 +79,12 @@ server, repository and SDK owners after the retained Operation finishes.
   Neither activates inputs, creates a dispatch, launches a child nor permits a
   final. Retrying the uncertain notice cannot silently write again.
 - An encrypted private room rejects a plaintext event even if its JSON includes
-  forged verification metadata. No task, child or final is created. The existing
-  Unsupported intake path fences the entire transport (`available=false`); it
-  does not merely discard this event or continue healthy DM handling. Separating
-  per-event rejection from actual identity/room/SDK uncertainty remains an open
-  follow-up so malformed input cannot disable unrelated chat. This is privacy
-  refusal evidence only. ADR059 separately exercises actual verified
+  forged verification metadata. No task, child or final is created. ADR065 amends
+  this fixture to require a durable terminal rejection and healthy transport after
+  actual bad-to-good encrypted continuation tests. The original ADR062 version
+  retired the entire transport; its earlier local evidence remains historical.
+  This check alone remains privacy refusal evidence. ADR059 separately exercises
+  actual verified
   encrypted DM/group sending and SDK decryption; this test does not claim a full
   encrypted DM plus native helper workflow. That later workflow requires a real
   test-only SDK crypto setup, never a production `verified=true` setter.

@@ -107,7 +107,8 @@ pub(super) async fn verified_pair(
     (human, query)
 }
 
-pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool) -> Value {
+pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool, count: usize) -> Value {
+    assert!((1..=2).contains(&count));
     let (human, _) = verified_pair(sdk, verified).await;
     let guard = sdk.client.olm_machine().await;
     let receiver = guard.as_ref().unwrap();
@@ -153,12 +154,91 @@ pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool) -> Value {
             .push(json!({"sender":human.user_id(), "type":share.event_type, "content":content}));
     }
     assert!(!to_device.is_empty());
-    let encrypted = human
-        .encrypt_room_event(
-            room,
-            RoomMessageEventContent::text_plain("小白：已验证的私聊，无需提及"),
-        )
+    let mut events = vec![];
+    for i in 0..count {
+        if i > 0 {
+            // A newly sent message uses a fresh ordinary outbound Megolm session.
+            // The receiver's earlier session/proof and journal are never reset.
+            assert!(human.discard_room_key(room).await.unwrap());
+            for share in human
+                .share_room_key(
+                    room,
+                    [receiver.user_id()].into_iter(),
+                    EncryptionSettings::default(),
+                )
+                .await
+                .unwrap()
+            {
+                let messages = &share.messages[receiver.user_id()];
+                assert_eq!(messages.len(), 1);
+                let content: Value =
+                    serde_json::from_str(messages.values().next().unwrap().json().get()).unwrap();
+                to_device.push(
+                    json!({"sender":human.user_id(),"type":share.event_type,"content":content}),
+                );
+            }
+        }
+        let encrypted = human
+            .encrypt_room_event(
+                room,
+                RoomMessageEventContent::text_plain("小白：已验证的私聊，无需提及"),
+            )
+            .await
+            .unwrap();
+        events.push(json!({"event_id":if i==0 {"$encrypted"} else {"$encrypted_new"},"origin_server_ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,"sender":human.user_id(),"type":"m.room.encrypted","content":encrypted.content}));
+    }
+    json!({"next_batch":"encrypted", "rooms":{"join":{"!project:example.test":{"state":{"events":[]},"timeline":{"limited":false,"events":events}}}},"to_device":{"events":to_device}})
+}
+
+pub(super) async fn trust_human(sdk: &Sdk) {
+    let guard = sdk.client.olm_machine().await;
+    let receiver = guard.as_ref().unwrap();
+    let UserIdentity::Own(own) = receiver
+        .get_identity(receiver.user_id(), None)
         .await
+        .unwrap()
+        .unwrap()
+    else {
+        panic!("owned identity")
+    };
+    own.verify().await.unwrap();
+    let user = user_id!("@owner:example.test");
+    let UserIdentity::Other(other) = receiver.get_identity(user, None).await.unwrap().unwrap()
+    else {
+        panic!("human identity")
+    };
+    let upload = other.verify().await.unwrap();
+    let signed = upload.signed_keys[user].iter().next().unwrap().1;
+    let mut response = get_keys::v3::Response::new();
+    response
+        .master_keys
+        .insert(user.to_owned(), serde_json::from_str(signed.get()).unwrap());
+    response.self_signing_keys.insert(
+        user.to_owned(),
+        serde_json::from_value(serde_json::to_value(other.self_signing_key().as_ref()).unwrap())
+            .unwrap(),
+    );
+    let device = receiver
+        .get_device(user, device_id!("HUMAN"), None)
+        .await
+        .unwrap()
         .unwrap();
-    json!({"next_batch":"encrypted", "rooms":{"join":{"!project:example.test":{"state":{"events":[]},"timeline":{"limited":false,"events":[{"event_id":"$encrypted","origin_server_ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,"sender":human.user_id(),"type":"m.room.encrypted","content":encrypted.content}]}}}},"to_device":{"events":to_device}})
+    response.device_keys.insert(
+        user.to_owned(),
+        [(
+            device_id!("HUMAN").to_owned(),
+            serde_json::from_value(serde_json::to_value(device.as_device_keys()).unwrap()).unwrap(),
+        )]
+        .into(),
+    );
+    let (id, _) = receiver.query_keys_for_users([user]);
+    receiver.mark_request_as_sent(&id, &response).await.unwrap();
+    assert!(
+        receiver
+            .get_identity(user, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_verified()
+    );
 }

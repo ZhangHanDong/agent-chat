@@ -3947,3 +3947,34 @@ ADR067 strict lifecycle passes4/4 with all15 changed paths. Independent review
 found no blocker. The final three tests also cover both supported UTC endpoints
 and a percent-encoded duplicate parameter; all pass, with formatting and diff
 checks clean. Existing locked package versions remain unchanged.
+
+## 2026-09-10 — Conclusive native Matrix event rejection
+
+ADR065 adds private bounded source dispositions after exact raw-to-actual-SDK
+coverage, before any eligible event admission. Rejected and non-target source
+tombstones survive cursor completion and cannot be reinterpreted under new plans
+or key/trust updates. Genuine identity/room negatives, incomplete timelines, SDK
+uncertainty and domain authority failures retain their existing fences. No schema
+or service change; ADR064 approval journals remain a separate collector purpose.
+
+Nine focused fixtures first passed in 8.13s: actual mixed bad/good chat, encrypted private
+missing-key and trust-change continuation, replay after SDK restart/new plan,
+real SQLite receipt rollback, SDK interruption, missing coverage, identity failure,
+legacy filtered-history inspection, corruption of candidate/source/phase fields
+and real terminal receipts through capacity. Early failures exposed fixture
+misuse of Collector.close (correctly retires transport), incomplete key query
+responses and SDK cached unverified group-session sender data. Tests now cycle
+only the actual SDK owner and use a freshly shared ordinary human outbound group
+key for the newly sent message after verification; old receiver state/proofs are
+never reset. Temporary diagnostics were removed. The original failure logs remain
+in the external matrix-rejection evidence files.
+
+Final local validation: 58 Matrix tests and three amended owned-workflow tests
+pass; the nine new tests pass again after unsigned-metadata and missing-ID replay
+vectors were added. Native and Windows GNU cross-target Clippy pass with warnings
+denied; cross-compilation is not Windows execution. agent-spec 1.4 passes the new
+contract 6/6 (five scenarios and the complete 14-path boundary), quality 100%,
+with zero fail, skip or uncertain. Evidence uses the matrix-rejection prefix in
+the external cache; full integrated OS qualification remains with the parent.
+The amended ADR062 contract separately passes 4/4 (three scenarios and its five
+changed paths), quality 100%, with zero fail, skip or uncertain.

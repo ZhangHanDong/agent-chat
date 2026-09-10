@@ -65,7 +65,7 @@ Scenario: Plaintext cannot impersonate encrypted private input
   Test Double: local TLS Matrix peer returning plaintext with forged trust metadata in an encrypted DM
   Given the exact configured private pair in an encrypted room
   When plaintext claims to be verified encrypted input
-  Then intake is refused and no task child or final send exists
+  Then the event is durably rejected without retiring transport and no task child or final send exists
 
 ## Out of Scope
 

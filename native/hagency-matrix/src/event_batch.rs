@@ -9,6 +9,9 @@ use matrix_sdk_common::deserialized_responses::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
+mod disposition;
+use disposition::{Decision, Disposition, Rejection, Source};
+
 pub(crate) const MAX_TIMELINE: usize = 100;
 pub(crate) const MAX_TARGETS: usize = 64;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,6 +34,8 @@ pub(crate) struct Batch {
     pub events: Vec<Event>,
     pub acknowledgements: Vec<Acknowledgement>,
     pub filtered: usize,
+    #[serde(default)]
+    pub dispositions: Option<Vec<Disposition>>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Event {
@@ -106,6 +111,8 @@ pub(crate) struct Receipt {
     pub target_digest: String,
     pub acknowledgements: Vec<Acknowledgement>,
     pub filtered: usize,
+    #[serde(default)]
+    pub dispositions: Option<Vec<Disposition>>,
 }
 impl Batch {
     pub(crate) fn new(
@@ -133,9 +140,10 @@ impl Batch {
             events: vec![],
             acknowledgements: vec![],
             filtered: 0,
+            dispositions: Some(vec![]),
         })
     }
-    pub(crate) fn derive(&mut self, sync: SyncResponse) -> Result<(), Error> {
+    pub(crate) fn derive(&mut self, sync: SyncResponse, history: &[Receipt]) -> Result<(), Error> {
         if sync
             .rooms
             .left
@@ -144,154 +152,80 @@ impl Batch {
         {
             return Err(Error::Unsupported);
         }
-        let mut events = vec![];
-        let mut filtered = 0;
-        let mut seen = BTreeSet::new();
+        let raw = disposition::raw_events(&self.raw)?;
+        let mut returned = vec![];
         for (room, update) in sync.rooms.joined {
             if update.timeline.limited {
                 return Err(Error::Unsupported);
             }
             for timeline in update.timeline.events {
-                if seen.len() >= MAX_TIMELINE {
-                    return Err(Error::Capacity);
-                }
-                timeline.raw().deserialize().map_err(|_| Error::Wire)?;
-                let value = wire::json(timeline.raw().json().get().as_bytes())?;
-                let string =
-                    |field: &str| value.get(field).and_then(Value::as_str).ok_or(Error::Wire);
-                let id = string("event_id")?;
-                if !seen.insert((room.to_string(), id.to_owned())) {
-                    return Err(Error::Conflict);
-                }
-                if value
-                    .get("room_id")
-                    .is_some_and(|v| v.as_str() != Some(room.as_str()))
-                {
-                    return Err(Error::Wire);
-                }
-                let proof = match &timeline.kind {
-                    TimelineEventKind::UnableToDecrypt { .. } => return Err(Error::Unsupported),
-                    TimelineEventKind::Decrypted(d) => {
-                        let info = &d.encryption_info;
-                        if !matches!(info.verification_state, VerificationState::Verified)
-                            || info.sender.as_str() != string("sender")?
-                            || info.forwarder.is_some()
-                        {
-                            return Err(Error::Unsupported);
-                        }
-                        let device = info
-                            .sender_device
-                            .as_ref()
-                            .ok_or(Error::Unsupported)?
-                            .to_string();
-                        let session = match &info.algorithm_info {
-                            AlgorithmInfo::MegolmV1AesSha2 {
-                                session_id: Some(id),
-                                ..
-                            } => id.clone(),
-                            _ => return Err(Error::Unsupported),
-                        };
-                        Proof::Verified {
-                            sender: info.sender.to_string(),
-                            device,
-                            session,
-                        }
-                    }
-                    TimelineEventKind::PlainText { .. } => Proof::Plain,
-                };
-                if string("type")? != "m.room.message" {
-                    filtered += 1;
-                    continue;
-                }
-                let content = value
-                    .get("content")
-                    .and_then(Value::as_object)
-                    .ok_or(Error::Wire)?;
-                let relation = content.get("m.relates_to");
-                let thread = match relation
-                    .and_then(|v| v.get("rel_type"))
-                    .and_then(Value::as_str)
-                {
-                    Some("m.thread") => Some(
-                        relation
-                            .and_then(|v| v.get("event_id"))
-                            .and_then(Value::as_str)
-                            .ok_or(Error::Wire)?
-                            .to_owned(),
-                    ),
-                    Some(_) => return Err(Error::Unsupported),
-                    None => None,
-                };
-                let mut candidates = self
-                    .targets
-                    .iter()
-                    .filter(|t| t.room_id == room.as_str() && t.thread_root == thread)
-                    .collect::<Vec<_>>();
-                if candidates.is_empty() && thread.is_none() {
-                    candidates = self
-                        .targets
-                        .iter()
-                        .filter(|t| {
-                            t.room_id == room.as_str() && t.thread_root.as_deref() == Some(id)
-                        })
-                        .collect();
-                }
-                if candidates.len() > 1 {
-                    return Err(Error::Conflict);
-                }
-                let Some(target) = candidates.first() else {
-                    filtered += 1;
-                    continue;
-                };
-                if target.encrypted && matches!(proof, Proof::Plain) {
-                    return Err(Error::Unsupported);
-                }
-                let kind = content
-                    .get("msgtype")
-                    .and_then(Value::as_str)
-                    .ok_or(Error::Wire)?;
-                if !matches!(kind, "m.text" | "m.notice" | "m.emote") {
-                    return Err(Error::Unsupported);
-                }
-                let mut mentions = BTreeSet::new();
-                if let Some(ids) = content.get("m.mentions").and_then(|m| m.get("user_ids")) {
-                    let ids = ids.as_array().ok_or(Error::Wire)?;
-                    if ids.len() > 64 {
-                        return Err(Error::Capacity);
-                    }
-                    for id in ids {
-                        mentions.insert(id.as_str().ok_or(Error::Wire)?.to_owned());
-                    }
-                }
-                let event = Event {
-                    route: (*target).clone(),
-                    input: Message {
-                        server_name: target.server_name.clone(),
-                        room_id: room.to_string(),
-                        event_id: id.into(),
-                        sender_mxid: string("sender")?.into(),
-                        thread_root: thread,
-                        body: content
-                            .get("body")
-                            .and_then(Value::as_str)
-                            .ok_or(Error::Wire)?
-                            .into(),
-                        kind: kind.into(),
-                        origin_ts: value
-                            .get("origin_server_ts")
-                            .and_then(Value::as_u64)
-                            .ok_or(Error::Wire)?,
-                    },
-                    mentions,
-                    proof,
-                };
-                event.observation().validate().map_err(|_| Error::Wire)?;
-                events.push(event);
+                returned.push((room.to_string(), timeline));
             }
         }
-        // Every target body is bounded independently and the frozen projection as a
-        // whole is bounded too. Oversize remains raw SDK custody, never truncated.
-        if serde_json::to_vec(&events)
+        if raw.len() != returned.len() {
+            return Err(Error::Conflict);
+        }
+        let mut events = vec![];
+        let mut dispositions = vec![];
+        let mut filtered = 0;
+        let mut seen = BTreeSet::new();
+        for ((room, original), (actual_room, timeline)) in raw.iter().zip(returned) {
+            if room != &actual_room {
+                return Err(Error::Conflict);
+            }
+            let value = wire::json(timeline.raw().json().get().as_bytes())?;
+            match &timeline.kind {
+                TimelineEventKind::Decrypted(_)
+                    if ["event_id", "sender", "origin_server_ts"]
+                        .iter()
+                        .any(|field| original.get(field) != value.get(field))
+                        || value.get("room_id").and_then(Value::as_str) != Some(room.as_str()) =>
+                {
+                    return Err(Error::Conflict);
+                }
+                TimelineEventKind::Decrypted(_) => {}
+                _ if canonical::transport_digest(original).map_err(|_| Error::Wire)?
+                    != canonical::transport_digest(&value).map_err(|_| Error::Wire)? =>
+                {
+                    return Err(Error::Conflict);
+                }
+                _ => {}
+            }
+            if let Some(id) = original.get("event_id").and_then(Value::as_str)
+                && ruma::EventId::parse(id).is_ok()
+                && !seen.insert((room.clone(), id.to_owned()))
+            {
+                return Err(Error::Conflict);
+            }
+            let source = Source::new(room, original)?;
+            let decision = if let Some(prior) = Disposition::prior(&source, history) {
+                prior
+            } else if timeline.raw().deserialize().is_err() {
+                Decision::Rejected {
+                    reason: Rejection::Malformed,
+                }
+            } else {
+                match self.event(room, &value, &timeline.kind) {
+                    Ok(Some(event)) => {
+                        let index = events.len();
+                        events.push(event);
+                        Decision::Candidate { index }
+                    }
+                    Ok(None) => Decision::NotTarget,
+                    Err(reason) => Decision::Rejected { reason },
+                }
+            };
+            if matches!(decision, Decision::NotTarget) {
+                filtered += 1;
+            }
+            dispositions.push(Disposition::new(
+                source,
+                serde_json::to_value(&timeline.kind).map_err(|_| Error::Storage)?,
+                decision,
+            )?);
+        }
+        // Candidate content plus the complete private disposition ledger is bounded.
+        if serde_json::to_vec(&(&events, &dispositions))
             .map_err(|_| Error::Storage)?
             .len()
             > 1024 * 1024
@@ -300,8 +234,146 @@ impl Batch {
         }
         self.events = events;
         self.filtered = filtered;
+        self.dispositions = Some(dispositions);
         self.phase = Phase::Derived;
         Ok(())
+    }
+    fn event(
+        &self,
+        room: &str,
+        value: &Value,
+        kind: &TimelineEventKind,
+    ) -> Result<Option<Event>, Rejection> {
+        use Rejection::{CryptoIneligible, Malformed, PlaintextEncrypted, Unsupported};
+        let string = |field: &str| value.get(field).and_then(Value::as_str).ok_or(Malformed);
+        let id = string("event_id")?;
+        if value
+            .get("room_id")
+            .is_some_and(|v| v.as_str() != Some(room))
+        {
+            return Err(Malformed);
+        }
+        let proof = match kind {
+            TimelineEventKind::UnableToDecrypt { .. } => return Err(CryptoIneligible),
+            TimelineEventKind::Decrypted(d) => {
+                let info = &d.encryption_info;
+                if !matches!(info.verification_state, VerificationState::Verified)
+                    || info.sender.as_str() != string("sender")?
+                    || info.forwarder.is_some()
+                {
+                    return Err(CryptoIneligible);
+                }
+                let device = info
+                    .sender_device
+                    .as_ref()
+                    .ok_or(CryptoIneligible)?
+                    .to_string();
+                let session = match &info.algorithm_info {
+                    AlgorithmInfo::MegolmV1AesSha2 {
+                        session_id: Some(id),
+                        ..
+                    } => id.clone(),
+                    _ => return Err(CryptoIneligible),
+                };
+                Proof::Verified {
+                    sender: info.sender.to_string(),
+                    device,
+                    session,
+                }
+            }
+            TimelineEventKind::PlainText { .. } => Proof::Plain,
+        };
+        if string("type")? != "m.room.message" {
+            return Ok(None);
+        }
+        let content = value
+            .get("content")
+            .and_then(Value::as_object)
+            .ok_or(Malformed)?;
+        let relation = content.get("m.relates_to");
+        if relation.is_some_and(|v| !v.is_object()) {
+            return Err(Malformed);
+        }
+        let thread = match relation.and_then(|v| v.get("rel_type")) {
+            Some(Value::String(t)) if t == "m.thread" => Some(
+                relation
+                    .and_then(|v| v.get("event_id"))
+                    .and_then(Value::as_str)
+                    .ok_or(Malformed)?
+                    .to_owned(),
+            ),
+            Some(Value::String(_)) => return Err(Unsupported),
+            Some(_) => return Err(Malformed),
+            None => None,
+        };
+        let mut candidates = self
+            .targets
+            .iter()
+            .filter(|t| t.room_id == room && t.thread_root == thread)
+            .collect::<Vec<_>>();
+        if candidates.is_empty() && thread.is_none() {
+            candidates = self
+                .targets
+                .iter()
+                .filter(|t| t.room_id == room && t.thread_root.as_deref() == Some(id))
+                .collect();
+        }
+        if candidates.len() > 1 {
+            return Err(Malformed);
+        }
+        let Some(target) = candidates.first() else {
+            return Ok(None);
+        };
+        if target.encrypted && matches!(proof, Proof::Plain) {
+            return Err(PlaintextEncrypted);
+        }
+        let kind = content
+            .get("msgtype")
+            .and_then(Value::as_str)
+            .ok_or(Malformed)?;
+        if !matches!(kind, "m.text" | "m.notice" | "m.emote") {
+            return Err(Unsupported);
+        }
+        let mut mentions = BTreeSet::new();
+        if let Some(mentioned) = content.get("m.mentions") {
+            let mentioned = mentioned.as_object().ok_or(Malformed)?;
+            if let Some(ids) = mentioned.get("user_ids") {
+                let ids = ids.as_array().ok_or(Malformed)?;
+                if ids.len() > 64 {
+                    return Err(Malformed);
+                }
+                for id in ids {
+                    mentions.insert(id.as_str().ok_or(Malformed)?.to_owned());
+                }
+            }
+        }
+        let event = Event {
+            route: (*target).clone(),
+            mentions,
+            proof,
+            input: Message {
+                server_name: target.server_name.clone(),
+                room_id: room.into(),
+                event_id: id.into(),
+                sender_mxid: string("sender")?.into(),
+                thread_root: thread,
+                body: content
+                    .get("body")
+                    .and_then(Value::as_str)
+                    .ok_or(Malformed)?
+                    .into(),
+                kind: kind.into(),
+                origin_ts: value
+                    .get("origin_server_ts")
+                    .and_then(Value::as_u64)
+                    .ok_or(Malformed)?,
+            },
+        };
+        event.observation().validate().map_err(|_| Malformed)?;
+        Ok(Some(event))
+    }
+    pub(crate) fn rejected(&self) -> usize {
+        disposition::rejected(self.dispositions.as_deref())
     }
     pub(crate) fn validate_restored(
         &self,
@@ -322,6 +394,59 @@ impl Batch {
             || canonical::transport_digest(&self.raw).map_err(|_| Error::Storage)? != self.digest
         {
             return Err(Error::Storage);
+        }
+        if matches!(self.phase, Phase::Prepared | Phase::Applying)
+            && (!self.events.is_empty()
+                || !self.acknowledgements.is_empty()
+                || self.filtered != 0
+                || self.dispositions.as_ref().is_some_and(|v| !v.is_empty()))
+        {
+            return Err(Error::Storage);
+        }
+        if let Some(values) = &self.dispositions {
+            disposition::validate(values, self.events.len(), self.filtered)?;
+            if self.phase == Phase::Derived || !values.is_empty() {
+                let raw = disposition::raw_events(&self.raw).map_err(|_| Error::Storage)?;
+                if raw.len() != values.len() {
+                    return Err(Error::Storage);
+                }
+                for ((room, event), value) in raw.iter().zip(values) {
+                    if !value.matches(room, event).map_err(|_| Error::Storage)? {
+                        return Err(Error::Storage);
+                    }
+                    if let Decision::Candidate { index } = value.decision {
+                        let candidate = self.events.get(index).ok_or(Error::Storage)?;
+                        if candidate.input.room_id != *room
+                            || event.get("event_id").and_then(Value::as_str)
+                                != Some(candidate.input.event_id.as_str())
+                            || event.get("sender").and_then(Value::as_str)
+                                != Some(candidate.input.sender_mxid.as_str())
+                            || event.get("origin_server_ts").and_then(Value::as_u64)
+                                != Some(candidate.input.origin_ts)
+                        {
+                            return Err(Error::Storage);
+                        }
+                        if matches!(candidate.proof, Proof::Plain) {
+                            let plain = self
+                                .event(
+                                    room,
+                                    event,
+                                    &TimelineEventKind::PlainText {
+                                        event: serde_json::from_value(event.clone())
+                                            .map_err(|_| Error::Storage)?,
+                                    },
+                                )
+                                .map_err(|_| Error::Storage)?
+                                .ok_or(Error::Storage)?;
+                            if serde_json::to_value(&plain).map_err(|_| Error::Storage)?
+                                != serde_json::to_value(candidate).map_err(|_| Error::Storage)?
+                            {
+                                return Err(Error::Storage);
+                            }
+                        }
+                    }
+                }
+            }
         }
         let mut targets = BTreeSet::new();
         for target in &self.targets {
@@ -372,6 +497,19 @@ impl Batch {
             .map_err(|_| Error::Storage)?,
             acknowledgements: self.acknowledgements.clone(),
             filtered: self.filtered,
+            dispositions: self.dispositions.clone(),
         })
+    }
+}
+
+impl Receipt {
+    pub(crate) fn validate_dispositions(&self) -> Result<(), Error> {
+        if let Some(values) = &self.dispositions {
+            disposition::validate(values, self.acknowledgements.len(), self.filtered)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn lacks_filtered_history(&self) -> bool {
+        self.filtered > 0 && self.dispositions.is_none()
     }
 }

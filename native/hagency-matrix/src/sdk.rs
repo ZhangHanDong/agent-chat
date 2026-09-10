@@ -61,7 +61,9 @@ enum Command {
         oneshot::Sender<Result<crate::outgoing::state::View, Error>>,
     ),
     #[cfg(test)]
-    CryptoFixture(bool, oneshot::Sender<Value>),
+    CryptoFixture(bool, usize, oneshot::Sender<Value>),
+    #[cfg(test)]
+    CryptoTrustHuman(oneshot::Sender<()>),
     #[cfg(test)]
     ApplyFault(oneshot::Sender<()>),
     #[cfg(test)]
@@ -180,9 +182,15 @@ impl Owner {
                                 let _ = reply.send(result);
                             }
                             #[cfg(test)]
-                            Command::CryptoFixture(verified, reply) => {
-                                let _ = reply
-                                    .send(crypto_fixture::encrypted_human(&sdk, verified).await);
+                            Command::CryptoTrustHuman(reply) => {
+                                crypto_fixture::trust_human(&sdk).await;
+                                let _ = reply.send(());
+                            }
+                            #[cfg(test)]
+                            Command::CryptoFixture(verified, count, reply) => {
+                                let _ = reply.send(
+                                    crypto_fixture::encrypted_human(&sdk, verified, count).await,
+                                );
                             }
                             #[cfg(test)]
                             Command::ApplyFault(reply) => {
@@ -642,6 +650,7 @@ impl Sdk {
                 return Err(Error::Storage);
             }
             for receipt in &journal.intake_receipts {
+                receipt.validate_dispositions()?;
                 if !journal.intake_enabled
                     || receipt.target_digest.len() != 64
                     || receipt
@@ -724,6 +733,16 @@ impl Sdk {
             return Err(Error::OutcomeUnknown);
         }
         files(&self.root)?;
+        // Legacy filtered receipts did not retain source keys. They remain
+        // inspectable, but cannot silently promise terminal source coverage.
+        if self
+            .journal
+            .intake_receipts
+            .iter()
+            .any(Receipt::lacks_filtered_history)
+        {
+            return Err(Error::Unsupported);
+        }
         let batch = Batch::new(value, targets, self.identity.clone())?;
         if let Some((_, old)) = self
             .journal
@@ -769,7 +788,13 @@ impl Sdk {
         if std::mem::take(&mut self.apply_fault) {
             return Err(Error::OutcomeUnknown);
         }
-        if let Err(error) = self.journal.intake.as_mut().unwrap().derive(processed) {
+        if let Err(error) = self
+            .journal
+            .intake
+            .as_mut()
+            .unwrap()
+            .derive(processed, &self.journal.intake_receipts)
+        {
             self.intake_quarantine("unsupported SDK event or incomplete timeline".into())
                 .await?;
             return Err(error);
@@ -1119,9 +1144,20 @@ mod crypto_fixture;
 #[cfg(test)]
 impl Owner {
     pub(crate) async fn crypto_fixture(&self, verified: bool) -> Value {
+        self.crypto_messages(verified, 1).await
+    }
+    pub(crate) async fn crypto_trust_human(&self) {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Command::CryptoTrustHuman(tx)).await.unwrap();
+        tokio::time::timeout(self.timeout, rx)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    pub(crate) async fn crypto_messages(&self, verified: bool, count: usize) -> Value {
         let (tx, rx) = oneshot::channel();
         self.tx
-            .send(Command::CryptoFixture(verified, tx))
+            .send(Command::CryptoFixture(verified, count, tx))
             .await
             .unwrap();
         rx.await.unwrap()
