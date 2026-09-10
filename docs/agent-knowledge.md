@@ -1,5 +1,14 @@
 # Repository audit knowledge
 
+- **Local supervisor fixture ports, 2026-09-10:** the old helper released one
+  ephemeral listener before choosing the next and could select duplicate ports.
+  A real controlled same-port run reported healthy while dashboard crashed with
+  EADDRINUSE and only three ready events appeared. Both test ports are now held
+  simultaneously during selection, with bounded failure diagnostics. The original
+  CI recorded no rows/ports and its historical cause remains unknown; production
+  supervisor, leases and exact four-row/three-second assertions are unchanged.
+  See [the evidence](../knowledge/context/node-supervisor-fixture-evidence.md).
+
 - **Native authenticated event intake, 2026-09-10:** ADR-054 owns the SDK
   sync cursor after the first accepted intake, including unchanged bootstrap
   replay. Prepared/Applying raw input and exact target tickets are encrypted
