@@ -1469,3 +1469,8 @@ per-Agent runtimes. The fixed reactor services buffers until completion and OS
 process exit supplies final lifetime closure. Windows tests cycle caller runtimes,
 cancel pending reads, observe EOF and compare process handle counts. These tests
 still require Windows CI; the static reactor is not process/task authority.
+
+Native CI 34518706774 at 47b6a51 passed all three OSes, including the corrected
+Windows SystemRoot-only CLI environment and CRLF-independent SQL fixture slices.
+This is pre-ADR-044 Windows IO evidence. Do not use cross-target Clippy or the
+shared macOS lifecycle to claim execution of Windows-specific named-pipe tests.

@@ -2840,3 +2840,19 @@ boundary (5/5, quality 97%, zero fail/skip/uncertain). That lifecycle executed s
 shared runtime tests on macOS; it did not execute Windows-only scenarios.
 Exact commands and logs are saved under the operator migration cache's
 codex-protocol/windows-io-* paths. No push, merge or deployment was performed.
+
+## 2026-09-10 — Integrated Windows IO review and three-OS regression results
+
+Integrated ADR-044 as 4c0de90. The combined platform/runtime suite passed all
+59 macOS tests; workspace Clippy, formatting and diff checks passed. Integrated
+agent-spec lifecycle passed 5/5 including the explicit file boundary, with zero
+fail/skip/uncertain. Its six selected shared tests ran on macOS; Windows-specific
+execution is still pending the new CI run.
+
+Previous integrated head 47b6a51 passed Native CI 34518706774 on Windows 2025,
+macOS 15 and Ubuntu 24.04. This verifies the SystemRoot task-client fixture fix
+and CRLF migration-fixture correction on actual Windows. That run predates the
+new Windows IO code. Local full-workspace evidence at 47b6a51 remains 204 unique
+tests plus the isolated proxy-environment child check. Node CI 34518706889 was
+still running when this entry was recorded. Logs remain in the private operator
+migration cache. No live service or original dirty checkout changed.

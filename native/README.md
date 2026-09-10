@@ -10,8 +10,8 @@ internal groups, durable graphs, verified-input task activation, owner approvals
 and notice/final-reply send custody. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
 with independent polling and publication. The runtime crate provides a bounded
-Codex one-turn session connected to guardian-owned Unix child pipes for offline
-fixtures. The native CLI maintains an assigned task through the scoped API.
+Codex one-turn session connected to guardian-owned Unix pipes and Windows
+overlapped pipes under atomic Job Object custody for offline fixtures. The native CLI maintains an assigned task through the scoped API.
 Service Agent execution and actual Matrix delivery remain disabled.
 The sections below record the successive checkpoints.
 
