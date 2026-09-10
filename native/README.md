@@ -375,9 +375,9 @@ from Agent execution; typed session, sandbox and guardian integration are open.
 See [ADR-032](../knowledge/decisions/adr-032-native-codex-protocol.md) and
 [ADR-034](../knowledge/decisions/adr-034-native-codex-transport.md).
 
-## Native MCP task maintenance
+## Native MCP task maintenance and coordination
 
-`hagency mcp` serves five task tools over stdio: get_task, accept_task,
+`hagency mcp` serves nineteen tools over stdio. Its five task tools are get_task, accept_task,
 transition_task, comment_task and update_task_execution. The host must supply
 the same inherited HAGENCY_RUNNER_API_ADDR, HAGENCY_RUNNER_CAPABILITY and
 HAGENCY_TASK_ID context as the native task CLI. Each call names that assigned
@@ -391,8 +391,18 @@ not prove that a submitted mutation failed. Inspect or repeat the exact call ID
 and content through the canonical writer. The watchdog is not linked as a public
 library service function. The pinned Rust MCP SDK is a test-only dependency.
 
-Delegation, graphs, files, approvals, generated runner configuration and live
-rollout are separate work; existing deployed MCP configuration is unchanged.
+Fourteen additional tools expose delegation, internal conversations, peer inboxes
+and canonical task graphs through the same scoped API. Conversation participants
+and graph assignees use exact internal session IDs; delegation uses active
+engagement IDs. Mutations preserve caller-supplied stable call IDs for exact
+content-bound replay. Graph completion still requires the canonical Done epoch.
+Pages default to eight items with a maximum of 32; task requests are capped at
+16 KiB, coordination requests at 32 KiB, and HTTP responses at 64 KiB. Unknown
+mutation outcomes remain unknown. See
+[ADR-051](../knowledge/decisions/adr-051-native-mcp-coordination.md).
+
+Discovery, files, Matrix history, approvals, generated runner configuration and
+live rollout remain separate work; deployed MCP configuration is unchanged.
 
 
 Schema 15 and [ADR-047](../knowledge/decisions/adr-047-native-matrix-transport.md)

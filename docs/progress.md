@@ -3225,3 +3225,19 @@ with warnings denied, and lifecycle 4/4 including all four changed paths. The
 integrated native inventory resolves 172 selectors. These checks establish
 source eligibility and refusal behavior; they do not replace the pending actual
 hosted cgroup qualification. Evidence: `cgroup-617-*` in the migration cache.
+
+### 2026-09-10 — Integrated MCP coordination validation
+
+Integrated 8099996 passes 256 unique native workspace tests plus the isolated
+proxy child (257 printed passes), with zero failures or ignored tests. Workspace
+Clippy with warnings denied passes, and all 172 native selectors resolve. The
+MCP coordination lifecycle passes six scenarios plus the explicit 16-path
+boundary (7/7), without fail/skip/uncertain. Logs are retained under
+`combined-mcp-coordination-*` and `integrated-mcp-coordination-*` in the migration
+cache. The native README now describes all 19 implemented tools and retains the
+open discovery, file, history, approval and runtime-configuration boundaries.
+
+At 2c7b402, Node CI and native macOS and Windows CI passed. Native Linux tests passed but its
+actual cgroup qualifier refused the then-unqualified 6.17 kernel. The new family
+check is ready for a separate real CI run. The complete native CI run remains
+failed until actual Linux cgroup qualification succeeds.

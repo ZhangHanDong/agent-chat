@@ -1616,3 +1616,9 @@ ADR048 now records source qualification of upstreamv6.17/e5f0a698; initial
 namespace constants moved to UAPI without changing values/owner/kill semantics.
 The6.17 family gate is permitted for actual CI testing; it is not itself a
 positive cgroup execution result or full POSIX crash-containment guarantee.
+
+Integrated MCP coordination at 8099996 passes 256 unique tests plus the proxy
+child, Clippy, 172 selector bindings and lifecycle 7/7 with all 16 changed paths.
+The native MCP catalog now has 19 tools; the five assigned-task tools retain
+their narrower scope. Local evidence remains separate from the new Linux
+kernel qualification and complete three-platform CI.

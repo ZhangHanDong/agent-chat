@@ -31,6 +31,7 @@ managed runners through the bounded MCP helper and existing scoped HTTP API.
 ## Boundaries
 
 ### Allowed Changes
+- native/README.md
 - native/hagency/src/task_client.rs
 - native/hagency/src/task_client/**
 - native/hagency/src/mcp.rs
