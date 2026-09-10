@@ -1857,3 +1857,26 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - This is an internal task orchestration implementation, not a live transport or
   runner claim. Graph scheduling, final replies, group/MCP interfaces, real Matrix
   provenance/privacy and M4–M9 remain open. No live deployment was changed.
+
+## 2026-09-10 — Native task graph planning policy
+
+- Task-intent commit 5e68a06 passed Windows/macOS/Linux native CI (34467398049);
+  Node CI (34467398054) also passed. No live service was changed.
+- Added a bounded pure graph planner with deterministic dependency failure,
+  cancellation, skip and readiness transitions. Fractional results remain JSON
+  values. Missing/null comparison and primitive truthiness match the existing
+  JavaScript policy; inherited functions are inert values only. String property
+  traversal remains refused, as required by the actual legacy getNestedValue.
+- The unchanged JavaScript implementation generates 156 condition and ten graph
+  transition vectors. Native CI now checks fixture freshness. The initial vector
+  run caught a string-property mismatch, which was corrected against the source;
+  all vectors now pass. Definitions reject missing/duplicate nodes, dependency and
+  condition cycles; results and nesting are bounded. Runtime definitions cannot
+  assert an owner or completed node status.
+- Validation: all 46 native tests passed, zero failed/ignored; Clippy, rustfmt and
+  fixture checks passed. Three graph scenarios plus lifecycle boundary passed
+  without skip/uncertainty; all 41 native specification selectors resolve.
+- This is a pure planning step. Durable graph storage, authenticated canonical-task
+  observations, internal/local session routes and mailbox/group delivery still need
+  integration. Proposed dispatch status is never evidence of actual task execution.
+  The full M0–M9 migration remains active.

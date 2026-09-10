@@ -194,3 +194,19 @@ verify current membership and apply DM/promotion privacy before constructing hos
 commands or delivering notices. This step does not claim transport delivery,
 model execution, filesystem write authority or full M3 parity. Graph scheduling,
 final replies and internal group/MCP surfaces remain subsequent migration work.
+
+The pure graph planner preserves dependency propagation, conditional skips,
+primitive JSON equality (including missing versus null), truthiness and stable
+node order. It produces an uncommitted transition with dispatch candidates; the
+caller must atomically bind those candidates to canonical tasks and durable
+mailbox admission before storing them. Host observations are separate from graph
+request definitions. Graphs permit at most 128 nodes; each result is at most
+64 KiB UTF-8 and depth 64, retaining fractional values. Conditions that introduce
+cycles are rejected before planning, including cycles hidden outside depends_on.
+
+The existing JavaScript policy generates 156 condition vectors and ten graph
+transition vectors; CI checks the fixture against that policy before Cargo tests.
+Prototype methods are modeled only as inert comparison/truthiness values and
+blocked path segments remain blocked. No JavaScript code is evaluated in Rust.
+Durable graph storage, canonical observation authority, group/mailbox routing and
+native graph execution are not implemented by this pure policy step.
