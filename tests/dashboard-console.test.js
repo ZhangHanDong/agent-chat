@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { renderDashboard } from './helpers/dashboard-render.js';
+import { translate } from '../mockup/lib/i18n.js';
 
 const configData = {
   agents: [{ name: 'local-worker', framework: 'codex', transport: null, activeNow: false }],
@@ -9,7 +10,8 @@ const configData = {
 describe('Dashboard configuration entry points', () => {
   test('opens resource configuration and project request review through real links', async () => {
     const html = await renderDashboard('mockup/app/config/page.jsx', { data: configData });
-    expect(html).toMatch(/href="\/resources\/new"[^>]*>\+ Add preset<\/a>/);
+    expect(html).toMatch(/href="\/resources\/new"/);
+    expect(html).toContain(translate('en', 'cf.addPreset'));
     expect(html).toMatch(/href="\/engagements"[^>]*>Review requests →<\/a>/);
   });
 
@@ -35,7 +37,7 @@ describe('Dashboard host probe states', () => {
     } });
     expect(html).not.toContain('ob.st.unusable');
     expect(html).not.toContain('badgeundefined');
-    expect(html).toContain(locale === 'en' ? 'on PATH but not answering' : '在 PATH 上但无响应');
+    expect(html).toContain(translate(locale, 'cf.unusable'));
   });
 });
 

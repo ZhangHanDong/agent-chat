@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '@/components/Prefs';
 import { useData } from '@/components/Data';
 import { send } from '@/lib/api';
+import TechnicalDetails from '@/components/TechnicalDetails';
 
 export function ExecutionPolicyChoice({ yolo, onChange, disabled = false, resource = false }) {
   const t = useT();
@@ -25,7 +26,7 @@ export function ResourceExecutionPermissions({ preset, live, refresh }) {
   const [notice, setNotice] = useState('');
   useEffect(() => { setYolo(preset.executionPolicy?.yolo === true); }, [preset.id, preset.executionPolicy?.yolo]);
   if (preset.framework !== 'codex') return null;
-  return <div className="panel">
+  return <TechnicalDetails label={t(preset.executionPolicy?.yolo === true ? 'exec.summaryYolo' : 'exec.summaryApproval')}>
     <h3 className="sub">{t('exec.resourceTitle')}</h3>
     <ExecutionPolicyChoice resource yolo={yolo} onChange={setYolo} disabled={!live || busy} />
     <button className="btn" disabled={!live || busy || yolo === (preset.executionPolicy?.yolo === true)}
@@ -40,7 +41,7 @@ export function ResourceExecutionPermissions({ preset, live, refresh }) {
         setBusy(false);
       }}>{t('exec.save')}</button>
     {notice && <p role="status" className="small">{notice}</p>}
-  </div>;
+  </TechnicalDetails>;
 }
 
 export default function AgentExecutionPermissions({ agent }) {

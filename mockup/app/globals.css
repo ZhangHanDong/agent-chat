@@ -1155,11 +1155,11 @@ h3.sub { font-size: 12.5px; font-weight: 600; margin: 2px 0 8px; color: var(--in
    unit is "this data source", not "this number". */
 .prov {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
-  margin: 0 0 14px; padding: 7px 11px;
-  border: 1px solid var(--line); border-left: 3px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--bg-soft, transparent);
+  margin: 0 0 14px; padding: 0;
+  border: 0;
+  background: transparent;
   font-size: 11.5px; line-height: 1.5;
+  text-transform: none; letter-spacing: normal;
 }
 .prov.loading { opacity: 0.72; }
 .prov-k {
@@ -1171,6 +1171,21 @@ h3.sub { font-size: 12.5px; font-weight: 600; margin: 2px 0 8px; color: var(--in
 .prov-live { color: var(--ok); }
 .prov-contract { color: var(--warn); }
 .prov-stale { color: var(--ink-dim); }
+.prov-derived { color: var(--warn); }
+
+.technical-details { margin: 6px 0; min-width: 0; font-size: 12px; }
+.technical-details > summary { cursor: pointer; color: var(--ink-dim); }
+.technical-details > summary:hover { color: var(--ink); }
+.technical-details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.technical-details-body {
+  margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--line);
+  color: var(--ink-dim); overflow-wrap: anywhere; font-weight: normal;
+}
+.technical-details-body p { margin: 4px 0; }
+.technical-details-body ul { margin: 0; padding-left: 18px; }
+.technical-details-body code { white-space: normal; overflow-wrap: anywhere; }
+.prov .technical-details { margin: 0; }
+.unavailable-usage { min-width: 110px; }
 
 /* Text inputs. Only the whitelist form uses one so far — the rest of the console
    is read-and-decide rather than data entry — but it needs to match the controls
