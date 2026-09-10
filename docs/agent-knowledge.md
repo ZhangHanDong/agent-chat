@@ -1677,3 +1677,10 @@ separate crash/restart fixture. A missing report during database initialization
 is not sufficient to attribute failure to guardian identity or to call it a
 scheduling flake; the historical f4cdead timeout remains undiagnosed. The fixture
 split changes no production timing or custody guarantees.
+
+Integrated 5a734bf passes 282 unique workspace tests plus the proxy child, with
+190 native selector bindings. This includes ADR052/055, owned dispatch ADR053,
+the Matrix scripted-peer correction and separated guardian CLI exit proof.
+Earlier failed runs remain evidence, not retroactive passes. New three-platform
+CI and actual Linux cgroup qualification still have to pass before advertising
+those updated platform guarantees.

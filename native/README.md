@@ -454,3 +454,13 @@ pending snapshot cannot hide a later completion. Unknown submission outcomes
 block retries until host inspection. This is an in-memory projection, with 275
 unchanged JS vectors and 20 documented corrections; runtime attachment, durable
 status delivery and actual Matrix edits remain separate integration work.
+
+[Owned dispatch execution](../knowledge/decisions/adr-053-native-owned-dispatch.md)
+connects an exact claimed capability and frozen writer scope to real native
+Codex pipes. The writer commits Started before child creation; an unknown start
+receipt never launches work. Cancellation retains the worker and process owner,
+and incomplete cleanup keeps resource leases quarantined. Upstream completion,
+canonical Done, process cleanup and dispatch settlement remain separate results.
+The host-only library is disabled in the service: physical workspace protection,
+effective sandbox qualification, native MCP configuration and approval application
+are still required before operational use.

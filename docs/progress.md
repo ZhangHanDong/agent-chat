@@ -3391,3 +3391,19 @@ and the five-file boundary, quality 94%, with no fail/skip/uncertain results.
 Baseline, bounded diagnostics, CLI tests, both Clippy targets and lifecycle logs
 are in the operator cache under guardian-cli-*. This is local macOS execution and
 Windows cross-compilation; updated fixture runtime qualification still needs CI.
+
+## 2026-09-10 — Integrated owned execution, progress and metering
+
+At 5a734bf, the full native workspace passes 282 unique tests plus the isolated
+proxy-environment child (283 printed passes), with zero failures or ignored
+tests. This rerun includes the guardian CLI split and Matrix peer corrections;
+earlier failed logs remain retained. All 190 native selectors resolve. Workspace
+Clippy passed after execution integration, and formatting/diff checks pass.
+
+Integrated owned-dispatch lifecycle passes 10/10 with all 20 paths, and the Matrix
+fixture lifecycle passes 8/8 with all four paths. The combined execution/Matrix
+targets pass 22 tests. Logs are retained under `combined-owned-progress-metering-*`,
+`integrated-execution-*`, `integrated-owned-dispatch-*` and
+`integrated-matrix-fixture-*`. This local result does not replace actual Linux,
+Windows or cgroup qualification for the new commit. The next CI run must provide
+that evidence. No live service is enabled or replaced.

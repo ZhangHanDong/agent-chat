@@ -31,6 +31,7 @@ one bounded operation, while keeping production workspace and sandbox qualificat
 ## Boundaries
 
 ### Allowed Changes
+- native/README.md
 - ./Cargo.toml
 - ./Cargo.lock
 - native/hagency-execution/**

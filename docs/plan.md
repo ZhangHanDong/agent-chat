@@ -99,3 +99,10 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 8. M7 bounded transcript normalization is in `hagency-metering` (ADR055).
    Continue transcript discovery, authenticated provenance, persistent ledger,
    exact Agent/project attribution, quota enforcement and console integration.
+
+9. Host-only owned dispatch (ADR053) now binds frozen canonical scope and leases
+   to actual native Codex pipes. Started commits before spawn, lost start receipts
+   never launch work, and cancellation retains cleanup ownership. Runtime output
+   never asserts canonical Done; incomplete cleanup retains dirty leases.
+   Continue physical workspace and sandbox qualification, native helper setup,
+   approval application, Matrix delivery and integrated platform acceptance.
