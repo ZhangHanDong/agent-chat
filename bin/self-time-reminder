@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Deprecated legacy entrypoint: forward to unified 'hafleet'.
-if [ "${HAFLEET_INTERNAL_DISPATCH:-0}" != "1" ]; then
+# Deprecated legacy entrypoint: forward to unified 'hagency'.
+if [ "${HAGENCY_INTERNAL_DISPATCH:-0}" != "1" ]; then
   _ac_legacy_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   _ac_legacy_name="$(basename "$0")"
-  echo "[DEPRECATED] ${_ac_legacy_name} is deprecated. Use: hafleet reminder ..." >&2
-  exec "${_ac_legacy_dir}/hafleet" "reminder" "$@"
+  echo "[DEPRECATED] ${_ac_legacy_name} is deprecated. Use: hagency reminder ..." >&2
+  exec "${_ac_legacy_dir}/hagency" "reminder" "$@"
 fi
 # self-time-reminder — Schedule, list, and cancel reminders
 #
@@ -37,21 +37,21 @@ USAGE
 }
 
 # The delivery queue lives in the BACKEND now — the old web portal on 8084 is retired, and the queue
-# moved with its process (lib/delivery-queue.js says how). HAFLEET_QUEUE_URL still overrides for a
+# moved with its process (lib/delivery-queue.js says how). HAGENCY_QUEUE_URL still overrides for a
 # deployment that runs the queue elsewhere; the operator bearer rides along when set, because the
 # backend's guard accepts local OR bearer and a remote caller is by definition not local.
-BACKEND_PORT_RAW="${HAFLEET_BACKEND_PORT:-8090}"
+BACKEND_PORT_RAW="${HAGENCY_BACKEND_PORT:-8090}"
 if [[ "$BACKEND_PORT_RAW" =~ ^[0-9]+$ ]] && [ "$BACKEND_PORT_RAW" -gt 0 ]; then
   BACKEND_PORT="$BACKEND_PORT_RAW"
 else
   BACKEND_PORT="8090"
 fi
-BACKEND_BASE_URL="${HAFLEET_BACKEND_URL:-http://127.0.0.1:$BACKEND_PORT}"
+BACKEND_BASE_URL="${HAGENCY_BACKEND_URL:-http://127.0.0.1:$BACKEND_PORT}"
 CURL_DASHBOARD_AUTH_ARGS=()
 if [ -n "${API_TOKEN:-}" ]; then
   CURL_DASHBOARD_AUTH_ARGS=(-H "Authorization: Bearer ${API_TOKEN}")
 fi
-API_BASE="${HAFLEET_REMINDER_URL:-${BACKEND_BASE_URL%/}/api/reminders}"
+API_BASE="${HAGENCY_REMINDER_URL:-${BACKEND_BASE_URL%/}/api/reminders}"
 
 # ── Detect self target ──────────────────────────
 _detect_target() {

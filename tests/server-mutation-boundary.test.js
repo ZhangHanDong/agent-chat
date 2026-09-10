@@ -2,11 +2,11 @@
  * The queue's mutation boundary — which writes a NON-LOCAL caller may make.
  *
  * This file used to boot server.js, the web portal's process. The portal is deleted and the delivery
- * queue moved into the backend, so the boundary moved with it: local requests stay open (the `hafleet
- * send` and `hafleet reminder` CLIs run on this host with no credential), and a non-local caller needs
+ * queue moved into the backend, so the boundary moved with it: local requests stay open (the `hagency
+ * send` and `hagency reminder` CLIs run on this host with no credential), and a non-local caller needs
  * the OPERATOR BEARER. The enforcement is the backend's GLOBAL /api middleware — not a per-route guard;
  * the first version of this port added one and found the global layer answering first. The portal's
- * HAFLEET_DASHBOARD_TOKEN died with the portal.
+ * HAGENCY_DASHBOARD_TOKEN died with the portal.
  *
  * WHAT DIED WITH THE OLD FILE, so nobody hunts for the coverage: the agent down/roster/status tests
  * exercised portal-only routes (`/api/agents/:name/down`, `/api/agents/all`, `/api/agents/status`)

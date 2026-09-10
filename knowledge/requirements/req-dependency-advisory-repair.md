@@ -23,7 +23,7 @@ remaining recorded vulnerabilities or claim that unused dependency paths are saf
 ## Source Trace
 
 - Existing policy: `docs/SECURITY-DEBT.md`, "The ratchet".
-- CI failure: https://github.com/hagency-org/HAFleet/actions/runs/34382159421/job/102569479613
+- CI failure: https://github.com/hagency-org/hagency/actions/runs/34382159421/job/102569479613
 - https://github.com/advisories/GHSA-crvj-82cr-hjcx
 - https://github.com/advisories/GHSA-g6gw-c38x-mqfc
 - https://github.com/advisories/GHSA-gqvv-2mrq-wpjv

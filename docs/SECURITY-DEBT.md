@@ -3,7 +3,7 @@
 ## Current state
 
 53 advisories reach production dependencies transitively: **1 critical, 14 high,
-36 moderate, 2 low**. None originate in HAFleet's own code.
+36 moderate, 2 low**. None originate in Hagency's own code.
 
 Regenerate the figures at any time:
 
@@ -63,7 +63,7 @@ conclusion, and not a basis for treating anything as safe:
 
 - Most `hono` / `@hono/node-server` advisories concern that framework's own
   server features — `serveStatic`, CORS middleware, JWT middleware, `toSSG()`,
-  AWS Lambda adapters. HAFleet serves HTTP with **express**; the MCP SDK merely
+  AWS Lambda adapters. Hagency serves HTTP with **express**; the MCP SDK merely
   bundles hono. Those code paths are plausibly never entered.
 - `form-data` / `tough-cookie` / `qs` arrive through `request` inside
   `matrix-bot-sdk`, which *is* exercised whenever the Matrix bridge runs.

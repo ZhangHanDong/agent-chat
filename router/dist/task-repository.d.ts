@@ -23,6 +23,7 @@ export interface LegacyTask {
 export interface TaskStoreLike {
     createTask(body: Readonly<Record<string, unknown>>): LegacyTask;
     getTask(id: string): LegacyTask | null;
+    getExecutionEpoch(id: string): number | null;
     listTasks(filters?: Readonly<Record<string, string>>): LegacyTask[];
     updateTask(id: string, patch: Readonly<Record<string, unknown>>): LegacyTask;
     updateTaskExecution(id: string, patch: Readonly<Record<string, unknown>>): LegacyTask;

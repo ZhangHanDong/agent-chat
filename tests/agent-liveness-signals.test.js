@@ -11,7 +11,7 @@
  * `m.typing`, `receipt` and `m.reaction` returned nothing at all — so silence was the only
  * state the room could be in, whether the agent was working, dead, or never reached.
  *
- * TWO SIGNALS, AND WHAT WAS DELIBERATELY NOT BUILT. HAFleet can read the agent's pane
+ * TWO SIGNALS, AND WHAT WAS DELIBERATELY NOT BUILT. Hagency can read the agent's pane
  * (GET /api/agents/:name/pane) and relaying it would be the wrong thing to send: ANSI and tool
  * output, a message per second against rate limits this bridge already backs off from, and the
  * pane is the agent's whole screen — another project's content, a token in argv. Streaming it

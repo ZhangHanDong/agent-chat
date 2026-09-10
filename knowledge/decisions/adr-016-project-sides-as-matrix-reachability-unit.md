@@ -25,7 +25,7 @@ what is not, because "partly built" without the second half is the same defect i
 | 2 | non-federation is the assumption; federation is an optimization inside the same model; **built** for both credential kinds | **built and RUNNING** (2026-08-14) | `CREDENTIAL_KINDS = ['appservice', 'registrationToken']`; `lib/appservice-receiver.js` and `lib/appservice-listener.js` handle HS→AS transactions, and the bridge starts an intake (`startAppserviceIntake`) with a token-identified router. Verified against a real Palpo 0.4.0: registration installed, three transactions accepted, same-txnId idempotency, wrong-token 403, then unload proven via `M_UNKNOWN_TOKEN`. Federation is CHOSEN now (2026-08-15): `probeFederationFromSide` asks the side to resolve our bot's profile — a user we know exists, so the clearest answer is not ambiguous — and at mint time a side that federates with us, for an agent that already holds an identity on our server, is flagged `reusedIdentity: true` instead of minting a second one. One probe before the same call, not a second flow, per this decision's own reason. EVERY AMBIGUOUS ANSWER MINTS: `M_NOT_FOUND` proves nothing (their server may have reached ours and found no such user, or never reached it), the same server is not federation, and any refusal or timeout is `isolated` — because reusing an identity the project cannot see produces an agent addressable only in theory, while minting one that was not needed costs a row in their user table. NOT PROVEN LIVE, and the reason is stronger than first recorded. A second Palpo was brought up (`acme.test`) with `federation.enable = true` to witness the positive branch, and PALPO 0.4.0 DOES NOT IMPLEMENT SERVER-TO-SERVER FEDERATION: it accepts the config key, and `/_matrix/federation/v1/version` answers `M_UNRECOGNIZED` with no listener on 8448. So this is not "expensive to prove here" — it is unprovable on this homeserver, and would need Synapse or Conduit. The ISOLATED branch is proven live twice over, including against that remote with federation switched on, which is the answer the probe is designed to be safe about: a wrong `isolated` costs one minted account, a wrong `federates` costs an agent the customer cannot see. The listener IS running on this deployment (`serving 1 project side(s)`, `first transaction accepted`), but the existing intake room is ENCRYPTED and the appservice cannot read it — the run succeeded via the bot's crypto store. See "What the first live run found" |
 | 3 | the representative is registered per project side and is NOT an agent | **built** (2026-08-14) | `lib/matrix-representative.js`: `registerRepresentative` (random password, discarded), `ensureRepresentative`, `whoami`, and `classifyMatrixFailure` where only 401/403 are verdicts and anything unknown is `unreachable`. Wired at two call sites in `backend-v2.js`, and the credential is stored BEFORE the verdict so a crash between the two writes loses a verdict rather than a token. `createRoomOnSide` / `sendToRoomOnSide` are used by the bridge, which is how an approval reaches a decider on the borrower's server. The representative now brings the agent in (2026-08-15): `inviteToRoomOnSide` invites as the representative and `joinRoomOnSideAsAgent` puts the agent in under the side's as_token — the one act only an appservice can perform, since a per-agent token does not exist on such a side. Called at both acceptance points (auto-join and approval verdict), awaited, and reported as `roomAdmission` beside `binding`; a refused invite does not undo the approval. A registrationToken side is invited but not joined, because there the agent holds its own token and the bridge's existing path uses it. Re-admission is built too (2026-08-15): a send that fails on membership re-invites and rejoins through the same pair, which is the only moment anything notices the loss. And the agent can now SPEAK: `sendAsAgentContent` accepts an appservice sender and signs with the side's as_token, naming the agent in `?user_id=`, so `canSend` stopped meaning has-a-per-agent-token. An idle agent is re-admitted too (2026-08-15): `sweepProjectRoomMembership` runs hourly over active engagements, once per (agent, room) rather than once per engagement — six concurrent engagements on one pair is a real shape here — and reuses `admitAgentToProjectRoom` rather than adding a membership check, because that function already reads the already-in-the-room 403 correctly and a second way to ask is a second way to be wrong. Swept rather than watched because nothing tells us: membership on somebody else's homeserver changes without asking, and the appservice intake only sees rooms it is already in — the very membership in question. **With this, no clause of ADR-016 is recorded as unbuilt.** What remains is not-yet-proven rather than not-built: the `federates` branch of decision 2 has no live counterpart on a single-homeserver deployment, and the bridge's own state is still not swept when a side is removed (decision 7) |
 | 4 | an agent instance is minted on acceptance from a resource declaration | **partly built** (2026-08-14) | The identity act is built (`mintAgentIdentity`), and side attribution is built: a provision plan carries its `sideId`, the backend remembers the assignment in `provisionedSides`, and the agent record gains `projectSide` at registration — taken from that map, never from the agent's own request body, which `POST /api/agents` now enforces per-field. The provisioning path calls `mintAgentIdentity` now (2026-08-15): at registration, the moment both facts are first true — the record exists and the plan says which side it serves. Fire and forget, because minting talks to somebody else's homeserver and a registration that only 200s when a foreign server answers would put every launcher at that server's mercy; a refusal raises an actionable `agent_identity_unminted` instead, whose impact line says work is NOT blocked (the representative can still invite and join it, the appservice can still speak as it) and what is missing is an account the customer can attribute that work to. The resource declaration is now a ROLE-MATCHED selection (2026-08-15): `resourceForRole` picks the lowest-tier configured preset that can staff the (role, tier) ask — qualifying tier, a declared ceiling, and not on the role's `excluded` list — and a deployment with presets but none qualifying gets `no_resource_for_role`, a refusal taken BEFORE the reservation so an impossible ask holds no seat. A zero-preset deployment keeps the static `TIER_RUNTIME` row, so an upgrade is not an outage. Enforcing `excluded` also gave that list its first reader: it had stated a per-role rule no code applied. **Corrected 2026-08-14:** the budget half of this row cited the `/api/dispatch` gate; the admission point is acceptance, and the gate is there now |
-| 5 | the invite object is a room alias plus `knock` | **built and PROVEN LIVE** (2026-08-15) | `resolveAliasOnSide` reads the side's directory for `#its-project:its-server` and `knockOnRoomOnSide` knocks as the representative; `POST /api/project-sides/:id/knock` is the operator's entry point. The two failures are kept apart because they send an operator to different people: an unresolvable alias is a typo or an unpublished room, a refused knock is the project's join rule, and a homeserver that does not implement knocking answers `M_UNRECOGNIZED` — reported as `knock_unsupported`, since HTTP 404 alone reads like a bad alias when the remedy is a homeserver upgrade. Verified against real Palpo 0.4.0: a room created by another user with `join_rule: knock` and a published alias, knocked on through the endpoint, and Palpo's own `/members` reports `@hafleet:palpo.test -> knock` carrying the reason we sent. The accept is watched too (2026-08-15): `onAppserviceMembership` sees an invite addressed to the representative on a side we hold an acting credential for, joins, and tells the operator — saying in the same breath that requests from that room still go through engagement approval and the side budget, so reachable is never read as approved. It runs BESIDE the generic handler rather than instead of it: two existing tests refused the first version with the right argument — the trust gate and the historical cutoff live in `onRoomEvent`, and a handler that swallowed membership events would be a way around both. Proven live: the project invited, the bridge logged `knock answered — @hafleet:palpo.test joined`, and Palpo reports `join` |
+| 5 | the invite object is a room alias plus `knock` | **built and PROVEN LIVE** (2026-08-15) | `resolveAliasOnSide` reads the side's directory for `#its-project:its-server` and `knockOnRoomOnSide` knocks as the representative; `POST /api/project-sides/:id/knock` is the operator's entry point. The two failures are kept apart because they send an operator to different people: an unresolvable alias is a typo or an unpublished room, a refused knock is the project's join rule, and a homeserver that does not implement knocking answers `M_UNRECOGNIZED` — reported as `knock_unsupported`, since HTTP 404 alone reads like a bad alias when the remedy is a homeserver upgrade. Verified against real Palpo 0.4.0: a room created by another user with `join_rule: knock` and a published alias, knocked on through the endpoint, and Palpo's own `/members` reports `@hagency:palpo.test -> knock` carrying the reason we sent. The accept is watched too (2026-08-15): `onAppserviceMembership` sees an invite addressed to the representative on a side we hold an acting credential for, joins, and tells the operator — saying in the same breath that requests from that room still go through engagement approval and the side budget, so reachable is never read as approved. It runs BESIDE the generic handler rather than instead of it: two existing tests refused the first version with the right argument — the trust gate and the historical cutoff live in `onRoomEvent`, and a handler that swallowed membership events would be a way around both. Proven live: the project invited, the bridge logged `knock answered — @hagency:palpo.test joined`, and Palpo reports `join` |
 | 6 | budget is admission control, and **acceptance** is the admission point; a refusal RAISES AN ALARM | **built** (2026-08-14) | A project side carries a real `allocatedTokens`; `null` is UNALLOCATED and refuses rather than meaning unlimited. `refuseOverSideAllocation` answers `no_project_side`, `no_allocation` or `over_allocation` and names the shortfall — a refusal, never a queue entry — at BOTH points a side's allocation is committed: the auto-join inside `POST /api/engagements` and the approval in `POST /api/engagements/:id/verdict`. A refusal also raises an actionable `project_side_budget` alert, deduped per side, that auto-resolves when the allocation is raised far enough to leave headroom. **Corrected 2026-08-14:** this row previously cited the gate on `POST /api/dispatch` Phase 4, which ADR-013 decision 8 withdraws and which has no product caller — see "Where this gate belongs" below. The overrun DISPLAY obligation is built (2026-08-15): `overBy` in the console's derive layer reports how far past a ceiling an agent has drawn, and `components/Meter.jsx` renders it as its own state — a distinct fill plus a text figure — because the bar's unavoidable `Math.min(100, pct)` clamp had made a breach identical to landing exactly on the ceiling. Derived SEPARATELY from `remaining`, which floors at zero on purpose: that is the admission figure and there is no negative headroom to allocate. Two invariants hold it — no page may clamp a meter itself, and the state must actually render. An existing overrun now pages too (2026-08-15): `sweepCeilingOverruns` files an actionable `agent_ceiling_overrun` per agent whose drawn figure — `max(committed, measured)`, the same one `remainingFor` uses — is past its preset ceiling, and auto-resolves when it is not. Swept hourly rather than raised at a decision point, because nothing decides an overrun: it arrives when a ceiling is lowered under commitments that were already granted |
 | 7 | deleting a project side cascades, but RETIRES agents rather than erasing usage | **built** (2026-08-14) | Removing a side retires the agents minted for it — record kept, ledger kept, `offlineReason` naming the side — and the precondition is checked BEFORE anything is retired, so a refused delete does not take a side's agents down. Engagements on the side are ENDED and approval bindings DEACTIVATED — kept with a reason, per the operator's compliance rule 「不删除，只是停用退役」 — and the response reports `cascade: 'performed'` with what it did rather than a claim of completeness. Two more stores are swept now (2026-08-15): PENDING INVITATIONS on the side are DECLINED with the decider recorded as `project-side-removed` — they could never be accepted, and 「不删除，只是停用退役」 makes a declined invitation history where a missing one is amnesia — and SIDE-SCOPED ALERTS are resolved by dedupe prefix, because an alert naming a side that no longer exists sends an operator chasing a 404 and teaches them to trust the next one less. The bridge sweeps its own state too (2026-08-15): `forgetRoomsOnSides` drops `dmRooms`, `approvalDmRooms`, `trustedManagedRooms` and both directions of the group map for rooms on a side that the credential refresh no longer serves — which is the only signal the bridge ever gets, since the backend cannot reach that file. Taken from the diff ONLY on a successful fetch: a failed refresh keeps the old map, and treating "I could not ask" as "every side is gone" would sweep a live deployment because the backend restarted. It forgets pointers, never rooms — those are on somebody else's homeserver and stay theirs, which is what `docs/FOR-PROJECT-SIDES.md` promises them. `trustedManagedRooms` matters most here: it is a PERMISSION, and one for a side we no longer serve is one nobody meant to keep granting |
 | 8 | a project side's credential is write-only through the console | **partly built** (2026-08-14) | The API half is done and is the half that could leak: `publicSide` is an allow-list projection, `accessState` is named to dodge the health writer's `/credential/` redaction guard, and the two credential-returning endpoints are excluded from the console proxy's read allow-list by a regex that requires a dot or colon in the id. The console has a credential form now (2026-08-15, `components/CredentialForm.jsx` on `/engagements`): per-kind fields, an explicit-null withdrawal behind a confirmation, and the typed token cleared from state on success. The proxy admits the PUT and nothing else — verified end to end, the write lands with no token in the response while all three credential READ paths answer 403, so the console can write a credential it can never read back. What entering it here costs is stated in the form: the token passes through the browser. The class is classified now (2026-08-15): `cf.sideSecrets` on `/config` states the OPPOSITE rule beside the install-time one, because the difference is the point — a side's credential belongs to somebody else's homeserver, arrives after install, and IS entered from a browser, and what makes that safe is a one-way door rather than secrecy from the browser: the console can write one and can never read one back, and every endpoint that would return one answers 403 to it |
@@ -54,7 +54,7 @@ assumed, because the amendment's estimate is what justified deferring the work:
 
 - **Agent accounts are cheap.** `sendAsAgentContent` is a raw
   `PUT /_matrix/client/v3/rooms/{id}/send/m.room.message/{txn}` with a bearer token and no crypto
-  path — HAFleet's agents have never been E2EE participants. An agent on a foreign server therefore
+  path — Hagency's agents have never been E2EE participants. An agent on a foreign server therefore
   needs a token and a base URL, not a crypto store.
 - **`matrixRegister` already speaks the mechanism.** It implements
   `{ type: 'm.login.registration_token', token, session }` against the UIA flow. Minting agent
@@ -74,14 +74,14 @@ the credential on the agent; the amendment moved it to `(project, agent)`; this 
 
 The operator's question, which the existing design cannot answer:
 
-> 我们在 hafleet 定义了 contributions resource 然后据此定义了 agent，但是这个 agent 需要加入 matrix
+> 我们在 hagency 定义了 contributions resource 然后据此定义了 agent，但是这个 agent 需要加入 matrix
 > 房间吗？…现实中，项目可能在不同的 matrix home server，agent 在没有接受项目邀请之前是不知道加入哪个
 > home server，所以你先创建了 biglittle 的 matrix id 是错的。
 
 This is a real circular dependency, not a misreading. `agentUserId(name)` composes
 `@${AGENT_PREFIX}${name}:${MATRIX_SERVER_NAME}` through `makeUserId()`, where `MATRIX_SERVER_NAME`
 derives from the single `HOMESERVER` constant. An agent identity therefore exists **before** any
-project is known, on **HAFleet's own** server. Under decision 2 that identity is unusable for any
+project is known, on **Hagency's own** server. Under decision 2 that identity is unusable for any
 project that does not federate with us — which is now the assumed case.
 
 Three further facts, verified, that the design has to absorb:
@@ -104,7 +104,7 @@ Three further facts, verified, that the design has to absorb:
 
 **1. 项目方 (project side) becomes a first-class entity, and it is the unit of Matrix
 reachability.** A project side is: one homeserver (server name plus discovered API base URL), the
-credential HAFleet holds there, and one representative account. The operator's framing — 「类似外包
+credential Hagency holds there, and one representative account. The operator's framing — 「类似外包
 公司在客户那边注册了一个接单资质」 — is the definition, not an analogy: what is registered is a
 standing capacity to take work, held by the firm and not by any individual worker.
 
@@ -139,7 +139,7 @@ that the cheap mode becomes the only tested one.
 AppService does not disappear; it stops being a *flow* and becomes a **credential kind** on the
 project side (`{ kind: 'appservice', asToken, namespace }` versus
 `{ kind: 'registrationToken', token }`). Both mint accounts on that side's server; they differ in
-what the project installed, not in what HAFleet does afterwards.
+what the project installed, not in what Hagency does afterwards.
 
 *Status — **built and RUNNING** (2026-08-14). Both credential kinds, verified against a real Palpo 0.4.0 rather than a mock, and the intake is now live rather than merely implemented: the listener is up on this deployment, `refreshAppserviceSides` reports `serving 1 project side(s): palpo.test`, and a real homeserver push was accepted — `first transaction accepted from palpo.test`. **Not built:** nothing detects a federating side and skips registration, so federation remains a stated optimization with no code path. **Newly known and NOT solved: encryption blocks this channel** — see "What the first live run found".*
 
@@ -182,7 +182,7 @@ converted in bulk.
 ## What a SECOND CUSTOMER found (2026-08-15)
 
 Everything above ran against one project side. A second Palpo was brought up as `acme.test` — a homeserver
-that had never seen HAFleet — and onboarded from scratch by following `docs/FOR-PROJECT-SIDES.md` as
+that had never seen Hagency — and onboarded from scratch by following `docs/FOR-PROJECT-SIDES.md` as
 written. The fleet then served both: `serving 2 project side(s): palpo.test, acme.test`, both credentials
 `accepted`, both sides rendered in the console.
 
@@ -286,7 +286,7 @@ engagement approval invited and joined `@ac_sitehand:palpo.test`, an account **n
 registered**; `GET /joined_members` came back with that agent and the representative in the room; and
 a message from the agent arrived with `sender=@ac_sitehand:palpo.test` — the AGENT, not the
 representative whose token carried it. That last line is the one worth having: a masquerade that
-silently posted as `@hafleet` would have looked identical from this side.
+silently posted as `@hagency` would have looked identical from this side.
 
 **A SECOND TOKEN DEPENDENCY THE UNIT TESTS COULD NOT SEE, since fixed.** The first attempt went
 through the DM path and was dropped before it reached the send at all: `ensureDmRoom` did
@@ -302,7 +302,7 @@ the first version invited only the human, and Palpo answered **403 on the agent'
 passed because its fake homeserver answered 200 to any join. A mock permissive enough to hide a
 precondition the real thing enforces is not a weaker test, it is a test of something else. Both
 parties are now in the invite list and the test asserts it; verified after: Palpo reports the DM room
-holding `@ac_sitehand` and `@hafleet`, and the message arriving with `sender=@ac_sitehand`.
+holding `@ac_sitehand` and `@hagency`, and the message arriving with `sender=@ac_sitehand`.
 
 **Also observed, and since addressed:** `/api/dispatch` answered `queued` rather than `provision`,
 because `MATRIX_AGENT_MAX_PER_CELL` defaults to 0. Auto-provisioning is off by default and that route
@@ -322,8 +322,8 @@ The chain was run end to end for the first time — a borrower registered on a r
 `!request` into a real room, through to a binding and a committed allocation. Everything below was found
 by running it; none of it is visible by reading.
 
-**IT WORKS, AND HERE IS THE EVIDENCE.** `@hafleet:palpo.test` was created BY the homeserver from the
-registration — HAFleet never registered it — and joined a project room by masquerading with the
+**IT WORKS, AND HERE IS THE EVIDENCE.** `@hagency:palpo.test` was created BY the homeserver from the
+registration — Hagency never registered it — and joined a project room by masquerading with the
 `as_token`. A borrower sent `!request coding 80000`; the bot read it, the backend created the
 engagement, routed it `notWhitelisted`, assigned `biglittle`, and on approval bound the agent and
 committed the tokens. The side's budget moved 0 → 250,000 → 450,000 of 1,000,000 across three requests.
@@ -358,7 +358,7 @@ occurrence. Acceptance is announced once per side for the same reason: a working
 silence, so "it works" could only be inferred from the absence of an error in somebody else's log.
 
 **THE OWNER IS READ BY THE BACKEND, NOT THE BRIDGE.** `bindEngagement` runs in `backend-v2.js`, so
-`HAFLEET_OWNER_MXID` and `HAFLEET_OWNER_DM_ROOM` must be set there. Three bridge restarts changed
+`HAGENCY_OWNER_MXID` and `HAGENCY_OWNER_DM_ROOM` must be set there. Three bridge restarts changed
 nothing while the error message said exactly what was wrong; what it did not say is which process needed
 to hear it. Until the owner was known, approval produced `active` engagements with `bound: false` — the
 allocation was committed and the project could not reach the agent, which is the worst of both.
@@ -388,17 +388,17 @@ why an identity had to be created first, and why `@ac_biglittle:palpo.test` only
 `MATRIX_HOMESERVER` happened to be the project's own server.
 
 The operator's guess that this is what the bridge already does is half right: the bridge bot performs
-the representative's *functions* (sync, invite polling, room state) but is configured as HAFleet's
+the representative's *functions* (sync, invite polling, room state) but is configured as Hagency's
 single global bot, one per deployment rather than one per project side.
 
-**Configuration is a prerequisite, in the operator's order:** HAFleet configures the representative's
-admission first (「hafleet 需要先配置代表的加入」), then requests can arrive. Nothing about intake works
+**Configuration is a prerequisite, in the operator's order:** Hagency configures the representative's
+admission first (「hagency 需要先配置代表的加入」), then requests can arrive. Nothing about intake works
 before a project side exists.
 
 **What this used to cost, and no longer does.** A representative that must read an **encrypted**
 intake room needs its own device and crypto store — the doubling ADR-014 feared. **Settled
 2026-08-13: intake rooms are plaintext**, so the representative is an ordinary account holding a
-token, and that cost is gone. The reasoning is under "Questions settled" below; in short, HAFleet's
+token, and that cost is gone. The reasoning is under "Questions settled" below; in short, Hagency's
 agents send plaintext unconditionally, so requiring it of intake rooms makes an existing constraint
 explicit rather than imposing a new one.
 
@@ -406,7 +406,7 @@ explicit rather than imposing a new one.
 
 **4. An agent instance is minted on acceptance, from a durable resource declaration. Manual creation
 stops being the mechanism.** The operator's definition is adopted verbatim: a resource is 「coding
-agent + 模型 + 思考深度 + token 预算的总和」. That declaration is durable, local to HAFleet, and is
+agent + 模型 + 思考深度 + token 预算的总和」. That declaration is durable, local to Hagency, and is
 ADR-013's L1/L2. An **agent instance** is the dispatched embodiment of a resource against one
 engagement, and is L3.
 
@@ -430,7 +430,7 @@ Two constraints on this:
 *Status — **partly built** (2026-08-14). The identity act exists (`mintAgentIdentity`) and side attribution is built end to end: a provision plan carries its `sideId`, the backend remembers it in `provisionedSides`, and the agent record gains `projectSide` at registration — from that map, never from the agent's own body, which `POST /api/agents` now enforces per-field. **Not built:** no product code calls `mintAgentIdentity` (its 12 references are all in tests) — the agent's Matrix identity `@ac_biglittle:palpo.test` appeared in the project room during the live run WITHOUT it, through the bridge's own path, so the minting function remains unexercised while the outcome it exists to produce happens by another route. The resource declaration is still an operator-chosen preset rather than a role-matched selection — `resourceForRole`, `presetTier`, `provisionedResources` and `no_resource_for_role` have zero occurrences. `provisionReservations` is incremented and never decremented, so plans leak for the process lifetime.*
 
 **5. The invite object is a room alias plus `knock`.** The project publishes
-`#its-project:its-server` and sets the join rule to `knock`; HAFleet's representative knocks; the
+`#its-project:its-server` and sets the join rule to `knock`; Hagency's representative knocks; the
 project accepts. This is the operator's 「邀请码 / 邀请 link」 in native Matrix terms — an alias is a
 shareable, human-readable, server-scoped handle, and a knock is a pull rather than a push, which
 matches the intake direction the design already has.
@@ -464,7 +464,7 @@ both of which must pass before an account is minted:
 
 | ceiling | question | when written | now (2026-08-14) |
 |---|---|---|---|
-| HAFleet's own total | can this deployment afford another agent at all? | `remainingFor(agent)` exists; nothing calls it from a provisioning path | enforced by `engagementStore.decide()` at approval, and by `routeRequest` before an auto-join |
+| Hagency's own total | can this deployment afford another agent at all? | `remainingFor(agent)` exists; nothing calls it from a provisioning path | enforced by `engagementStore.decide()` at approval, and by `routeRequest` before an auto-join |
 | the project side's allocation | can this project side afford this request? | no per-side allocation exists | `allocatedTokens` on the side; enforced by `refuseOverSideAllocation` at both admission points |
 
 A refusal is an **alarm naming the shortfall**, not a queue entry: an agent that was never created
@@ -567,11 +567,11 @@ clicks.
 over project sides, which necessarily puts a **secret** — a registration token or an `as_token` —
 into a store a browser can write. That collides with the console's own stated principle:
 
-> HAFleet 自身的密钥——API_TOKEN、各 Agent 令牌、MATRIX_REG_TOKEN——在安装时一次性写入权限为 600 的
+> Hagency 自身的密钥——API_TOKEN、各 Agent 令牌、MATRIX_REG_TOKEN——在安装时一次性写入权限为 600 的
 > .env。它们刻意不允许从浏览器修改：一个能改写自己认证令牌的面板，也就是一个能把所有人锁在门外的面板。
 
 The collision is real but the reasoning does not transfer, and the difference is worth stating rather
-than glossing: that rule protects HAFleet's **own** authentication, where a browser-writable value
+than glossing: that rule protects Hagency's **own** authentication, where a browser-writable value
 can lock the operator out of the console itself. A project side's credential is **inbound work
 capacity** — a bad value costs one project side's reachability and locks nobody out. So it may be
 set from the console; the constraint is on reading:
@@ -595,7 +595,7 @@ Good, because auto-provisioning becomes possible **as a consequence of decision 
 non-obvious payoff. Under ADR-014's amendment a project handed over one token per
 `(project, agent)` — so creating an agent required a human on the project side to act first, and
 automatic creation was structurally impossible. A registration credential held per project side is
-what lets HAFleet mint accounts on demand. The operator's answers to questions 2 and 4 are load-bearing
+what lets Hagency mint accounts on demand. The operator's answers to questions 2 and 4 are load-bearing
 for each other.
 
 Good, because the cost is smaller than ADR-014 priced it: agents need no crypto store, and
@@ -648,7 +648,7 @@ this decision.
   falsifiable by deletion. See decision 7.
 - **Per-project credentials (ADR-014's amendment shape).** Rejected: a room does not issue accounts,
   and the shape cannot express "we are registered on this server".
-- **A HAFleet-hosted intake room that projects join instead.** Rejected as a reversal of the intake
+- **A Hagency-hosted intake room that projects join instead.** Rejected as a reversal of the intake
   direction: it requires every project to have an account on our server, which is the same
   account-creation privilege problem ADR-014 rejected, pointed the other way.
 
@@ -663,8 +663,8 @@ Three places in this repository answered it, and not the same way:
 | source | says the owner is |
 |---|---|
 | ADR-002's rule — owner is whoever invited the agent into the project room | the **borrower**, necessarily: without federation the project room is on their server, so the inviter is a project-side account |
-| `HAFLEET_OWNER_MXID` / `HAFLEET_OWNER_DM_ROOM`, documented as `@you:your-server.example` | the **contributor** |
-| `docs/design/hafleet-as-pdu.md` — "the customer — a human answers in the room" | the **borrower** |
+| `HAGENCY_OWNER_MXID` / `HAGENCY_OWNER_DM_ROOM`, documented as `@you:your-server.example` | the **contributor** |
+| `docs/design/hagency-as-pdu.md` — "the customer — a human answers in the room" | the **borrower** |
 
 The sharpest way to put it is by who is harmed when the answer is wrong. Give it to the borrower when
 it was the contributor's, and the borrower approves spending someone else's tokens on their own
@@ -672,7 +672,7 @@ repository. Give it to the contributor when it was the borrower's, and the contr
 command against a repository they cannot see. The operator chose the second risk over the first.
 
 **So ADR-002's rule is confirmed, and the config path is demoted.** `owner_mxid` derived from the
-project-room inviter is now the model rather than a Matrix-flavoured accident; `HAFLEET_OWNER_MXID`
+project-room inviter is now the model rather than a Matrix-flavoured accident; `HAGENCY_OWNER_MXID`
 becomes a bootstrap fallback for a deployment with no project side yet, and should say so.
 
 ### What this decision requires, none of which is built
@@ -694,7 +694,7 @@ and answer, which is an access-control question rather than a cross-party confid
 
 **The unreversible part is not the room.** `owner_mxid` is stamped into every audit row already
 written, and re-pointing it also re-points `MATRIX_TRUSTED_INVITER_MXIDS`, `MATRIX_OPERATOR_MXIDS` and
-`HAFLEET_OWNER_MXID`. That is true whichever room location follows, so choosing this does not defer it.
+`HAGENCY_OWNER_MXID`. That is true whichever room location follows, so choosing this does not defer it.
 
 ### The three options this replaces
 
@@ -704,7 +704,7 @@ statements wrong — verified against the code:
 - "the borrower cannot see which agent is being asked about" was **false**: the agent's name is in the
   body of both messages, and the borrower is not a member of the approval room under any option. The
   real transparency gap is that `model` appears nowhere in the approval record at all.
-- "the operator, who lives on the contributor's server" was true only of the `HAFLEET_OWNER_MXID`
+- "the operator, who lives on the contributor's server" was true only of the `HAGENCY_OWNER_MXID`
   fallback, not of ADR-002's actual rule. The cost that belonged in that cell was E2EE.
 - "loses the visible attachment ADR-003's two-channel model leans on" had **no referent**: neither
   ADR-003 nor `specs/task-owner-ui-approval.spec.md` requires the agent to be a member anywhere. The
@@ -775,7 +775,7 @@ needs to see that these were decided rather than assumed.
 
 **1. Intake rooms are PLAINTEXT.** The representative never needs to decrypt, so a project side
 costs a token and not a crypto store, and ADR-014's doubling of the ADR-008 surface does not
-happen. This becomes a **requirement stated to the project side**, not a preference: HAFleet's
+happen. This becomes a **requirement stated to the project side**, not a preference: Hagency's
 agents send plaintext unconditionally, so an encrypted intake room is already degraded — the
 borrower sees unencrypted messages from the agent. The decision makes an existing de-facto
 constraint explicit instead of leaving it to be discovered.
@@ -809,7 +809,7 @@ a *credential kind* rather than a *flow* is what makes supporting both cheap.
 
 **The consequence that matters is not effort — it is that this SIMPLIFIES the credential model, and
 retroactively corrects ADR-014 decision 4.** Under appservice an agent holds **no credential at
-all**: HAFleet masquerades with the project side's single `as_token` by appending
+all**: Hagency masquerades with the project side's single `as_token` by appending
 `?user_id=@ac_x:their-server`. So `{ homeserver, accessToken }` per agent — decision 4's shape, and
 the shape this ADR's decision 1 had already moved to the project side — is not merely differently
 placed, it is **unrepresentable** for an appservice side. The agent record therefore holds
@@ -827,7 +827,7 @@ placed, it is **unrepresentable** for an appservice side. The agent record there
 requirement.** An appservice needs the project's homeserver to reach an address we expose, and
 `bridge-matrix.js` has no `listen(` and no `createServer` — verified again live: the running bridge
 process holds **zero** listening sockets. So appservice support requires, and must state to the
-operator, that HAFleet is reachable inbound from the project side (a public host, a tunnel, or
+operator, that Hagency is reachable inbound from the project side (a public host, a tunnel, or
 same-network deployment). Where it is not, that project side must use a registration token.
 
 What has to be built for it: `PUT /_matrix/app/v1/transactions/{txnId}` authenticated by `hsToken`
@@ -923,8 +923,8 @@ sent twice answered 200 both times and invoked the handler **once**, and a trans
 token was refused 403 with the handler never reached.
 
 The listener's defaults were verified the same way, because they are what an operator inherits: with no
-`HAFLEET_APPSERVICE_PORT` the listener does not exist at all; with a port and no
-`HAFLEET_APPSERVICE_BIND` it binds loopback only, which a container cannot reach; widening to
+`HAGENCY_APPSERVICE_PORT` the listener does not exist at all; with a port and no
+`HAGENCY_APPSERVICE_BIND` it binds loopback only, which a container cannot reach; widening to
 `0.0.0.0` is allowed and reported as `exposedBeyondLoopback`. Loopback-by-default is deliberate — the
 console's `next dev` binding every interface is a failure this repository has already shipped once, and
 a surface that appears because someone set a port should not also appear on every interface because
@@ -937,8 +937,8 @@ instance restarted, and the `as_token` refused `M_UNKNOWN_TOKEN`. Two further ac
 **Residue from the experiment**, disclosed rather than left to be found: the throwaway registration,
 the `appservice_registration_dir` key and the bind mount were all removed and the instance restarted,
 verified by the `as_token` now being refused `M_UNKNOWN_TOKEN`. Two Matrix accounts (`@probehuman`,
-`@ap_test`) and one room remain on this disposable homeserver. They are invisible to the HAFleet
-console — neither is a HAFleet agent and neither inviter is trusted — so they pollute no surface, but
+`@ap_test`) and one room remain on this disposable homeserver. They are invisible to the Hagency
+console — neither is a Hagency agent and neither inviter is trusted — so they pollute no surface, but
 they do exist.
 
 **Also relevant to decision 2:** this deployment runs with federation disabled, which matches the

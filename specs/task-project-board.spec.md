@@ -1,14 +1,14 @@
 spec: task
 name: "Project operations board"
 inherits: project
-satisfies: [REQ-PROJECT-BOARD, ADR-001, ADR-009]
-tags: [active, dashboard, projects, agents, tasks, workflow]
+satisfies: [REQ-PROJECT-BOARD, ADR-001, ADR-009, ADR-017]
+tags: [active, backend, projects, agents, tasks, workflow]
 estimate: 1.5d
 ---
 
 ## Intent
 
-Add a read-only hafleet project board that lets an operator understand
+Add a read-only hagency project board that lets an operator understand
 project health, agent activity, task progress, workflow execution, and recent
 public updates without inspecting multiple Dashboard pages or private approval
 rooms.
@@ -17,7 +17,7 @@ rooms.
 
 ### Must
 - Use a backend-owned project-board projection.
-- Treat an hafleet group, excluding the reserved `info` group, as a project.
+- Treat an hagency group, excluding the reserved `info` group, as a project.
 - Include all explicit group members without inferring identity or role from a name.
 - Require an explicit group-to-project binding before exposing managed project resources.
 - Redact runtime secrets and absolute filesystem paths before the Dashboard receives data.
@@ -48,7 +48,7 @@ rooms.
 ## Decisions
 
 - Backend endpoint: `GET /api/project-board`.
-- Dashboard page: `GET /projects`.
+- The legacy Dashboard page and proxy were retired; this contract now binds the backend projection only (ADR-017).
 - Project identity in v1 is the exact group name.
 - Managed resources are selected by the existing explicit workflow binding's
   exact `group` and `project`; an unbound group exposes no local resources.
@@ -65,7 +65,7 @@ rooms.
   backend-only `ATOMGIT_TOKEN` environment variable.
 - The visual hierarchy borrows Multica's project filter, KPI strip,
   status-board, and first-class agent assignment concepts while using the
-  existing hafleet Dashboard style and dependency-free renderer.
+  existing hagency Dashboard style and dependency-free renderer.
 
 ## Boundaries
 
@@ -114,7 +114,7 @@ Scenario: Direct and approval messages are absent
 
 Scenario: Agent runtime secrets and paths are absent
   Tags: critical
-  Test: project_board_redacts_runtime_secrets_and_paths
+  Test: project_board_excludes_private_messages and redacts_runtime_secrets_and_paths
   Given a project agent has runtime credentials and local workspace paths
   When the project snapshot is returned
   Then safe framework and model labels may appear
@@ -123,19 +123,19 @@ Scenario: Agent runtime secrets and paths are absent
 ### Rule: work-projection — tasks and graphs are project scoped
 
 Scenario: Tasks form canonical status lanes
-  Test: project_board_groups_tasks_by_status
+  Test: groups tasks, graphs, and stale agent work deterministically
   Given project-member agents own tasks in several statuses
   When the project snapshot is built
   Then each task appears exactly once in its canonical lane
 
 Scenario: Related task graph exposes workflow stages
-  Test: project_board_includes_related_task_graph
+  Test: groups tasks, graphs, and stale agent work deterministically
   Given a task graph assigns one node to a project agent
   When the project snapshot is built
   Then the graph and every node state appear
 
 Scenario: Stale active task is visible
-  Test: project_board_marks_stale_agent_task
+  Test: groups tasks, graphs, and stale agent work deterministically
   Given an active agent task heartbeat is older than the freshness window
   When the project snapshot is built
   Then the agent task is marked stale
@@ -192,35 +192,13 @@ Scenario: Remote provider observation fails safely
   Then the repository remains visible with sync state unavailable
   And no credential, command output, or local path appears
 
-### Rule: dashboard-experience — operators can scan and refresh safely
+## Retired acceptance scope
 
-Scenario: Project page renders all read-only surfaces
-  Test: project_page_renders_board_surfaces
-  Given the Dashboard serves the project page
-  When the operator opens /projects
-  Then project selection, KPIs, agents, task lanes, graphs, and activity containers exist
-
-Scenario: Dashboard proxies the backend snapshot
-  Test: project_board_proxy_is_read_only
-  Given the browser requests /api/project-board
-  When the Dashboard proxies the request
-  Then it issues one GET to the backend
-  And it exposes no project-board mutation route
-
-Scenario: Overlapping refresh is coalesced
-  Test: project_page_coalesces_refresh
-  Given a project-board refresh is already in flight
-  When another timer or stream event asks for a refresh
-  Then no overlapping request starts
-  And exactly one follow-up refresh is queued
-
-Scenario: Project agent opens in Monitor
-  Test: project_agents_link_to_the_monitor_and_monitor_has_complete_navigation
-  Given a registered agent appears in the selected project's Agents section
-  When the operator clicks that agent card
-  Then the Monitor page opens with that exact agent selected
-  And Monitor shows the same complete Dashboard navigation
-  And MONITOR is marked as the current page
+The four Dashboard-page scenarios (rendered surfaces, proxy, refresh coalescing,
+and Monitor navigation) were withdrawn by the operator's portal retirement,
+implemented in commits `0b7784b` and `48cebe6`. They are not passing acceptance
+claims and are no longer executable selectors. See ADR-017. Backend projection,
+privacy, task grouping and resource-binding scenarios above remain active.
 
 ## Out of Scope
 

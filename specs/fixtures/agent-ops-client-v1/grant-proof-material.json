@@ -1,5 +1,5 @@
 {
-  "schema": "com.hafleet.agent_ops.v1",
+  "schema": "com.hagency.agent_ops.v1",
   "kind": "grant_exchange",
   "grant_jti": "grant-fixture-1",
   "client_nonce": "client-nonce-fixture-1",

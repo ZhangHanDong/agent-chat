@@ -14,7 +14,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 K="${1:-5}"
-OUT="${2:-/tmp/hafleet-flake-specimens}"
+OUT="${2:-/tmp/hagency-flake-specimens}"
 mkdir -p "$OUT"
 for i in $(seq 1 "$K"); do
   log="$OUT/run-$i.log"

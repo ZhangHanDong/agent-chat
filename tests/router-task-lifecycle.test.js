@@ -6,7 +6,7 @@ import { openRouter, createRouterTaskStore } from '../router/dist/index.js';
 const cleanups = [];
 afterEach(() => { for (const fn of cleanups.splice(0)) fn(); });
 function fixture({ start = true } = {}) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-task-lifecycle-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-task-lifecycle-'));
   const router = openRouter({ dbPath: path.join(root, 'router.db') });
   cleanups.push(() => { router.close(); rmSync(root, { recursive: true, force: true }); });
   router.ingestMessage({ messageId: 'input', roomId: '!room:test', matrixEventId: '$input', senderMxid: '@human:test', senderName: 'human', recipientAgentId: 'agent_worker', recipientAgentName: 'worker', normalizedBody: 'Implement and verify' });

@@ -17,10 +17,10 @@ describe('thread-session source reconciliation', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-router-reconcile-', {
+    context = await createBackendTestContext('hagency-router-reconcile-', {
       env: {
-        HAFLEET_THREAD_SESSIONS: '1',
-        HAFLEET_ROUTER_TASK_CUTOVER: '1',
+        HAGENCY_THREAD_SESSIONS: '1',
+        HAGENCY_ROUTER_TASK_CUTOVER: '1',
         MATRIX_BRIDGE_SECRET: 'router-reconcile-secret',
         API_TOKEN: 'router-reconcile-api-token',
       },

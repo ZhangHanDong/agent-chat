@@ -9,11 +9,11 @@ describe('thread-session kill switch after task cutover', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-router-kill-switch-', {
+    context = await createBackendTestContext('hagency-router-kill-switch-', {
       env: {
-        HAFLEET_THREAD_SESSIONS: '0',
-        HAFLEET_ROUTER_TASK_CUTOVER: '1',
-        HAFLEET_ROUTER_SHADOW: '0',
+        HAGENCY_THREAD_SESSIONS: '0',
+        HAGENCY_ROUTER_TASK_CUTOVER: '1',
+        HAGENCY_ROUTER_SHADOW: '0',
         MATRIX_BRIDGE_SECRET: 'router-kill-switch-secret',
         API_TOKEN: 'router-kill-switch-api',
       },

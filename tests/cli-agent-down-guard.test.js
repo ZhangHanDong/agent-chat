@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
 const REPO_ROOT = path.resolve('.');
-const HAFLEET_BIN = path.join(REPO_ROOT, 'bin', 'hafleet');
+const HAGENCY_BIN = path.join(REPO_ROOT, 'bin', 'hagency');
 const cleanupDirs = new Set();
 
 function trackTempDir(prefix) {
@@ -21,8 +21,8 @@ function writeExecutable(filePath, content) {
 }
 
 function setupFakeTmux() {
-  const binDir = trackTempDir('hafleet-hafleet-down-bin-');
-  const stateDir = trackTempDir('hafleet-hafleet-down-state-');
+  const binDir = trackTempDir('hagency-hagency-down-bin-');
+  const stateDir = trackTempDir('hagency-hagency-down-state-');
   const logPath = path.join(stateDir, 'tmux.log');
   writeExecutable(path.join(binDir, 'tmux'), `#!/usr/bin/env bash
 set -euo pipefail
@@ -101,7 +101,7 @@ function seedAgent(activeNow, observation) {
 
 function runAgentDown(args, env = {}) {
   return new Promise((resolve) => {
-    execFile(HAFLEET_BIN, ['down', ...args], {
+    execFile(HAGENCY_BIN, ['down', ...args], {
       cwd: REPO_ROOT,
       encoding: 'utf-8',
       env: {
@@ -119,7 +119,7 @@ function runAgentDown(args, env = {}) {
   });
 }
 
-describe('hafleet-down active-work guard', () => {
+describe('hagency-down active-work guard', () => {
   let context = null;
   let listener = null;
 
@@ -133,7 +133,7 @@ describe('hafleet-down active-work guard', () => {
   });
 
   test('refuses --kill when runtime activity is unknown', async () => {
-    context = await createBackendTestContext('hafleet-hafleet-down-unknown-test-', seedAgent(null, {
+    context = await createBackendTestContext('hagency-hagency-down-unknown-test-', seedAgent(null, {
       observerSource: 'runtime-api',
       observerServer: 'local',
       observedAt: Date.now(),
@@ -143,8 +143,8 @@ describe('hafleet-down active-work guard', () => {
 
     const result = await runAgentDown(['alpha', '--kill'], {
       ...tmux.env,
-      HAFLEET_API: listener.baseUrl,
-      HAFLEET_RUNTIME_DIR: context.runtimeDir,
+      HAGENCY_API: listener.baseUrl,
+      HAGENCY_RUNTIME_DIR: context.runtimeDir,
     });
 
     expect(result.code).toBe(1);
@@ -156,7 +156,7 @@ describe('hafleet-down active-work guard', () => {
   });
 
   test('refuses --kill when inactive runtime activity is stale', async () => {
-    context = await createBackendTestContext('hafleet-hafleet-down-stale-test-', seedAgent(false, {
+    context = await createBackendTestContext('hagency-hagency-down-stale-test-', seedAgent(false, {
       observerSource: 'runtime-api',
       observerServer: 'local',
       observedAt: Date.now() - 300000,
@@ -166,8 +166,8 @@ describe('hafleet-down active-work guard', () => {
 
     const result = await runAgentDown(['alpha', '--kill'], {
       ...tmux.env,
-      HAFLEET_API: listener.baseUrl,
-      HAFLEET_RUNTIME_DIR: context.runtimeDir,
+      HAGENCY_API: listener.baseUrl,
+      HAGENCY_RUNTIME_DIR: context.runtimeDir,
       AGENT_DOWN_ACTIVITY_FRESH_MS: '120000',
     });
 
@@ -180,7 +180,7 @@ describe('hafleet-down active-work guard', () => {
   });
 
   test('allows --kill when inactive runtime activity is fresh', async () => {
-    context = await createBackendTestContext('hafleet-hafleet-down-fresh-test-', seedAgent(false, {
+    context = await createBackendTestContext('hagency-hagency-down-fresh-test-', seedAgent(false, {
       observerSource: 'runtime-api',
       observerServer: 'local',
       observedAt: Date.now(),
@@ -190,8 +190,8 @@ describe('hafleet-down active-work guard', () => {
 
     const result = await runAgentDown(['alpha', '--kill'], {
       ...tmux.env,
-      HAFLEET_API: listener.baseUrl,
-      HAFLEET_RUNTIME_DIR: context.runtimeDir,
+      HAGENCY_API: listener.baseUrl,
+      HAGENCY_RUNTIME_DIR: context.runtimeDir,
       AGENT_DOWN_ACTIVITY_FRESH_MS: '120000',
     });
 

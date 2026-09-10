@@ -1,7 +1,7 @@
 /*
  * 项目方 → 项目 → 外派员工 — the three levels, and why the third is a JOIN rather than a field.
  *
- * The operator's model: HAFleet is a construction crew (施工队). It sends a representative INTO each
+ * The operator's model: Hagency is a construction crew (施工队). It sends a representative INTO each
  * customer's Matrix server to take orders; the customer does not come to us. So there is no such thing
  * as "our" homeserver — every server is a 项目方 — and one 项目方 has several projects, each with its
  * own room, sharing one representative and one budget (their ruling: 「项目方一个,但每个项目可以单独指定

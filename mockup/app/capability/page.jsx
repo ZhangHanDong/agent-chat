@@ -8,6 +8,7 @@ import { useT } from '@/components/Prefs';
 import { fmtTokens } from '@/lib/mock-data';
 import { useData, Provenance } from '@/components/Data';
 import { send } from '@/lib/api';
+import { capabilityCount } from '@/lib/console-workflow';
 
 /*
  * ③ 能力目录 — L2, and the only layer that faces outward.
@@ -49,7 +50,7 @@ export default function CapabilityPage() {
   async function togglePublish(c) {
     const current = offers.find((o) => o.role === c.key) ?? c.offer ?? {};
     if (!live) {
-      return say('ok', t(current.published ? 'cp.wouldWithdraw' : 'cp.wouldPublish', { role: c.role.displayName }));
+      return say('ok', t((current.published || current.catalogPublished) ? 'cp.wouldWithdraw' : 'cp.wouldPublish', { role: c.role.displayName }));
     }
     const res = await send(`offers/${c.key}`, {
       method: 'PUT',
@@ -57,12 +58,12 @@ export default function CapabilityPage() {
         count: current.count ?? null,
         budgetCapPerEngagement: current.budgetCapPerEngagement ?? null,
         rateCap: current.rateCap ?? null,
-        published: !current.published,
+        published: !(current.published || current.catalogPublished),
       },
     });
     if (!res.ok) return say('fail', res.error);
     await refresh();
-    return say('ok', t(current.published ? 'cp.didWithdraw' : 'cp.didPublish', { role: c.role.displayName }));
+    return say('ok', t((current.published || current.catalogPublished) ? 'cp.didWithdraw' : 'cp.didPublish', { role: c.role.displayName }));
   }
   /*
    * The offer's TERMS — how many of this role, the per-engagement cap, the daily rate cap.
@@ -83,7 +84,7 @@ export default function CapabilityPage() {
         count: current.count ?? null,
         budgetCapPerEngagement: current.budgetCapPerEngagement ?? null,
         rateCap: current.rateCap ?? null,
-        published: current.published ?? false,
+        published: (current.published || current.catalogPublished) ?? false,
         ...patch,
       },
     });
@@ -119,9 +120,12 @@ export default function CapabilityPage() {
    */
   const deadWeight = agents.filter((a) => cards.every((c) => !c.able.some((r) => r.agent.name === a.name)));
 
-  const offered = cards.filter((c) => c.offer?.published);
+  const offered = cards.filter((c) => c.offer?.published || c.offer?.catalogPublished);
   const blocked = cards.filter((c) => !c.crossFamilyOk);
-  const empty = cards.filter((c) => c.able.length === 0);
+  const empty = cards.filter((c) => capabilityCount(c) === 0);
+  const unsupportedResources = [...new Map(cards.flatMap((c) => c.unavailableResources ?? [])
+    .filter((resource) => resource.reason === 'framework-not-provisionable')
+    .map((resource) => [resource.presetId, resource])).values()];
 
   return (
     <>
@@ -131,9 +135,14 @@ export default function CapabilityPage() {
           which of them I can FILL is computed from live agents; the offer that
           publishes a role has no endpoint at all. Three different provenances on
           one page, so the banner names them separately. */}
-      <Provenance slices={['capability', 'agents', 'offers']} />
+      <Provenance slices={['capability', 'agents', 'presets', 'offers']} />
 
       <div className="notice">{t('cp.exposeNote')}</div>
+      {unsupportedResources.length > 0 && (
+        <div className="notice warn">{t('cp.runtimeNotProvisionable', {
+          names: unsupportedResources.map((resource) => resource.name ?? resource.presetId).join(', '),
+        })}</div>
+      )}
 
       {deadWeight.length > 0 && (
         <div className="notice warn">
@@ -170,11 +179,12 @@ export default function CapabilityPage() {
       <h2 className="sec">{t('cp.catalogue')}<span className="note">{t('cp.catalogueNote')}</span></h2>
       <div className="rolegrid">
         {cards.map((c) => (
-          <div className={`rolecard${c.able.length === 0 ? ' unhireable' : ''}`} key={c.key}>
+          <div className={`rolecard${capabilityCount(c) === 0 ? ' unhireable' : ''}`} key={c.key}>
             <div className="rc-head">
               <span className="rc-name">{c.role.displayName}</span>
-              <span className="rc-stage">{c.offer?.published ? t('cp.published') : t('cp.withheld')}</span>
+              <span className="rc-stage">{(c.offer?.published || c.offer?.catalogPublished) ? t('cp.published') : t('cp.withheld')}</span>
             </div>
+            {c.offer?.catalogPublished && <p className="dim">{t('cp.palpoAutomatic')}</p>}
 
             {/* The requirement, above the staffing. A card that leads with a
                 headcount invites the reader to treat the role as a bucket that
@@ -193,7 +203,7 @@ export default function CapabilityPage() {
             )}
 
             <div className="rc-staff">
-              {c.able.length === 0 ? (
+              {capabilityCount(c) === 0 ? (
                 <div className="rc-gap bad">
                   {t('cp.fillNone')}
                   <div className="rc-elig">
@@ -213,6 +223,16 @@ export default function CapabilityPage() {
                       {/* Labelled: a bare `gpt` beside `strong` reads as a truncated model name
                           rather than as the model FAMILY, which is what it is. */}
                       <span className="dim">{t('cp.familyIs', { f: r.match.family })}</span>
+                    </li>
+                  ))}
+                  {(c.resources ?? []).map((resource) => (
+                    <li key={`preset:${resource.presetId}`}>
+                      <Link href="/resources">{resource.name ?? resource.presetId}</Link>
+                      <span className="rc-tier">{resource.tier}</span>
+                      <span className="dim">{t('cp.onDemand')}</span>
+                      {resource.model && <span className="mono-s">{resource.model}</span>}
+                      {resource.reasoning && <span className="dim">{resource.reasoning}</span>}
+                      {resource.family && <span className="dim">{t('cp.familyIs', { f: resource.family })}</span>}
                     </li>
                   ))}
                 </ul>
@@ -316,10 +336,10 @@ export default function CapabilityPage() {
                   </div>
                   <button
                     className="btn"
-                    disabled={c.able.length === 0 || !c.crossFamilyOk}
+                    disabled={!(c.offer.published || c.offer.catalogPublished) && (capabilityCount(c) === 0 || !c.crossFamilyOk)}
                     onClick={() => togglePublish(c)}
                   >
-                    {t(c.offer.published ? 'cp.withdraw' : 'cp.publish')}
+                    {t((c.offer.published || c.offer.catalogPublished) ? 'cp.withdraw' : 'cp.publish')}
                   </button>
                 </>
               ) : <Blank why="cp.why.noOffer" t={t} />}

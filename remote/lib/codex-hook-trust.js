@@ -60,7 +60,7 @@ export function buildCodexApprovalHookCommand({
   return [
     shellQuote(nodeExecutable),
     shellQuote(hookPath),
-    `--hafleet-hook-sha256=${scriptDigest}`,
+    `--hagency-hook-sha256=${scriptDigest}`,
   ].join(' ');
 }
 
@@ -164,7 +164,7 @@ class CodexAppServerClient {
     });
     await this.request('initialize', {
       clientInfo: {
-        name: 'hafleet',
+        name: 'hagency',
         title: 'Agent Chat',
         version: '1.0.0',
       },

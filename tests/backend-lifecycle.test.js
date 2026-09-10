@@ -53,7 +53,7 @@ function rememberEnv(keys) {
 }
 
 async function importBackend(runtimeDir) {
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.SUPERVISOR_ENABLED = 'false';
   process.env.AGENT_SCOPE_MONITOR_ENABLED = 'false';
   process.env.AGENT_JSON_WRITE_BATCH_MS = '0';
@@ -97,7 +97,7 @@ describe('backend-v2 lifecycle', () => {
   });
 
   test('backend-v2 import and stop do not leave runtime handles active', async () => {
-    const probeRuntimeDir = createRuntimeDir('hafleet-backend-lifecycle-probe-');
+    const probeRuntimeDir = createRuntimeDir('hagency-backend-lifecycle-probe-');
     const backendUrl = pathToFileURL(path.resolve('backend-v2.js')).href;
     const probe = `
       const mod = await import(${JSON.stringify(`${backendUrl}?lifecycle-probe=${Date.now()}`)});
@@ -110,7 +110,7 @@ describe('backend-v2 lifecycle', () => {
         cwd: path.resolve('.'),
         env: {
           ...process.env,
-          HAFLEET_RUNTIME_DIR: probeRuntimeDir,
+          HAGENCY_RUNTIME_DIR: probeRuntimeDir,
           SUPERVISOR_ENABLED: 'false',
           AGENT_SCOPE_MONITOR_ENABLED: 'false',
           AGENT_JSON_WRITE_BATCH_MS: '0',
@@ -125,13 +125,13 @@ describe('backend-v2 lifecycle', () => {
 
   test('stopServer clears timers and signal listeners started by startServer', async () => {
     restoreEnv = rememberEnv([
-      'HAFLEET_RUNTIME_DIR',
+      'HAGENCY_RUNTIME_DIR',
       'SUPERVISOR_ENABLED',
       'AGENT_SCOPE_MONITOR_ENABLED',
       'AGENT_JSON_WRITE_BATCH_MS',
       'API_TOKEN',
     ]);
-    runtimeDir = createRuntimeDir('hafleet-backend-lifecycle-test-');
+    runtimeDir = createRuntimeDir('hagency-backend-lifecycle-test-');
     backendModule = await importBackend(runtimeDir);
     vi.useFakeTimers();
     const sigtermBefore = process.listenerCount('SIGTERM');
@@ -153,13 +153,13 @@ describe('backend-v2 lifecycle', () => {
 
   test('stopServer cancels pending EADDRINUSE listen retry', async () => {
     restoreEnv = rememberEnv([
-      'HAFLEET_RUNTIME_DIR',
+      'HAGENCY_RUNTIME_DIR',
       'SUPERVISOR_ENABLED',
       'AGENT_SCOPE_MONITOR_ENABLED',
       'AGENT_JSON_WRITE_BATCH_MS',
       'API_TOKEN',
     ]);
-    runtimeDir = createRuntimeDir('hafleet-backend-lifecycle-test-');
+    runtimeDir = createRuntimeDir('hagency-backend-lifecycle-test-');
     backendModule = await importBackend(runtimeDir);
     const blocker = createServer();
     blockers.add(blocker);
@@ -186,13 +186,13 @@ describe('backend-v2 lifecycle', () => {
 
   test('registered agent records survive a backend module restart', async () => {
     restoreEnv = rememberEnv([
-      'HAFLEET_RUNTIME_DIR',
+      'HAGENCY_RUNTIME_DIR',
       'SUPERVISOR_ENABLED',
       'AGENT_SCOPE_MONITOR_ENABLED',
       'AGENT_JSON_WRITE_BATCH_MS',
       'API_TOKEN',
     ]);
-    runtimeDir = createRuntimeDir('hafleet-backend-registry-restart-');
+    runtimeDir = createRuntimeDir('hagency-backend-registry-restart-');
     const first = await importBackend(runtimeDir);
     backendModule = first;
     const firstListener = await createLoopbackTestServer(first.app);

@@ -1,5 +1,21 @@
 #!/usr/bin/env node
 
+if (process.env.FAKE_CLAUDE_TOOL_TREE) {
+  const { startDetachedToolTree } = await import('./fake-detached-tool-tree.mjs');
+  await startDetachedToolTree(process.env.FAKE_CLAUDE_TOOL_TREE);
+}
+
+if (process.env.FAKE_CLAUDE_DESCENDANT_PID) {
+  const { spawn } = await import('node:child_process');
+  const { writeFileSync } = await import('node:fs');
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: process.env.FAKE_CLAUDE_DESCENDANT_STDIO === 'inherit' ? 'inherit' : 'ignore',
+    detached: process.env.FAKE_CLAUDE_DESCENDANT_ESCAPES === '1',
+  });
+  writeFileSync(process.env.FAKE_CLAUDE_DESCENDANT_PID, String(child.pid));
+  child.unref();
+}
+
 if (process.env.FAKE_CLAUDE_PID_FILE) {
   const { writeFileSync } = await import('node:fs');
   writeFileSync(process.env.FAKE_CLAUDE_PID_FILE, String(process.pid));
@@ -28,12 +44,18 @@ if (process.env.FAKE_CLAUDE_CLOSE_STDIN === '1') {
       process.exit(Number(process.env.FAKE_CLAUDE_RESULT_ERROR_EXIT ?? '0'));
     }
     const sensitiveKeys = [
-      'API_TOKEN', 'MATRIX_BRIDGE_SECRET', 'HAFLEET_DASHBOARD_TOKEN',
-      'HAFLEET_SUBCONSCIOUS_EVENT_TOKEN', 'MATRIX_BOT_PASSWORD',
+      'API_TOKEN', 'MATRIX_BRIDGE_SECRET', 'HAGENCY_DASHBOARD_TOKEN',
+      'HAGENCY_SUBCONSCIOUS_EVENT_TOKEN', 'MATRIX_BOT_PASSWORD',
     ].filter((key) => process.env[key]);
     const result = process.env.FAKE_CLAUDE_REPORT_ENV === '1'
       ? `env:${sensitiveKeys.length === 0 ? 'clean' : sensitiveKeys.join(',')}`
       : `received:${input.includes('session-scoped context')}`;
-    process.stdout.write(`${JSON.stringify({ type: 'result', result })}\n`);
+    if (process.env.FAKE_CLAUDE_ACTIVITY) {
+      process.stdout.write(`${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tool', name: 'Bash', input: { command: 'SECRET', cwd: '/secret-path' } }] } })}\n`);
+      setTimeout(() => {
+        process.stdout.write(`${JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tool', content: 'raw-output' }] } })}\n`);
+        process.stdout.write(`${JSON.stringify({ type: 'result', result })}\n`);
+      }, 250);
+    } else process.stdout.write(`${JSON.stringify({ type: 'result', result })}\n`);
   });
 }

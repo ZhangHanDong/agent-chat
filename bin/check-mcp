@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 
-# Deprecated legacy entrypoint: forward to unified 'hafleet'.
-if [ "${HAFLEET_INTERNAL_DISPATCH:-0}" != "1" ]; then
+# Deprecated legacy entrypoint: forward to unified 'hagency'.
+if [ "${HAGENCY_INTERNAL_DISPATCH:-0}" != "1" ]; then
   _ac_legacy_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   _ac_legacy_name="$(basename "$0")"
-  echo "[DEPRECATED] ${_ac_legacy_name} is deprecated. Use: hafleet check-mcp ..." >&2
-  exec "${_ac_legacy_dir}/hafleet" "check-mcp" "$@"
+  echo "[DEPRECATED] ${_ac_legacy_name} is deprecated. Use: hagency check-mcp ..." >&2
+  exec "${_ac_legacy_dir}/hagency" "check-mcp" "$@"
 fi
-# Check which tmux sessions have hafleet MCP loaded (Claude Code + Codex)
+# Check which tmux sessions have hagency MCP loaded (Claude Code + Codex)
 # Usage: check-mcp
 
 printf "%-30s %-10s %-10s %-10s\n" "SESSION" "MCP" "CLIENT" "KNOWN"
 printf "%-30s %-10s %-10s %-10s\n" "-------" "---" "------" "----------"
 
-BACKEND_PORT_RAW="${HAFLEET_BACKEND_PORT:-8090}"
+BACKEND_PORT_RAW="${HAGENCY_BACKEND_PORT:-8090}"
 if [[ "$BACKEND_PORT_RAW" =~ ^[0-9]+$ ]] && [ "$BACKEND_PORT_RAW" -gt 0 ]; then
   BACKEND_PORT="$BACKEND_PORT_RAW"
 else
   BACKEND_PORT="8090"
 fi
-BACKEND_URL="${HAFLEET_API:-http://127.0.0.1:$BACKEND_PORT}"
+BACKEND_URL="${HAGENCY_API:-http://127.0.0.1:$BACKEND_PORT}"
 
 # Get known agents from backend
 known=$(curl -s --noproxy '*' "$BACKEND_URL/api/agents" 2>/dev/null | python3 -c '

@@ -53,9 +53,9 @@ function mcpClient(tmpdir, port) {
     env: {
       ...process.env,
       AGENT_NAME: 'alpha',
-      HAFLEET_API: `http://127.0.0.1:${port}`,
-      HAFLEET_SERVER: 'local',
-      API_TOKEN: '', AGENT_TOKEN: 'agent-test', HAFLEET_EPHEMERAL_RUNNER: '1', HAFLEET_DISPATCH_CAPABILITY: 'cap-test', HAFLEET_DISPATCH_ID: 'dispatch-test', HAFLEET_RUNNER_ID: 'runner-test', HAFLEET_FENCE_GENERATION: '7',
+      HAGENCY_API: `http://127.0.0.1:${port}`,
+      HAGENCY_SERVER: 'local',
+      API_TOKEN: '', AGENT_TOKEN: 'agent-test', HAGENCY_EPHEMERAL_RUNNER: '1', HAGENCY_DISPATCH_CAPABILITY: 'cap-test', HAGENCY_DISPATCH_ID: 'dispatch-test', HAGENCY_RUNNER_ID: 'runner-test', HAGENCY_FENCE_GENERATION: '7',
       // Both redirected: the anchor lands under HOME and the ephemeral counts under TMPDIR, and a test
       // that isolated only one of them would write into the developer's real home directory.
       HOME: tmpdir,
@@ -114,7 +114,7 @@ function mcpClient(tmpdir, port) {
 
 describe('runner task MCP protocol', () => {
   test('routes runner task tools through capability-scoped operations', async () => {
-    const tmpdir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-mcp-task-'));
+    const tmpdir = mkdtempSync(path.join(os.tmpdir(), 'hagency-mcp-task-'));
     temps.add(tmpdir);
     const { port, seen } = await fakeBackend({});
     const client = mcpClient(tmpdir, port);
@@ -134,7 +134,7 @@ describe('runner task MCP protocol', () => {
       expect(call.body).toMatchObject({ agent: 'alpha', action });
       if (action !== 'list') expect(call.body.task_id).toBe('task-one');
       if (!['list', 'get'].includes(action)) expect(call.body.tool_call_id).toEqual(expect.any(String));
-      expect(call.headers).toMatchObject({ 'x-hafleet-dispatch-capability': 'cap-test', 'x-hafleet-dispatch-id': 'dispatch-test', 'x-hafleet-runner-id': 'runner-test', 'x-hafleet-fence-generation': '7' });
+      expect(call.headers).toMatchObject({ 'x-hagency-dispatch-capability': 'cap-test', 'x-hagency-dispatch-id': 'dispatch-test', 'x-hagency-runner-id': 'runner-test', 'x-hagency-fence-generation': '7' });
       expect(call.headers.authorization).toBeUndefined();
     }
     expect(seen.some(r => r.url.startsWith('/api/tasks'))).toBe(false);

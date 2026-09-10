@@ -18,7 +18,7 @@ const projectRoot = process.cwd();
 const roots = [];
 
 function temporaryProject() {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-contract-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-contract-'));
   roots.push(root);
   mkdirSync(path.join(root, 'scripts'), { recursive: true });
   cpSync(path.join(projectRoot, 'router'), path.join(root, 'router'), { recursive: true });
@@ -35,6 +35,27 @@ afterEach(() => {
 });
 
 describe('router build and dependency contract', () => {
+  test('outbound SQLite ownership does not permit router internal imports or unrelated database clients', () => {
+    const root = temporaryProject();
+    const adapterImport = ['import Database from ', JSON.stringify('better-sqlite3'), ';\n'].join('');
+    mkdirSync(path.join(root, 'lib'));
+    mkdirSync(path.join(root, 'tests'));
+    for (const file of ['lib/fleet-outbound-store.js', 'tests/fleet-outbound-store.test.js']) {
+      writeFileSync(path.join(root, file), adapterImport);
+    }
+    const check = () => spawnSync(process.execPath, ['scripts/check-router-boundary.js'], { cwd: root, encoding: 'utf8' });
+    expect(check().status).toBe(0);
+    writeFileSync(path.join(root, 'lib', 'other-store.js'), adapterImport);
+    const unrelated = check();
+    expect(unrelated.status).not.toBe(0);
+    expect(`${unrelated.stdout}${unrelated.stderr}`).toContain('lib/other-store.js: imports the router database adapter directly');
+    rmSync(path.join(root, 'lib', 'other-store.js'));
+    appendFileSync(path.join(root, 'lib', 'fleet-outbound-store.js'), `import '../router/${'dist/store.js'}';\n`);
+    const internal = check();
+    expect(internal.status).not.toBe(0);
+    expect(`${internal.stdout}${internal.stderr}`).toContain('lib/fleet-outbound-store.js: imports a router internal module');
+  });
+
   test('test_router_build_check_detects_stale_or_internal_import', () => {
     const root = temporaryProject();
     execFileSync('bash', ['scripts/check-router-build.sh'], { cwd: root, encoding: 'utf8' });
@@ -70,7 +91,7 @@ describe('router build and dependency contract', () => {
 
   test('test_router_dependency_spike_installs_and_recovers_wal', () => {
     expect(Number(process.versions.node.split('.')[0])).toBeGreaterThanOrEqual(22);
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-dependency-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-dependency-'));
     roots.push(root);
     cpSync(path.join(projectRoot, 'package.json'), path.join(root, 'package.json'));
     cpSync(path.join(projectRoot, 'package-lock.json'), path.join(root, 'package-lock.json'));

@@ -181,11 +181,11 @@ describe('the octos adapter', () => {
     (flag) => {
       // octos itself will not even persist full access — its config layer calls it
       // "a per-run opt-in, not a saved default that would silently disable the
-      // sandbox". A hafleet agent runs detached with nobody watching, so it must
+      // sandbox". A hagency agent runs detached with nobody watching, so it must
       // not be able to ask for it either.
       const result = validateLaunchExtraArgs('octos', flag);
       expect(result.ok).toBe(false);
-      expect(result.reason).toMatch(/Octos sandbox flag is managed by hafleet/);
+      expect(result.reason).toMatch(/Octos sandbox flag is managed by hagency/);
     },
   );
 
@@ -194,14 +194,14 @@ describe('the octos adapter', () => {
   });
 
   test('is not launchable yet, and says why', () => {
-    // hafleet-up creates a tmux session; an ACP agent is paneless. Declaring it
+    // hagency-up creates a tmux session; an ACP agent is paneless. Declaring it
     // launchable before the backend understands that shape would fail obscurely.
     expect(octos.launchable).toBe(false);
-    expect(octos.notLaunchableReason).toMatch(/hafleet acp-up/);
+    expect(octos.notLaunchableReason).toMatch(/hagency acp-up/);
   });
 
   test('records that octos does not block on ACP permission requests', () => {
-    // Load-bearing: it means hafleet can observe permission activity but not
+    // Load-bearing: it means hagency can observe permission activity but not
     // answer it, so the sandbox chosen at launch is the real control.
     expect(octos.raw.acp.blocksOnPermissionRequest).toBe(false);
   });
@@ -214,7 +214,7 @@ describe('mcp servers are handed to the agent at session/new', () => {
   test('the configured servers reach session/new', async () => {
     const { rt, agent } = runtimeWith();
     const mcpServers = [{
-      name: 'hafleet',
+      name: 'hagency',
       command: '/usr/bin/node',
       args: ['/repo/mcp-server.js'],
       env: [{ name: 'AGENT_NAME', value: 'octos-agent' }],
@@ -237,7 +237,7 @@ describe('mcp servers are handed to the agent at session/new', () => {
 describe('one turn\'s updates can be read without the previous turn\'s', () => {
   // recentUpdates(name, N) returns the last N notifications whatever produced
   // them. A caller reconstructing the agent's answer from that silently prepends
-  // the previous one. On mini5 a reply was posted into HAFleet reading
+  // the previous one. On mini5 a reply was posted into Hagency reading
   // "TokyoThe command exited with code 7…" — "Tokyo" answered the question before.
   test('updatesSince returns only what arrived after the cursor', async () => {
     const { rt } = runtimeWith();
@@ -277,7 +277,7 @@ describe('one turn\'s updates can be read without the previous turn\'s', () => {
 
   test('the host reads from a cursor rather than the whole buffer', () => {
     // The bug was in the caller, so the caller is what must not regress.
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).toContain('runtime.updateCursor(name)');
     expect(host).toContain('runtime.updatesSince(name, cursor)');
     expect(host, 'reading the whole buffer is what welded two turns together')
@@ -360,7 +360,7 @@ describe('resuming a session across a restart', () => {
   });
 
   test('the host remembers the id and says which path it took', () => {
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).toContain('acp-session-id');
     expect(host).toContain('rememberSessionId(sessionId)');
     expect(host).toMatch(/resumeSessionId: recallSessionId\(\)/);

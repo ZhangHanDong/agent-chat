@@ -34,7 +34,7 @@ beforeAll(async () => {
     let status = 200;
     let data = {};
     if (call.path.endsWith('/joined_members')) {
-      data = { joined: { '@hafleet:side.test': {}, '@ac_departing:side.test': {} } };
+      data = { joined: { '@hagency:side.test': {}, '@ac_departing:side.test': {} } };
     } else if (call.path.endsWith('/whoami')) {
       data = { user_id: '@custom_worker:home.test' };
     } else if (call.path.startsWith('/api/agents/')) {
@@ -53,10 +53,10 @@ beforeAll(async () => {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
-  runtime = mkdtempSync(path.join(tmpdir(), 'hafleet-group-membership-'));
+  runtime = mkdtempSync(path.join(tmpdir(), 'hagency-group-membership-'));
   for (const [key, value] of Object.entries({
-    HAFLEET_RUNTIME_DIR: runtime,
-    HAFLEET_API: base,
+    HAGENCY_RUNTIME_DIR: runtime,
+    HAGENCY_API: base,
     MATRIX_HOMESERVER: `${base}/home`,
     MATRIX_SERVER_NAME: 'home.test',
   })) {
@@ -77,7 +77,7 @@ afterAll(async () => {
 function appservice(serverName = 'side.test', apiPath = 'side') {
   return {
     kind: 'appservice', serverName, apiBaseUrl: `${base}/${apiPath}`,
-    asToken: `${apiPath}-as-token`, senderLocalpart: 'hafleet',
+    asToken: `${apiPath}-as-token`, senderLocalpart: 'hagency',
     namespace: `@ac_.*:${serverName.replaceAll('.', '\\.')}`,
   };
 }
@@ -127,10 +127,10 @@ describe('group membership synchronization', () => {
   test('botless group membership invites joins and kicks on its own side', async () => {
     const result = await update(['worker', '@Alice:side.test'], ['departing']);
     expect(writes().map((call) => [call.path, call.actor, call.body?.user_id])).toEqual([
-      [`/side/_matrix/client/v3/rooms/${ROOM}/invite`, '@hafleet:side.test', '@ac_worker:side.test'],
+      [`/side/_matrix/client/v3/rooms/${ROOM}/invite`, '@hagency:side.test', '@ac_worker:side.test'],
       [`/side/_matrix/client/v3/join/${ROOM}`, '@ac_worker:side.test', undefined],
-      [`/side/_matrix/client/v3/rooms/${ROOM}/invite`, '@hafleet:side.test', '@Alice:side.test'],
-      [`/side/_matrix/client/v3/rooms/${ROOM}/kick`, '@hafleet:side.test', '@ac_departing:side.test'],
+      [`/side/_matrix/client/v3/rooms/${ROOM}/invite`, '@hagency:side.test', '@Alice:side.test'],
+      [`/side/_matrix/client/v3/rooms/${ROOM}/kick`, '@hagency:side.test', '@ac_departing:side.test'],
     ]);
     expect(calls.filter((call) => call.path.includes('/_matrix/')).every((call) => call.token === 'Bearer side-as-token')).toBe(true);
     expect(result.ok).toBe(true);
@@ -141,7 +141,7 @@ describe('group membership synchronization', () => {
       accessToken: 'other-agent-token', homeserver: `${base}/other`, serverName: 'other.test', mxid: '@ac_worker:other.test',
     };
     expect((await update(['worker'])).ok).toBe(true);
-    expect(writes().map((call) => call.actor)).toEqual(['@hafleet:side.test', '@ac_worker:side.test']);
+    expect(writes().map((call) => call.actor)).toEqual(['@hagency:side.test', '@ac_worker:side.test']);
     expect(calls.every((call) => call.path.startsWith('/side/'))).toBe(true);
   });
 
@@ -220,7 +220,7 @@ describe('group membership synchronization', () => {
       expect(self.isKnownAgentName(name)).toBe(false);
       const result = await update([full ? mxid : name]);
       expect(writes().map((call) => [call.actor, call.body?.user_id])).toEqual([
-        ['@hafleet:side.test', mxid], [mxid, undefined],
+        ['@hagency:side.test', mxid], [mxid, undefined],
       ]);
       expect(result.ok).toBe(true);
       expect(self.isKnownAgentName(name)).toBe(true);

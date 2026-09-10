@@ -7,7 +7,7 @@ import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
 // An ACP agent has no tmux pane, and its session is held by a separate host
 // process the backend cannot reach into. So delivery is inverted: the backend
-// records the message, and scripts/hafleet-acp-agent.mjs pulls it by polling the
+// records the message, and scripts/hagency-acp-agent.mjs pulls it by polling the
 // same inbox endpoint check_inbox uses, then prompts the agent.
 //
 // Before this, pushNotify treated a paneless agent as a broken tmux agent and
@@ -32,7 +32,7 @@ describe('delivery to a paneless ACP agent', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-acp-delivery-test-', {
+    context = await createBackendTestContext('hagency-acp-delivery-test-', {
       agents: {
         // octos is declared transport:'acp' in its adapter, so this agent is
         // paneless by type rather than by a missing field.

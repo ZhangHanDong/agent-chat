@@ -17,12 +17,12 @@
 # and then actually reached by a human talking in a Matrix room. Any of those steps passing alone means
 # nothing — the failure this repeatedly produces is a chain where every link works and the chain does not.
 #
-# IT REFUSES TO GUESS A FLEET. `HAFLEET_RUNTIME_DIR` is required, because these calls create agents and
+# IT REFUSES TO GUESS A FLEET. `HAGENCY_RUNTIME_DIR` is required, because these calls create agents and
 # commit budget, and doing that to a fleet the operator did not mean is worse than not running.
 
 set -euo pipefail
 
-RUNTIME="${HAFLEET_RUNTIME_DIR:-}"
+RUNTIME="${HAGENCY_RUNTIME_DIR:-}"
 IF_AVAILABLE=false
 [[ "${1:-}" == "--if-available" ]] && IF_AVAILABLE=true
 
@@ -35,13 +35,13 @@ skip() {
   exit 2
 }
 
-[[ -n "$RUNTIME" ]] || skip "HAFLEET_RUNTIME_DIR is required. These calls create agents and commit budget; guessing which fleet would be worse than not running."
+[[ -n "$RUNTIME" ]] || skip "HAGENCY_RUNTIME_DIR is required. These calls create agents and commit budget; guessing which fleet would be worse than not running."
 [[ -f "$RUNTIME/.env" ]] || skip "no .env at $RUNTIME"
 
 # shellcheck disable=SC1090
 set -a; . "$RUNTIME/.env"; set +a
 
-BACKEND="http://127.0.0.1:${HAFLEET_BACKEND_PORT:-8090}"
+BACKEND="http://127.0.0.1:${HAGENCY_BACKEND_PORT:-8090}"
 T="${API_TOKEN:-}"
 BS="${MATRIX_BRIDGE_SECRET:-}"
 SIDE="${VERIFY_SIDE:-${MATRIX_SERVER_NAME:-}}"
@@ -142,7 +142,7 @@ if [[ -z "$ROOM" ]]; then
   echo "  ..    no VERIFY_ROOM given, so the engagement and Matrix legs are skipped"
 else
   EID="$(api POST /api/engagements \
-    "{\"agent\":\"$AGENT\",\"role\":\"documentation\",\"project\":\"e2e\",\"requester\":\"@hafleet:$SIDE\",\"requestedTokens\":50000,\"projectRoomId\":\"$ROOM\"}" \
+    "{\"agent\":\"$AGENT\",\"role\":\"documentation\",\"project\":\"e2e\",\"requester\":\"@hagency:$SIDE\",\"requestedTokens\":50000,\"projectRoomId\":\"$ROOM\"}" \
     | jqf engagement.id)"
   [[ -n "$EID" ]] && ok "an engagement was created" || bad "the engagement was refused"
 

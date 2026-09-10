@@ -4,9 +4,9 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { prepareJob, watchJob, runCommand } from '../skills/hafleet-inner-loop/scripts/monitor.mjs';
+import { prepareJob, watchJob, runCommand } from '../skills/hagency-inner-loop/scripts/monitor.mjs';
 
-const script = fileURLToPath(new URL('../skills/hafleet-inner-loop/scripts/monitor.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../skills/hagency-inner-loop/scripts/monitor.mjs', import.meta.url));
 const agent = { name: 'inner', agent: 'octoscode', terminal_id: 'term_1', pane_id: 'w1:p1',
   workspace_id: 'w1', tab_id: 'w1:t1', agent_status: 'idle', state_change_seq: 1,
   process_identity: { shell_pid: 1001, foreground_process_group_id: 1002 } };
@@ -24,7 +24,7 @@ const resultFor = (job, extra = {}) => ({ version: 1, job_id: job.job_id, nonce:
   checks: [{ name: 'inner test claim', status: 'passed' }], ...extra });
 
 beforeEach(() => {
-  root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-inner-test-'));
+  root = mkdtempSync(path.join(os.tmpdir(), 'hagency-inner-test-'));
   cwd = path.join(root, 'project');
   agent.cwd = cwd;
   jobsDir = path.join(root, 'jobs');

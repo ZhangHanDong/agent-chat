@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useT } from '@/components/Prefs';
 import { send } from '@/lib/api';
+import { parseFleetCredentialImport } from '@/lib/fleet-credential-import';
 
 /*
  * ENTERING A PROJECT SIDE'S CREDENTIAL — the half of ADR-016 decision 8 that did not exist.
@@ -30,7 +31,7 @@ import { send } from '@/lib/api';
 const KINDS = ['appservice', 'registrationToken'];
 
 const EMPTY = {
-  appservice: { asToken: '', hsToken: '', namespace: '@ac_.*', senderLocalpart: 'hafleet' },
+  appservice: { asToken: '', hsToken: '', namespace: '@ac_.*', senderLocalpart: 'hagency' },
   registrationToken: { registrationToken: '' },
 };
 
@@ -41,13 +42,30 @@ export default function CredentialForm({ side, live, onDone }) {
   const [fields, setFields] = useState(EMPTY[side.credentialKind ?? 'appservice']);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [importScope, setImportScope] = useState(null);
 
   const [touched, setTouched] = useState(false);
   const set = (name, value) => {
     setTouched(true);
+    setImportScope(null);
     setFields((f) => ({ ...f, [name]: value }));
   };
-  const pick = (next) => { setKind(next); setFields(EMPTY[next]); setError(null); };
+  const pick = (next) => { setKind(next); setFields(EMPTY[next]); setError(null); setImportScope(null); };
+
+  async function importRegistration(event) {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    setError(null);
+    try {
+      if (file.size > 65536) throw new Error('cr.importInvalid');
+      const imported = parseFleetCredentialImport(await file.text(), side);
+      const { kind: importedKind, ...values } = imported.credential;
+      setKind(importedKind); setFields(values); setTouched(true);
+      setImportScope({ fleetId: imported.fleetId, serverName: imported.serverName, agentPrefix: imported.agentPrefix });
+    } catch (error) { setError(t(error.message)); }
+    finally { input.value = ''; }
+  }
 
   /*
    * Required means required HERE, not just server-side. The backend refuses an incomplete credential
@@ -73,6 +91,7 @@ export default function CredentialForm({ side, live, onDone }) {
      * for no reason.
      */
     setFields(EMPTY[kind]);
+    setImportScope(null);
     setOpen(false);
     await onDone?.();
   }
@@ -125,6 +144,14 @@ export default function CredentialForm({ side, live, onDone }) {
       <div className="notice">{t('cr.transitWarning')}</div>
 
       <label className="cred-row">
+        <span>{t('cr.importJson')}</span>
+        <input type="file" accept="application/json,.json" disabled={!live || busy} onChange={importRegistration} />
+      </label>
+      {importScope && <p className="why-inline" role="status">
+        {t('cr.importScope', importScope)}
+      </p>}
+
+      <label className="cred-row">
         <span>{t('cr.kind')}</span>
         <select value={kind} onChange={(e) => pick(e.target.value)}>
           {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
@@ -132,7 +159,11 @@ export default function CredentialForm({ side, live, onDone }) {
       </label>
       <div className="dim">{t(kind === 'appservice' ? 'cr.kindAs' : 'cr.kindReg')}</div>
 
-      {Object.keys(fields).map((name) => (
+      {fields.transport?.mode === 'outbound' && <p role="status">
+        纯出站连接：保存后 Hagency 自动连接 Palpo，无需填写 Hagency 公网地址或配置 SSH 转发。
+        <span className="mono"> {fields.transport.url}</span>
+      </p>}
+      {Object.keys(fields).filter(name => name !== 'transport').map((name) => (
         <label className="cred-row" key={name}>
           <span className="mono">{name}</span>
           <input
@@ -152,7 +183,7 @@ export default function CredentialForm({ side, live, onDone }) {
         * WHO THIS FORM IS FOR, said because the answer is not always "you".
         *
         * It exists for the case where the project side generated the credential themselves and handed it over.
-        * When HAFleet ISSUED the credential, these two tokens were readable for exactly one moment and are
+        * When Hagency ISSUED the credential, these two tokens were readable for exactly one moment and are
         * write-only afterwards — so the operator cannot fill this in, and being shown an empty form with a
         * "still needed" label is being asked for something they were never given.
         */}
@@ -168,7 +199,7 @@ export default function CredentialForm({ side, live, onDone }) {
           type="button"
           className="btn-s"
           disabled={busy}
-          onClick={() => { setFields(EMPTY[kind]); setOpen(false); setError(null); }}
+          onClick={() => { setFields(EMPTY[kind]); setOpen(false); setError(null); setImportScope(null); }}
         >
           {t('cr.cancel')}
         </button>

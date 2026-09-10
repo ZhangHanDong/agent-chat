@@ -44,7 +44,7 @@ const appserviceCred = () => ({
   asToken: AS_TOKEN,
   hsToken: HS_TOKEN,
   namespace: '@ac_.*',
-  senderLocalpart: 'hafleet',
+  senderLocalpart: 'hagency',
 });
 
 const regTokenCred = () => ({
@@ -80,7 +80,7 @@ describe('the credential never comes back out', () => {
     expectNoSecrets(s.listSides(), 'listSides');
     expectNoSecrets(s.setCredential(SERVER, regTokenCred()), 'setCredential');
     expectNoSecrets(s.observeAccess(SERVER, { state: 'accepted' }), 'observeAccess');
-    expectNoSecrets(s.setRepresentative(SERVER, { mxid: `@hafleet:${SERVER}` }), 'setRepresentative');
+    expectNoSecrets(s.setRepresentative(SERVER, { mxid: `@hagency:${SERVER}` }), 'setRepresentative');
     expectNoSecrets(s.deactivateSide(SERVER), 'deactivateSide');
     expectNoSecrets(s.reactivateSide(SERVER), 'reactivateSide');
     expectNoSecrets(s.listAudit(), 'listAudit');
@@ -374,9 +374,9 @@ describe('the representative belongs to the side', () => {
     // server we do not control. The authoritative answer comes from /whoami.
     const s = store();
     side(s);
-    const rec = s.setRepresentative(SERVER, { mxid: `@hafleet:${SERVER}` });
-    expect(rec.representative.mxid).toBe(`@hafleet:${SERVER}`);
-    expect(rec.representative.localpart).toBe('hafleet');
+    const rec = s.setRepresentative(SERVER, { mxid: `@hagency:${SERVER}` });
+    expect(rec.representative.mxid).toBe(`@hagency:${SERVER}`);
+    expect(rec.representative.localpart).toBe('hagency');
   });
 
   test("THE CASE THAT MATTERS: a representative on ANOTHER server is refused", () => {
@@ -388,14 +388,14 @@ describe('the representative belongs to the side', () => {
      */
     const s = store();
     side(s);
-    expect(() => s.setRepresentative(SERVER, { mxid: '@hafleet:someone-else.example' }))
+    expect(() => s.setRepresentative(SERVER, { mxid: '@hagency:someone-else.example' }))
       .toThrow(/must live on palpo\.test/);
   });
 
   test('a malformed mxid is refused', () => {
     const s = store();
     side(s);
-    for (const bad of ['hafleet', '@hafleet', 'hafleet:palpo.test', '']) {
+    for (const bad of ['hagency', '@hagency', 'hagency:palpo.test', '']) {
       expect(() => s.setRepresentative(SERVER, { mxid: bad }), bad).toThrow(ProjectSideStoreError);
     }
   });
@@ -463,12 +463,12 @@ describe('persistence round-trips', () => {
     const a = new ProjectSideStore(file);
     a.upsertSide({ server_name: SERVER, api_base_url: API, credential: appserviceCred() });
     a.observeAccess(SERVER, { state: 'accepted' });
-    a.setRepresentative(SERVER, { mxid: `@hafleet:${SERVER}` });
+    a.setRepresentative(SERVER, { mxid: `@hagency:${SERVER}` });
 
     const b = new ProjectSideStore(file);
     expect(b.credentialFor(SERVER).asToken).toBe(AS_TOKEN);
     expect(b.getSide(SERVER).accessState).toBe('accepted');
-    expect(b.getSide(SERVER).representative.mxid).toBe(`@hafleet:${SERVER}`);
+    expect(b.getSide(SERVER).representative.mxid).toBe(`@hagency:${SERVER}`);
   });
 
   test('the factory and the class agree', () => {
@@ -490,9 +490,9 @@ describe('persistence round-trips', () => {
 describe('staging a credential, and the guard the endpoint makes unreachable', () => {
   /*
    * WHY STAGING EXISTS. Issuing REPLACED the live credential, so an operator clicking "generate" on a working
-   * side broke HAFleet's own outbound auth before they could install the new file. It happened for real: the
+   * side broke Hagency's own outbound auth before they could install the new file. It happened for real: the
    * fleet held one token, the homeserver still had the previous one, and the operator was handed a repair job
-   * for a state HAFleet had created. 「为啥生成接单员之后还需要用户去做这些琐事」 — the chore was the symptom.
+   * for a state Hagency had created. 「为啥生成接单员之后还需要用户去做这些琐事」 — the chore was the symptom.
    *
    * These live HERE rather than only against the API because one guard is unreachable from the endpoint: it
    * passes `stage: true` only when a live credential exists, so `record.credential &&` inside the store can be
@@ -500,7 +500,7 @@ describe('staging a credential, and the guard the endpoint makes unreachable', (
    * where it lives.
    */
   const cred = (asToken) => ({
-    kind: 'appservice', asToken, hsToken: `${asToken}-hs`, namespace: '@ac_.*', senderLocalpart: 'hafleet',
+    kind: 'appservice', asToken, hsToken: `${asToken}-hs`, namespace: '@ac_.*', senderLocalpart: 'hagency',
   });
 
   test('staging over a live credential leaves the live one in use', () => {
@@ -628,7 +628,7 @@ describe('the callback address a reissue must reuse', () => {
    */
   const withUrl = (url) => ({
     kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN,
-    namespace: '@ac_.*', senderLocalpart: 'hafleet', ...(url === undefined ? {} : { url }),
+    namespace: '@ac_.*', senderLocalpart: 'hagency', ...(url === undefined ? {} : { url }),
   });
 
   test('the url is remembered and exposed as an address, not withheld as a secret', () => {

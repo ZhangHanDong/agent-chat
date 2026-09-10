@@ -40,24 +40,24 @@ Known structural issue: MCP presence detection uses Linux `/proc` assumptions an
 
 Primary command:
 
-- `bin/hafleet`
+- `bin/hagency`
 
 Important subcommands and wrappers:
 
-- `hafleet-up`, `hafleet-up-v1`
-- `hafleet-down`
-- `hafleet-ls`
-- `hafleet-send`
-- `hafleet-cli`
-- `hafleet-project`
-- `hafleet-graph`
-- `hafleet-service`
-- `hafleet-audit`
+- `hagency-up`, `hagency-up-v1`
+- `hagency-down`
+- `hagency-ls`
+- `hagency-send`
+- `hagency-cli`
+- `hagency-project`
+- `hagency-graph`
+- `hagency-service`
+- `hagency-audit`
 
 Current active-work constraint from ac-topleader:
 
-- Do not edit `bin/hafleet-up`.
-- Do not edit `remote/bin/hafleet-up`.
+- Do not edit `bin/hagency-up`.
+- Do not edit `remote/bin/hagency-up`.
 - Launch compatibility work is active elsewhere.
 
 ## Remote Transport

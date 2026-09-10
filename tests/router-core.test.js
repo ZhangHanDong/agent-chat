@@ -9,7 +9,7 @@ import { createRouterTaskStore, migrateLegacyTasks, openRouter, WorktreeManager 
 const roots = [];
 
 function makeRouter(options = {}) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-'));
   roots.push(root);
   let now = options.start ?? 1_800_000_000_000;
   const router = openRouter({
@@ -130,7 +130,195 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+describe('completed Matrix task continuation', () => {
+  function completed({ settle = true } = {}) {
+    const f = makeRouter();
+    const { activated } = createAndActivate(f.router);
+    const queued = enqueueWriter(f.router, activated);
+    const first = claimAndStart(f.router, queued.dispatchId);
+    const tasks = createRouterTaskStore(f.router);
+    tasks.transitionTask(activated.taskId, 'done');
+    const previousCompletedAt = tasks.getTask(activated.taskId).completed_at;
+    if (settle) f.router.settleAndRelease({ ...first.capability, outcome: 'completed', output: { text: 'JavaScript tests passed' } });
+    f.tick();
+    return { ...f, activated, first, tasks, previousCompletedAt };
+  }
+  function followup(f, overrides = {}) {
+    const input = { messageId: 'python-followup', roomId: '!room:test', matrixEventId: '$python-followup',
+      threadRootEventId: '$m-root', senderMxid: '@alex:test', senderName: 'alex',
+      recipientAgentId: 'agent-a-id', recipientAgentName: 'agent-a', normalizedBody: 'Rewrite as Python', ...overrides };
+    expect(f.router.ingestMessage(input).ok).toBe(true);
+    expect(f.router.attachTaskInputs({ taskId: f.activated.taskId, requestScope: 'matrix-thread:agent-a-id',
+      requestKey: input.matrixEventId ?? input.messageId, messageIds: [input.messageId] }).ok).toBe(true);
+    const queued = enqueueWriter(f.router, f.activated);
+    expect(queued).toMatchObject({ ok: true, state: 'queued' });
+    return queued;
+  }
+  const claim = router => router.claimDispatch({ runnerId: 'followup-runner', leaseMs: 60000, capabilityTtlMs: 60000, maxLiveRunners: 8 });
+
+  test('completed thread follow-up reopens the same task and never replays consumed work', () => {
+    const f = completed(), next = followup(f);
+    const run = claimAndStart(f.router, next.dispatchId, 'followup-runner');
+    expect(run.started).toMatchObject({ taskId: f.activated.taskId, sessionId: f.activated.sessionId });
+    expect(run.started.inbox.map(m => m.body)).toEqual(['Rewrite as Python']);
+    expect(run.started.context.messages.map(m => m.body)).toContain('JavaScript tests passed');
+    expect(f.tasks.getTask(f.activated.taskId)).toMatchObject({ status: 'in_progress', completed_at: null });
+    const reopenEvents = () => f.router.eventsAfter(0).events.filter(e => e.kind === 'task.reopened_for_followup');
+    expect(reopenEvents()).toHaveLength(1);
+    expect(reopenEvents()[0].payload).toMatchObject({ taskId: f.activated.taskId,
+      dispatchId: next.dispatchId, messageId: 'python-followup', previousCompletedAt: f.previousCompletedAt });
+    f.tasks.transitionTask(f.activated.taskId, 'done');
+    expect(f.router.settleAndRelease({ ...run.capability, outcome: 'completed', output: { text: 'Python tests passed' } }).ok).toBe(true);
+    expect(enqueueWriter(f.router, f.activated)).toMatchObject({ ok: true, dispatchId: next.dispatchId, state: 'completed' });
+    expect(claim(f.router)).toBeNull();
+    expect(f.tasks.getTask(f.activated.taskId).status).toBe('done');
+    expect(reopenEvents()).toHaveLength(1);
+    expect(f.router.snapshot().dispatches.filter(d => d.state === 'completed')).toHaveLength(2);
+    expect(f.router.snapshot().tasks).toHaveLength(1);
+    f.router.close();
+  });
+
+  test('completed thread follow-up survives restart with the original queued dispatch', () => {
+    const f = completed(), next = followup(f);
+    f.router.close();
+    const reopened = openRouter({ dbPath: path.join(f.root, 'router.db') });
+    reopened.reconcileOnStart();
+    const run = claimAndStart(reopened, next.dispatchId, 'restarted-runner');
+    expect(run.started.inbox.map(m => m.messageId)).toEqual(['python-followup']);
+    expect(run.started.sessionId).toBe(f.activated.sessionId);
+    expect(reopened.db.prepare('SELECT COUNT(*) count FROM tasks').get().count).toBe(1);
+    expect(reopened.snapshot().dispatches.find(d => d.dispatchId === f.first.claim.dispatchId).state).toBe('completed');
+    reopened.close();
+  });
+
+  test('completed thread follow-up waits for the previous runner and workspace gates', () => {
+    const f = completed({ settle: false }), next = followup(f);
+    expect(claim(f.router)).toBeNull();
+    expect(f.tasks.getTask(f.activated.taskId).status).toBe('done');
+    f.router.settleAndRelease({ ...f.first.capability, outcome: 'completed' });
+    // Ordinary resource availability gates still apply to this fresh work.
+    f.router.db.prepare("UPDATE resources SET dirty = 1 WHERE resource_id = 'workspace:agent-a'").run();
+    expect(claim(f.router)).toBeNull();
+    expect(f.tasks.getTask(f.activated.taskId).status).toBe('done');
+    f.router.db.prepare("UPDATE resources SET dirty = 0 WHERE resource_id = 'workspace:agent-a'").run();
+    expect(claimAndStart(f.router, next.dispatchId, 'unblocked-runner').started.inbox).toHaveLength(1);
+    f.router.close();
+    const uncertain = completed({ settle: false });
+    followup(uncertain);
+    uncertain.router.settleAndRelease({ ...uncertain.first.capability, outcome: 'outcome_unknown' });
+    expect(claim(uncertain.router)).toBeNull();
+    expect(uncertain.tasks.getTask(uncertain.activated.taskId).status).toBe('done');
+    uncertain.router.close();
+    const blocked = completed();
+    followup(blocked);
+    blocked.router.db.prepare("UPDATE tasks SET status = 'blocked' WHERE task_id = ?").run(blocked.activated.taskId);
+    expect(claim(blocked.router)).toBeNull();
+    expect(blocked.tasks.getTask(blocked.activated.taskId).status).toBe('blocked');
+    blocked.router.close();
+  });
+
+  test('completed thread follow-up rejects foreign peer processed and mismatched inputs', () => {
+    for (const variant of ['foreign', 'peer', 'processed', 'room', 'thread', 'inactive', 'unattached']) {
+      const f = completed();
+      followup(f, variant === 'foreign' ? { senderMxid: '@other:test' }
+        : variant === 'peer' ? { senderMxid: null, matrixEventId: null, senderName: 'another-agent' } : {});
+      // Corrupt scoped fixtures exercise the scheduler's independent recheck.
+      if (variant === 'processed') f.router.db.prepare('UPDATE session_messages SET processed_at = 42 WHERE message_id = ?').run('python-followup');
+      if (variant === 'room') f.router.db.prepare('UPDATE router_messages SET room_id = ? WHERE message_id = ?').run('!foreign:test', 'python-followup');
+      if (variant === 'thread') f.router.db.prepare('UPDATE router_messages SET thread_root_event_id = ? WHERE message_id = ?').run('$foreign', 'python-followup');
+      if (variant === 'inactive') f.router.db.prepare("UPDATE task_bindings SET activation_state = 'closed' WHERE task_id = ?").run(f.activated.taskId);
+      if (variant === 'unattached') f.router.db.prepare('DELETE FROM task_inputs WHERE message_id = ?').run('python-followup');
+      expect(claim(f.router), variant).toBeNull(); expect(claim(f.router), variant).toBeNull();
+      expect(f.tasks.getTask(f.activated.taskId)).toMatchObject({ status: 'done', completed_at: f.previousCompletedAt });
+      expect(f.router.db.prepare("SELECT COUNT(*) count FROM notice_outbox WHERE dedupe_key LIKE 'completed_task_followup:%'").get().count, variant).toBe(1);
+      f.router.close();
+    }
+  });
+});
+
 describe('router identity and durable task activation', () => {
+  test('delegation from a threaded human follow-up uses the original Matrix root', () => {
+    const { router, tick } = makeRouter();
+    const parent = createAndActivate(router);
+    const first = enqueueWriter(router, parent.activated, 'parent-workspace');
+    const firstRun = claimAndStart(router, first.dispatchId);
+    router.settleAndRelease({ ...firstRun.capability, outcome: 'completed' });
+    tick();
+    ingest(router, { id: 'human-follow-up', event: '$human-follow-up', root: '$m-root', body: 'Delegate the README now' });
+    router.attachTaskInputs({ taskId: parent.intent.taskId, requestScope: 'fixture', requestKey: 'follow-up', messageIds: ['human-follow-up'] });
+    const next = enqueueWriter(router, parent.activated, 'parent-workspace');
+    const current = claimAndStart(router, next.dispatchId, 'follow-up-runner');
+    const child = router.createTaskFromDispatch({ ...current.capability, toolCallId: 'child-from-follow-up',
+      inputMessageIds: [], task: { title: 'Write README', assigneeAgentId: 'agent-b-id',
+        assigneeName: 'agent-b', parentId: parent.intent.taskId } });
+    expect(child.ok).toBe(true);
+    const command = router.claimMatrixCommand();
+    expect(command.threadRootEventId).toBe('$m-root');
+    // A strict Matrix server rejects m.thread whose target has rel_type.
+    const matrixEvents = {
+      '$m-root': { content: { body: 'Original task' } },
+      '$human-follow-up': { content: { 'm.relates_to': { rel_type: 'm.thread', event_id: '$m-root' } } },
+    };
+    expect(matrixEvents[command.threadRootEventId].content['m.relates_to']?.rel_type).toBeUndefined();
+    const activated = router.recordMatrixDelivery({ commandId: command.commandId,
+      claimToken: command.claimToken, eventId: '$child-shared-thread-anchor' });
+    expect(activated).toMatchObject({ ok: true, threadRootEventId: '$m-root', threadAnchorEventId: '$child-shared-thread-anchor' });
+    expect(activated.sessionId).not.toBe(parent.activated.sessionId);
+    expect(router.db.prepare('SELECT message_id, role FROM task_inputs WHERE task_id = ?').all(child.taskId))
+      .toEqual([{ message_id: 'human-follow-up', role: 'root' }]);
+    const childQueued = enqueueWriter(router, activated, 'child-workspace');
+    const childRun = claimAndStart(router, childQueued.dispatchId, 'child-runner');
+    expect(childRun.started.inbox).toContainEqual(expect.objectContaining({ messageId: 'human-follow-up', body: 'Delegate the README now' }));
+    router.close();
+  });
+
+  test('task intents refuse nested or substituted Matrix thread roots', () => {
+    const { router } = makeRouter();
+    createAndActivate(router);
+    ingest(router, { id: 'follow-up', event: '$follow-up', root: '$m-root' });
+    const input = { requestScope: 'fixture', requestKey: 'invalid-root', roomId: '!room:test',
+      rootMessageId: 'follow-up', inputMessageIds: ['follow-up'], task: { title: 'Invalid nested task',
+        assigneeAgentId: 'agent-b-id', assigneeName: 'agent-b' } };
+    expect(router.createTaskIntent({ ...input, threadRootEventId: '$follow-up' })).toMatchObject({ ok: false, code: 'bad_request' });
+    expect(router.createTaskIntent({ ...input, threadRootEventId: '$unrelated' })).toMatchObject({ ok: false, code: 'bad_request' });
+    ingest(router, { id: 'already-nested', event: '$already-nested', root: '$follow-up' });
+    expect(router.createTaskIntent({ ...input, rootMessageId: 'already-nested', inputMessageIds: ['already-nested'],
+      threadRootEventId: '$follow-up' })).toMatchObject({ ok: false, code: 'bad_request' });
+    expect(router.claimMatrixCommand()).toBeNull();
+    expect(router.snapshot().tasks).toHaveLength(1);
+    router.close();
+  });
+
+  test('parent settlement preserves shared task input processing in the child session', () => {
+    for (const outcome of ['completed', 'outcome_unknown', 'operator_cancel']) {
+      const { router } = makeRouter();
+      const parent = createAndActivate(router);
+      const queued = enqueueWriter(router, parent.activated, 'parent-workspace');
+      const { capability } = claimAndStart(router, queued.dispatchId);
+      const child = router.createTaskFromDispatch({ ...capability, toolCallId: 'delegate',
+        rootMessageId: 'm-root', inputMessageIds: ['m-root'], task: { title: 'Child task',
+          assigneeAgentId: 'agent-b-id', assigneeName: 'agent-b', parentId: parent.intent.taskId } });
+      expect(child.ok).toBe(true);
+      const command = router.claimMatrixCommand();
+      const activated = router.recordMatrixDelivery({ commandId: command.commandId,
+        claimToken: command.claimToken, eventId: '$child-anchor' });
+      expect(activated.ok).toBe(true);
+      const settled = outcome === 'operator_cancel'
+        ? router.markOutcomeUnknown(queued.dispatchId, 'operator cancellation')
+        : router.settleAndRelease({ ...capability, outcome });
+      expect(settled.ok).toBe(true);
+      expect(router.db.prepare('SELECT processed_at FROM session_messages WHERE session_id = ? AND message_id = ?')
+        .get(parent.activated.sessionId, 'm-root').processed_at).not.toBeNull();
+      expect(router.db.prepare('SELECT processed_at FROM session_messages WHERE session_id = ? AND message_id = ?')
+        .get(activated.sessionId, 'm-root').processed_at).toBeNull();
+      const childQueued = enqueueWriter(router, activated, 'child-workspace');
+      expect(childQueued).toMatchObject({ ok: true, state: 'queued' });
+      const started = claimAndStart(router, childQueued.dispatchId, 'child-runner');
+      expect(started.started.inbox.map((message) => message.messageId)).toContain('m-root');
+      router.close();
+    }
+  });
+
   test('test_same_matrix_event_projects_to_distinct_sessions_per_agent_id', () => {
     const { router } = makeRouter();
     const first = ingest(router, {
@@ -885,6 +1073,87 @@ describe('router dispatch, capability, isolation, and recovery', () => {
 });
 
 describe('approval parking and read projection', () => {
+  test('approval retries preserve one-use decisions and exact runtime request bindings', () => {
+    const { router } = makeRouter();
+    try {
+      const { activated } = createAndActivate(router);
+      const queued = enqueueWriter(router, activated);
+      const { capability } = claimAndStart(router, queued.dispatchId);
+      const first = { ...capability, approvalId: 'retry-0', operationDigest: 'same-input',
+        upstreamThreadId: 'thread', upstreamTurnId: 'turn', upstreamItemId: 'mcp:0', upstreamRequestId: '0', maxParkedRunners: 1 };
+      const second = { ...first, approvalId: 'retry-1', upstreamItemId: 'mcp:1', upstreamRequestId: '1' };
+      expect(router.parkForApproval(first)).toEqual({ ok: true, replayed: false });
+      expect(router.parkForApproval(first)).toEqual({ ok: true, replayed: true });
+      expect(router.parkForApproval({ ...first, upstreamRequestId: 'changed' })).toMatchObject({ ok: false, code: 'approval_mismatch' });
+      const denied = { approvalId: first.approvalId, dispatchId: queued.dispatchId, operationDigest: first.operationDigest,
+        decisionEventId: 'denied-0', decision: 'deny' };
+      expect(router.recordApprovalDecision(denied)).toEqual({ ok: true, replayed: false });
+      expect(router.recordApprovalDecision({ ...denied, decisionEventId: 'changed-verdict', decision: 'allow' })).toMatchObject({ ok: false, code: 'approval_mismatch' });
+      expect(router.resumeAfterApproval(first)).toEqual({ ok: true, decision: 'deny' });
+      expect(router.parkForApproval({ ...first, approvalId: 'different-id-same-runtime-request' })).toMatchObject({ ok: false, code: 'approval_mismatch' });
+      expect(router.parkForApproval(second)).toEqual({ ok: true, replayed: false });
+      expect(router.recordApprovalDecision(denied)).toEqual({ ok: true, replayed: true });
+      expect(router.reconcileApprovalDecision(denied)).toEqual({ ok: true, replayed: true, deliverable: false });
+      expect(router.reconcileApprovalDecision({ ...denied, decisionEventId: 'late-allow', decision: 'allow' })).toMatchObject({ ok: false, code: 'approval_mismatch' });
+      expect(router.resumeAfterApproval(first)).toMatchObject({ ok: false, code: 'approval_mismatch' });
+      expect(router.readApprovalDecision(second)).toEqual({ ok: true, decision: null });
+      expect(router.db.prepare('SELECT state FROM dispatches WHERE dispatch_id=?').get(queued.dispatchId).state).toBe('parked');
+      expect(router.recordApprovalDecision({ ...denied, approvalId: second.approvalId, decisionEventId: 'allowed-1', decision: 'allow' })).toEqual({ ok: true, replayed: false });
+      expect(router.resumeAfterApproval(second)).toEqual({ ok: true, decision: 'allow' });
+      expect(router.db.prepare('SELECT decision, resumed_at FROM approval_waits ORDER BY rowid').all()).toEqual([
+        { decision: 'deny', resumed_at: expect.any(Number) }, { decision: 'allow', resumed_at: expect.any(Number) },
+      ]);
+      expect(router.db.prepare('SELECT COUNT(*) count FROM approval_inbox').get().count).toBe(2);
+    } finally { router.close(); }
+  });
+
+  test('approval request migration preserves historical decisions and the current parked wait', () => {
+    const { root, router } = makeRouter();
+    const { activated } = createAndActivate(router);
+    const queued = enqueueWriter(router, activated);
+    const { capability } = claimAndStart(router, queued.dispatchId);
+    const first = { ...capability, approvalId: 'legacy-0', operationDigest: 'legacy-input-0',
+      upstreamThreadId: 'thread', upstreamTurnId: 'turn', upstreamItemId: 'mcp:0', upstreamRequestId: '0', maxParkedRunners: 1 };
+    const second = { ...first, approvalId: 'legacy-1', operationDigest: 'legacy-input-1', upstreamItemId: 'mcp:1', upstreamRequestId: '1' };
+    router.parkForApproval(first);
+    router.recordApprovalDecision({ approvalId: first.approvalId, dispatchId: queued.dispatchId,
+      operationDigest: first.operationDigest, decisionEventId: 'legacy-deny', decision: 'deny' });
+    router.resumeAfterApproval(first);
+    router.parkForApproval(second);
+    // Frozen pre-v9 schema: the migration must accept a database created by the
+    // earlier release, independently of the current implementation's schema.
+    const legacySchema = `CREATE TABLE approval_waits_legacy (
+      approval_id TEXT PRIMARY KEY,
+      dispatch_id TEXT NOT NULL REFERENCES dispatches(dispatch_id) ON DELETE CASCADE,
+      operation_digest TEXT NOT NULL,
+      upstream_thread_id TEXT, upstream_turn_id TEXT, upstream_item_id TEXT, upstream_request_id TEXT,
+      created_at INTEGER NOT NULL, resolved_at INTEGER, decision TEXT,
+      UNIQUE(dispatch_id, operation_digest)
+    );`;
+    const columns = 'approval_id, dispatch_id, operation_digest, upstream_thread_id, upstream_turn_id, upstream_item_id, upstream_request_id, created_at, resolved_at, decision';
+    // Build a real pre-migration table in this owned fixture; do not edit live state.
+    router.db.exec(`${legacySchema}
+      INSERT INTO approval_waits_legacy SELECT ${columns} FROM approval_waits;
+      DROP TABLE approval_waits;
+      ALTER TABLE approval_waits_legacy RENAME TO approval_waits;
+      DELETE FROM router_schema_migrations WHERE version >= 9;`);
+    router.close();
+    const reopened = openRouter({ dbPath: path.join(root, 'router.db'), now: () => 1_800_000_000_000 });
+    try {
+      expect(reopened.db.prepare('SELECT approval_id, decision, resumed_at FROM approval_waits ORDER BY rowid').all()).toEqual([
+        { approval_id: 'legacy-0', decision: 'deny', resumed_at: expect.any(Number) },
+        { approval_id: 'legacy-1', decision: null, resumed_at: null },
+      ]);
+      expect(reopened.db.prepare('SELECT decision_event_id, decision FROM approval_inbox').all()).toEqual([{ decision_event_id: 'legacy-deny', decision: 'deny' }]);
+      expect(reopened.resumeAfterApproval(first)).toMatchObject({ ok: false, code: 'approval_mismatch' });
+      expect(reopened.recordApprovalDecision({ approvalId: second.approvalId, dispatchId: queued.dispatchId,
+        operationDigest: second.operationDigest, decisionEventId: 'legacy-new-deny', decision: 'deny' })).toMatchObject({ ok: true });
+      expect(reopened.resumeAfterApproval(second)).toEqual({ ok: true, decision: 'deny' });
+      expect(reopened.parkForApproval({ ...first, approvalId: 'fresh-2', upstreamItemId: 'mcp:2', upstreamRequestId: '2' })).toMatchObject({ ok: true, replayed: false });
+      expect(reopened.db.pragma('foreign_key_check')).toEqual([]);
+    } finally { reopened.close(); }
+  });
+
   test('test_approval_decision_event_reconciles_idempotently', () => {
     const { router } = makeRouter();
     const { activated } = createAndActivate(router);
@@ -1073,7 +1342,7 @@ describe('approval parking and read projection', () => {
   });
 
   test('test_restart_reconciles_started_dispatch_to_outcome_unknown', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-restart-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-restart-'));
     roots.push(root);
     const dbPath = path.join(root, 'router.db');
     let router = openRouter({ dbPath });
@@ -1097,7 +1366,7 @@ describe('approval parking and read projection', () => {
   });
 
   test('test_fencing_generation_survives_restart', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-fence-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-fence-'));
     roots.push(root);
     const dbPath = path.join(root, 'router.db');
     let now = 1_800_000_000_000;
@@ -1135,7 +1404,7 @@ describe('approval parking and read projection', () => {
   test('test_router_snapshot_excludes_paths_and_owner_private_approval_data', () => {
     const { router } = makeRouter();
     router.registerWorkspace({
-      resourceId: 'ws', safeLabel: 'safe workspace', backendPath: '/secret/absolute/workspace', branchName: 'hafleet/task',
+      resourceId: 'ws', safeLabel: 'safe workspace', backendPath: '/secret/absolute/workspace', branchName: 'hagency/task',
     });
     router.db.prepare("UPDATE resources SET dirty=1, dirty_reason='inspect required' WHERE resource_id='ws'").run();
     const text = JSON.stringify(router.snapshot());
@@ -1160,7 +1429,7 @@ describe('approval parking and read projection', () => {
 
 describe('conservative worktree lifecycle', () => {
   test('test_worktree_mode_runs_two_threads_in_distinct_worktrees', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1179,7 +1448,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('failed worktree bootstrap remains fail-closed until a successful bootstrap is recorded', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-bootstrap-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-bootstrap-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1205,7 +1474,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('changed bootstrap cannot bypass a dirty failed-bootstrap quarantine', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-bootstrap-dirty-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-bootstrap-dirty-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1228,7 +1497,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('worktree bootstrap does not inherit backend credentials', async () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-bootstrap-env-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-bootstrap-env-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1263,7 +1532,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('async worktree preparation does not block the backend event loop', async () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-bootstrap-async-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-bootstrap-async-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1289,7 +1558,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('recreated worktree cannot reuse bootstrap success from a removed checkout', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-recreate-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-recreate-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1312,7 +1581,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('worktree resource identity includes repository and worktree root', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-identity-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-identity-'));
     roots.push(root);
     const makeRepo = (name) => {
       const repo = path.join(root, name);
@@ -1352,7 +1621,7 @@ describe('conservative worktree lifecycle', () => {
 
   test('test_dirty_worktree_retained_on_session_eviction', () => {
     const { router } = makeRouter();
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-dirty-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-dirty-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');

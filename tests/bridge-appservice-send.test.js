@@ -31,9 +31,9 @@ describe('sending as an agent that has no token of its own', () => {
   const AS_TOKEN = 'as_secret_never_logged';
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-as-send-'));
-    envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-as-send-'));
+    envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?as-send`));
   });
@@ -74,7 +74,7 @@ describe('sending as an agent that has no token of its own', () => {
   const appserviceSender = (over = {}) => ({
     kind: 'appservice',
     side: { serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:8008' },
-    credential: { kind: 'appservice', asToken: AS_TOKEN, senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+    credential: { kind: 'appservice', asToken: AS_TOKEN, senderLocalpart: 'hagency', namespace: '@ac_.*' },
     agentUserId: AGENT_MXID,
     agentName: AGENT,
     ...over,
@@ -203,9 +203,9 @@ describe('a DM room for an agent with no token of its own', () => {
   const AS_TOKEN = 'as_secret_never_logged';
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-as-dm-'));
-    envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX']);
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-as-dm-'));
+    envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX']);
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     mod = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?as-dm`);
     ({ MatrixBridge } = mod);
@@ -254,7 +254,7 @@ describe('a DM room for an agent with no token of its own', () => {
   const sender = (over = {}) => ({
     kind: 'appservice',
     side: { serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:8008' },
-    credential: { kind: 'appservice', asToken: AS_TOKEN, senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+    credential: { kind: 'appservice', asToken: AS_TOKEN, senderLocalpart: 'hagency', namespace: '@ac_.*' },
     agentUserId: AGENT_MXID,
     agentName: AGENT,
     ...over,
@@ -297,7 +297,7 @@ describe('a DM room for an agent with no token of its own', () => {
     // The side's own homeserver, never ours.
     expect(create.url.startsWith('http://127.0.0.1:8008/')).toBe(true);
     // Created AS THE REPRESENTATIVE; joined AS THE AGENT. One credential, two masquerades.
-    expect(create.url).toContain(encodeURIComponent(`@hafleet:${SIDE}`));
+    expect(create.url).toContain(encodeURIComponent(`@hagency:${SIDE}`));
     expect(join.url).toContain(encodeURIComponent(AGENT_MXID));
 
     const body = JSON.parse(create.body);
@@ -393,9 +393,9 @@ describe('a room on a project side is acted in by the side, not by us', () => {
   const OUR_ROOM = '!ours:matrix.example.test';
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-room-actor-'));
-    envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-room-actor-'));
+    envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     process.env.MATRIX_SERVER_NAME = 'matrix.example.test';
     ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?room-actor`));
@@ -410,7 +410,7 @@ describe('a room on a project side is acted in by the side, not by us', () => {
 
   const acting = {
     side: { serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:8008' },
-    credential: { kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+    credential: { kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hagency', namespace: '@ac_.*' },
   };
 
   function stub({ sides = { [SIDE]: acting } } = {}) {
@@ -420,7 +420,7 @@ describe('a room on a project side is acted in by the side, not by us', () => {
       actingSideFor: (server) => sides[String(server).toLowerCase()] ?? null,
       getBotToken: () => 'bot-token',
       getAgentToken: () => 'agent-token',
-      botUserId: '@hafleetbot:matrix.example.test',
+      botUserId: '@hagencybot:matrix.example.test',
       /*
        * F10 (17-r3): the required roster callback. This describe drives invite/actor
        * paths whose senders carry several agent MXIDs, so the stub admits any
@@ -515,9 +515,9 @@ describe('which credential speaks is decided by the room, not by what the agent 
   const OURS = 'matrix.example.test';
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-room-decides-'));
-    envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-room-decides-'));
+    envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     process.env.MATRIX_SERVER_NAME = OURS;
     ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?room-decides`));
@@ -530,7 +530,7 @@ describe('which credential speaks is decided by the room, not by what the agent 
 
   const acting = {
     side: { serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:8018' },
-    credential: { kind: 'appservice', asToken: 'acme_as_token', senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+    credential: { kind: 'appservice', asToken: 'acme_as_token', senderLocalpart: 'hagency', namespace: '@ac_.*' },
   };
 
   function bridge({ hasToken = true } = {}) {

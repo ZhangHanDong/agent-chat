@@ -7,7 +7,7 @@
 Archive notice: This is historical architecture/audit material, not the current deploy or incident runbook. Current operator procedures live in root `README.md` and `OPERATIONS.md`; verify behavior against code before using details here.
 
 Date: 2026-03-28
-Scope: All hafleet services, data flows, subsystems, external dependencies, and configuration model
+Scope: All hagency services, data flows, subsystems, external dependencies, and configuration model
 Author: ac-researcher (task 5.38)
 
 ---
@@ -256,14 +256,14 @@ because the tmux idle-gate behaviour it documents is still how delivery to a tmu
 
 **Size**: ~3400 lines | **Port**: None (client only) | **Process**: Long-running bridge
 
-Provides bidirectional message bridging between hafleet and a Matrix homeserver. Creates puppet accounts for each agent and a management bot for room operations.
+Provides bidirectional message bridging between hagency and a Matrix homeserver. Creates puppet accounts for each agent and a management bot for room operations.
 
 #### Architecture
 
 ```
 Matrix Homeserver
   │
-  ├── Bot account (@hafleet-bot:domain)
+  ├── Bot account (@hagency-bot:domain)
   │     └── Room management, !commands, invite handling
   │
   └── Puppet accounts (@ac_<agentname>:domain)
@@ -285,7 +285,7 @@ Matrix Homeserver
 |-----------|---------|--------|
 | Account registration | Register bot + puppet Matrix accounts with derived passwords | `bridge-matrix.js:374-426` |
 | Token management | Obtain and cache Matrix access tokens | `bridge-matrix.js:428-477` |
-| Room-group mapping | Map Matrix rooms to hafleet groups, persisted to `data/room-mapping.json` | `bridge-matrix.js:113-147` |
+| Room-group mapping | Map Matrix rooms to hagency groups, persisted to `data/room-mapping.json` | `bridge-matrix.js:113-147` |
 | Room creation | Create `[AC] groupName` rooms with correct membership | `bridge-matrix.js:3292-3338` |
 | DM rooms | Create direct-message rooms for agent pairs | `bridge-matrix.js:2883-3043` |
 | Puppet sending | Send messages as agent puppets in mapped rooms | `bridge-matrix.js:2771-2852` |
@@ -315,7 +315,7 @@ Source: `bridge-matrix.js:2335-2380` (SSE setup), `lib/eventsource-mini.js` (cus
 
 ### 2.4 MCP Server (lib/mcp-server-core.js)
 
-**Size**: 711 lines | **Port**: Dynamic per-agent | **Process**: One per agent (launched by hafleet-up)
+**Size**: 711 lines | **Port**: Dynamic per-agent | **Process**: One per agent (launched by hagency-up)
 
 Each agent gets a dedicated MCP (Model Context Protocol) server that provides messaging tools. The agent's AI framework (Claude/Codex) calls these tools via the MCP protocol.
 
@@ -342,8 +342,8 @@ Source: `mcp-server-core.js:199-235` (staging), `mcp-server-core.js:368-439` (lo
 
 The MCP server auto-detects which agent it serves by checking (in order):
 1. `AGENT_NAME` env var
-2. `HAFLEET_AGENT_NAME` env var
-3. Path-based detection from CWD (extracts from `.hafleet/agents/agent_<name>/`)
+2. `HAGENCY_AGENT_NAME` env var
+3. Path-based detection from CWD (extracts from `.hagency/agents/agent_<name>/`)
 
 Source: `mcp-server-core.js:13-50`.
 
@@ -351,7 +351,7 @@ Source: `mcp-server-core.js:13-50`.
 
 ### 2.5 Push Relay (lib/push-relay-core.js)
 
-**Size**: 822 lines | **Port**: None (client only) | **Process**: One per agent (launched by hafleet-up)
+**Size**: 822 lines | **Port**: None (client only) | **Process**: One per agent (launched by hagency-up)
 
 The push relay subscribes to backend SSE and injects relevant messages into the agent's tmux pane, acting as a real-time notification system.
 
@@ -434,11 +434,11 @@ The `bin/` directory contains 22 operational scripts, all invocable from the com
 
 | Script | Purpose |
 |--------|---------|
-| `bin/hafleet` | Main CLI entry point — dispatches to subcommands |
-| `bin/hafleet-up` | Provision and launch an agent (local or remote) — ~350 lines |
-| `bin/hafleet-down` | Graceful agent shutdown — scrollback archival, resume-id capture, tmux kill — ~250 lines |
-| `bin/hafleet-ls` | List running agents and their status |
-| `bin/hafleet-send` | Send a message to an agent from the CLI |
+| `bin/hagency` | Main CLI entry point — dispatches to subcommands |
+| `bin/hagency-up` | Provision and launch an agent (local or remote) — ~350 lines |
+| `bin/hagency-down` | Graceful agent shutdown — scrollback archival, resume-id capture, tmux kill — ~250 lines |
+| `bin/hagency-ls` | List running agents and their status |
+| `bin/hagency-send` | Send a message to an agent from the CLI |
 
 **Group Management**:
 
@@ -452,7 +452,7 @@ The `bin/` directory contains 22 operational scripts, all invocable from the com
 
 | Script | Purpose |
 |--------|---------|
-| `bin/hafleet-audit` | Audit agent state for inconsistencies |
+| `bin/hagency-audit` | Audit agent state for inconsistencies |
 | `bin/agent-dashboard` | Quick terminal status view |
 | `bin/agent-task` | Query/update task state from CLI |
 
@@ -462,8 +462,8 @@ The `bin/` directory contains 22 operational scripts, all invocable from the com
 |--------|---------|
 | `bin/mcp-run` | Launch a standalone MCP server |
 | `bin/push-relay-run` | Launch a standalone push relay |
-| `bin/hafleet-prune-agents` | Clean up stale agent registrations |
-| `bin/hafleet-sync-skills` | Synchronize skill definitions across agents |
+| `bin/hagency-prune-agents` | Clean up stale agent registrations |
+| `bin/hagency-sync-skills` | Synchronize skill definitions across agents |
 
 ### 4.2 scripts/ Directory (Provisioning & Automation)
 
@@ -473,7 +473,7 @@ The `bin/` directory contains 22 operational scripts, all invocable from the com
 | `scripts/configure-v1-subconscious.js` | 455 | Install subconscious hooks into agent Claude config (`hooks.json` with 4 hook points) |
 | `scripts/write-v1-agent-task.js` | 360 | Write task state into the shared control plane (used by `./task-writer` wrapper) |
 | `scripts/write-supervisor-state.js` | 160 | Persist supervisor state to agent home |
-| `scripts/build-remote-package.sh` | 186 | Package hafleet for remote deployment (tar bundle) |
+| `scripts/build-remote-package.sh` | 186 | Package hagency for remote deployment (tar bundle) |
 
 ### 4.3 Autodeploy Scripts
 
@@ -481,9 +481,9 @@ Three autodeploy variants, all git-poll-based with health-gated restarts:
 
 | Script | Lines | Purpose |
 |--------|-------|---------|
-| `scripts/hafleet-dev-autodeploy.sh` | 150 | Dev mode: pull + restart on any new commit, no health gate |
-| `scripts/hafleet-stable-autodeploy.sh` | 195 | Stable mode: pull → health check → graceful restart with agent preservation |
-| `scripts/hafleet-remote-autodeploy.sh` | 122 | Remote server: pull remote package → restart push-relay + MCP |
+| `scripts/hagency-dev-autodeploy.sh` | 150 | Dev mode: pull + restart on any new commit, no health gate |
+| `scripts/hagency-stable-autodeploy.sh` | 195 | Stable mode: pull → health check → graceful restart with agent preservation |
+| `scripts/hagency-remote-autodeploy.sh` | 122 | Remote server: pull remote package → restart push-relay + MCP |
 
 All use `git fetch` + `git rev-parse` to detect new commits on their tracked branch.
 
@@ -544,7 +544,7 @@ Matrix Homeserver
 bridge-matrix.js
   │
   ├─► Room trust check: is this room trusted?
-  ├─► Room-group mapping: which hafleet group?
+  ├─► Room-group mapping: which hagency group?
   ├─► Trust level: operator or external?
   │
   │ POST /api/messages { from: "@user:domain", to: "group-name", trustLevel: "operator"|"external" }
@@ -692,10 +692,10 @@ Source: `backend-v2.js:7580-7640` (cursor API), `mcp-server-core.js:287-365` (cu
 
 Agent provisioning creates the full home directory structure and configures all per-agent services.
 
-**Provisioning pipeline** (triggered by `hafleet-up`):
+**Provisioning pipeline** (triggered by `hagency-up`):
 
 ```
-hafleet-up
+hagency-up
   │
   ├─► scripts/provision-v1-agent-home.js
   │     ├─► Create directory tree: state/, workdir/, workdir/docs/, workdir/projects/, etc.
@@ -733,13 +733,13 @@ Source: `scripts/provision-v1-agent-home.js:1-726`, `scripts/configure-v1-subcon
 
 Agent sessions are managed through tmux with lifecycle hooks:
 
-**Startup** (hafleet-up):
+**Startup** (hagency-up):
 1. Create named tmux session: `tmux new-session -d -s agent_<name>`
 2. Set environment variables in tmux session (API tokens, model config, paths)
 3. Launch MCP server and push relay as background processes
 4. Start the agent binary (claude/codex) in the foreground tmux pane
 
-**Shutdown** (hafleet-down):
+**Shutdown** (hagency-down):
 1. Validate agent has no active task (unless `--force`)
 2. Capture scrollback: `tmux capture-pane` → archive to `state/scrollback-<timestamp>.txt`
 3. Capture resume-id from `state/resume-id` file
@@ -747,12 +747,12 @@ Agent sessions are managed through tmux with lifecycle hooks:
 5. Wait for graceful exit (30s Claude, 8s Codex), then kill tmux session
 6. Update agent status via `PATCH /api/agents/:name { status: "stopped" }`
 
-**Resume** (hafleet-up --resume):
+**Resume** (hagency-up --resume):
 1. Read resume-id from `state/resume-id`
 2. Launch agent with `--resume <id>` flag — continues previous conversation context
 3. Re-launch MCP server and push relay
 
-Source: `bin/hafleet-up:1-350` (startup), `bin/hafleet-down:1-250` (shutdown).
+Source: `bin/hagency-up:1-350` (startup), `bin/hagency-down:1-250` (shutdown).
 
 ### 6.6 Supervisor System
 
@@ -834,17 +834,17 @@ Configuration is loaded from `.env` files at the project root. Variables are org
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `HAFLEET_BACKEND_PORT` | `8090` | Backend listen port |
+| `HAGENCY_BACKEND_PORT` | `8090` | Backend listen port |
 | `API_TOKEN` | (none) | Bearer auth token — if unset, API is open |
-| `HAFLEET_AGENT_TOKEN_MODE` | `audit` | Per-agent token mode: `hard`, `soft`, `audit` |
+| `HAGENCY_AGENT_TOKEN_MODE` | `audit` | Per-agent token mode: `hard`, `soft`, `audit` |
 | `MATRIX_BRIDGE_SECRET` | (none) | Shared secret for bridge authentication |
-| `HAFLEET_RUNTIME_DIR` | (required, no default) | Runtime root. Every JSON store lives in `$HAFLEET_RUNTIME_DIR/data`; there is no separate data-dir variable, and a supervisor that guessed one could serve the repo's dev `data/` while an operator believed it was serving the fleet |
-| `HAFLEET_HOMEDIR` | `~/.hafleet` | Root for agent home directories |
+| `HAGENCY_RUNTIME_DIR` | (required, no default) | Runtime root. Every JSON store lives in `$HAGENCY_RUNTIME_DIR/data`; there is no separate data-dir variable, and a supervisor that guessed one could serve the repo's dev `data/` while an operator believed it was serving the fleet |
+| `HAGENCY_HOMEDIR` | `~/.hagency` | Root for agent home directories |
 | _(removed)_ | — | `MAX_MESSAGE_LENGTH` is read nowhere. The body limit is the JSON parser's `100kb`, set in `backend-v2.js`, and it is not configurable |
 
 **Dashboard (server.js)** — WITHDRAWN. `server.js` does not exist in this repository, and none of
 `WEB_PORT`, `IDLE_THRESHOLD_MS` or `BACKEND_URL` is read anywhere in the code. The console is
-`mockup/` (Next.js), which resolves its backend from `HAFLEET_BACKEND` at module scope. The three
+`mockup/` (Next.js), which resolves its backend from `HAGENCY_BACKEND` at module scope. The three
 rows that used to be here are removed rather than corrected, because there is nothing to correct
 them to.
 
@@ -854,7 +854,7 @@ them to.
 |----------|---------|---------|
 | `MATRIX_HOMESERVER` | `https://matrix.example.com` | Matrix server URL |
 | `MATRIX_SERVER_NAME` | the host of `MATRIX_HOMESERVER` | Server name for user and room ids |
-| `MATRIX_BOT_USERNAME` | `agent-bridge` | Bot account localpart. **Not** a project side's `sender_localpart` (`hafleet`) — see `docs/RUNNING-THE-SERVICES.md` |
+| `MATRIX_BOT_USERNAME` | `agent-bridge` | Bot account localpart. **Not** a project side's `sender_localpart` (`hagency`) — see `docs/RUNNING-THE-SERVICES.md` |
 | `MATRIX_BOT_PASSWORD` | (none) | Bot account password. Absent is a supported mode since #119: the bot does not start and the inbound path stays up |
 | `MATRIX_AGENT_PREFIX` | `ac_` | Prefix for dispatched-agent localparts |
 | `MATRIX_OPERATOR_MXIDS` | (none) | Comma-separated operator Matrix IDs |
@@ -867,14 +867,14 @@ them to.
 |----------|---------|---------|
 | `SUPERVISOR_ENABLED` | `false` | Enable supervisor system |
 | `SUPERVISOR_API_KEY` | (none) | LLM API key for evaluator |
-| _(removed)_ | — | `SUPERVISOR_MODEL` is not an environment variable: the only occurrence is a local shell variable inside `bin/hafleet-up`, and the evaluator's model comes from the agent's runtime profile |
+| _(removed)_ | — | `SUPERVISOR_MODEL` is not an environment variable: the only occurrence is a local shell variable inside `bin/hagency-up`, and the evaluator's model comes from the agent's runtime profile |
 | `SUPERVISOR_INTERVAL_MS` | `30000` | Assessment cycle interval |
 
 **Subconscious**:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `HAFLEET_SUBCONSCIOUS_EVENT_TOKEN` | (none) | Auth token for hook event POST endpoint |
+| `HAGENCY_SUBCONSCIOUS_EVENT_TOKEN` | (none) | Auth token for hook event POST endpoint |
 | `LETTA_BASE_URL` | (none) | Letta server URL for long-term memory |
 
 **Agent Framework**:
@@ -890,7 +890,7 @@ Source: `.env.example:1-55`, `backend-v2.js:34-151`, `bridge-matrix.js:27-75`, `
 
 ### 8.2 Per-Agent Configuration (agent.json)
 
-Each agent has an `agent.json` in its home directory (`~/.hafleet/agents/agent_<name>/agent.json`) with:
+Each agent has an `agent.json` in its home directory (`~/.hagency/agents/agent_<name>/agent.json`) with:
 
 | Field | Type | Purpose |
 |-------|------|---------|
@@ -912,14 +912,14 @@ Source: `scripts/provision-v1-agent-home.js:200-280`, `docs/v1-agent-home-contra
 Agent-up supports preset configurations via `--preset` flag:
 
 - Presets define model, token limits, compaction settings, and permissions
-- Stored in the hafleet configuration
+- Stored in the hagency configuration
 - Override individual settings via command-line flags
 
-Source: `bin/hafleet-up:400-450` (preset loading).
+Source: `bin/hagency-up:400-450` (preset loading).
 
 ### 8.4 Runtime State
 
-Per-agent runtime state in `~/.hafleet/agents/agent_<name>/state/`:
+Per-agent runtime state in `~/.hagency/agents/agent_<name>/state/`:
 
 | File | Purpose |
 |------|---------|
@@ -930,4 +930,4 @@ Per-agent runtime state in `~/.hafleet/agents/agent_<name>/state/`:
 | `letta/` | Letta integration state |
 | `lock` | Process lock file to prevent duplicate launches |
 
-Source: `lib/agent-state.js`, `bin/hafleet-down:100-150` (scrollback capture).
+Source: `lib/agent-state.js`, `bin/hagency-down:100-150` (scrollback capture).

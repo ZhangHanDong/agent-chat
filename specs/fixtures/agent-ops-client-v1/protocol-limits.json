@@ -1,5 +1,5 @@
 {
-  "schema": "com.hafleet.agent_ops.v1",
+  "schema": "com.hagency.agent_ops.v1",
   "limits": {
     "grant_ttl_ms": 120000,
     "grant_ttl_max_ms": 600000,

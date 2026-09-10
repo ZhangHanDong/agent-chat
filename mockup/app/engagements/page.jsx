@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import AgentAllocationChoice from '@/components/AgentAllocationChoice';
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
 import { Toast, useToast } from '@/components/Toast';
@@ -8,8 +9,9 @@ import { Blank } from '@/components/Blank';
 import { useT } from '@/components/Prefs';
 import { fmtTokens } from '@/lib/mock-data';
 import { useData, Provenance } from '@/components/Data';
-import { send } from '@/lib/api';
+import { revokeEngagement, send } from '@/lib/api';
 import CredentialForm from '@/components/CredentialForm';
+import { allocationValue, approvalVerdict, projectLabel } from '@/lib/console-workflow';
 
 /*
  * ④ 接洽 — what replaces dispatch.
@@ -108,16 +110,18 @@ function ProjectSides({ t }) {
    */
   const alloc = (side) => {
     if (!side.budget) return <Blank why="en.why.sideBudgetUnread" t={t} />;
-    const { allocated, committed, remaining } = side.budget;
+    const { allocated, committed, remaining, poolCommitted } = side.budget;
+    const poolSummary = <span className="dim">{t('en.poolSideCommitted', { n: fmtTokens(poolCommitted ?? 0) })}</span>;
     if (allocated === null) {
       return (
         <>
           <span className="stranded">{t('en.allocUnset')}</span>
           <span className="dim">{t('en.allocUnsetWhy')}</span>
+          {poolSummary}
         </>
       );
     }
-    if (allocated === 0) return <span className="overqual">{t('en.allocClosed')}</span>;
+    if (allocated === 0) return <><span className="overqual">{t('en.allocClosed')}</span>{poolSummary}</>;
     /*
      * THE ORPHAN LINE, and it says nothing on a healthy side. A delete now releases its commitments, so
      * `orphanedCommitted` is 0 and this renders nothing — it exists for fleets that predate that fix, where
@@ -129,6 +133,7 @@ function ProjectSides({ t }) {
       <>
         <span>{t('en.allocLeft', { left: fmtTokens(remaining), alloc: fmtTokens(allocated) })}</span>
         <span className="dim">{t('en.allocCommitted', { n: fmtTokens(committed) })}</span>
+        {poolSummary}
         {orphaned > 0 ? (
           <span className="stranded">{t('en.allocOrphaned', { n: fmtTokens(orphaned) })}</span>
         ) : null}
@@ -187,6 +192,10 @@ function ProjectSides({ t }) {
                       : <span className="stranded">{t('en.credNone')}</span>}
                     {/* Entering one was a curl-only act until now (ADR-016 decision 8). The form can
                         write a credential it can never read back — the read side stays closed. */}
+                    {side.connectionMode === 'outbound' && <p className="why-inline">
+                      纯出站 · Hagency 主动连接 Palpo
+                      <span className="mono"> {side.outboundEndpoint}</span>
+                    </p>}
                     <CredentialForm
                       side={side}
                       live={provenance.projectSides === 'live'}
@@ -195,7 +204,7 @@ function ProjectSides({ t }) {
                     {/*
                       * THE TWO THINGS AN OPERATOR CAN ACTUALLY DO, and neither existed here.
                       *
-                      * The only action on this column was a form asking for tokens that — when HAFleet issued
+                      * The only action on this column was a form asking for tokens that — when Hagency issued
                       * them — were readable for one moment and are write-only afterwards. So for the common
                       * case the sole affordance was one the operator could not complete. They asked twice why
                       * "set credential" was still there.
@@ -217,7 +226,10 @@ function ProjectSides({ t }) {
                       <span className="dim">{t('en.awaitingInstallWhy')}</span>
                     </>
                   ) : reach(side.accessState)}</td>
-                  <td>{alloc(side)}</td>
+                  <td>
+                    {alloc(side)}
+                    <AllocationEditor side={side} live={provenance.projectSides === 'live'} onDone={refresh} />
+                  </td>
                   <td>{!side.projects?.length
                     ? <span className="dim">{t('en.projNone')}</span>
                     : side.projects.map((pr) => (
@@ -274,13 +286,106 @@ function ProjectSides({ t }) {
   );
 }
 
-/**
- * Verify, and reissue — the operator's two real actions on a credential they cannot read.
- *
- * Kept out of `CredentialForm` because that component is for TYPING a credential somebody else generated, and
- * these are for one HAFleet issued. Bundling them would make a form that is half "enter this" and half "do this
- * to it".
- */
+function AllocationEditor({ side, live, onDone }) {
+  const t = useT();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+  async function save(event) {
+    event.preventDefault();
+    if (!live || busy) return;
+    let allocated_tokens;
+    try { allocated_tokens = allocationValue(value); }
+    catch (error) { setNote(t(error.message)); return; }
+    setBusy(true);
+    const res = await send(`project-sides/${encodeURIComponent(side.id)}/allocation`, {
+      method: 'PUT', body: { allocated_tokens },
+    });
+    setBusy(false);
+    if (!res.ok) { setNote(res.error); return; }
+    setEditing(false);
+    setNote(null);
+    await onDone?.();
+  }
+  if (!editing) return (
+    <button type="button" className="btn-s" disabled={!live} onClick={() => {
+      setValue(String(side.allocatedTokens ?? ''));
+      setEditing(true);
+    }}>{t('en.editAllocation')}</button>
+  );
+  return (
+    <form onSubmit={save}>
+      <label>{t('en.allocationTokens')}
+        <input className="inp" type="number" min="0" step="1" value={value}
+          onChange={(e) => setValue(e.target.value)} />
+      </label>
+      <p className="why-inline">{t('en.allocationHelp')}</p>
+      <div className="btn-row">
+        <button className="btn-s" type="submit" disabled={busy}>{t('en.saveAllocation')}</button>
+        <button className="btn-s" type="button" disabled={busy} onClick={() => setEditing(false)}>{t('act.cancel')}</button>
+      </div>
+      {note && <p role="alert" className="warn-text">{note}</p>}
+    </form>
+  );
+}
+
+function ApprovalForm({ engagement, onApprove, onCancel }) {
+  const t = useT();
+  const [allocation, setAllocation] = useState(null);
+  const [candidatesReady, setCandidatesReady] = useState(false);
+  const [tokens, setTokens] = useState(String(engagement.allocatedTokens > 0
+    ? engagement.allocatedTokens : engagement.requestedTokens ?? ''));
+  const [ownerMxid, setOwnerMxid] = useState(engagement.requestContext?.ownerMxid ?? '');
+  const [ownerDmRoomId, setOwnerDmRoomId] = useState(engagement.requestContext?.ownerDmRoomId ?? '');
+  const [ownerMissing, setOwnerMissing] = useState(false);
+  const requireOwner = ownerMissing || engagement.ownerBindingRequired !== false;
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+  async function approve(event) {
+    event.preventDefault();
+    if (busy) return;
+    let body;
+    try { body = approvalVerdict({ tokens, ownerMxid, ownerDmRoomId, projectRoomId: engagement.projectRoomId, requireOwner }); }
+    catch (error) { setNote(t(error.message)); return; }
+    setBusy(true);
+    const res = await onApprove({ ...body, ...(allocation ? { allocation } : {}) });
+    setBusy(false);
+    if (res?.ok) onCancel();
+    else if (res?.code === 'owner_unavailable') {
+      setOwnerMissing(true);
+      setNote(t('en.ownerRequired'));
+    } else if (res?.error) setNote(res.error);
+  }
+  return (
+    <form onSubmit={approve}>
+      <AgentAllocationChoice engagement={engagement} value={allocation} onChange={setAllocation} onReady={setCandidatesReady} />
+      <label>{t('en.approvalTokens')}
+        <input className="inp" type="number" min="1" step="1" required value={tokens}
+          onChange={(e) => setTokens(e.target.value)} />
+      </label>
+      <details open={requireOwner}>
+        <summary>{t('en.ownerBinding')}</summary>
+        {requireOwner && <p className="why-inline">{t('en.ownerRequired')}</p>}
+        <p className="why-inline">{t('en.ownerBindingHelp')}</p>
+        <label>{t('en.ownerMxid')}
+          <input className="inp" value={ownerMxid} onChange={(e) => setOwnerMxid(e.target.value)}
+            required={requireOwner} autoComplete="off" placeholder="@owner:example.org" />
+        </label>
+        <label>{t('en.ownerDmRoomId')}
+          <input className="inp" value={ownerDmRoomId} onChange={(e) => setOwnerDmRoomId(e.target.value)}
+            required={requireOwner} autoComplete="off" placeholder="!private:example.org" />
+        </label>
+      </details>
+      {note && <p role="alert" className="warn-text">{note}</p>}
+      <div className="btn-row">
+        <button className="btn primary" type="submit" disabled={busy || !candidatesReady}>{t('en.confirmApproval')}</button>
+        <button className="btn" type="button" disabled={busy} onClick={onCancel}>{t('act.cancel')}</button>
+      </div>
+    </form>
+  );
+}
+
 function SideActions({ side, live, onDone }) {
   const t = useT();
   const [busy, setBusy] = useState(null);
@@ -351,13 +456,16 @@ export default function EngagementsPage() {
   const t = useT();
   const {
     pendingEngagements, activeEngagements, endedEngagements, whitelist,
-    roleCapacity, remaining, overCommits, offers, presetOf, agents,
-    provenance, refresh,
+    roleCapacity, remaining, overCommits, offers, presetOf, agents, capability,
+    provenance, refresh, projectSides,
   } = useData();
   const roleName = (key) => roleCapacity.roles[key]?.displayName ?? key;
   const [toast, say] = useToast();
   const [wlRoom, setWlRoom] = useState('');
   const [wlName, setWlName] = useState('');
+  const [approving, setApproving] = useState(null);
+  const [revoking, setRevoking] = useState(null);
+  const label = e => projectLabel(e, projectSides, whitelist);
 
   /*
    * Real writes when the endpoint is behind the page, simulated otherwise.
@@ -375,10 +483,25 @@ export default function EngagementsPage() {
       : kind === 'revoke' ? `engagements/${e.id}/revoke`
         : null;
     if (!path) return null;
-    const res = await send(path, { body });
-    if (res.ok) await refresh();
-    else say('fail', res.error);
+    const res = kind === 'revoke' ? await revokeEngagement(e.id, body) : await send(path, { body });
+    await refresh();
+    if (!res.ok) say('fail', res.error);
     return res;
+  }
+
+  async function revoke(e) {
+    if (!live) return say('ok', t('en.wouldRevoke', { project: label(e) }));
+    if (revoking) return;
+    setRevoking(e.id);
+    try {
+      const res = await act('revoke', e, { reason: 'revoked from the console' });
+      if (!res?.ok) return;
+      const state = res.body?.engagement?.withdrawal?.state;
+      const scope = res.body?.engagement?.withdrawal?.scope === 'agent' ? 'retirement' : 'withdrawal';
+      if (state === 'failed' || res.body?.roomWithdrawal?.left === false) say('fail', t(`en.${scope}.failed`));
+      else if (res.reconciled && !['complete', 'retained'].includes(state)) say('fail', t(`en.${scope}.pending`));
+      else say('ok', t('en.didRevoke', { project: label(e) }));
+    } finally { setRevoking(null); }
   }
 
   const pending = pendingEngagements();
@@ -434,7 +557,7 @@ export default function EngagementsPage() {
               return (
                 <tr key={e.id}>
                   <td>
-                    <div>{e.project}</div>
+                    <div>{label(e)}</div>
                     {/* The room id is the identity; the name is decoration. Shown
                         together so the reader can see which one they are trusting. */}
                     <span className="dim mono-s">{e.projectRoomId}</span>
@@ -446,12 +569,15 @@ export default function EngagementsPage() {
                         for the role. Rendering it anyway produced a link to
                         /agents/null and a headroom of "—" with no explanation; the
                         useful answer is that nothing can serve this request. */}
+                    {e.requestContext?.agentDefinition && <strong>{e.requestContext.agentDefinition.name}</strong>}
                     {e.agent ? (
                       <>
                         <Link href={`/agents/${e.agent}`}>{e.agent}</Link>
                         <span className="dim">{t('en.leftN', { n: fmtTokens(remaining(e.agent)) })}</span>
                       </>
-                    ) : <Blank why="en.why.noQualifyingAgent" t={t} />}
+                    ) : capability().find((row) => row.key === e.role)?.resources?.length > 0
+                      ? <span className="dim">{t('en.provisionOnApproval')}</span>
+                      : <Blank why="en.why.noQualifyingAgent" t={t} />}
                   </td>
                   <td>
                     <span className="amount">{fmtTokens(e.requestedTokens)}</span>
@@ -462,17 +588,13 @@ export default function EngagementsPage() {
                     <div className="btn-row tight">
                       <button
                         className="btn primary"
-                        onClick={async () => {
+                        onClick={() => {
                           if (!live) {
                             return say(over ? 'err' : 'ok', over
                               ? t('en.wouldRefuse', { left: fmtTokens(remaining(e.agent)), agent: e.agent })
                               : t('en.wouldApprove', { n: fmtTokens(e.requestedTokens) }));
                           }
-                          const res = await act('verdict', e, {
-                            approve: true, allocatedTokens: e.requestedTokens,
-                          });
-                          if (res?.ok) say('ok', t('en.didApprove', { n: fmtTokens(e.requestedTokens) }));
-                          return null;
+                          return setApproving(e.id);
                         }}
                       >
                         {t('en.approve')}
@@ -489,6 +611,12 @@ export default function EngagementsPage() {
                         {t('en.reject')}
                       </button>
                     </div>
+                    {approving === e.id && <ApprovalForm engagement={e} onCancel={() => setApproving(null)}
+                      onApprove={async (body) => {
+                        const res = await act('verdict', e, body);
+                        if (res?.ok) say('ok', t('en.didApprove', { n: fmtTokens(body.allocatedTokens) }));
+                        return res;
+                      }} />}
                     {/* The constraint is shown before the click, not discovered
                         after it: approving 1.2M against 1.1M remaining is the
                         error this column exists to prevent. */}
@@ -517,7 +645,7 @@ export default function EngagementsPage() {
           <tbody>
             {active.map((e) => (
               <tr key={e.id}>
-                <td><div>{e.project}</div><span className="dim mono-s">{e.projectRoomId}</span></td>
+                <td><div>{label(e)}</div><span className="dim mono-s">{e.projectRoomId}</span></td>
                 <td>{roleName(e.role)}</td>
                 <td><Link href={`/agents/${e.agent}`}>{e.agent}</Link></td>
                 <td className="amount">{fmtTokens(e.allocatedTokens)}</td>
@@ -534,14 +662,10 @@ export default function EngagementsPage() {
                 <td>
                   <button
                     className="btn danger"
-                    onClick={async () => {
-                      if (!live) return say('ok', t('en.wouldRevoke', { project: e.project }));
-                      const res = await act('revoke', e, { reason: 'revoked from the console' });
-                      if (res?.ok) say('ok', t('en.didRevoke', { project: e.project }));
-                      return null;
-                    }}
+                    disabled={Boolean(revoking)}
+                    onClick={() => revoke(e)}
                   >
-                    {t('en.revoke')}
+                    {t(revoking === e.id ? 'en.revoking' : 'en.revoke')}
                   </button>
                 </td>
               </tr>
@@ -559,7 +683,7 @@ export default function EngagementsPage() {
           <tbody>
             {ended.map((e) => (
               <tr key={e.id}>
-                <td>{e.project}</td>
+                <td><div>{label(e)}</div><small className="dim mono-s">{e.requestContext?.agentDefinition?.name || e.agent}</small></td>
                 <td>{roleName(e.role)}</td>
                 {/* An engagement that ended without ever being approved never had
                     an allocation, and a blank cell here says nothing — the rule
@@ -578,7 +702,16 @@ export default function EngagementsPage() {
                   * resolve, which printed a raw `en.ended.*` string on screen for
                   * anything the backend recorded.
                   */}
-                <td className="dim">{/^[a-z]+\.[a-zA-Z.]+$/.test(e.endedReason ?? '') ? t(e.endedReason) : (e.endedReason ?? '')}</td>
+                <td className="dim">
+                  {/^[a-z]+\.[a-zA-Z.]+$/.test(e.endedReason ?? '') ? t(e.endedReason) : (e.endedReason ?? '')}
+                  {e.withdrawal && <p>{t(`en.${e.withdrawal.scope === 'agent' ? 'retirement' : 'withdrawal'}.${e.withdrawal.state}`)}</p>}
+                  {e.withdrawal?.reason && <p>{e.withdrawal.reason}</p>}
+                  {['failed', 'pending'].includes(e.withdrawal?.state)
+                    ? <button className="btn" disabled={Boolean(revoking)} onClick={() => revoke(e)}>{t(e.withdrawal.scope === 'agent' ? 'en.retryRetirement' : 'en.retryWithdrawal')}</button>
+                    : e.requestContext?.fleetId && e.allocatedTokens > 0 && e.withdrawal?.scope !== 'agent'
+                      && !active.some(row => row.agent === e.agent)
+                      && <button className="btn" disabled={Boolean(revoking)} onClick={() => revoke(e)}>{t('en.removeFromMatrix')}</button>}
+                </td>
               </tr>
             ))}
           </tbody>

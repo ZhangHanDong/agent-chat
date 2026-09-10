@@ -7,10 +7,10 @@ const configData = {
 };
 
 describe('Dashboard configuration entry points', () => {
-  test('opens the existing preset and onboarding forms through real links', async () => {
+  test('opens resource configuration and project request review through real links', async () => {
     const html = await renderDashboard('mockup/app/config/page.jsx', { data: configData });
     expect(html).toMatch(/href="\/resources\/new"[^>]*>\+ Add preset<\/a>/);
-    expect(html).toMatch(/href="\/onboard"[^>]*>\+ New agent<\/a>/);
+    expect(html).toMatch(/href="\/engagements"[^>]*>Review requests →<\/a>/);
   });
 
   test('delegates lifecycle operations to agent detail instead of fake success buttons', async () => {
@@ -22,21 +22,20 @@ describe('Dashboard configuration entry points', () => {
 });
 
 describe('Dashboard host probe states', () => {
-  test('does not invent a scan timestamp when the probe supplied none', async () => {
-    const html = await renderDashboard('mockup/app/onboard/page.jsx', { data: {
-      detected: [], detectedAt: null, agents: [], presets: [], roleCapacity: { roles: {} }, refresh: async () => {},
-    } });
-    expect(html).not.toContain('scanned 9s ago');
-    expect(html).toContain('Scan time not provided');
+  test('routes legacy onboarding to resource allocation', async () => {
+    await expect(renderDashboard('mockup/app/onboard/page.jsx')).rejects.toMatchObject({
+      digest: 'NEXT_REDIRECT;replace;/resources;307;',
+    });
   });
   test.each(['en', 'zh'])('names an unusable framework without leaking a dictionary key (%s)', async (locale) => {
-    const html = await renderDashboard('mockup/app/onboard/page.jsx', { locale, data: {
+    const html = await renderDashboard('mockup/app/config/page.jsx', { locale, data: {
+      ...configData,
       detected: [{ id: 'codex-acp', displayName: 'Codex ACP', state: 'unusable', transport: 'acp', setup: [] }],
-      agents: [], presets: [], provenance: {}, roleCapacity: { roles: {} }, refresh: async () => {},
+      agents: [{ name: 'local-worker', framework: 'codex-acp', transport: 'acp' }],
     } });
     expect(html).not.toContain('ob.st.unusable');
     expect(html).not.toContain('badgeundefined');
-    expect(html).toContain(locale === 'en' ? 'unusable' : '无法运行');
+    expect(html).toContain(locale === 'en' ? 'on PATH but not answering' : '在 PATH 上但无响应');
   });
 });
 

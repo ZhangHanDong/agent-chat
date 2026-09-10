@@ -43,7 +43,7 @@ const PASS_THROUGH = new Map([
   ['SUPERVISOR_API_KEY', 'consumed by the supervisor evaluator’s own config, not read here'],
   ['SUPERVISOR_INTERVAL_MS', 'declared in .env.example; the evaluator reads its own config'],
   ['LETTA_BASE_URL', 'a Letta server address handed to the memory sidecar, not read here'],
-  ['HAFLEET_SUBCONSCIOUS_EVENT_TOKEN', 'read by the subconscious hook in the agent home, not by this repo'],
+  ['HAGENCY_SUBCONSCIOUS_EVENT_TOKEN', 'read by the subconscious hook in the agent home, not by this repo'],
 ]);
 
 /** Every env-var table row: `| `NAME` | default | purpose |`. */
@@ -92,7 +92,7 @@ describe('the env vars the architecture reference names', () => {
     /*
      * WORD-BOUNDED, and the first version was not — which is how it hid two more wrong rows from me
      * within a minute of being written. `haystack.includes('BRIDGE_SECRET')` is true because the code
-     * reads `MATRIX_BRIDGE_SECRET`, and `DATA_DIR` is inside `HAFLEET_DATA_DIR`: a substring match makes
+     * reads `MATRIX_BRIDGE_SECRET`, and `DATA_DIR` is inside `HAGENCY_DATA_DIR`: a substring match makes
      * exactly the prefix-dropping mistakes this table had made, invisible.
      */
     /*
@@ -103,13 +103,13 @@ describe('the env vars the architecture reference names', () => {
      * bare `NAME=` line for `.env.example`, which is itself a declaration an operator reads.
      *
      * KNOWN LIMIT, stated rather than hidden: `$NAME` in a shell script cannot be distinguished from a
-     * variable that script assigns itself. That is how `DATA_DIR` earned a pass — `bin/hafleet-up` sets
+     * variable that script assigns itself. That is how `DATA_DIR` earned a pass — `bin/hagency-up` sets
      * and reads its own — so this rule catches a documented name nothing knows about, and not every
      * documented name that is really a local. The narrower half is still worth having.
      */
     const isRead = (name) => [
       // `env.NAME` as well as `process.env.NAME`: every adapter in lib/backend takes an injected `env`,
-      // which is how `HAFLEET_AGENT_TOKEN_MODE` — read at lib/backend/auth-adapter.js:49 — was reported
+      // which is how `HAGENCY_AGENT_TOKEN_MODE` — read at lib/backend/auth-adapter.js:49 — was reported
       // missing by the first version of this rule.
       new RegExp(`\\benv\\.${name}(?![A-Z0-9_])`),
       new RegExp(`\\benv\\[['"\`]${name}['"\`]\\]`),

@@ -19,7 +19,7 @@ import path from 'path';
 // new unquoted placeholder reintroducing it.
 describe('.env.example', () => {
   test('can be sourced by a shell', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-env-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-env-'));
     try {
       const copy = path.join(dir, '.env');
       copyFileSync('.env.example', copy);
@@ -27,7 +27,7 @@ describe('.env.example', () => {
       // near the END of the file, which is what makes it a canary: a parse that
       // died anywhere earlier leaves it unset.
       const out = execFileSync('bash', [
-        '-c', `set -a; . "${copy}"; set +a; printf '%s' "\${HAFLEET_MEMORY_EXPORT_ALLOW_LOCAL:-unset}"`,
+        '-c', `set -a; . "${copy}"; set +a; printf '%s' "\${HAGENCY_MEMORY_EXPORT_ALLOW_LOCAL:-unset}"`,
       ], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
       expect(out.trim()).toBe('1');
     } finally {

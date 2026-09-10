@@ -81,7 +81,7 @@ Options:
   --owner <name>     Override task owner (default: manifest/current owner)
   --reason <text>    Required for wait
   --until <iso8601>  Required for wait
-  --web-url <url>    Override backend API base URL (default: HAFLEET_API or http://127.0.0.1:8090)
+  --web-url <url>    Override backend API base URL (default: HAGENCY_API or http://127.0.0.1:8090)
   --graph <id>       Report a task graph node result/failure instead of home metadata
   --node <id>        Task graph node id (required with --graph)
   --result <json>    JSON payload for graph completion
@@ -140,9 +140,9 @@ function parsePositiveInt(value, fallback) {
 }
 
 function defaultApiBaseUrl(env = process.env) {
-  const explicit = String(env.HAFLEET_API || '').trim();
+  const explicit = String(env.HAGENCY_API || '').trim();
   if (explicit) return explicit.replace(/\/$/, '');
-  const port = parsePositiveInt(env.HAFLEET_BACKEND_PORT, 8090);
+  const port = parsePositiveInt(env.HAGENCY_BACKEND_PORT, 8090);
   return `http://127.0.0.1:${port}`;
 }
 
@@ -267,6 +267,76 @@ function buildGraphPayload(command, args) {
   throw new Error(`graph reporting only supports done/fail (received: ${command})`);
 }
 
+async function writeDispatchTask(command, args, manifest, workdir) {
+  const env = process.env;
+  const authority = {
+    'X-Hagency-Dispatch-Id': env.HAGENCY_DISPATCH_ID,
+    'X-Hagency-Runner-Id': env.HAGENCY_RUNNER_ID,
+    'X-Hagency-Dispatch-Capability': env.HAGENCY_DISPATCH_CAPABILITY,
+    'X-Hagency-Fence-Generation': env.HAGENCY_FENCE_GENERATION,
+  };
+  const hasAuthority = Object.values(authority).some(value => value !== undefined && value !== '');
+  const declaresEphemeral = Boolean(env.HAGENCY_EPHEMERAL_RUNNER && env.HAGENCY_EPHEMERAL_RUNNER !== '0');
+  if (!declaresEphemeral && !hasAuthority) return false;
+  if (env.HAGENCY_EPHEMERAL_RUNNER !== '1'
+    || Object.values(authority).some(value => typeof value !== 'string' || !value.trim())
+    || !/^[1-9][0-9]*$/.test(authority['X-Hagency-Fence-Generation'])) {
+    throw new Error('incomplete ephemeral dispatch authority; refusing legacy task metadata fallback');
+  }
+  if (args.graphId || args.nodeId || args.result || args.error || command === 'fail') {
+    throw new Error('ephemeral task writer supports canonical start, heartbeat, wait, resume and done only');
+  }
+  if (args.owner && args.owner !== manifest.name) throw new Error('ephemeral task owner cannot be replaced');
+  const apiBaseUrl = String(env.HAGENCY_API || '').trim().replace(/\/$/, '');
+  if (!apiBaseUrl || args.webUrl && args.webUrl.replace(/\/$/, '') !== apiBaseUrl) {
+    throw new Error('ephemeral task writer requires its assigned HAGENCY_API endpoint');
+  }
+  let agentToken = env.AGENT_TOKEN || '';
+  if (!agentToken) {
+    try { agentToken = readFileSync(path.join(workdir, '..', 'state', 'agent-token'), 'utf8').trim(); } catch {}
+  }
+  if (!agentToken) throw new Error('ephemeral task writer requires its agent credential');
+  const call = async body => {
+    const response = await fetch(`${apiBaseUrl}/api/router/session-task`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Agent-Token': agentToken, ...authority },
+      body: JSON.stringify({ agent: manifest.name, ...(args.id ? { id: args.id } : {}), ...body }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || data.ok === false) {
+      throw new Error(`canonical task write failed: HTTP ${response.status} ${data?.error || 'invalid response'}`);
+    }
+    return data.task || data;
+  };
+  // Read the dispatch's own task first. A parent may read a child's task, but
+  // that read authority must never make this writer report the child as its own.
+  let task = await call({ op: 'get', id: null });
+  if (!task.id || !task.status) throw new Error('canonical task response is missing identity or status');
+  if (args.id && args.id !== task.id) throw new Error('task is outside this dispatch session');
+  if (command === 'heartbeat') task = await call({ op: 'heartbeat' });
+  else {
+    const status = command === 'done' ? 'done' : command === 'wait' ? 'blocked' : 'in_progress';
+    const extra = {};
+    if (command === 'wait') {
+      extra.waiting_reason = normalizeText(args.reason, 1024);
+      extra.waiting_until = normalizeIso(args.until);
+      if (!extra.waiting_reason || !extra.waiting_until) throw new Error('wait requires --reason and --until <ISO8601>');
+    }
+    if (task.status === status && (status !== 'blocked'
+      || task.waiting_reason === extra.waiting_reason && task.waiting_until === extra.waiting_until)) {
+      // An already applied explicit transition is idempotent after an ambiguous
+      // HTTP response. It never converts a different state into completion.
+      if (status === 'in_progress') task = await call({ op: 'heartbeat' });
+    } else {
+      if (status === 'in_progress' && task.status === 'created') task = await call({ op: 'transition', status: 'accepted' });
+      task = await call({ op: 'transition', status, ...extra });
+    }
+    if (task.status !== status) throw new Error('canonical task transition was not confirmed');
+  }
+  process.stdout.write(`${JSON.stringify({ ok: true, command, agent: manifest.name, canonical: true, task }, null, 2)}\n`);
+  return true;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || !args.command) {
@@ -283,6 +353,7 @@ async function main() {
   if (!manifest) {
     throw new Error(`v1 agent manifest not found: ${manifestPath}`);
   }
+  if (await writeDispatchTask(command, args, manifest, workdir)) return;
   const explicitBaseUrl = String(args.webUrl || '').trim().replace(/\/$/, '');
   const agentTokenPath = path.join(workdir, '..', 'state', 'agent-token');
   let agentToken = '';

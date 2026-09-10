@@ -134,7 +134,7 @@ export default function ConfigPage() {
       {/*
         * A SECOND CLASS OF SECRET, with the OPPOSITE rule — ADR-016 decision 8 recorded it as
         * unclassified, and an unclassified secret class is one whose handling nobody can check. The
-        * paragraph above is about HAFleet's own secrets: set once in .env, never editable from a browser.
+        * paragraph above is about Hagency's own secrets: set once in .env, never editable from a browser.
         * A project side's as_token is somebody else's server, arrives after install, and IS entered from
         * a browser — so saying nothing here would leave a reader to assume the first rule covers both.
         */}
@@ -170,7 +170,7 @@ export default function ConfigPage() {
         </table>
       </div>
       <div className="btn-row" style={{ marginTop: 10 }}>
-        <Link className="btn" href="/onboard">{t('cf.newAgent')}</Link>
+        <Link className="btn" href="/engagements">{t('rs.reviewRequests')}</Link>
       </div>
 
       <Toast toast={toast} />

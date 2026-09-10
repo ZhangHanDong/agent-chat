@@ -11,7 +11,7 @@
       "health": {
         "type": "http",
         "host": "127.0.0.1",
-        "portEnv": "HAFLEET_BACKEND_PORT",
+        "portEnv": "HAGENCY_BACKEND_PORT",
         "defaultPort": 8090,
         "path": "/health",
         "timeoutMs": 1000

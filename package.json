@@ -1,5 +1,5 @@
 {
-  "name": "hafleet",
+  "name": "hagency",
   "version": "1.2.0",
   "private": true,
   "license": "Apache-2.0",
@@ -11,14 +11,15 @@
     "test:dashboard": "vitest run tests/dashboard-console.test.js tests/dashboard-runner-ui.test.js tests/dashboard-agent-detail.test.js tests/dashboard-usage-consistency.test.js tests/dashboard-refresh.test.js tests/dashboard-agent-actions.test.js",
     "dev": "node backend-v2.js",
     "start": "node backend-v2.js",
-    "test": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --no-file-parallelism --maxWorkers=1",
-    "test:ci": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --no-file-parallelism --maxWorkers=1 --reporter=default --reporter=json --outputFile.json=test-results.json",
+    "test": "NODE_OPTIONS=--max-old-space-size=4096 node scripts/run-suite-tests.mjs",
+    "test:ci": "NODE_OPTIONS=--max-old-space-size=4096 node scripts/run-suite-tests.mjs --reporter=default --reporter=json --outputFile.json=test-results.json",
     "test:watch": "vitest",
     "build:router": "tsc -p tsconfig.router.json",
     "typecheck:router": "tsc -p tsconfig.router.json --noEmit",
     "check:router-build": "bash scripts/check-router-build.sh",
     "check:router-boundary": "node scripts/check-router-boundary.js",
     "check:agent-ops-contract": "node scripts/check-agent-ops-contract.js",
+    "check:spec-bindings": "node scripts/check-spec-bindings.js",
     "test:kernel": "bash scripts/run-kernel-tests.sh",
     "check:syntax": "bash scripts/check-syntax.sh",
     "check:cli-contract": "node scripts/check-cli-contract.js",
@@ -42,11 +43,14 @@
     "check:undef": "eslint ."
   },
   "dependencies": {
+    "@matrix-org/matrix-sdk-crypto-nodejs": "^0.4.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "another-json": "0.2.0",
     "better-sqlite3": "13.0.2",
     "express": "^4.21.0",
+    "markdown-it": "^15.0.1",
     "matrix-bot-sdk": "^0.8.0",
+    "sanitize-html": "^2.17.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {

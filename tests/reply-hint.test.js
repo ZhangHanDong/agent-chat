@@ -7,7 +7,7 @@ import { anyReplyable, buildReplyHint, REPLYABLE_TYPES } from '../lib/reply-hint
 // `request` is someone waiting.
 //
 // The rule existed only on the tmux path. The ACP host told its agent to reply
-// unconditionally, so one `hafleet tell` (which sends type "task") produced
+// unconditionally, so one `hagency tell` (which sends type "task") produced
 // silence from claude and codex and a message from octos. All three answered "Au";
 // only octos posted it. That is octos over-replying, and it is why its message
 // count reached 26 against codex's 3.
@@ -18,7 +18,7 @@ describe('who gets told to reply', () => {
   });
 
   test.each(['task', 'inform', 'notice', 'status', undefined, null])('%s does not', (type) => {
-    // `hafleet tell` sends "task". Instructing a reply to those turns the message
+    // `hagency tell` sends "task". Instructing a reply to those turns the message
     // log into an echo of itself.
     expect(buildReplyHint({ id: 'm1', from: 'alice', type })).toBeNull();
   });
@@ -74,7 +74,7 @@ describe('both transports use the one rule', () => {
   });
 
   test('the ACP host applies it instead of instructing unconditionally', () => {
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).toContain("from '../lib/reply-hint.js'");
     const fn = host.slice(host.indexOf('function buildNudge'));
     const body = fn.slice(0, fn.indexOf('\n}'));
@@ -86,7 +86,7 @@ describe('both transports use the one rule', () => {
   test('the host reads unread-list, which carries the types it needs', () => {
     // /unread returns only counts and a `latest`; the rule needs each message's
     // type, so a batch is judged per message rather than by its last entry.
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).toContain('/unread-list');
   });
 });

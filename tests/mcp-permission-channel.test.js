@@ -191,10 +191,10 @@ describe('supported runtime approval adapters', () => {
   test('codex_internal_coordination_tools_are_allowed_without_recursive_approval', async () => {
     /*
      * REQ-OWNER-UI-APPROVAL-CODEX-COORDINATION, all three of its clauses, and the exemption is
-     * bounded in both directions below. Allowed: the exact named hafleet coordination tools, and
+     * bounded in both directions below. Allowed: the exact named hagency coordination tools, and
      * send_message/post while `attachments` is absent or empty. Still owner-gated: the same
      * send_message once it carries a file path, Bash, an unrelated MCP filesystem read, and
-     * `mcp__hafleet__unknown` — the last one is what makes this a whitelist rather than a
+     * `mcp__hagency__unknown` — the last one is what makes this a whitelist rather than a
      * namespace exemption a future tool would silently inherit. The live hook run at the end
      * closes the loop: check_inbox returns allow with `api` never called, so no approval request
      * was created for the call that was blocking the agent from reading its own inbox.
@@ -212,21 +212,21 @@ describe('supported runtime approval adapters', () => {
     ];
     for (const toolName of safeToolNames) {
       expect(codexPermissionRequestNeedsOwnerApproval({
-        tool_name: `mcp__hafleet__${toolName}`,
+        tool_name: `mcp__hagency__${toolName}`,
         tool_input: {},
       })).toBe(false);
     }
     for (const toolName of ['send_message', 'post']) {
       expect(codexPermissionRequestNeedsOwnerApproval({
-        tool_name: `mcp__hafleet__${toolName}`,
+        tool_name: `mcp__hagency__${toolName}`,
         tool_input: { summary: 'text only' },
       })).toBe(false);
       expect(codexPermissionRequestNeedsOwnerApproval({
-        tool_name: `mcp__hafleet__${toolName}`,
+        tool_name: `mcp__hagency__${toolName}`,
         tool_input: { summary: 'text only', attachments: [] },
       })).toBe(false);
       expect(codexPermissionRequestNeedsOwnerApproval({
-        tool_name: `mcp__hafleet__${toolName}`,
+        tool_name: `mcp__hagency__${toolName}`,
         tool_input: { attachments: [{ path: '/private/file.txt' }] },
       })).toBe(true);
     }
@@ -239,11 +239,11 @@ describe('supported runtime approval adapters', () => {
       tool_input: { path: '/private/file.txt' },
     })).toBe(true);
     expect(codexPermissionRequestNeedsOwnerApproval({
-      tool_name: 'mcp__hafleet__unknown',
+      tool_name: 'mcp__hagency__unknown',
       tool_input: {},
     })).toBe(true);
 
-    const temporary = mkdtempSync(path.join(os.tmpdir(), 'hafleet-codex-internal-hook-'));
+    const temporary = mkdtempSync(path.join(os.tmpdir(), 'hagency-codex-internal-hook-'));
     try {
       const hookPath = path.join(temporary, 'hook.js');
       writeFileSync(hookPath, 'trusted hook contents\n');
@@ -253,16 +253,16 @@ describe('supported runtime approval adapters', () => {
         stdin: Readable.from([JSON.stringify({
           hook_event_name: 'PermissionRequest',
           turn_id: 'turn-inbox',
-          tool_name: 'mcp__hafleet__check_inbox',
+          tool_name: 'mcp__hagency__check_inbox',
           tool_input: {},
         })]),
         stdout,
         stderr: { write() {} },
         env: {
           AGENT_NAME: 'test_agent',
-          HAFLEET_AGENT_TOKEN: 'agent-token',
+          HAGENCY_AGENT_TOKEN: 'agent-token',
         },
-        argv: ['node', hookPath, `--hafleet-hook-sha256=${sha256File(hookPath)}`],
+        argv: ['node', hookPath, `--hagency-hook-sha256=${sha256File(hookPath)}`],
         scriptPath: hookPath,
         api,
       });
@@ -283,7 +283,7 @@ describe('supported runtime approval adapters', () => {
      * Codex treats a hook that fails to answer as no decision and falls back to its own
      * unattended prompt, which in a detached tmux session nobody ever sees.
      */
-    const temporary = mkdtempSync(path.join(os.tmpdir(), 'hafleet-codex-hook-'));
+    const temporary = mkdtempSync(path.join(os.tmpdir(), 'hagency-codex-hook-'));
     try {
       const hookPath = path.join(temporary, 'hook.js');
       writeFileSync(hookPath, 'test hook contents\n');
@@ -300,7 +300,7 @@ describe('supported runtime approval adapters', () => {
         stdout,
         stderr,
         env: {},
-        argv: ['node', hookPath, `--hafleet-hook-sha256=${sha256File(hookPath)}`],
+        argv: ['node', hookPath, `--hagency-hook-sha256=${sha256File(hookPath)}`],
         scriptPath: hookPath,
         api: vi.fn(),
       });
@@ -323,7 +323,7 @@ describe('supported runtime approval adapters', () => {
      * consume — and only then is the allow written to stdout, so the verdict Codex acts on has
      * already been spent server-side and cannot be spent again by a retried turn.
      */
-    const temporary = mkdtempSync(path.join(os.tmpdir(), 'hafleet-codex-hook-'));
+    const temporary = mkdtempSync(path.join(os.tmpdir(), 'hagency-codex-hook-'));
     try {
       const hookPath = path.join(temporary, 'hook.js');
       writeFileSync(hookPath, 'trusted hook contents\n');
@@ -354,9 +354,9 @@ describe('supported runtime approval adapters', () => {
         stderr: { write() {} },
         env: {
           AGENT_NAME: 'wf_coordinator',
-          HAFLEET_AGENT_TOKEN: 'agent-token',
+          HAGENCY_AGENT_TOKEN: 'agent-token',
         },
-        argv: ['node', hookPath, `--hafleet-hook-sha256=${sha256File(hookPath)}`],
+        argv: ['node', hookPath, `--hagency-hook-sha256=${sha256File(hookPath)}`],
         scriptPath: hookPath,
         api,
       });
@@ -386,15 +386,15 @@ describe('supported runtime approval adapters', () => {
     const digest = 'e'.repeat(64);
     const command = buildCodexApprovalHookCommand({
       nodeExecutable: '/usr/local/bin/node',
-      hookPath: '/opt/hafleet/lib/codex-permission-hook.js',
+      hookPath: '/opt/hagency/lib/codex-permission-hook.js',
       scriptDigest: digest,
     });
-    const timeoutSeconds = approvalHookTimeoutSeconds({ HAFLEET_APPROVAL_TTL_MS: '900000' });
+    const timeoutSeconds = approvalHookTimeoutSeconds({ HAGENCY_APPROVAL_TTL_MS: '900000' });
     const toml = buildCodexApprovalHookToml({ command, timeoutSeconds });
 
-    expect(command).toContain(`--hafleet-hook-sha256=${digest}`);
+    expect(command).toContain(`--hagency-hook-sha256=${digest}`);
     expect(timeoutSeconds).toBe(960);
-    expect(approvalAdapterTimeoutMs({ HAFLEET_APPROVAL_TTL_MS: '900000' })).toBe(960_000);
+    expect(approvalAdapterTimeoutMs({ HAGENCY_APPROVAL_TTL_MS: '900000' })).toBe(960_000);
     expect(toml).toContain('timeout = 960');
     expect(toml).toContain(command);
     expect(compareVersions(parseCodexVersion('codex-cli 0.144.1'), parseCodexVersion('0.144.1'))).toBe(0);
@@ -444,7 +444,7 @@ describe('supported runtime approval adapters', () => {
      * NOT asserted here (see report): that a declined or non-interactive confirmation aborts.
      * `confirm` is stubbed true, so only the accept path runs.
      */
-    const temporary = mkdtempSync(path.join(os.tmpdir(), 'hafleet-codex-preflight-'));
+    const temporary = mkdtempSync(path.join(os.tmpdir(), 'hagency-codex-preflight-'));
     try {
       const hookPath = path.join(temporary, 'codex-permission-hook.js');
       const outputPath = path.join(temporary, 'prepared.json');
@@ -525,17 +525,17 @@ describe('supported runtime approval adapters', () => {
       expect(prepared.scriptDigest).toBe(digest);
       expect(JSON.parse(readFileSync(outputPath, 'utf8')).hookToml).toBe(prepared.hookToml);
 
-      for (const file of ['bin/hafleet-up', 'remote/bin/hafleet-up']) {
+      for (const file of ['bin/hagency-up', 'remote/bin/hagency-up']) {
         const source = readFileSync(file, 'utf8');
         const preflightCall = source.indexOf('\npreflight_runtime_approval_adapter\n');
         const createCall = source.indexOf('\ncreate_tmux_session\n', preflightCall);
         expect(preflightCall).toBeGreaterThan(-1);
         expect(createCall).toBeGreaterThan(preflightCall);
         expect(source).toContain('managed-runtime.pid');
-        // One per framework per resume/fresh path. bin/hafleet-up carries three
-        // frameworks (claude, codex, hermes) so six; remote/bin/hafleet-up is a
+        // One per framework per resume/fresh path. bin/hagency-up carries three
+        // frameworks (claude, codex, hermes) so six; remote/bin/hagency-up is a
         // separately maintained file — MANAGED_SPECS sources it directly rather
-        // than copying from bin/hafleet-up — and still has only claude and codex.
+        // than copying from bin/hagency-up — and still has only claude and codex.
         // KNOWN GAP, pinned here so the divergence stays visible and adding a
         // framework still forces the new launch sites to be reviewed.
         const launchSites = source.match(/tmux send-keys[^\\n]+\"exec /g);
@@ -549,7 +549,7 @@ describe('supported runtime approval adapters', () => {
   });
 
   test('launchers keep sandbox defaults and wire only supported adapters', () => {
-    for (const file of ['bin/hafleet-up', 'remote/bin/hafleet-up']) {
+    for (const file of ['bin/hagency-up', 'remote/bin/hagency-up']) {
       const source = readFileSync(file, 'utf8');
       expect(source).toContain('CLAUDE_FLAGS="--permission-mode auto"');
       expect(source).toContain('--dangerously-load-development-channels');
@@ -571,7 +571,7 @@ describe('supported runtime approval adapters', () => {
      * per-agent key; an unconditional inherit lets whatever is in the operator's shell decide
      * which account the managed agent bills and authenticates as.
      */
-    for (const file of ['bin/hafleet-up', 'remote/bin/hafleet-up']) {
+    for (const file of ['bin/hagency-up', 'remote/bin/hagency-up']) {
       const source = readFileSync(file, 'utf8');
       expect(source).toContain(
         'if [ "$TYPE" = "claude" ] && [ -z "${SAVED_RUNTIME_PROFILE_PRIMARY_API_KEY:-}" ]; then',

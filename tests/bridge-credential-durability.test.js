@@ -46,10 +46,10 @@ beforeEach(() => {
   dataDir = path.join(runtimeDir, 'data', 'matrix');
   mkdirSync(dataDir, { recursive: true });
   statePath = path.join(dataDir, 'bridge-state.json');
-  for (const k of ['HAFLEET_RUNTIME_DIR', 'MATRIX_HOMESERVER', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']) {
+  for (const k of ['HAGENCY_RUNTIME_DIR', 'MATRIX_HOMESERVER', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']) {
     savedEnv[k] = process.env[k];
   }
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.MATRIX_HOMESERVER = 'https://hs.test';
   process.env.MATRIX_AGENT_PREFIX = 'ac_';
   process.env.MATRIX_SERVER_NAME = 'hs.test';
@@ -145,6 +145,16 @@ describe('F5 — credentials are not pruned against a roster that cannot be trus
     const agents = await bridge.fetchKnownAgentNames();
     expect(agents).toEqual([]);
     expect(bridge._mayPruneAgentTokens(agents)).toBe(false);
+  });
+
+  test('bridge excludes retired agents from its App Service roster', async () => {
+    const { bridge } = await bridgeWithTokens({ edison: 'syt_edison', active: 'syt_active' });
+    bridge.addKnownAgent('edison'); bridge.addKnownAgent('active');
+    expect(bridge.isKnownAgentMxid('@ac_edison:hs.test')).toBe(true);
+    bridge.callBackendApi = vi.fn().mockResolvedValue(['active']);
+    await bridge.fetchKnownAgentNames();
+    expect(bridge.isKnownAgentMxid('@ac_edison:hs.test')).toBe(false);
+    expect(bridge.isKnownAgentMxid('@ac_active:hs.test')).toBe(true);
   });
 
   test('an empty roster refuses pruning even when well-formed', async () => {

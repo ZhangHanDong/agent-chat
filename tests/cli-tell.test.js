@@ -6,7 +6,7 @@ import { promisify } from 'util';
 
 const run = promisify(execFile);
 
-// `hafleet tell` is the only way a human can message an agent: `hafleet send`
+// `hagency tell` is the only way a human can message an agent: `hagency send`
 // types into a pane and refuses outside tmux, and POST /api/messages rejects any
 // sender that is not a registered agent.
 //
@@ -19,7 +19,7 @@ const run = promisify(execFile);
 //
 // These drive the real CLI against a stub API and assert on the body it sends.
 
-const CLI = path.resolve('bin/hafleet-cli');
+const CLI = path.resolve('bin/hagency-cli');
 let server;
 let received = [];
 let api;
@@ -51,13 +51,13 @@ async function tell(...args) {
   received = [];
   await run('bash', [CLI, 'tell', ...args], {
     encoding: 'utf-8',
-    env: { ...process.env, HAFLEET_API: api, API_TOKEN: 'test-token' },
+    env: { ...process.env, HAGENCY_API: api, API_TOKEN: 'test-token' },
   });
   expect(received.length, 'CLI posted nothing').toBe(1);
   return received[0];
 }
 
-describe('hafleet tell', () => {
+describe('hagency tell', () => {
   test('posts to /api/messages as the exempt "system" sender', async () => {
     // The backend has always exempted "system"; nothing exposed it until now.
     const { url, body } = await tell('agent-x', 'hello there');
@@ -125,13 +125,13 @@ describe('hafleet tell', () => {
       execFileSync('bash', [CLI, 'tell', 'agent-x', '   '], {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, HAFLEET_API: api, API_TOKEN: 'test-token' },
+        env: { ...process.env, HAGENCY_API: api, API_TOKEN: 'test-token' },
       });
     } catch (error) {
       failed = true;
       stderr = String(error.stderr || '');
     }
     expect(failed).toBe(true);
-    expect(stderr).toMatch(/Usage: hafleet-cli tell/);
+    expect(stderr).toMatch(/Usage: hagency-cli tell/);
   });
 });

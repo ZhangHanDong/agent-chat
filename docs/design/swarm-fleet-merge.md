@@ -30,7 +30,7 @@
 on, and — separately and explicitly — the assumptions that were *not* verified. A reviewer
 should go after §5 and §6 first.
 
-Author: Claude (via HAFleet workspace), 2026-08-06. All evidence gathered by reading
+Author: Claude (via Hagency workspace), 2026-08-06. All evidence gathered by reading
 `octos-org/octos` at `main` through the GitHub API. **Nothing here was compiled or run.**
 
 ---

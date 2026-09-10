@@ -42,8 +42,10 @@ afterEach(async () => { context?.cleanup(); context = null; });
 async function boot(env = {}) {
   context = await createBackendTestContext('engagement-side-budget-', {
     agents: {
+      legacy: { name: 'legacy', type: 'claude', server: 'local', online: true, presetId: 'p1',
+        runtimeProfile: { primary: { framework: 'claude', model: 'claude-opus-5' } } },
       a1: {
-        name: 'a1', type: 'claude', kind: 'agent', server: 'local', online: true, presetId: 'p1',
+        name: 'a1', projectSide: SERVER, type: 'claude', kind: 'agent', server: 'local', online: true, presetId: 'p1',
         runtimeProfile: { primary: { framework: 'claude', model: 'claude-opus-5' } },
       },
     },
@@ -51,13 +53,15 @@ async function boot(env = {}) {
       id: 'p1', name: 'p', framework: 'claude', model: 'claude-opus-5',
       ceiling: { tokens: CEILING, period: 'monthly' },
     }],
-    env,
+    env: { HAGENCY_OWNER_MXID: '@owner:palpo.test', HAGENCY_OWNER_DM_ROOM: '!owner-dm:palpo.test', ...env },
   });
   return context.app;
 }
 
 /** Configure the side, and optionally allocate. Omitting `tokens` leaves it UNALLOCATED. */
 async function side(app, tokens) {
+  context.internals.approvalStoreForTest.upsertBinding({ agent: 'a1', project: 'budget', project_room_id: ROOM,
+    owner_mxid: '@owner:palpo.test', owner_dm_room_id: '!owner-dm:palpo.test' });
   await request(app).post('/api/project-sides')
     .send({ server_name: SERVER, api_base_url: 'http://127.0.0.1:8008' });
   if (tokens !== undefined) {
@@ -303,8 +307,12 @@ describe('THE ALARM — 「应该报警，说无法创建 agent，需要加预�
    * that conversation. So the refusal has to leave a record on the operator's own surface.
    */
   // GET /api/alerts returns `listAlerts()` directly, which is a BARE ARRAY — not `{ alerts: [...] }`.
-  const alerts = async (app, status) => (await request(app)
-    .get(`/api/alerts${status ? `?status=${status}` : ''}`)).body;
+  const alerts = async (app, status) => {
+    const result = await request(app).get(`/api/alerts${status ? `?status=${status}` : ''}`);
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(Array.isArray(result.body), JSON.stringify(result.body)).toBe(true);
+    return result.body;
+  };
   const budgetAlert = async (app, status) =>
     (await alerts(app, status)).find((a) => a.alertType === 'project_side_budget');
   /*

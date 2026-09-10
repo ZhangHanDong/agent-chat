@@ -13,7 +13,7 @@ Five supported install paths. Pick by what the host is for.
 ## 1. Bootstrap (recommended)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/hagency-org/HAFleet/master/install/bootstrap.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/hagency-org/hagency/master/install/bootstrap.sh)
 ```
 
 Clones at the newest release tag and hands off to `install-full.sh`. Installer
@@ -37,8 +37,8 @@ target, not a release.
 ## 2. Manual clone
 
 ```bash
-git clone https://github.com/hagency-org/HAFleet.git
-cd HAFleet
+git clone https://github.com/hagency-org/hagency.git
+cd hagency
 git checkout v1.2.0        # pin a release
 ./install-full.sh --dry-run # review first
 ./install-full.sh
@@ -72,7 +72,7 @@ What differs from the Linux install, all deliberate:
 | | Linux | macOS |
 |---|---|---|
 | Process management | systemd system units | launchd user agent |
-| Supervisor | systemd | `services/hafleet-services.mjs` |
+| Supervisor | systemd | `services/hagency-services.mjs` |
 | Matrix bridge | opt-in via `--with-bridge` | opt-in via `--with-bridge` |
 | Auto-deploy watcher | yes | **no** (tracked as CD-003) |
 
@@ -92,24 +92,24 @@ service with `stdio: ['ignore', logFd, logFd]` pointing at the per-service file.
 
 This cost real debugging time: a backend logging `[auth] agent-token token
 required but not provided` 199 times looked like a silent service, because the
-file the installer named was 0 bytes. `hafleet-services status` and `doctor`
+file the installer named was 0 bytes. `hagency-services status` and `doctor`
 now print the correct path.
 
 ### Managing it
 
 ```bash
-node services/hafleet-services.mjs status --profile services-macos.json
-node services/hafleet-services.mjs doctor --profile services-macos.json
-launchctl bootout gui/$(id -u)/io.hafleet.services      # stop
+node services/hagency-services.mjs status --profile services-macos.json
+node services/hagency-services.mjs doctor --profile services-macos.json
+launchctl bootout gui/$(id -u)/io.hagency.services      # stop
 tail -50 data/services-local/logs/backend.log   # per-service stdout/stderr
 tail -50 logs/launchd.err.log                   # supervisor only, usually empty
 ```
 
-## Which tmux sessions HAFleet manages
+## Which tmux sessions Hagency manages
 
-HAFleet discovers tmux sessions and registers them as agents; the push relay then
+Hagency discovers tmux sessions and registers them as agents; the push relay then
 delivers messages by **typing into their panes**. On a host with unrelated tmux
-sessions that means HAFleet can type into someone else's work — observed for real
+sessions that means Hagency can type into someone else's work — observed for real
 on a fleet host, where a fresh install claimed five pre-existing sessions.
 
 Both installers list them, explain the consequence, and stop. You have three
@@ -118,7 +118,7 @@ ways forward:
 | | |
 |---|---|
 | stop or rename them | nothing to decide |
-| `--deny-existing-tmux` | installs, and writes those exact names into `HAFLEET_SESSION_DENYLIST` so HAFleet leaves them alone |
+| `--deny-existing-tmux` | installs, and writes those exact names into `HAGENCY_SESSION_DENYLIST` so Hagency leaves them alone |
 | `--allow-existing-tmux` | installs and manages them, accepting the risk knowingly |
 
 ### Configuring it
@@ -126,12 +126,12 @@ ways forward:
 Two optional env vars decide which sessions this install may manage:
 
 ```bash
-HAFLEET_SESSION_ALLOWLIST=claude-*,codex-*   # only these
-HAFLEET_SESSION_DENYLIST=ps2,ps3             # never these
+HAGENCY_SESSION_ALLOWLIST=claude-*,codex-*   # only these
+HAGENCY_SESSION_DENYLIST=ps2,ps3             # never these
 ```
 
 Comma- or whitespace-separated; `*` matches any run of characters; denial always
-wins. Leave both unset and HAFleet manages every session, which is the historical
+wins. Leave both unset and Hagency manages every session, which is the historical
 behaviour — restricting the default would orphan agents on hosts already deployed.
 
 Enforced in three places, because the relay filtering alone is not enough: the
@@ -140,14 +140,14 @@ backend's own pane snapshot (local mode has no relay), and `injectSlashClear`,
 which sends `C-c` and `/clear` and so is the operation that can actually destroy
 someone's work.
 
-A variable that is set but unparseable — `HAFLEET_SESSION_ALLOWLIST=,` — refuses
-every session and warns. An empty value (`HAFLEET_SESSION_ALLOWLIST=`) still
+A variable that is set but unparseable — `HAGENCY_SESSION_ALLOWLIST=,` — refuses
+every session and warns. An empty value (`HAGENCY_SESSION_ALLOWLIST=`) still
 means "no opinion", so it cannot lock a host out by accident.
 
 An excluded session looks absent rather than blocked: no pane snapshot, no
 heartbeat entry, `tmux` reported as unset. Records registered before a policy was
 configured survive as offline agents; remove them with
-`bin/hafleet-prune-agents --older-than-days 0 --mode all-offline --apply`, but
+`bin/hagency-prune-agents --older-than-days 0 --mode all-offline --apply`, but
 note that deletion writes a permanent tombstone which blocks re-registering that
 name.
 
@@ -167,7 +167,7 @@ Builds `services/Dockerfile` locally. No image is published to any registry.
 Uses `network_mode: host` throughout (and `pid: host` for the bridge), so it does
 **not** work on Docker Desktop for macOS or Windows. Because it shares the host
 network namespace, the services keep their loopback defaults — do not set
-`HAFLEET_BACKEND_HOST` / `HAFLEET_WEB_HOST` here.
+`HAGENCY_BACKEND_HOST` / `HAGENCY_WEB_HOST` here.
 
 `services/run-bridge-container.sh` wraps the bridge in `flock` so two containers
 cannot both claim bridge ownership.
@@ -184,7 +184,7 @@ path 1, 2, or 3.
 
 ### Binding
 
-On a bare host leave `HAFLEET_BACKEND_HOST` / `HAFLEET_WEB_HOST` unset. The
+On a bare host leave `HAGENCY_BACKEND_HOST` / `HAGENCY_WEB_HOST` unset. The
 default is loopback, and the auth boundary's loopback trust check assumes the
 listener is unreachable off-box. A non-loopback bind is logged loudly every
 start; a malformed value falls back to loopback rather than widening it.
@@ -239,9 +239,9 @@ See [RELEASING.md](RELEASING.md) and [ROLLBACK.md](ROLLBACK.md).
 ## Verifying an install
 
 ```bash
-systemctl status hafleet-backend hafleet hafleet-push-relay
+systemctl status hagency-backend hagency hagency-push-relay
 node services/standalone-doctor.mjs        # cross-component health
-hafleet check-mcp                        # MCP registration
+hagency check-mcp                        # MCP registration
 node -e 'import("./lib/version.js").then(m=>console.log(m.formatBuildIdentity()))'
 ```
 
@@ -279,10 +279,10 @@ judgement call about the socket at `/tmp/tmux-<uid>`, and it is now demonstrated
 rather than argued.
 
 The auto-deploy watcher runs unprivileged and escalates only for
-`systemctl restart`, via `/etc/sudoers.d/hafleet-autodeploy`:
+`systemctl restart`, via `/etc/sudoers.d/hagency-autodeploy`:
 
 ```
-<user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart hafleet hafleet-backend bridge-matrix
+<user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart hagency hagency-backend bridge-matrix
 ```
 
 Its sandbox set is intentionally smaller than the Node services': `NoNewPrivileges`,

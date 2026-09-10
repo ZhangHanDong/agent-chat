@@ -44,10 +44,10 @@ beforeEach(() => {
   dataDir = path.join(runtimeDir, 'data', 'matrix');
   mkdirSync(dataDir, { recursive: true });
   statePath = path.join(dataDir, 'bridge-state.json');
-  for (const k of ['HAFLEET_RUNTIME_DIR', 'MATRIX_HOMESERVER', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']) {
+  for (const k of ['HAGENCY_RUNTIME_DIR', 'MATRIX_HOMESERVER', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']) {
     savedEnv[k] = process.env[k];
   }
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.MATRIX_HOMESERVER = 'https://hs.test';
   process.env.MATRIX_AGENT_PREFIX = 'ac_';
   process.env.MATRIX_SERVER_NAME = 'hs.test';

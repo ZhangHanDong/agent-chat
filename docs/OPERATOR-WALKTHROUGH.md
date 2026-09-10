@@ -1,6 +1,6 @@
 # Operator walkthrough: status and how to continue
 
-This is the handoff for continuing manual, click-by-click verification of HAFleet as an
+This is the handoff for continuing manual, click-by-click verification of Hagency as an
 actual operator would use it — not the automated suite (`docs/TESTING.md` covers that),
 not the API reference. The premise of this whole effort: **every bug found this way was
 invisible to every test that existed**, because each one is a disagreement between two
@@ -18,7 +18,7 @@ artifact. A stored `messages.json` entry is an artifact; a console screen that s
 
 ## What has been walked and proven, with evidence
 
-All of this was done on two real machines (a HAFleet host and a separate customer
+All of this was done on two real machines (a Hagency host and a separate customer
 Palpo host), not in unit tests, not by inference from code. PRs #116–#119.
 
 | Step | Proven | Evidence |
@@ -29,14 +29,14 @@ Palpo host), not in unit tests, not by inference from code. PRs #116–#119.
 | Choose appservice credential, co-located edge | Works, once the address bug (below) was fixed | registration issued, installed, homeserver restarted |
 | Verify credential | Reports `accepted` correctly | — but see the inbound-liveness item below, this alone is not enough |
 | **Inbound actually arrives** | Works, with a real edge, real homeserver, real restart | edge counter: `transactions from the homeserver: N`, `delivered: N` |
-| Customer types `!offer` in their own room | Works — answered by the **representative**, not a silent bot | homeserver's own room timeline: `@hafleet:walk.test → This contributor has nothing on offer right now.` |
+| Customer types `!offer` in their own room | Works — answered by the **representative**, not a silent bot | homeserver's own room timeline: `@hagency:walk.test → This contributor has nothing on offer right now.` |
 | Customer types `!request <role> <tokens> <rate>` | Works — including the case where the ask is sent BEFORE we are in the room | pending engagement created, representative answered in the customer's room; needed #121 |
 | Operator approves in 接洽/Engagements, in a real browser | Works, end to end | `mockup/scripts/e2e-full-loop.mjs` on the live rig: 21/21, real Chrome click → `binding {agent, ownerMxid}` → **`@ac_soaker:palpo2.test` present in the homeserver's own `joined_members`** |
 | The same, under `MATRIX_TRUST_MODE=enforce` | Works — did not before | every step above was dead in enforce mode: room untrusted, messages dropped, room left, and the bot's refusal consumed the invite the representative needed; #121 |
-| Inbound survives HAFleet's own bot being unconfigured | Works — proven end to end | with `MATRIX_BOT_PASSWORD` deliberately unset, a customer's Matrix message reached HAFleet's own message store: `boss -> worker \| 无 bot 端到端 \| source=matrix`, `HTTP 200` back to the (fake) homeserver |
+| Inbound survives Hagency's own bot being unconfigured | Works — proven end to end | with `MATRIX_BOT_PASSWORD` deliberately unset, a customer's Matrix message reached Hagency's own message store: `boss -> worker \| 无 bot 端到端 \| source=matrix`, `HTTP 200` back to the (fake) homeserver |
 | Deleting an agent releases its budget, group membership, and Matrix room seats | Works | `#110`/`#113`/`#114`/`#115`; verified against a live fleet with a real 150k leaked commitment, cleaned to 0 |
 | A dead-inbound side does NOT silently read as fine | Works | `GET /api/matrix/reach` → `appservice.inbound.state` distinguishes `never-called` / `not-collected` / `rejected` / `flowing`, each pointing at a different owner |
-| A just-restarted edge doesn't cry wolf | Works | `settling` flag, 2-minute window, requires HAFleet to actually be connected |
+| A just-restarted edge doesn't cry wolf | Works | `settling` flag, 2-minute window, requires Hagency to actually be connected |
 
 ## What has NOT been walked yet
 
@@ -44,14 +44,14 @@ These are the gaps a continuing agent should prioritize, roughly in the order th
 naturally come up if you kept going from where this left off:
 
 1. ~~**`!request` through to an actual engagement, with the owner properly configured.**~~
-   **WALKED (#121).** With `HAFLEET_OWNER_MXID` / `HAFLEET_OWNER_DM_ROOM` pointing at a
+   **WALKED (#121).** With `HAGENCY_OWNER_MXID` / `HAGENCY_OWNER_DM_ROOM` pointing at a
    real human and a real DM room that human is actually joined to, the whole path works:
    pre-join `!request` → pending engagement → the representative answers in the
    customer's room → the console lists it → a real browser click Approves → the agent is
    bound AND admitted to the room. Two things to know before repeating it:
    - ~~**The owner DM room is not validated.**~~ **FIXED (#123).** The bridge had recorded a
      `botDmRooms` entry for `@operator:…` that the operator was not a member of (invited,
-     never joined), so `HAFLEET_OWNER_DM_ROOM` could point at a room the human cannot see
+     never joined), so `HAGENCY_OWNER_DM_ROOM` could point at a room the human cannot see
      and nothing said so. Every approval sent there would have been delivered, reported
      delivered, and waited for a decision from somebody who could not see it being asked
      for. Now the bridge reads the room's membership after each delivery and raises an
@@ -65,7 +65,7 @@ naturally come up if you kept going from where this left off:
      asserts both directions from the homeserver's own member list now.
 
 2. **The `registrationToken` credential kind**, end to end. Everything walked here used
-   `appservice`. The purely-outbound path (`HAFleet /syncs like a phone`) has its own
+   `appservice`. The purely-outbound path (`Hagency /syncs like a phone`) has its own
    registration flow, its own per-agent token minting, and has not been walked on a
    clean pair of machines.
 
@@ -74,15 +74,15 @@ naturally come up if you kept going from where this left off:
    breaking a running credential, but nobody has walked "customer's registration token
    is rotated while agents are actively dispatched" as a scenario.
 
-4. **Two project sides on one HAFleet, each with its own co-located edge.** The
-   `HAFLEET_EDGE_URL`/`SIDE`/`LINK_TOKEN` triplet is env-var-shaped, meaning one process
+4. **Two project sides on one Hagency, each with its own co-located edge.** The
+   `HAGENCY_EDGE_URL`/`SIDE`/`LINK_TOKEN` triplet is env-var-shaped, meaning one process
    currently serves **one** edge. If a deployment needs two co-located customers, that's
    either two bridge processes or a gap — not confirmed either way by walking it.
 
 5. ~~**What a real container restart of the edge looks like under actual load**~~ **WALKED (#126).**
-   Twenty messages at ~1.4/second with `docker restart hafleet-edge` in the middle, on the rig.
+   Twenty messages at ~1.4/second with `docker restart hagency-edge` in the middle, on the rig.
    **Nothing was lost** — every message arrived, including the two sent while the edge was down,
-   because the homeserver keeps the transaction until HAFleet acks it and the edge persists
+   because the homeserver keeps the transaction until Hagency acks it and the edge persists
    nothing by design. The gap in the room's timeline was about four seconds.
    But the same timeline showed twenty messages drawing **thirty-two replies**, in bursts of
    six, as the homeserver re-delivered the batches nobody had acked. `onRoomMessage` has four
@@ -95,7 +95,7 @@ naturally come up if you kept going from where this left off:
 
    | | `inbound.state` | `settling` | what the operator is told |
    |---|---|---|---|
-   | t+8s | `never-called` | `true` | "HAFleet is connected and waiting, so there is nothing to fix yet" |
+   | t+8s | `never-called` | `true` | "Hagency is connected and waiting, so there is nothing to fix yet" |
    | t+60s | `never-called` | `true` | same |
    | t+130s | `never-called` | `false` | the three real causes, named: nothing has happened yet, the registration url is unreachable, or the homeserver was not restarted after the registration was installed |
 
@@ -103,11 +103,11 @@ naturally come up if you kept going from where this left off:
    looking for a fault that is not there.
 
 6. **The full progress-in-thread flow with a *real* dispatched agent process** (not just
-   the appservice message reaching HAFleet's inbox). An earlier part of this session
+   the appservice message reaching Hagency's inbox). An earlier part of this session
    (before the compaction this document follows) proved ACP progress threading works;
    it has not been re-verified since the bridge's send/read paths changed in #116–#119.
    Specifically: does a dispatched agent's reply, sent mid-conversation, also correctly
-   route through `sayInRoom` when the project side and HAFleet share a homeserver? The
+   route through `sayInRoom` when the project side and Hagency share a homeserver? The
    unit tests say yes (`tests/bridge-say-in-room.test.js`); it has not been watched
    happen in Robrix.
 
@@ -145,24 +145,24 @@ configuration it is in now is the one the last round's fixes were proven against
 - **One machine, two homeservers.** The customer's Palpo (`palpo2.test`) carries the
   appservice registration and publishes the co-located edge port; a second Palpo
   (`palpo.test`) is left from an earlier round and is not part of the current path.
-- **HAFleet lives beside them**, its runtime under `~/.hafleet-fresh-runtime`, backend on
-  `8093`, console on `3100`, started with `node bin/hafleet-supervisor` after sourcing
-  `$HAFLEET_RUNTIME_DIR/.env` — skipping that source is how a whole fleet comes up with no
+- **Hagency lives beside them**, its runtime under `~/.hagency-fresh-runtime`, backend on
+  `8093`, console on `3100`, started with `node bin/hagency-supervisor` after sourcing
+  `$HAGENCY_RUNTIME_DIR/.env` — skipping that source is how a whole fleet comes up with no
   `API_TOKEN`.
-- **`MATRIX_SERVER_NAME` is the customer's own server.** HAFleet's bot and the side's
-  representative are the same Matrix user (`@hafleet:palpo2.test`), which is the collision
+- **`MATRIX_SERVER_NAME` is the customer's own server.** Hagency's bot and the side's
+  representative are the same Matrix user (`@hagency:palpo2.test`), which is the collision
   #121 made survivable. It is a legitimate co-located shape and the harshest one to test on;
   a fresh rig should probably keep the two names apart instead.
 - **`MATRIX_TRUST_MODE=enforce`**, deliberately. It was `open` — which is not a mode and
   silently means `audit` — for the whole previous round, and everything in #121 was invisible
   under it. Leave it on `enforce`: it is the mode a careful operator picks, and it is the one
   that finds this class of defect.
-- **An owner who can actually decide.** `HAFLEET_OWNER_MXID` / `HAFLEET_OWNER_DM_ROOM` point
+- **An owner who can actually decide.** `HAGENCY_OWNER_MXID` / `HAGENCY_OWNER_DM_ROOM` point
   at a throwaway human and a DM room that human is genuinely joined to. Without that pair the
   approval path stops at `awaitingBind`; with a room the human never accepted it looks like it
   works and nobody is ever asked.
 - **An operator ACL, added while walking the group commands.**
-  `MATRIX_OPERATOR_MXIDS` names the same throwaway human as `HAFLEET_OWNER_MXID`. Without it every
+  `MATRIX_OPERATOR_MXIDS` names the same throwaway human as `HAGENCY_OWNER_MXID`. Without it every
   tier-2 command (`!mkgroup`, `!bindroom`, `!addmember`, `!rmgroup`, `!dm`) is refused — correctly,
   and with a message that names the variable, but it means a fresh rig can only exercise tier 0 and
   tier 1 until you set it. It is read at bridge start-up, so setting it needs a restart.
@@ -171,13 +171,13 @@ configuration it is in now is the one the last round's fixes were proven against
 
   ```bash
   MATRIX_HS=http://127.0.0.1:8009 BACKEND=http://127.0.0.1:8093 BASE=http://127.0.0.1:3100 \
-  MATRIX_TOKEN="$MATRIX_REG_TOKEN" BOT_MXID=@hafleet:palpo2.test \
-  BRIDGE_STATE=$HAFLEET_RUNTIME_DIR/data/matrix/bridge-state.json LOOP_ROLE=documentation \
+  MATRIX_TOKEN="$MATRIX_REG_TOKEN" BOT_MXID=@hagency:palpo2.test \
+  BRIDGE_STATE=$HAGENCY_RUNTIME_DIR/data/matrix/bridge-state.json LOOP_ROLE=documentation \
     node scripts/e2e-full-loop.mjs          # 22 checks, real browser, real homeserver
   ```
 
   ```bash
-  HAFLEET_API=http://127.0.0.1:8093 VERIFY_ROOM='<a room bound to a group>' \
+  HAGENCY_API=http://127.0.0.1:8093 VERIFY_ROOM='<a room bound to a group>' \
     bash scripts/verify-agent-e2e.sh        # 10 checks, no browser
   ```
 
@@ -194,7 +194,7 @@ configuration it is in now is the one the last round's fixes were proven against
 
 This is the highest-value reusable asset from this round. Building it from scratch cost
 real time to a broken `colima` disk, a wrong network assumption, and a stale npm cache.
-Two variants: **with HAFleet's own bot** (ordinary) and **without it** (proves #119).
+Two variants: **with Hagency's own bot** (ordinary) and **without it** (proves #119).
 
 ### Prerequisites and picking a machine
 
@@ -256,22 +256,22 @@ docker run -d --name palpo-<name>-hs --network palponet-<name> \
 expected, and the console's own remedy message says exactly what to fill in instead —
 that path is itself verified working, don't route around it.
 
-### Standing up HAFleet
+### Standing up Hagency
 
 ```bash
-git clone https://github.com/hagency-org/HAFleet.git && cd HAFleet
+git clone https://github.com/hagency-org/hagency.git && cd hagency
 npm ci --cache /tmp/some-private-dir      # see the PATH/cache notes above
 
-R=~/.hafleet-<name>-runtime; mkdir -p $R/data
+R=~/.hagency-<name>-runtime; mkdir -p $R/data
 cat > $R/.env <<EOF
-HAFLEET_RUNTIME_DIR=$R
-HAFLEET_DATA_DIR=$R/data
-HAFLEET_BACKEND_PORT=<port>
+HAGENCY_RUNTIME_DIR=$R
+HAGENCY_DATA_DIR=$R/data
+HAGENCY_BACKEND_PORT=<port>
 API_TOKEN=<random>
 MATRIX_BRIDGE_SECRET=<random>
-HAFLEET_EDGE_URL=http://<address HAFleet reaches the edge at>:<edge-port>
-HAFLEET_EDGE_LINK_TOKEN=<random, shared with the edge — not the hs_token>
-HAFLEET_EDGE_SIDE=<name>.test
+HAGENCY_EDGE_URL=http://<address Hagency reaches the edge at>:<edge-port>
+HAGENCY_EDGE_LINK_TOKEN=<random, shared with the edge — not the hs_token>
+HAGENCY_EDGE_SIDE=<name>.test
 EOF
 chmod 600 $R/.env
 set -a; . $R/.env; set +a
@@ -283,7 +283,7 @@ node backend-v2.js &
 ```
 MATRIX_HOMESERVER=http://<customer homeserver address>
 MATRIX_SERVER_NAME=<name>.test
-MATRIX_BOT_USERNAME=hafleetbot
+MATRIX_BOT_USERNAME=hagencybot
 MATRIX_BOT_PASSWORD=<the password you registered with>
 MATRIX_REG_TOKEN=<the customer homeserver's registration_token>
 ```
@@ -291,7 +291,7 @@ MATRIX_REG_TOKEN=<the customer homeserver's registration_token>
 **For the without-bot variant**, leave those four unset entirely — do not set an empty
 string, leave the keys absent. This is the configuration #119 makes survivable.
 
-**Do not name the bot `hafleet`.** That is a project side's default `sender_localpart`,
+**Do not name the bot `hagency`.** That is a project side's default `sender_localpart`,
 so on a co-located deployment it makes one Matrix user both the bot and the
 representative — two jobs with opposite rules about which rooms they belong in. #121
 stopped the collision from being silently fatal; it is still two jobs.
@@ -310,8 +310,8 @@ first needs no configuration at all:
    bindings needs:
 
    ```
-   HAFLEET_OWNER_MXID=@you:<your-server>
-   HAFLEET_OWNER_DM_ROOM=!<room id>:<your-server>
+   HAGENCY_OWNER_MXID=@you:<your-server>
+   HAGENCY_OWNER_DM_ROOM=!<room id>:<your-server>
    ```
 
    Both are required — the bind fails and records why on the engagement if either is
@@ -322,7 +322,7 @@ first needs no configuration at all:
    engagements screen is not allowed to carry it. Open a DM with the bot from your Matrix
    client, accept it, and read the internal room id from your client's own room settings
    (Element: Settings → Advanced). If your client does not show internal ids, it is the
-   `botDmRooms` entry in `$HAFLEET_RUNTIME_DIR/data/matrix/bridge-state.json`.
+   `botDmRooms` entry in `$HAGENCY_RUNTIME_DIR/data/matrix/bridge-state.json`.
 
    **Then check you are actually in it.** A room the bridge created for you and you never
    accepted looks identical in that file to one you use every day — and an approval
@@ -341,10 +341,10 @@ node bridge-matrix.js &
 
 **Rule 1: this operator's deployments use only the co-located appservice arrangement**
 — the edge process runs *beside the customer's homeserver*, never a bare socket on a
-public IP (`HAFLEET_APPSERVICE_PORT`). That other path exists in the code
+public IP (`HAGENCY_APPSERVICE_PORT`). That other path exists in the code
 (`lib/appservice-listener.js`, `resolveAppserviceListenerConfig`) and is real, not
 deprecated — it's simply out of scope for this operator's walkthrough, matching how
-they actually run HAFleet. This document assumes co-location throughout; don't reach
+they actually run Hagency. This document assumes co-location throughout; don't reach
 for the bare-socket path unless someone explicitly asks for it.
 
 **Rule 2: there are two addresses for one socket, and they are never the same value.**
@@ -352,14 +352,14 @@ for the bare-socket path unless someone explicitly asks for it.
 - The address the **homeserver** dials (goes in the registration `url:` field) — this
   must be reachable from inside the homeserver's own network view. For a co-located
   container, that's loopback: `http://127.0.0.1:<edge-port>`.
-- The address **HAFleet** dials to collect (`HAFLEET_EDGE_URL`) — this is from wherever
-  HAFleet actually runs, which is a different machine or at least a different network
+- The address **Hagency** dials to collect (`HAGENCY_EDGE_URL`) — this is from wherever
+  Hagency actually runs, which is a different machine or at least a different network
   view.
 
 The edge process is the only thing that knows the first one, because it owns the
 socket. **Don't compute it, ask it** — `GET /api/matrix/reach` now does this itself
 (`appservice.edgeRegistrationUrl`), reading it from the edge's own `/status` endpoint.
-If you're doing this by hand: `hafleet-appservice-edge` prints
+If you're doing this by hand: `hagency-appservice-edge` prints
 `put this in the registration:  url: http://127.0.0.1:<port>` on startup. That line is
 the truth. Anything else is a guess.
 
@@ -368,15 +368,15 @@ free, and joining one has a cost of its own.** The working recipe:
 
 ```bash
 # Run the edge sharing the homeserver container's network namespace:
-docker run -d --name hafleet-edge-<name> --network container:palpo-<name>-hs \
-  -v ~/HAFleet:/app:ro -v ~/palpo-<name>/appservices:/reg:ro -w /app \
-  node:22-alpine node /app/bin/hafleet-appservice-edge \
+docker run -d --name hagency-edge-<name> --network container:palpo-<name>-hs \
+  -v ~/Hagency:/app:ro -v ~/palpo-<name>/appservices:/reg:ro -w /app \
+  node:22-alpine node /app/bin/hagency-appservice-edge \
     --registration /reg/<name>.yaml --link-token "<link-token>" \
     --port <edge-port> --host 0.0.0.0
 ```
 
 This fixes the homeserver's dial address (now genuinely loopback from its point of
-view). **It can break HAFleet's own access to the same socket**, because a container
+view). **It can break Hagency's own access to the same socket**, because a container
 that joins another container's network namespace cannot publish its own ports — only
 the container that *owns* the namespace can. So the homeserver container must publish
 the edge's port too, decided *before* starting it:
@@ -386,7 +386,7 @@ docker run -d --name palpo-<name>-hs ... -p 127.0.0.1:<host-port>:8008 -p 127.0.
 ```
 
 Getting rule 2 right and rule 3 wrong looks like: the homeserver starts calling
-(progress!) and HAFleet still collects nothing. `hafleet-appservice-edge --check`
+(progress!) and Hagency still collects nothing. `hagency-appservice-edge --check`
 distinguishes these two failure states by name — read it, don't guess from symptoms.
 
 **Rule 4: re-issuing a registration means restarting *two* things, not one.** Palpo
@@ -400,16 +400,16 @@ name this trap.
 
 ### Chaining SSH tunnels between three machines
 
-If you (the operator's terminal), HAFleet, and the customer's Palpo are three different
+If you (the operator's terminal), Hagency, and the customer's Palpo are three different
 places, you need transitive reachability without ever putting either homeserver on a
 public interface. Loopback-forward through the middle host:
 
 ```bash
-# From your terminal: reach the customer homeserver's port through the HAFleet host
-ssh -f -N -L <local-port>:127.0.0.1:<customer-port> <hafleet-host>
-# Then from the HAFleet host's own perspective, reverse-forward it onward if HAFleet
+# From your terminal: reach the customer homeserver's port through the Hagency host
+ssh -f -N -L <local-port>:127.0.0.1:<customer-port> <hagency-host>
+# Then from the Hagency host's own perspective, reverse-forward it onward if Hagency
 # itself needs to reach the customer host directly (e.g. no ssh key between them):
-ssh -f -N -R <port>:127.0.0.1:<port> <hafleet-host>
+ssh -f -N -R <port>:127.0.0.1:<port> <hagency-host>
 ```
 
 Every `pkill -f "127.0.0.1:<port>"` you run to tear one tunnel down will match *every*
@@ -422,10 +422,10 @@ together after any teardown, don't assume one survived.
 # 1. Register a human on the customer homeserver, create a room, invite the representative.
 # 2. Post a message as that human.
 # 3. Read the edge's own counters — not the console:
-node bin/hafleet-appservice-edge --check --link-token "<link-token>" --port <edge-port>
+node bin/hagency-appservice-edge --check --link-token "<link-token>" --port <edge-port>
 # 4. Read what actually landed, off disk — not an API response:
 cat $R/data/messages.json
-# 5. Read the room from the customer's OWN side, as that human, not as HAFleet:
+# 5. Read the room from the customer's OWN side, as that human, not as Hagency:
 curl .../rooms/<room>/messages?dir=b -H "Authorization: Bearer <human's token>"
 ```
 
@@ -447,21 +447,21 @@ fine; the customer's own view of their own room was silent.
 | `PATCH /api/agents/:name` with `projectSide` returns `ok:true` but nothing changes (old code) | Agents can't set their own employer; use `PUT .../project-side` | refused with a named code, prior series |
 | `{"verdict":"approved"}` on an engagement reads as a *rejection* | Body must be `{approve: true, allocatedTokens}` | — |
 | Deleting an agent leaves its budget/groups/room seats behind | Deletion never cascaded those three relationships | #110/#113/#114/#115 |
-| A project shows 还没派人 next to a real commitment | `awaitingBind` — approved but no resolvable owner (`HAFLEET_OWNER_MXID`/`HAFLEET_OWNER_DM_ROOM`) | surfaced with the reason verbatim, #111; false-positive on an *already*-bound agent fixed in #112 |
+| A project shows 还没派人 next to a real commitment | `awaitingBind` — approved but no resolvable owner (`HAGENCY_OWNER_MXID`/`HAGENCY_OWNER_DM_ROOM`) | surfaced with the reason verbatim, #111; false-positive on an *already*-bound agent fixed in #112 |
 | Bot-less degraded mode fills the log with a failure every poll | Guarding on `botClient` disabled functions that don't fully need it | guard the *specific stage* that needs the bot, not the whole function or the call site — verified by which existing tests broke, #119 |
-| A customer invites HAFleet and asks in the same breath; the ask vanishes with no error | Only the BOT's invite path backfilled the invite→join window. On a project side the representative answers the invite, and that path never read the window — and could not reuse the bot's, which paginates with a client that has no account on the customer's homeserver | `backfillJoinedRoomOnSide` + `roomMessagesOnSide`, reading as the representative with the side's own credential; boundary still by position, never by timestamp, #121 |
+| A customer invites Hagency and asks in the same breath; the ask vanishes with no error | Only the BOT's invite path backfilled the invite→join window. On a project side the representative answers the invite, and that path never read the window — and could not reuse the bot's, which paginates with a client that has no account on the customer's homeserver | `backfillJoinedRoomOnSide` + `roomMessagesOnSide`, reading as the representative with the side's own credential; boundary still by position, never by timestamp, #121 |
 | `MATRIX_TRUST_MODE=enforce` silently kills a co-located customer's intake entirely | The appservice join never marked the room trusted, so `message-ingress` dropped every message and `scanJoinedRooms` then LEFT the room | `markRoomTrusted(…, trustReason: 'project_side_invite')` on the join — bounded by the credential, and already revoked by `forgetRoomsOnSides` when the side is removed, #121 |
-| The representative's join fails `403 cannot join a room that is not 'public'` — on a room it was just invited to | The bot's invite handler ran first, correctly refused an untrusted inviter, and LEFT — which consumed the invite. Only bites when the bot and the representative are the same mxid, which is what naming the bot `hafleet` on a co-located deployment gets you | `projectSideInviteTrust`: a room on a server we hold an acting credential for is not the bot's to refuse, #121 |
+| The representative's join fails `403 cannot join a room that is not 'public'` — on a room it was just invited to | The bot's invite handler ran first, correctly refused an untrusted inviter, and LEFT — which consumed the invite. Only bites when the bot and the representative are the same mxid, which is what naming the bot `hagency` on a co-located deployment gets you | `projectSideInviteTrust`: a room on a server we hold an acting credential for is not the bot's to refuse, #121 |
 | A security-relevant mode is silently ignored | `MATRIX_TRUST_MODE` acts only on `enforce`, so any other spelling means `audit`. The walk rig ran for days on `open`, which is not a mode | startup warning naming the value and saying nothing is being enforced, #121 |
 | Every bridge restart blinds the inbound path for up to ~55s | The edge holds a promise, not a socket, so a bridge killed mid-long-poll leaves its slot held for the edge's 25s poll timeout — and the puller then put that bounded wait on an exponential backoff | 409 is a known transient with a known bound: fixed 1s retry, and a log line saying the other poller is our own previous instance. Measured after: ~4s, #121 |
-| A green e2e suite that proves less than it says | The full loop asserted a BINDING — HAFleet's own record — and never asked the homeserver whether the agent was in the room. The two had never been checked against each other on this path | the suite now reads `joined_members` for `@<prefix><agent>:<side>` after Approve, #121 |
-| Every finished engagement leaks a member into a customer's Matrix room | Revoking removed HAFleet's binding and stopped there. Deleting an AGENT has withdrawn it from every room since #114/#115 on exactly the same grounds, and nobody carried that to the engagement's own end | `detachEngagement` — unbind, then give the seat back, gated on `allocatedTokens` (so a rejection withdraws nothing) and on no other live engagement holding the pair. NOT gated on a binding having existed, which is the mistake #114 shipped, #122 |
+| A green e2e suite that proves less than it says | The full loop asserted a BINDING — Hagency's own record — and never asked the homeserver whether the agent was in the room. The two had never been checked against each other on this path | the suite now reads `joined_members` for `@<prefix><agent>:<side>` after Approve, #121 |
+| Every finished engagement leaks a member into a customer's Matrix room | Revoking removed Hagency's binding and stopped there. Deleting an AGENT has withdrawn it from every room since #114/#115 on exactly the same grounds, and nobody carried that to the engagement's own end | `detachEngagement` — unbind, then give the seat back, gated on `allocatedTokens` (so a rejection withdraws nothing) and on no other live engagement holding the pair. NOT gated on a binding having existed, which is the mistake #114 shipped, #122 |
 | A green e2e suite reporting "leaves no room behind in any account" while leaving one | It purges the rooms it knows accounts for — its own and the bot's. A dispatched agent is neither, and its membership is created by the product rather than by the suite | assert the agent's ABSENCE from `joined_members` after the revoke, #122 |
-| An execution approval for a dispatched agent is auto-DENIED, and only a log says why | The public half of ADR-003's two surfaces resolved its sender with `getAgentToken`, and an appservice project side mints NO per-agent token — so the throw fired for exactly the agents HAFleet dispatches, and "both surfaces or neither" failed the whole approval closed | `agentSenderFor(agent, project_room_id)`, the resolver every other agent send already uses: a room on a project side is spoken into by that side's appservice masquerading as the agent, #123 |
+| An execution approval for a dispatched agent is auto-DENIED, and only a log says why | The public half of ADR-003's two surfaces resolved its sender with `getAgentToken`, and an appservice project side mints NO per-agent token — so the throw fired for exactly the agents Hagency dispatches, and "both surfaces or neither" failed the whole approval closed | `agentSenderFor(agent, project_room_id)`, the resolver every other agent send already uses: a room on a project side is spoken into by that side's appservice masquerading as the agent, #123 |
 | An approval delivered into a room its owner is not in | An event id proves a message landed in a room, not that the decider is in it. A bot DM the operator was invited to and never joined is recorded exactly like one they use | read `joined_members` after the delivery and alert per room, never blocking the send — a message keeps, and a human who joins later reads it, #123 |
 | An operator follows the guide and their bot silently never logs in | The guide said `MATRIX_BOT_USER`; the code reads `MATRIX_BOT_USERNAME`, and the default `agent-bridge` is what a misspelling gets you. Worse since #119: a bot that cannot start is now survivable and quiet, so the fleet keeps running and nobody learns the variable was wrong | corrected in this file and in `docs/RUNNING-THE-SERVICES.md`, which had the same wrong name, #124 |
-| A customer is answered six times for one message | An appservice transaction is retried whenever HAFleet does not answer 200 — a restarted edge, a 500, a slow ack. Of `onRoomMessage`'s four outcomes, the three that store a message recorded the event; non-command text in a bot DM replied and recorded nothing | `rememberMatrixEvent` in that branch too, matching the command branch four lines above it. `!request` was already safe, which is the difference between noise and a second engagement, #126 |
-| Reading the wrong artifact and calling it data loss | A flood probe reported 0/20 arrived across an edge restart. `processed-events.jsonl` only records messages that BECAME a HAFleet message; a bot-DM hint reply is not one, so the file was silent about twenty messages that had all been answered. The room's own timeline said so immediately | ask the surface the behaviour actually touches — the replies were in the room the whole time, #126 |
+| A customer is answered six times for one message | An appservice transaction is retried whenever Hagency does not answer 200 — a restarted edge, a 500, a slow ack. Of `onRoomMessage`'s four outcomes, the three that store a message recorded the event; non-command text in a bot DM replied and recorded nothing | `rememberMatrixEvent` in that branch too, matching the command branch four lines above it. `!request` was already safe, which is the difference between noise and a second engagement, #126 |
+| Reading the wrong artifact and calling it data loss | A flood probe reported 0/20 arrived across an edge restart. `processed-events.jsonl` only records messages that BECAME a Hagency message; a bot-DM hint reply is not one, so the file was silent about twenty messages that had all been answered. The room's own timeline said so immediately | ask the surface the behaviour actually touches — the replies were in the room the whole time, #126 |
 | A live e2e suite that cannot run on most fleets | `!request architect` needs a `strong`-tier agent (opus for the claude framework); a sonnet/deepseek fleet can fill nothing at that tier, and the suite reported failure for a fleet with nothing wrong | `LOOP_ROLE` env override, default unchanged; `GET /api/engagements/preview?role=<r>` shows what a fleet can fill, #121 |
 
 ## For whoever continues this

@@ -45,7 +45,7 @@ RELEASE="${RELEASE#v}"
 [ -n "$RELEASE" ] || { echo "could not determine release version" >&2; exit 1; }
 
 REVISION="$(git rev-parse --short "$REF")"
-NAME="hafleet-${RELEASE}"
+NAME="hagency-${RELEASE}"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 

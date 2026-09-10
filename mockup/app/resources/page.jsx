@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import ResourceAgents from '@/components/ResourceAgents';
+import { ResourceExecutionPermissions } from '@/components/ExecutionPermissions';
 
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
@@ -9,6 +11,7 @@ import Meter from '@/components/Meter';
 import { useT } from '@/components/Prefs';
 import { useData, Provenance } from '@/components/Data';
 import { send } from '@/lib/api';
+import { capabilityCount } from '@/lib/console-workflow';
 import { Toast, useToast } from '@/components/Toast';
 // Pure formatters only: they take a number and return a string, so they have no
 // data source to belong to. Everything data-dependent comes from useData().
@@ -23,11 +26,9 @@ import { runtimeLabel, transportLabel } from '@/lib/agent-detail';
  *
  * Two honest states this page has to carry, both true of a real host:
  *
- *  - An agent with **no preset** contributes nothing. It is registered, running,
- *    and useless, because nobody chose a model for it. That is not an edge case —
- *    it is what every agent looks like before this console exists, since no
- *    onboarding path writes a preset today.
- *  - **Spend is not measured.** HAFleet meters no tokens at any granularity, so
+ *  - Resources can supply an agent after a request is approved. Existing agents
+ *    without a preset retain their configuration-repair controls below.
+ *  - **Spend is not measured.** Hagency meters no tokens at any granularity, so
  *    every consumption figure here is a dash with a reason. A `0` would claim a
  *    measurement nobody takes, which is the difference between "this cost me
  *    nothing" and "I cannot see what this cost me".
@@ -49,7 +50,7 @@ export default function ResourcesPage() {
   const t = useT();
   const {
     agents, presets, presetOf, tierOf, familyOf, committed, remaining, overBy, capability,
-    seats = [], seatKeyed, usageLive = [],
+    seats = [], seatKeyed, refresh, provenance, usageLive = [],
   } = useData();
 
   const toast = useToast();
@@ -57,7 +58,7 @@ export default function ResourcesPage() {
 
   const configured = agents.filter((a) => a.presetId);
   const bare = agents.filter((a) => !a.presetId);
-  const fillable = capability().filter((c) => c.able.length > 0 && c.crossFamilyOk).length;
+  const fillable = capability().filter((c) => capabilityCount(c) > 0 && c.crossFamilyOk).length;
 
   // Summed over the presets that HAVE a ceiling, with the rest counted rather
   // than treated as zero. A total that quietly folded in missing ceilings as 0
@@ -70,17 +71,69 @@ export default function ResourcesPage() {
   return (
     <>
       <PageHead title={t('rs.title')} sub={t('rs.sub')}>
-        {/*
-          * TWO actions, because there are two different things missing and this page had a button
-          * for only one of them. A preset is a declaration; an AGENT is the resource. With no
-          * agents the page said "no seat can be derived, i.e. no registered agent" and offered a
-          * single button that makes another preset — naming the problem while routing away from it.
-          */}
-        <Link className="btn" href="/onboard">{t('rs.addAgent')}</Link>
         <Link className="btn primary" href="/resources/new">{t('rs.configure')}</Link>
       </PageHead>
 
       <Provenance slices={['agents', 'presets', 'ceilings', 'seats', 'engagements', 'usage']} />
+
+      <div className="notice">{t('rs.workflow')}</div>
+
+      <section aria-labelledby="resource-configurations">
+      <h2 id="resource-configurations" className="sec">{t('rs.presets')}<span className="note">{t('rs.presetsNote')}</span></h2>
+      <div className="tbl-wrap">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>{t('col.preset')}</th>
+              <th>{t('col.framework')}</th>
+              <th>{t('col.model')}</th>
+              <th>{t('col.reasoning')}</th>
+              <th>{t('col.ceiling')}</th>
+              <th>{t('col.rateCap')}</th>
+              <th>{t('col.usedBy')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {presets.map((p) => {
+              const users = agents.filter((a) => a.presetId === p.id);
+              return (
+                <Fragment key={p.id}><tr>
+                  <td>{p.name}<span className="dim">{p.id}</span></td>
+                  <td>{p.framework}</td>
+                  <td className="mono-s">{p.model}</td>
+                  <td>{p.reasoning ?? <Blank why="rs.why.noReasoning" t={t} />}</td>
+                  <td>
+                    {p.ceiling
+                      ? <span className="amount">{fmtTokens(p.ceiling.tokens)}</span>
+                      : <Blank why="rs.why.noCeiling" t={t} />}
+                  </td>
+                  <td>
+                    {!p.ceiling && <Blank why="rs.why.noCeiling" t={t} />}
+                    {p.ceiling && (p.ceiling.rateCapPerDay
+                      ? <span className="amount">{`${fmtTokens(p.ceiling.rateCapPerDay)}/d`}</span>
+                      : <Blank why="rs.why.noRateCap" t={t} />)}
+                  </td>
+                  <td>
+                    {users.length
+                      ? users.map((u) => <Link className="chip-role" key={u.name} href={`/agents/${u.name}`}>{u.name}</Link>)
+                      : <span className="dim">{t('rs.unassignedResource')}</span>}
+                  </td>
+                </tr><tr><td colSpan={7}>
+                  <ResourceAgents preset={p} live={provenance.presets === 'live'} refresh={refresh} />
+                  <ResourceExecutionPermissions preset={p} live={provenance.presets === 'live'} refresh={refresh} />
+                </td></tr></Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {presets.length === 0 && (
+        <div className="notice warn">
+          <div><b>{t('rs.noPresets')}</b></div>
+          <div>{t('rs.noPresetsHow')}</div>
+        </div>
+      )}
+      </section>
 
       {bare.length > 0 && (
         <div className="notice warn">
@@ -256,9 +309,12 @@ export default function ResourcesPage() {
           is the FIRST thing a contributor sees, so it has to say what is missing and
           where the next step lives — including the part this console cannot do. */}
       {agents.length === 0 && (
-        <div className="notice warn">
+        <div className="notice">
           <div><b>{t('rs.noAgents')}</b></div>
           <div>{t('rs.noAgentsHow')}</div>
+          <Link href={presets.length ? '/engagements' : '/resources/new'}>
+            {t(presets.length ? 'rs.reviewRequests' : 'rs.configure')}
+          </Link>
         </div>
       )}
 
@@ -280,11 +336,8 @@ export default function ResourcesPage() {
       <h2 className="sec">{t('rs.seats')}<span className="note">{t('rs.seatsNote')}</span></h2>
       <div className="notice">{t('rs.seatWhy')}</div>
       {seats.length === 0 ? (
-        <div className="notice warn">
+        <div className="notice">
           {t('rs.seatsEmpty')}
-          {/* An empty state that names a missing thing should say where it comes from. A seat is
-              derived from a registered agent, and agents are registered by onboarding one. */}
-          {' '}<Link href="/onboard">{t('rs.seatsEmptyFix')}</Link>
         </div>
       ) : (
         <>
@@ -359,58 +412,6 @@ export default function ResourcesPage() {
             <div className="notice">{t('rs.why.noQuotaLong')}</div>
           )}
         </>
-      )}
-
-      <h2 className="sec">{t('rs.presets')}<span className="note">{t('rs.presetsNote')}</span></h2>
-      <div className="tbl-wrap">
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>{t('col.preset')}</th>
-              <th>{t('col.framework')}</th>
-              <th>{t('col.model')}</th>
-              <th>{t('col.reasoning')}</th>
-              <th>{t('col.ceiling')}</th>
-              <th>{t('col.rateCap')}</th>
-              <th>{t('col.usedBy')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {presets.map((p) => {
-              const users = agents.filter((a) => a.presetId === p.id);
-              return (
-                <tr key={p.id}>
-                  <td>{p.name}<span className="dim">{p.id}</span></td>
-                  <td>{p.framework}</td>
-                  <td className="mono-s">{p.model}</td>
-                  <td>{p.reasoning ?? <Blank why="rs.why.noReasoning" t={t} />}</td>
-                  <td>
-                    {p.ceiling
-                      ? <span className="amount">{fmtTokens(p.ceiling.tokens)}</span>
-                      : <Blank why="rs.why.noCeiling" t={t} />}
-                  </td>
-                  <td>
-                    {!p.ceiling && <Blank why="rs.why.noCeiling" t={t} />}
-                    {p.ceiling && (p.ceiling.rateCapPerDay
-                      ? <span className="amount">{`${fmtTokens(p.ceiling.rateCapPerDay)}/d`}</span>
-                      : <Blank why="rs.why.noRateCap" t={t} />)}
-                  </td>
-                  <td>
-                    {users.length
-                      ? users.map((u) => <Link className="chip-role" key={u.name} href={`/agents/${u.name}`}>{u.name}</Link>)
-                      : <Blank why="rs.why.unusedPreset" t={t} />}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {presets.length === 0 && (
-        <div className="notice warn">
-          <div><b>{t('rs.noPresets')}</b></div>
-          <div>{t('rs.noPresetsHow')}</div>
-        </div>
       )}
 
       <div className="notice">{t('rs.meterGap')}</div>

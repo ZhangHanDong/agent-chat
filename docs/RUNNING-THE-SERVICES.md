@@ -1,7 +1,7 @@
-# Running HAFleet's services
+# Running Hagency's services
 
-HAFleet has its own service supervisor — `src/local-service-supervisor.mjs`, 500 lines with five test
-files — and until 2026-08-15 **nothing started it.** `bin/hafleet-acp-up` says the supervisor "is itself
+Hagency has its own service supervisor — `src/local-service-supervisor.mjs`, 500 lines with five test
+files — and until 2026-08-15 **nothing started it.** `bin/hagency-acp-up` says the supervisor "is itself
 started by launchd or systemd"; the systemd units in this repo start individual services instead, and on
 macOS there was no unit at all. So restart-on-crash and reboot survival were both built and unreachable,
 and every service on the development host was launched by hand with `nohup` — including throughout the
@@ -13,8 +13,8 @@ suite proves a thing *can* work; only a caller makes it work.
 ## What works today
 
 ```bash
-set -a; . "$HAFLEET_RUNTIME_DIR/.env"; set +a     # or wherever your runtime lives
-node bin/hafleet-supervisor
+set -a; . "$HAGENCY_RUNTIME_DIR/.env"; set +a     # or wherever your runtime lives
+node bin/hagency-supervisor
 ```
 
 Starts every service in the profile, in dependency order, waits for each to become healthy, and
@@ -23,9 +23,9 @@ exiting, so a shutdown does not leave orphans holding ports.
 
 Verified on this host: three services (backend, bridge, relay) started and supervised, backend answering
 `/health` 200 — both with a full environment and with launchd's minimal one
-(`env -i PATH=… HAFLEET_RUNTIME_DIR=…`).
+(`env -i PATH=… HAGENCY_RUNTIME_DIR=…`).
 
-**`HAFLEET_RUNTIME_DIR` is required and has no default.** A supervisor that guessed could serve the repo's
+**`HAGENCY_RUNTIME_DIR` is required and has no default.** A supervisor that guessed could serve the repo's
 dev `data/` while an operator believed it was serving the real fleet. That exact mistake happened once by
 hand in the session that wrote this, and only a wrong agent count caught it.
 
@@ -35,7 +35,7 @@ without `API_TOKEN` or Matrix credentials and never becomes healthy. Loading it 
 one file that is mode 600, instead of copying them into a unit an installer rewrites.
 
 **Health timeout is 60s**, over the supervisor's own 15s default, and settable with
-`HAFLEET_SUPERVISOR_HEALTH_TIMEOUT_MS`. This backend takes about 7s to answer `/health` — it loads
+`HAGENCY_SUPERVISOR_HEALTH_TIMEOUT_MS`. This backend takes about 7s to answer `/health` — it loads
 agents, tokens, the queue and the ledger before it listens — and 15s left nothing for a loaded machine.
 The failure it produces is a supervisor killing a service that was about to be ready.
 
@@ -43,10 +43,10 @@ The failure it produces is a supervisor killing a service that was about to be r
 
 ```bash
 mkdir -p ~/Library/LaunchAgents
-sed -e "s|__REPO__|$PWD|g" -e "s|__RUNTIME__|$HAFLEET_RUNTIME_DIR|g" \
-    deploy/com.hafleet.supervisor.plist > ~/Library/LaunchAgents/com.hafleet.supervisor.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.hafleet.supervisor.plist
-launchctl kickstart -p gui/$(id -u)/com.hafleet.supervisor
+sed -e "s|__REPO__|$PWD|g" -e "s|__RUNTIME__|$HAGENCY_RUNTIME_DIR|g" \
+    deploy/com.hagency.supervisor.plist > ~/Library/LaunchAgents/com.hagency.supervisor.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.hagency.supervisor.plist
+launchctl kickstart -p gui/$(id -u)/com.hagency.supervisor
 ```
 
 **Verified on this host:** all three services started under launchd, backend answering `/health` 200, and
@@ -94,7 +94,7 @@ On a co-located appservice deployment the edge beside the customer's homeserver 
 `bridge-matrix.js`. With the bridge down: the console answers, the API answers, `POST
 /api/project-sides/:id/verify` still returns `accepted` — because that verifies the OUTBOUND direction, our
 ability to act as the representative — and not one message from the customer arrives. Walked on clean
-machines: the edge's own counter read `transactions from the homeserver: 4` and `HAFleet last seen: never`
+machines: the edge's own counter read `transactions from the homeserver: 4` and `Hagency last seen: never`
 while every screen looked healthy.
 
 Two things now say so rather than leaving it to be deduced:
@@ -114,11 +114,11 @@ a preference.
 
 **Intake no longer depends on it.** This paragraph used to end "making the intake independent of it is not
 done", and #119 did it: a bot that cannot start no longer takes the inbound path down with it. Walked with
-`MATRIX_BOT_PASSWORD` deliberately unset — a customer's Matrix message reached HAFleet's own message store
+`MATRIX_BOT_PASSWORD` deliberately unset — a customer's Matrix message reached Hagency's own message store
 through the co-located edge, with the bot never logged in. The bridge says which mode it is in on startup.
 
 **The bot's localpart must not be the representative's.** `MATRIX_BOT_USERNAME` defaults to
-`agent-bridge` and a project side's `sender_localpart` defaults to `hafleet`; naming the bot `hafleet` on a
+`agent-bridge` and a project side's `sender_localpart` defaults to `hagency`; naming the bot `hagency` on a
 co-located deployment makes one Matrix user both, and the two have opposite rules about which rooms they
 belong in. #121 stopped the collision from being silently fatal — the bot no longer refuses an invite to a
 room on a configured project side, because refusing consumed the invite the representative needed — but
@@ -144,9 +144,9 @@ Asking an agent something over Matrix shows a read receipt and a typing indicato
 the answer lands. For a ten-minute task a borrower cannot tell working from stuck.
 
 ```bash
-set -a; . "$HAFLEET_RUNTIME_DIR/.env"; set +a
-node bin/hafleet-install-progress-hooks --agent <name> --dry-run   # look first
-node bin/hafleet-install-progress-hooks --agent <name>
+set -a; . "$HAGENCY_RUNTIME_DIR/.env"; set +a
+node bin/hagency-install-progress-hooks --agent <name> --dry-run   # look first
+node bin/hagency-install-progress-hooks --agent <name>
 ```
 
 `--agent` reads the workspace out of the agent's backend record. Prefer it to typing a path: the
@@ -179,7 +179,7 @@ nothing stays silent.
 ### ACP agents need nothing installed
 
 An agent running under ACP — `octos`, `hermes`, `codex-acp` — reports progress with **no hook, no file, and
-no trust prompt.** `scripts/hafleet-acp-agent.mjs` already receives `session/update` notifications and
+no trust prompt.** `scripts/hagency-acp-agent.mjs` already receives `session/update` notifications and
 `lib/runtime/acp.js` already parses tool calls out of them, so the host emits progress during the turn from
 what it is already being told.
 
@@ -200,7 +200,7 @@ started directly.
 
 ### Choosing what gets reported
 
-Progress policy is a file, not a hardcoded decision: `~/.hafleet/progress-filter.json`. Absent means the
+Progress policy is a file, not a hardcoded decision: `~/.hagency/progress-filter.json`. Absent means the
 built-in default (start, steps, completion — one line a minute), so the feature works without it.
 
 ```json
@@ -231,8 +231,8 @@ cannot see. A *missing* file is different — that is "nobody configured this", 
 throttling a caller will lower, and this caller fires on every tool call.
 
 **Where it lives, and why not the runtime directory.** The router's `INHERITED_RUNNER_ENV_KEYS` does not
-pass `HAFLEET_RUNTIME_DIR` to a dispatched agent, so a filter kept there would be unreadable in exactly
-the environment the reporter runs in. `HOME` is on that list. The anchor moved to `~/.hafleet/` for the
+pass `HAGENCY_RUNTIME_DIR` to a dispatched agent, so a filter kept there would be unreadable in exactly
+the environment the reporter runs in. `HOME` is on that list. The anchor moved to `~/.hagency/` for the
 same reason plus one more: it was in `TMPDIR`, which the system cleans, so the "a later read does not
 erase the anchor" guard was protecting state that could vanish for an unrelated reason.
 
@@ -240,7 +240,7 @@ erase the anchor" guard was protecting state that could vanish for an unrelated 
 
 **The anchor comes from `check_group` as well as `check_inbox`, and only the live run found that.**
 Six unit tests passed against the inbox path while the feature was useless on the real fleet:
-`check_inbox`'s group bucket carries @mentions, and HAFleet's ordinary way of addressing an agent in a
+`check_inbox`'s group bucket carries @mentions, and Hagency's ordinary way of addressing an agent in a
 room is `name: question`, which is not a mention. It arrives through `check_group`.
 
 **An agent's own progress crowded out the question it was answering.** Progress lines go into the group

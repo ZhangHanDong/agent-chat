@@ -5,13 +5,13 @@
  * does not prove that the human who has to decide is IN that room — and on a live rig those two came apart
  * in the most ordinary way imaginable: `bridge-state.json` held a `botDmRooms` entry for `@operator:…`
  * whose only joined member was the BOT. The operator had been invited and had never accepted. The room
- * existed, was recorded, and was exactly the room `HAFLEET_OWNER_DM_ROOM` would have been pointed at.
+ * existed, was recorded, and was exactly the room `HAGENCY_OWNER_DM_ROOM` would have been pointed at.
  *
  * Every approval sent there would have been delivered, reported delivered, and waited for a decision from
  * somebody who could not see it being asked for — until the request expired and was denied for timing out.
  * Nothing in the product checks this: `resolveOwnerFor` takes the mxid and the room id as given, and
  * `upsertBinding` requires both without checking that one is in the other. The backend cannot check, since
- * reading a room's membership needs a Matrix credential for a room usually on HAFleet's own homeserver.
+ * reading a room's membership needs a Matrix credential for a room usually on Hagency's own homeserver.
  *
  * So the check lives at the one place holding both the room and a credential for it, it runs AFTER the
  * send, and it never blocks one — a message keeps, and a human who joins later will read it. What was
@@ -31,7 +31,7 @@ vi.mock('../lib/matrix-representative.js', async (importOriginal) => {
   return { ...actual, joinedMembersOnSide: (...args) => joinedMembersOnSide(...args) };
 });
 
-const OURS = 'hafleet.test';
+const OURS = 'hagency.test';
 const OWNER = `@alex:${OURS}`;
 const DM = `!owner-dm:${OURS}`;
 const SIDE = 'customer.test';
@@ -46,9 +46,9 @@ let runtimeDir;
 let envSnapshot;
 
 beforeAll(async () => {
-  envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_SERVER_NAME']);
+  envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_SERVER_NAME']);
   runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'approval-owner-visible-'));
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.MATRIX_SERVER_NAME = OURS;
   bridgeModule = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?as-owner-visible`);
 });
@@ -80,7 +80,7 @@ const said = (it) => it.warnings.map((w) => w.message).join(' ');
 
 describe('the owner DM room on our own homeserver', () => {
   test('THE DEFECT: an owner who is not in the room is reported, with the remedy', async () => {
-    const it = selfWith({ members: ['@hafleet:hafleet.test'] });
+    const it = selfWith({ members: ['@hagency:hagency.test'] });
     await check(it, approvalOn(DM));
 
     expect(it.warnings).toHaveLength(1);
@@ -88,14 +88,14 @@ describe('the owner DM room on our own homeserver', () => {
     expect(said(it)).toContain(DM);
     // The two ways it happens, both worth naming: never accepted, or left afterwards.
     expect(said(it)).toMatch(/invited and never joined, or since departed/);
-    expect(said(it)).toMatch(/HAFLEET_OWNER_DM_ROOM/);
+    expect(said(it)).toMatch(/HAGENCY_OWNER_DM_ROOM/);
     // Deduped per ROOM: twenty approvals against one bad room file one alert, not twenty.
     expect(it.warnings[0].scope).toBe(DM);
     expect(it.warnings[0].kind).toBe('approval-owner-absent');
   });
 
   test('an owner who IS in the room says nothing at all', async () => {
-    const it = selfWith({ members: ['@hafleet:hafleet.test', OWNER] });
+    const it = selfWith({ members: ['@hagency:hagency.test', OWNER] });
     await check(it, approvalOn(DM));
     expect(it.warnings).toEqual([]);
   });
@@ -132,7 +132,7 @@ describe('the owner DM room on our own homeserver', () => {
 describe('an owner DM room on a project side', () => {
   const acting = {
     side: { serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:8008' },
-    credential: { kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+    credential: { kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hagency', namespace: '@ac_.*' },
   };
   const theirDm = `!owner-dm:${SIDE}`;
   const theirOwner = `@borrower:${SIDE}`;
@@ -144,7 +144,7 @@ describe('an owner DM room on a project side', () => {
      * check would silently never run.
      */
     const it = selfWith({ sides: { [SIDE]: acting } });
-    joinedMembersOnSide.mockResolvedValue({ known: true, members: ['@hafleet:customer.test'], reason: null });
+    joinedMembersOnSide.mockResolvedValue({ known: true, members: ['@hagency:customer.test'], reason: null });
 
     await check(it, approvalOn(theirDm, theirOwner));
 
@@ -214,7 +214,7 @@ describe('the publish path invokes it', () => {
   }
 
   test('an approval whose owner is absent warns, and the delivery still succeeds', async () => {
-    const { bridge, warnings } = wired({ members: ['@hafleet:hafleet.test'] });
+    const { bridge, warnings } = wired({ members: ['@hagency:hagency.test'] });
     const result = await bridge.onApprovalRequested({ request_id: approval.id });
 
     // BOTH halves. The warning must not come at the cost of the delivery it is warning about.
@@ -225,7 +225,7 @@ describe('the publish path invokes it', () => {
   });
 
   test('and an approval whose owner is present warns about nothing', async () => {
-    const { bridge, warnings } = wired({ members: ['@hafleet:hafleet.test', OWNER] });
+    const { bridge, warnings } = wired({ members: ['@hagency:hagency.test', OWNER] });
     const result = await bridge.onApprovalRequested({ request_id: approval.id });
     expect(result.ok).toBe(true);
     expect(warnings).toEqual([]);
@@ -265,7 +265,7 @@ describe('the public notice, for an agent with no token of its own', () => {
    */
   const acting = (serverName) => ({
     sideId: serverName, serverName, apiBaseUrl: 'http://127.0.0.1:8008',
-    kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hafleet', namespace: '@ac_.*',
+    kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hagency', namespace: '@ac_.*',
   });
 
   /** A bridge with the private surface stubbed and the PUBLIC one recorded, sender shape and all. */
@@ -306,7 +306,7 @@ describe('the public notice, for an agent with no token of its own', () => {
   test('and so is a room on OUR server when we hold that side\'s credential — the co-located case', async () => {
     /*
      * `sideForRoom` deliberately answers null for our own server, so this reaches the fallback branch
-     * instead. It is the shape the walkthrough rig runs: one homeserver serving both HAFleet and the
+     * instead. It is the shape the walkthrough rig runs: one homeserver serving both Hagency and the
      * customer, which is the topology the operator guide documents.
      */
     const roomId = `!project:${OURS}`;

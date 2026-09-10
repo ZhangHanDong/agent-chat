@@ -3,13 +3,13 @@ import { readFileSync } from 'fs';
 
 // Node services that shell out to tmux and own the runtime tree.
 const NODE_UNITS = [
-  'hafleet-backend.service',
-  // hafleet.service is gone: the portal it ran is deleted and its queue lives in the backend.
-  'hafleet-push-relay.service',
+  'hagency-backend.service',
+  // hagency.service is gone: the portal it ran is deleted and its queue lives in the backend.
+  'hagency-push-relay.service',
   'bridge-matrix.service',
 ];
 
-const AUTODEPLOY_UNIT = 'hafleet-stable-autodeploy.service';
+const AUTODEPLOY_UNIT = 'hagency-stable-autodeploy.service';
 const ALL_UNITS = [...NODE_UNITS, AUTODEPLOY_UNIT];
 
 // Sandboxing every long-lived Node service must carry.
@@ -98,8 +98,8 @@ describe('systemd unit hardening', () => {
   describe(AUTODEPLOY_UNIT, () => {
     test('enables the release gate so untested commits cannot deploy', () => {
       const service = parseUnit(AUTODEPLOY_UNIT).Service || [];
-      expect(service).toContain('Environment=HAFLEET_RELEASE_GATE=worktree');
-      expect(service).not.toContain('Environment=HAFLEET_RELEASE_GATE=none');
+      expect(service).toContain('Environment=HAGENCY_RELEASE_GATE=worktree');
+      expect(service).not.toContain('Environment=HAGENCY_RELEASE_GATE=none');
     });
 
     test('omits the three directives that would break sudo escalation', () => {
@@ -129,23 +129,23 @@ describe('systemd unit hardening', () => {
 
 describe('autodeploy release gate default', () => {
   test('script defaults to the gate ON', () => {
-    const script = readFileSync('scripts/hafleet-stable-autodeploy.sh', 'utf-8');
-    expect(script).toContain('RELEASE_GATE="${HAFLEET_RELEASE_GATE:-worktree}"');
-    expect(script).not.toContain('RELEASE_GATE="${HAFLEET_RELEASE_GATE:-none}"');
+    const script = readFileSync('scripts/hagency-stable-autodeploy.sh', 'utf-8');
+    expect(script).toContain('RELEASE_GATE="${HAGENCY_RELEASE_GATE:-worktree}"');
+    expect(script).not.toContain('RELEASE_GATE="${HAGENCY_RELEASE_GATE:-none}"');
   });
 
   test('systemctl calls escalate via sudo when unprivileged', () => {
-    const script = readFileSync('scripts/hafleet-stable-autodeploy.sh', 'utf-8');
+    const script = readFileSync('scripts/hagency-stable-autodeploy.sh', 'utf-8');
     expect(script).toContain('sudo -n "$SYSTEMCTL_BIN"');
     // An explicitly overridden binary (tests, custom harnesses) bypasses sudo.
-    expect(script).toContain('[ -n "${HAFLEET_SYSTEMCTL_BIN:-}" ]');
+    expect(script).toContain('[ -n "${HAGENCY_SYSTEMCTL_BIN:-}" ]');
   });
 });
 
 describe('documented install source', () => {
   test.each(['README.md', 'README.zh-CN.md'])('%s clones this fork, not upstream', (readme) => {
     const text = readFileSync(readme, 'utf-8');
-    expect(text).toContain('github.com/hagency-org/HAFleet.git');
+    expect(text).toContain('github.com/hagency-org/hagency.git');
     expect(text).not.toContain('git clone https://github.com/shisuiki/agent-chat.git');
   });
 });

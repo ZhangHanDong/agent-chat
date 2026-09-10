@@ -34,7 +34,7 @@ const nameEvent = (name = GROUP) => ({
 beforeEach(async () => {
   savedEnv = { ...process.env };
   savedListeners = new Map(['exit', 'SIGINT', 'SIGTERM'].map(signal => [signal, process.listeners(signal)]));
-  runtime = mkdtempSync(path.join(tmpdir(), 'hafleet-qualified-room-'));
+  runtime = mkdtempSync(path.join(tmpdir(), 'hagency-qualified-room-'));
   stateFile = path.join(runtime, 'data', 'matrix', 'bridge-state.json');
   mkdirSync(path.dirname(stateFile), { recursive: true });
   // Real startup migration must run before the name event. A direct mapRoom
@@ -44,8 +44,8 @@ beforeEach(async () => {
     groupRoomMap: { [GROUP]: ORIGINAL },
     trustedManagedRooms: { [ORIGINAL]: {}, [NEW_ROOM]: {} },
   }));
-  process.env.HAFLEET_RUNTIME_DIR = runtime;
-  process.env.HAFLEET_API = 'https://backend.invalid';
+  process.env.HAGENCY_RUNTIME_DIR = runtime;
+  process.env.HAGENCY_API = 'https://backend.invalid';
   process.env.MATRIX_SERVER_NAME = HOME;
   process.env.MATRIX_TRUST_MODE = 'enforce';
   vi.stubGlobal('fetch', vi.fn(async (url, options = {}) => {
@@ -63,17 +63,17 @@ beforeEach(async () => {
   bridge = Object.create(module.MatrixBridge.prototype);
   Object.assign(bridge, {
     startupTs: 0,
-    botUserId: `@hafleet:${HOME}`,
+    botUserId: `@hagency:${HOME}`,
     _bridgeCreatedGroups: new Set(),
     actingCredentials: new Map([SIDE, OTHER_SIDE, HOME].map(side => [side, {
       kind: 'appservice', serverName: side, apiBaseUrl: `https://${side}`,
-      asToken: 'test-only-token', senderLocalpart: 'hafleet',
+      asToken: 'test-only-token', senderLocalpart: 'hagency',
     }])),
     reconcileRoomGroupMembership: vi.fn(async () => {}),
     syncApprovalBindingForRoom: vi.fn(async () => {}),
     botClient: {
       getJoinedRoomMembers: vi.fn(async () => [
-        `@hafleet:${SIDE}`, `@alex:${SIDE}`, `@sam:${SIDE}`, `@pat:${SIDE}`,
+        `@hagency:${SIDE}`, `@alex:${SIDE}`, `@sam:${SIDE}`, `@pat:${SIDE}`,
       ]),
       getRoomStateEvent: vi.fn(async () => ({ name: GROUP })),
     },
@@ -183,7 +183,7 @@ describe('qualified room mappings through real credential helpers', () => {
     Object.setPrototypeOf(bridge, module.MatrixBridge.prototype);
     bridge.actingCredentials.set(canonicalSide, {
       kind: 'appservice', serverName: canonicalSide, apiBaseUrl: 'https://sideb.example',
-      asToken: 'test-only-token', senderLocalpart: 'hafleet',
+      asToken: 'test-only-token', senderLocalpart: 'hagency',
     });
     const before = maps();
     expect(before.groupRoomMap).toEqual({ [qualified]: oldRoom });

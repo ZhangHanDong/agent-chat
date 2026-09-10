@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# HAFleet installer for macOS.
+# Hagency installer for macOS.
 #
 # install-full.sh is Linux-only: it renders systemd units, which macOS has no
 # equivalent for. Before this script, installing on a Mac meant doing it by hand
 # — brew, npm install, hand-built .env, then the supervisor. That is now
-# scripted, which matters because HAFleet fleets are commonly Mac minis.
+# scripted, which matters because Hagency fleets are commonly Mac minis.
 #
 # Differences from the Linux install, all deliberate:
 #   - launchd user agent instead of systemd system units
-#   - services/hafleet-services.mjs supervises the processes, not systemd
+#   - services/hagency-services.mjs supervises the processes, not systemd
 #   - the Matrix bridge is OFF by default (--with-bridge to include it)
 #   - no auto-deploy watcher (Linux only; tracked as CD-003)
 #
@@ -27,7 +27,7 @@
 #   --bin-dir PATH     Where to link CLI commands (default: ~/.local/bin)
 #   --allow-existing-tmux  Proceed even if unrelated tmux sessions are present
 #   --deny-existing-tmux   Proceed, but add the existing sessions to
-#                          HAFLEET_SESSION_DENYLIST so HAFleet leaves them alone
+#                          HAGENCY_SESSION_DENYLIST so Hagency leaves them alone
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,9 +45,9 @@ EXISTING_TMUX_SESSIONS=""
 BIN_DIR="${HOME}/.local/bin"
 ENV_FILE="$INSTALL_DIR/.env"
 PROFILE_FILE="$INSTALL_DIR/services-macos.json"
-SERVICE_NAME="io.hafleet.services"
+SERVICE_NAME="io.hagency.services"
 PLIST="$HOME/Library/LaunchAgents/${SERVICE_NAME}.plist"
-RUNNER="$INSTALL_DIR/.hafleet-launchd.sh"
+RUNNER="$INSTALL_DIR/.hagency-launchd.sh"
 LAUNCHD_DOMAIN="gui/$(id -u)"
 MIN_NODE_MAJOR=22
 
@@ -83,7 +83,7 @@ done
 # --- Platform ----------------------------------------------------------------
 [ "$(uname -s)" = "Darwin" ] || die "this installer is for macOS; on Linux use ./install-full.sh"
 
-log "=== HAFleet macOS installer ==="
+log "=== Hagency macOS installer ==="
 log "Install dir: $INSTALL_DIR"
 log "Bin dir:     $BIN_DIR"
 log "Profile:     $([ "$WITH_BRIDGE" = true ] && echo 'backend, dashboard, relay, bridge' || echo 'backend, dashboard, relay')"
@@ -110,7 +110,7 @@ check_prereqs() {
   local major
   if major="$(node_major)"; then
     if [ "$major" -lt "$MIN_NODE_MAJOR" ]; then
-      die "node $major is too old; HAFleet needs >= $MIN_NODE_MAJOR (brew upgrade node)"
+      die "node $major is too old; Hagency needs >= $MIN_NODE_MAJOR (brew upgrade node)"
     fi
     log "node: v$(node -v | tr -d v) (ok)"
   else
@@ -138,9 +138,9 @@ check_prereqs() {
 }
 
 # --- tmux safety -------------------------------------------------------------
-# HAFleet discovers tmux sessions and registers them as agents; the push relay
+# Hagency discovers tmux sessions and registers them as agents; the push relay
 # then delivers by typing into those panes with `tmux send-keys`. On a machine
-# that already has unrelated tmux sessions, that means HAFleet can type into
+# that already has unrelated tmux sessions, that means Hagency can type into
 # someone else's work. Observed for real: a fresh install claimed five
 # pre-existing sessions on a fleet host.
 check_existing_tmux() {
@@ -157,13 +157,13 @@ check_existing_tmux() {
   log "WARNING: $count existing tmux session(s) on this host:"
   printf '%s\n' "$sessions" | sed 's/^/           /'
   log ""
-  log "  HAFleet registers tmux sessions as agents, and the push relay delivers"
+  log "  Hagency registers tmux sessions as agents, and the push relay delivers"
   log "  messages by typing into their panes. These sessions would become"
   log "  addressable, and anything sent to them would be typed into whatever is"
   log "  running there."
   log ""
   log "  Either stop or rename them first, pass --deny-existing-tmux to have"
-  log "  HAFleet ignore exactly these sessions, or pass --allow-existing-tmux to"
+  log "  Hagency ignore exactly these sessions, or pass --allow-existing-tmux to"
   log "  accept the risk and manage them."
   log ""
 
@@ -319,8 +319,8 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\${PATH:-}"
 cd "$INSTALL_DIR"
 set -a; . "$ENV_FILE"; set +a
-export HAFLEET_RUNTIME_DIR="$INSTALL_DIR"
-exec node services/hafleet-services.mjs run --profile "$PROFILE_FILE" --runtime "$INSTALL_DIR"
+export HAGENCY_RUNTIME_DIR="$INSTALL_DIR"
+exec node services/hagency-services.mjs run --profile "$PROFILE_FILE" --runtime "$INSTALL_DIR"
 EOF
   chmod 0755 "$RUNNER"
 
@@ -367,12 +367,12 @@ configure_mcp() {
   token="$(read_env_value API_TOKEN 2>/dev/null || true)"
 
   if command -v claude >/dev/null 2>&1; then
-    run claude mcp remove hafleet >/dev/null 2>&1 || true
+    run claude mcp remove hagency >/dev/null 2>&1 || true
     run claude mcp add -s user \
-      -e "HAFLEET_API=http://127.0.0.1:8090" \
+      -e "HAGENCY_API=http://127.0.0.1:8090" \
       -e "API_TOKEN=$token" \
-      -e "HAFLEET_HOMEDIR=$HOME/.hafleet" \
-      -- hafleet node "$INSTALL_DIR/mcp-server.js" >/dev/null 2>&1 \
+      -e "HAGENCY_HOMEDIR=$HOME/.hagency" \
+      -- hagency node "$INSTALL_DIR/mcp-server.js" >/dev/null 2>&1 \
       && log "Registered MCP with Claude Code" \
       || log "NOTE: claude mcp add failed; register manually."
   else
@@ -380,11 +380,11 @@ configure_mcp() {
   fi
 
   if command -v codex >/dev/null 2>&1; then
-    run codex mcp remove hafleet >/dev/null 2>&1 || true
-    run codex mcp add hafleet \
-      --env "HAFLEET_API=http://127.0.0.1:8090" \
+    run codex mcp remove hagency >/dev/null 2>&1 || true
+    run codex mcp add hagency \
+      --env "HAGENCY_API=http://127.0.0.1:8090" \
       --env "API_TOKEN=$token" \
-      --env "HAFLEET_HOMEDIR=$HOME/.hafleet" \
+      --env "HAGENCY_HOMEDIR=$HOME/.hagency" \
       -- node "$INSTALL_DIR/mcp-server.js" >/dev/null 2>&1 \
       && log "Registered MCP with Codex" \
       || log "NOTE: codex mcp add failed; register manually."
@@ -397,11 +397,11 @@ configure_mcp() {
 verify() {
   [ "$DRY_RUN" = false ] || return 0
   [ -f "$PROFILE_FILE" ] || die "service profile was not written"
-  [ -x "$BIN_DIR/hafleet" ] || die "hafleet was not linked into $BIN_DIR"
+  [ -x "$BIN_DIR/hagency" ] || die "hagency was not linked into $BIN_DIR"
   [ "$NO_START" = false ] || { log "--no-start set; skipping health checks."; return 0; }
 
   local port i ok=false
-  port="$(read_env_value HAFLEET_BACKEND_PORT)"; port="${port:-8090}"
+  port="$(read_env_value HAGENCY_BACKEND_PORT)"; port="${port:-8090}"
   log "Waiting for the backend on 127.0.0.1:$port ..."
   for i in $(seq 40); do
     if curl -sf --noproxy '*' "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
@@ -413,37 +413,37 @@ verify() {
     log "Backend did not become healthy. Diagnose with:"
     log "  tail -50 $INSTALL_DIR/data/services-local/logs/backend.log"
     log "  (launchd.err.log only carries the supervisor's own output, usually empty)"
-    log "  node services/hafleet-services.mjs doctor --profile $PROFILE_FILE"
+    log "  node services/hagency-services.mjs doctor --profile $PROFILE_FILE"
     die "verification failed"
   fi
   log "Backend healthy."
 
   local web
-  web="$(read_env_value HAFLEET_WEB_PORT)"; web="${web:-8084}"
+  web="$(read_env_value HAGENCY_WEB_PORT)"; web="${web:-8084}"
   curl -sf --noproxy '*' "http://127.0.0.1:${web}/" >/dev/null 2>&1 \
     && log "Dashboard healthy at http://127.0.0.1:${web}" \
     || log "NOTE: dashboard not answering on ${web} yet."
 }
 
 # Writes the sessions found by check_existing_tmux into the session policy, so a
-# host with unrelated work can be installed onto without HAFleet claiming it.
+# host with unrelated work can be installed onto without Hagency claiming it.
 # Runs after prepare_env because it needs .env to exist.
 apply_session_denylist() {
   [ "$DENY_EXISTING_TMUX" = true ] || return 0
   [ -n "$EXISTING_TMUX_SESSIONS" ] || { log "No sessions to deny."; return 0; }
   if [ "$DRY_RUN" = true ]; then
-    log "[dry-run] would set HAFLEET_SESSION_DENYLIST=$EXISTING_TMUX_SESSIONS"
+    log "[dry-run] would set HAGENCY_SESSION_DENYLIST=$EXISTING_TMUX_SESSIONS"
     return 0
   fi
   local existing merged
-  existing="$(read_env_value HAFLEET_SESSION_DENYLIST)"
+  existing="$(read_env_value HAGENCY_SESSION_DENYLIST)"
   if [ -n "$existing" ]; then
     merged="$existing,$EXISTING_TMUX_SESSIONS"
   else
     merged="$EXISTING_TMUX_SESSIONS"
   fi
-  set_env_value HAFLEET_SESSION_DENYLIST "$merged"
-  log "HAFLEET_SESSION_DENYLIST=$merged"
+  set_env_value HAGENCY_SESSION_DENYLIST "$merged"
+  log "HAGENCY_SESSION_DENYLIST=$merged"
 }
 
 main() {
@@ -460,8 +460,8 @@ main() {
   verify
   log ""
   log "Installation complete."
-  log "  status:  node services/hafleet-services.mjs status --profile $PROFILE_FILE"
-  log "  doctor:  node services/hafleet-services.mjs doctor  --profile $PROFILE_FILE"
+  log "  status:  node services/hagency-services.mjs status --profile $PROFILE_FILE"
+  log "  doctor:  node services/hagency-services.mjs doctor  --profile $PROFILE_FILE"
   log "  stop:    launchctl bootout $LAUNCHD_DOMAIN/$SERVICE_NAME"
   log "  logs:    $INSTALL_DIR/data/services-local/logs/<service>.log"
   log "           each service writes its own; launchd.err.log holds only the supervisor"

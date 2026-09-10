@@ -18,10 +18,10 @@ echo "[OK] JavaScript syntax: $js_count file(s)"
 echo "Checking shell and node executable syntax..."
 # `bin/*` is a directory of EXECUTABLES, not a directory of shell scripts. Checking every one with
 # `bash -n` worked only while they all happened to be shell: the first Node entrypoint added there
-# (bin/hafleet-supervisor) failed with "syntax error near unexpected token (" on a perfectly valid
+# (bin/hagency-supervisor) failed with "syntax error near unexpected token (" on a perfectly valid
 # `const`. The shebang says which parser a file wants, and it is the only thing that does — an
-# extension would not, since these are extensionless on purpose so operators type `hafleet-x` and not
-# `hafleet-x.sh`.
+# extension would not, since these are extensionless on purpose so operators type `hagency-x` and not
+# `hagency-x.sh`.
 node_bin_count=0
 while IFS= read -r file; do
   [ -n "$file" ] || continue

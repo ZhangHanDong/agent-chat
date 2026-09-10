@@ -12,7 +12,7 @@
  * them produces a room containing the wrong account while reporting success.
  */
 
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createServer } from 'http';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
@@ -26,6 +26,7 @@ let context = null;
 let fake = null;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   context?.cleanup();
   context = null;
   if (fake) { await new Promise((r) => fake.server.close(r)); fake = null; }
@@ -69,8 +70,9 @@ async function fakeHomeserver({
        * fake 404'd it, so the withdrawal below would have read as failed for the wrong reason.
        */
       if (req.url.includes('/leave')) {
-        res.writeHead(leaveStatus, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify(leaveStatus === 200 ? {} : { errcode: 'M_UNKNOWN' }));
+        const status = Array.isArray(leaveStatus) ? leaveStatus.shift() ?? 200 : leaveStatus;
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(status === 200 ? {} : { errcode: 'M_UNKNOWN' }));
       }
       res.writeHead(404, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ errcode: 'M_NOT_FOUND' }));
@@ -81,20 +83,23 @@ async function fakeHomeserver({
   return fake;
 }
 
-async function boot({ hs = null, credential = null, allocatedTokens = 5_000_000 } = {}) {
+async function boot({ hs = null, credential = null, allocatedTokens = 5_000_000, legacy = false } = {}) {
   context = await createBackendTestContext('engagement-room-admission-', {
     agents: {
       [AGENT]: {
         name: AGENT, type: 'agent', kind: 'agent', online: true, role: 'coding',
         // F10 (17-r4): the roster ruling requires the agent's authoritative side; the
         // admission tests exercise a room on SIDE, so that is the agent's home here.
-        projectSide: SIDE,
+        projectSide: legacy ? null : SIDE,
         runtimeProfile: { primary: { framework: 'claude', provider: 'anthropic', model: 'claude-opus-5' } },
       },
     },
-    env: { MATRIX_BRIDGE_SECRET: BRIDGE_SECRET, MATRIX_AGENT_PREFIX: 'ac_' },
+    env: { MATRIX_BRIDGE_SECRET: BRIDGE_SECRET, MATRIX_AGENT_PREFIX: 'ac_',
+      HAGENCY_OWNER_MXID: '@owner:palpo.test', HAGENCY_OWNER_DM_ROOM: '!owner-dm:palpo.test' },
   });
   const app = context.app;
+  context.internals.approvalStoreForTest.upsertBinding({ agent: AGENT, project: 'admission', project_room_id: ROOM,
+    owner_mxid: '@owner:palpo.test', owner_dm_room_id: '!owner-dm:palpo.test' });
   /*
    * A preset with a ceiling, because approval refuses `no_ceiling` before it ever reaches the room:
    * the contributor's own ceiling is the FIRST of ADR-016's two, and an agent lending nothing cannot
@@ -122,11 +127,56 @@ const asCredential = (over = {}) => ({
   asToken: 'as_secret_never_logged',
   hsToken: 'hs_secret',
   namespace: '@ac_.*',
-  senderLocalpart: 'hafleet',
+  senderLocalpart: 'hagency',
   ...over,
 });
 
 let seq = 0;
+
+test('manual approval durably queues a public result and verdict replay does not allocate twice', async () => {
+  const hs = await fakeHomeserver();
+  const app = await boot({ hs, credential: asCredential() });
+  const result = await approve(app);
+  expect(result.status).toBe(200);
+  const e = result.body.engagement;
+  expect(e.approvalNotice).toMatchObject({ state: 'pending' });
+  const claim = await request(app).post('/api/matrix-work/claim').set('X-Bridge-Secret', BRIDGE_SECRET).send({}).expect(200);
+  const job = claim.body.job;
+  expect(job).toMatchObject({ action: 'engagement-approved', engagementId: e.id, roomId: ROOM });
+  expect(job.content.body).toContain('100000');
+  expect(job.content.body).toContain(`@ac_${AGENT}:${SIDE}`);
+  expect(job.content.body).toContain('claude-opus-5');
+  expect(JSON.stringify(job.content)).not.toMatch(/owner-dm|@owner|as_secret|hs_secret|workdir|apiBaseUrl/);
+  expect(job.credential).toMatchObject({ kind: 'appservice', asToken: 'as_secret_never_logged' });
+  const jobs = await request(app).get('/api/matrix-work').expect(200);
+  expect(JSON.stringify(jobs.body)).not.toMatch(/as_secret|hs_secret/);
+  await request(app).post(`/api/matrix-work/${job.id}/complete`).set('X-Bridge-Secret', BRIDGE_SECRET)
+    .send({ claimToken: job.claimToken, outcome: { ok: true, eventId: '$approved-result' } }).expect(200);
+  const replay = await request(app).post(`/api/engagements/${e.id}/verdict`).send({ approve: true, allocatedTokens: 100_000 }).expect(200);
+  expect(replay.body.engagement).toMatchObject({ state: 'active', allocatedTokens: 100_000,
+    approvalNotice: { state: 'delivered', eventId: '$approved-result' } });
+  const next = await request(app).post('/api/matrix-work/claim').set('X-Bridge-Secret', BRIDGE_SECRET).send({}).expect(200);
+  expect(next.body.job).toBeNull();
+});
+
+test('a revoked engagement cannot claim its old approval notice', async () => {
+  const started = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started);
+  const hs = await fakeHomeserver();
+  const app = await boot({ hs, credential: asCredential() });
+  const approved = await approve(app);
+  expect(approved.status).toBe(200);
+  const first = await request(app).post('/api/matrix-work/claim').set('X-Bridge-Secret', BRIDGE_SECRET).send({}).expect(200);
+  expect(first.body.job.action).toBe('engagement-approved');
+  // The bridge stopped before sending. Its lease expires after revocation.
+  await request(app).post(`/api/engagements/${approved.body.engagement.id}/revoke`).send({}).expect(200);
+  clock.mockReturnValue(started + 90_001);
+  const claim = await request(app).post('/api/matrix-work/claim').set('X-Bridge-Secret', BRIDGE_SECRET).send({}).expect(200);
+  expect(claim.body.job).toBeNull();
+  const jobs = await request(app).get('/api/matrix-work').expect(200);
+  expect(jobs.body.jobs.find(j => j.id === first.body.job.id)).toMatchObject({ state: 'complete',
+    outcome: { ok: false, code: 'engagement_notice_unavailable' } });
+});
 
 /** Approve an engagement on the side's room, which is the point the agent must be let in. */
 async function approve(app, { tokens = 100_000, room = ROOM } = {}) {
@@ -178,7 +228,7 @@ describe('an approved engagement puts the agent in the room', () => {
      * (sender_localpart) and names the agent in its body; the join is masqueraded as the AGENT. Swap
      * them and you get a room holding the representative, reported as the agent having joined.
      */
-    expect(invite.url).toContain(encodeURIComponent(`@hafleet:${SIDE}`));
+    expect(invite.url).toContain(encodeURIComponent(`@hagency:${SIDE}`));
     expect(invite.body.user_id).toBe(`@ac_${AGENT}:${SIDE}`);
     expect(join.url).toContain(encodeURIComponent(`@ac_${AGENT}:${SIDE}`));
   });
@@ -221,7 +271,7 @@ describe('an approved engagement puts the agent in the room', () => {
     expect(hs.seen.some((c) => c.url.includes('/join/'))).toBe(false);
   });
 
-  test('a registrationToken side is invited but NOT joined, because the agent has its own token', async () => {
+  test('a registrationToken join remains visibly pending when no bridge worker is available', async () => {
     const hs = await fakeHomeserver();
     const app = await boot({
       hs,
@@ -230,7 +280,9 @@ describe('an approved engagement puts the agent in the room', () => {
 
     const r = await approve(app);
     expect(r.body.roomAdmission).toMatchObject({ invited: true, joined: false, admitted: false });
-    expect(r.body.roomAdmission.reason).toMatch(/per-agent token and must use it/);
+    expect(r.body.roomAdmission.reason).toBe('bridge_work_pending');
+    const jobs = (await request(app).get('/api/matrix-work')).body.jobs;
+    expect(jobs).toContainEqual(expect.objectContaining({ action: 'join', agent: AGENT, state: 'pending' }));
     expect(hs.seen.some((c) => c.url.includes('/join/'))).toBe(false);
   });
 
@@ -240,7 +292,7 @@ describe('an approved engagement puts the agent in the room', () => {
      * already local to it. Reporting `no_project_side` distinguishes "nothing to do" from "we tried
      * and failed", which are the two things a half-done approval could mean.
      */
-    const app = await boot({ credential: null });
+    const app = await boot({ legacy: true, credential: null });
     const r = await approve(app, { room: '!local:contributor.example' });
     expect(r.status).toBe(200);
     expect(r.body.roomAdmission).toMatchObject({ admitted: false, reason: 'no_project_side' });
@@ -269,7 +321,7 @@ describe('an approved engagement puts the agent in the room', () => {
  *
  * Confirmed on a live homeserver before it was written: after two runs of `e2e-full-loop.mjs`, whose own
  * teardown reported "the run leaves no room behind in any account", `@ac_soaker:palpo2.test` was still
- * joined to both abandoned project rooms. Revoking removed HAFleet's record of the attachment and left the
+ * joined to both abandoned project rooms. Revoking removed Hagency's record of the attachment and left the
  * agent sitting in somebody else's Matrix room, permanently, once per finished engagement. The suite could
  * not see it: it knows its own account and the bot's, and an agent is neither.
  */
@@ -280,6 +332,30 @@ describe('a revoked engagement gives the room seat back', () => {
     return request(app).post(`/api/engagements/${id}/revoke`)
       .send({ reason: 'test revoke' }).expect(expectStatus);
   }
+
+  test('revoked room cleanup survives refresh and retries without releasing twice', async () => {
+    const hs = await fakeHomeserver({ leaveStatus: [503, 200] });
+    const app = await boot({ hs, credential: asCredential() });
+    const approved = await approve(app);
+    const id = approved.body.engagement.id;
+    const first = (await revoke(app, id)).body.engagement;
+    expect(first).toMatchObject({ state: 'ended', bound: false, withdrawal: { state: 'failed' } });
+    const saved = (await request(app).get('/api/engagements').expect(200)).body.engagements.find(e => e.id === id);
+    expect(saved.withdrawal).toEqual(first.withdrawal);
+    const retried = (await revoke(app, id)).body.engagement;
+    expect(retried).toMatchObject({ state: 'ended', endedAt: first.endedAt, endedReason: first.endedReason,
+      allocatedTokens: first.allocatedTokens, withdrawal: { state: 'complete', roomWithdrawal: { left: true } } });
+    expect(leaves()).toHaveLength(2);
+  });
+
+  test('concurrent revocation retries share one Matrix departure', async () => {
+    const hs = await fakeHomeserver();
+    const app = await boot({ hs, credential: asCredential() });
+    const id = (await approve(app)).body.engagement.id;
+    const results = await Promise.all([revoke(app, id), revoke(app, id)]);
+    expect(results.map(r => r.body.engagement.state)).toEqual(['ended', 'ended']);
+    expect(leaves()).toHaveLength(1);
+  });
 
   test('THE DEFECT: the agent leaves the room, as itself, with the side\'s credential', async () => {
     const hs = await fakeHomeserver();
@@ -355,11 +431,11 @@ describe('a revoked engagement gives the room seat back', () => {
 
   test('a room on no configured side is reported, not attempted', async () => {
     const hs = await fakeHomeserver();
-    const app = await boot({ hs, credential: asCredential() });
+    const app = await boot({ legacy: true, hs, credential: asCredential() });
     // An engagement whose room is on the contributor's own server needs no seat given back.
     const created = await request(app).post('/api/engagements').send({
-      project: 'local/thing', projectRoomId: '!local:hafleet.test', role: 'coding',
-      requester: '@me:hafleet.test', requestedTokens: 100_000, requestId: '$local-1',
+      project: 'local/thing', projectRoomId: '!local:hagency.test', role: 'coding',
+      requester: '@me:hagency.test', requestedTokens: 100_000, requestId: '$local-1',
     });
     const id = created.body.engagement.id;
     await request(app).post(`/api/engagements/${id}/verdict`).send({ approve: true }).expect(200);
@@ -425,7 +501,7 @@ describe('the membership sweep lets an idle agent back in', () => {
 
   test('an engagement on no configured side is skipped without a call', async () => {
     const hs = await fakeHomeserver();
-    const app = await boot({ hs, credential: asCredential() });
+    const app = await boot({ legacy: true, hs, credential: asCredential() });
     await approve(app, { room: '!local:contributor.example' });
 
     const before = hs.seen.length;
@@ -491,7 +567,7 @@ describe('a refused invite says WHY, when the reason is power rather than creden
     const hs = await fakeHomeserver({
       inviteStatus: 403,
       inviteBody: { errcode: 'M_FORBIDDEN' },
-      powerLevels: { invite: 50, users_default: 0, users: { '@hafleet:palpo.test': 50 } },
+      powerLevels: { invite: 50, users_default: 0, users: { '@hagency:palpo.test': 50 } },
     });
     const app = await boot({ hs, credential: asCredential() });
     const r = await approve(app);

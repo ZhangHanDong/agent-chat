@@ -5,6 +5,7 @@
 const pages = process.env.PAGES === '1';
 
 const nextConfig = {
+  ...(process.env.HAGENCY_CONSOLE_DIST_DIR ? { distDir: process.env.HAGENCY_CONSOLE_DIST_DIR } : {}),
   // A prototype, not a product: no telemetry, no image optimisation server.
   images: { unoptimized: true },
   /*
@@ -20,8 +21,8 @@ const nextConfig = {
     output: 'export',
     // Pages serves a project site from /<repo>/, so every asset and link needs
     // the prefix or the CSS 404s and the rail stops navigating.
-    basePath: '/HAFleet',
-    assetPrefix: '/HAFleet',
+    basePath: '/Hagency',
+    assetPrefix: '/Hagency',
     // Pages has no rewrite layer, so /resources must resolve as a directory
     // with an index.html rather than a bare file.
     trailingSlash: true,

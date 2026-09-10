@@ -9,17 +9,17 @@ tags: [agents, herdr, verification]
 
 ## Problem
 
-An HAFleet-managed agent delegated implementation through Herdr and octoloop,
+An Hagency-managed agent delegated implementation through Herdr and octoloop,
 but its ad hoc watcher missed an ACK replaced in place and a different terminal
 completion label. A fresh-nonce recheck succeeded. Future delegated work needs
 a reusable, bounded workflow with evidence stronger than terminal text.
 
 ## Requirements
 
-[REQ-INNER-LOOP-MONITOR] The HAFleet-managed middle agent MUST retain task
+[REQ-INNER-LOOP-MONITOR] The Hagency-managed middle agent MUST retain task
 decomposition, backend choice, verification and task reporting. It MAY use
 Herdr and octoloop to run a lower execution agent. This does not change which
-frameworks the HAFleet thread-session runner itself supports.
+frameworks the Hagency thread-session runner itself supports.
 
 The workflow MUST prepare a fresh job id and nonce before dispatch, bind the
 result to an explicit session and observed agent identity, validate result
@@ -31,7 +31,7 @@ agent's claimed tests as proof of success.
 The monitor MUST bound waits and child commands, retain failure evidence,
 and reject stale results, changed identities, changed repository content,
 failed verification and explicit blocked or failed results. It MUST NOT
-execute commands supplied by an inner result or mutate HAFleet task state.
+execute commands supplied by an inner result or mutate Hagency task state.
 
 ## Scenarios
 
@@ -51,7 +51,7 @@ Scenario: Stale or concurrently modified work fails verification
 
 ## Source Trace
 
-- Operator-approved 2026-09-06 HAFleet, Herdr and octoloop execution architecture.
+- Operator-approved 2026-09-06 Hagency, Herdr and octoloop execution architecture.
 - Local E2E initial monitor failure and autonomous fresh-nonce recheck.
 
 ## Open Questions

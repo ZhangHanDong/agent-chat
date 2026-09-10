@@ -37,7 +37,7 @@ async function fresh({ colorScheme = 'light', path = '/resources', locale = null
   await page.setViewport({ width: 1440, height: 1000 });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: colorScheme }]);
   if (locale) {
-    await page.evaluateOnNewDocument((l) => localStorage.setItem('hafleet.locale', l), locale);
+    await page.evaluateOnNewDocument((l) => localStorage.setItem('hagency.locale', l), locale);
   }
   // Fixture mode explicitly. This suite's subject is the fixture's own rendering —
   // contract slices are empty against a live backend, so its cell-layout checks
@@ -154,7 +154,7 @@ console.log(`\nBrowser-only invariants against ${BASE}\n`);
   const page = await fresh({ path: '/resources' });
   const before = await state(page);
   check('starts in English', before.navFirst === 'My resources' && before.lang === 'en', before.navFirst);
-  check('tab title follows the H1', before.title === 'My resources — HAFleet', before.title);
+  check('tab title follows the H1', before.title === 'My resources — Hagency', before.title);
 
   const zh = await fresh({ path: '/resources', locale: 'zh' });
   const after = await state(zh);

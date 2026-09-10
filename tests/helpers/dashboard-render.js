@@ -26,7 +26,7 @@ export async function renderDashboard(componentPath, { data = {}, props = {}, lo
       b.onResolve({ filter: /^\//, namespace: 'test-context' }, ({ path: name }) => ({ path: name, namespace: 'file' }));
       b.onLoad({ filter: /.*/, namespace: 'test-context' }, ({ path: name }) => ({ loader: 'jsx', contents:
         name === 'next/link' ? 'export default function Link({children, ...props}) { return <a {...props}>{children}</a>; }'
-        : name === 'next/navigation' ? 'export function useRouter(){return {push(){},replace(){},refresh(){}};}'
+        : name === 'next/navigation' ? `export {redirect} from ${JSON.stringify(requireDashboard.resolve('next/navigation'))}; export function useRouter(){return {push(){},replace(){},refresh(){}};}`
         : name.endsWith('/Data') ? `export function useData(){return globalThis[${JSON.stringify(key)}]}; export function Provenance(){return null;}`
         : `import {translate} from ${JSON.stringify(path.join(mockup, 'lib/i18n.js'))}; export function useT(){return (key,values)=>translate(${JSON.stringify(locale)},key,values)};`,
       }));

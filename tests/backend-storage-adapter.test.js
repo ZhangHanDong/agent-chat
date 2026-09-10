@@ -466,7 +466,7 @@ describe('saveJson', () => {
 
   it('unrefs the batch timer so a queued write cannot outlive the process', () => {
     // backend-v2.js flushes pending writes on shutdown (backend-v2.js:12817). A live
-    // 1s timer would hold the event loop open past that flush, so `hafleet stop` would
+    // 1s timer would hold the event loop open past that flush, so `hagency stop` would
     // hang for a second on every queued file — and the CLI treats that as a failed stop.
     const { storage, timers } = batchedContext();
     storage.saveJson('batched.json', { v: 1 });

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 const repo = path.resolve('.');
 let root, home, source;
 beforeEach(() => {
-  root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-project-docs-'));
+  root = mkdtempSync(path.join(os.tmpdir(), 'hagency-project-docs-'));
   home = path.join(root, 'homes');
   source = path.join(root, 'source with spaces');
   mkdirSync(source);
@@ -17,7 +17,7 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 function run(script, args) {
   return execFileSync(process.execPath, [path.join(repo, 'scripts', script), ...args], {
-    cwd: repo, encoding: 'utf8', env: { ...process.env, HAFLEET_HOMEDIR: home },
+    cwd: repo, encoding: 'utf8', env: { ...process.env, HAGENCY_HOMEDIR: home },
   });
 }
 function provision(extra = [], name = 'docs-agent') {
@@ -71,16 +71,16 @@ describe('provisioned project bootstrap documentation', () => {
     provision();
     expect(document(payload)).toBe(after);
     expect(after.startsWith(manual)).toBe(true);
-    expect(after.match(/<!-- hafleet-managed-projects:start -->/g)).toHaveLength(1);
+    expect(after.match(/<!-- hagency-managed-projects:start -->/g)).toHaveLength(1);
     expect(mappings(payload)).toHaveLength(1);
     expect(mappings(payload)[0].originPath).toBe(source);
   });
 
   test('project add and remove keep bootstrap mappings current', () => {
     const payload = provision();
-    run('hafleet-project.js', ['add', 'docs-agent', source, '--mode', 'symlink']);
+    run('hagency-project.js', ['add', 'docs-agent', source, '--mode', 'symlink']);
     expect(mappings(payload)).toHaveLength(1);
-    run('hafleet-project.js', ['remove', 'docs-agent', path.basename(source)]);
+    run('hagency-project.js', ['remove', 'docs-agent', path.basename(source)]);
     expect(mappings(payload)).toEqual([]);
     expect(document(payload)).toContain('No managed project is bound');
     expect(existsSync(path.join(payload.paths.projectsDir, path.basename(source)))).toBe(false);
@@ -90,7 +90,7 @@ describe('provisioned project bootstrap documentation', () => {
   test('refuses incomplete mapping markers without overwriting manual content', () => {
     const payload = provision();
     const file = path.join(payload.paths.docsDir, 'projects.md');
-    const content = '# My project notes\n<!-- hafleet-managed-projects:start -->\nUnfinished edit\n';
+    const content = '# My project notes\n<!-- hagency-managed-projects:start -->\nUnfinished edit\n';
     writeFileSync(file, content);
     expect(() => provision()).toThrow(/marker/);
     expect(readFileSync(file, 'utf8')).toBe(content);

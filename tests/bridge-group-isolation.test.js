@@ -7,7 +7,7 @@ import { pathToFileURL } from 'url';
 /*
  * F03 regression suite: same display name on two different sides must never
  * rebind a group, and group routing must resolve by the stable (name, side) key.
- * Drives the REAL module with an isolated HAFLEET_RUNTIME_DIR (F02 discipline:
+ * Drives the REAL module with an isolated HAGENCY_RUNTIME_DIR (F02 discipline:
  * no default runtime writes).
  */
 
@@ -33,9 +33,9 @@ describe('F03: group↔room mapping is keyed by stable identity, not display nam
   };
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-f03-'));
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-f03-'));
     envSnapshot = { ...process.env };
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     const url = pathToFileURL(path.resolve('bridge-matrix.js')).href;
     bridge = await import(`${url}?f03=${Date.now()}-${Math.random()}`);
@@ -87,9 +87,9 @@ describe('F03-r1: the composite key never leaks; bare state stays found', () => 
   const writeState = (s) => writeFileSync(stateFile, JSON.stringify(s, null, 2));
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-f03r1-'));
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-f03r1-'));
     envSnapshot = { ...process.env };
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     const url = pathToFileURL(path.resolve('bridge-matrix.js')).href;
     bridge = await import(`${url}?f03r1=${Date.now()}-${Math.random()}`);
@@ -119,7 +119,7 @@ describe('F03-r1: the composite key never leaks; bare state stays found', () => 
       groupRoomMap: { LegacyProj: '!legacy:sideB.example' },
     });
     // Re-import so load-time migration runs against the bare state.
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     const url = pathToFileURL(path.resolve('bridge-matrix.js')).href;
     const fresh = await import(`${url}?f03r1-mig-${Date.now()}-${Math.random()}`);
     // side-aware lookup HITS (by migration or bare fallback)…
@@ -136,9 +136,9 @@ describe('15-r2: composite-key leaks closed — single entry, bare face', () => 
   const readState = () => JSON.parse(readFileSync(stateFile, 'utf8'));
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-15r2-'));
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-15r2-'));
     envSnapshot = { ...process.env };
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     const url = pathToFileURL(path.resolve('bridge-matrix.js')).href;
     bridge = await import(`${url}?r2=${Date.now()}-${Math.random()}`);
@@ -198,9 +198,9 @@ describe('16-impl-r11: a reply route is anchored to its inbound room', () => {
   let bridge; let runtimeDir; let stateFile; let envSnapshot;
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-r11-'));
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-r11-'));
     envSnapshot = { ...process.env };
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     const url = pathToFileURL(path.resolve('bridge-matrix.js')).href;
     bridge = await import(`${url}?r11=${Date.now()}-${Math.random()}`);

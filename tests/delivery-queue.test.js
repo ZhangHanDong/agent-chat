@@ -119,7 +119,7 @@ describe('deliverMessage: two tmux calls, and the difference between failed and 
     await initQueue();
     q.setDeliveryQueueHooks({ execFileAsync: obedientTmux() });
     const entry = {
-      id: 1, from: 'hafleet-backend', to: 'alpha:0.0',
+      id: 1, from: 'hagency-backend', to: 'alpha:0.0',
       payload: '[NOTIFICATION] check your inbox', queuedAt: Date.now(),
       notifyMeta: { kind: 'inbox', sourceMsgId: 'msg_1' },
     };
@@ -129,7 +129,7 @@ describe('deliverMessage: two tmux calls, and the difference between failed and 
     const log = (await waitForFileContent(
       path.join(logsRoot, 'messages.jsonl'), (t) => t.trim().length > 0,
     )).trim();
-    expect(JSON.parse(log)).toMatchObject({ from: 'hafleet-backend', to: 'alpha:0.0' });
+    expect(JSON.parse(log)).toMatchObject({ from: 'hagency-backend', to: 'alpha:0.0' });
     // The ack reached the backend sink — this used to be an HTTP POST to ourselves.
     expect(sinkLog.pushDelivered).toHaveLength(1);
     expect(sinkLog.pushDelivered[0]).toMatchObject({ agent: 'alpha', queueEntryId: 1 });
@@ -228,7 +228,7 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
     await initQueue();
     const app = await appFor(q);
     const mk = (n) => ({
-      from: 'hafleet-backend', to: 'alpha:0.0', payload: `[NOTIFICATION] v${n}`,
+      from: 'hagency-backend', to: 'alpha:0.0', payload: `[NOTIFICATION] v${n}`,
       notifyMeta: { kind: 'inbox', sourceMsgId: `msg_${n}` },
     });
     await request(app).post('/api/queue').send(mk(1));
@@ -264,12 +264,12 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
     await initQueue();
     const app = await appFor(q);
     await request(app).post('/api/queue').send({
-      from: 'hafleet-backend', to: 'alpha:0.0', payload: '[NOTIFICATION] x',
+      from: 'hagency-backend', to: 'alpha:0.0', payload: '[NOTIFICATION] x',
       notifyMeta: { kind: 'inbox', sourceMsgId: 'm1' },
     });
     await request(app).post('/api/queue').send({ from: 'human', to: 'alpha:0.0', payload: 'real message' });
     await request(app).post('/api/queue').send({
-      from: 'hafleet-backend', to: 'beta:0.0', payload: '[NOTIFICATION] y',
+      from: 'hagency-backend', to: 'beta:0.0', payload: '[NOTIFICATION] y',
       notifyMeta: { kind: 'inbox', sourceMsgId: 'm2' },
     });
 
@@ -329,7 +329,7 @@ describe('the tick: idle gating, urgency, staleness', () => {
     q.setDeliveryQueueHooks({ execFileAsync: obedientTmux() });
     const app = await appFor(q);
     await request(app).post('/api/queue').send({
-      from: 'hafleet-backend', to: 'alpha:0.0', payload: '[NOTIFICATION] stale',
+      from: 'hagency-backend', to: 'alpha:0.0', payload: '[NOTIFICATION] stale',
       notifyMeta: { kind: 'inbox', sourceMsgId: 'gone', unreadCount: 3 },
     });
     await seedPaneAndSettle();

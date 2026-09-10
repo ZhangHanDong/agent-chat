@@ -12,8 +12,8 @@ describe('runtime parity regressions', () => {
     expect(source).toContain('const AGENT_SERVER = resolveLocalServerId();');
   });
 
-  test('hafleet-up launches through wrappers and provides complete Codex MCP config', () => {
-    for (const scriptPath of ['bin/hafleet-up', 'remote/bin/hafleet-up']) {
+  test('hagency-up launches through wrappers and provides complete Codex MCP config', () => {
+    for (const scriptPath of ['bin/hagency-up', 'remote/bin/hagency-up']) {
       const source = readFileSync(path.resolve(scriptPath), 'utf-8');
       expect(source).toContain('write_launch_script()');
       expect(source).toContain('launch-claude.sh');
@@ -21,7 +21,7 @@ describe('runtime parity regressions', () => {
       expect(source).toContain('mcp_servers.${CODEX_MCP_NAME}.command');
       expect(source).toContain('mcp_servers.${CODEX_MCP_NAME}.args');
       expect(source).toContain('codex_mcp_env API_TOKEN "${API_TOKEN:-}"');
-      expect(source).toContain('codex_mcp_env HAFLEET_HOMEDIR "${HAFLEET_HOMEDIR:-}"');
+      expect(source).toContain('codex_mcp_env HAGENCY_HOMEDIR "${HAGENCY_HOMEDIR:-}"');
       expect(source).toContain('tmux send-keys -t "$TMUX_PANE_TARGET" "exec $(shell_quote "$CODEX_LAUNCH_SCRIPT")" Enter');
       expect(source).toContain('MANAGED_RUNTIME_PID_FILE="$AGENT_DATA/managed-runtime.pid"');
       expect(source).toContain('preflight_runtime_approval_adapter');
@@ -38,7 +38,7 @@ describe('runtime parity regressions', () => {
       expect(source).not.toContain('CLAUDE_FLAGS="--dangerously-skip-permissions"');
       expect(source).not.toContain('CODEX_FLAGS="--yolo"');
       // Typing the init prompt into a pane after launch was banned outright,
-      // because bin/hafleet-up tried it for Codex and abandoned it: "tmux key
+      // because bin/hagency-up tried it for Codex and abandoned it: "tmux key
       // timing is unreliable while Codex is still drawing its first prompt".
       //
       // Hermes leaves no alternative — both -z/--oneshot and `chat -q` print one
@@ -63,7 +63,7 @@ describe('runtime parity regressions', () => {
     const localSource = readFileSync(path.resolve('lib/push-relay-core.js'), 'utf-8');
     const hintPattern = /const checkHint = '([^']+)';/;
     const localHint = localSource.match(hintPattern)?.[1] || null;
-    expect(localHint).toBe('FIRST ACTION: call check_inbox() now. Use check_inbox() in hafleet MCP for full context before acting.');
+    expect(localHint).toBe('FIRST ACTION: call check_inbox() now. Use check_inbox() in hagency MCP for full context before acting.');
   });
 
   test('backend and local push-relay import blocked patterns from the shared module', () => {
@@ -91,7 +91,7 @@ describe('runtime parity regressions', () => {
     expect(readmeStableDeploy).toContain('git clean -fd');
     expect(readmeStableDeploy).toContain('git reset --hard origin/stable');
     expect(readmeStableDeploy).toContain('npm run verify:cd-preflight');
-    expect(readmeStableDeploy).toContain('hafleet verify-remote --samples 2 --interval 16 --expect-version <short-sha>');
+    expect(readmeStableDeploy).toContain('hagency verify-remote --samples 2 --interval 16 --expect-version <short-sha>');
 
     expect(operationsSource).toContain('The live deploy checkout is disposable.');
     expect(operationsSource).toContain('git reset --hard HEAD');

@@ -18,4 +18,4 @@
 
 ## Projects
 - backtest-web: 回测 Web 前端（Vite + TypeScript）
-- hafleet: Agent 通讯框架（**必须在 ~/hafleet/，不能放 laplace 下**，否则路径指令全部失效）
+- hagency: Agent 通讯框架（**必须在 ~/hagency/，不能放 laplace 下**，否则路径指令全部失效）

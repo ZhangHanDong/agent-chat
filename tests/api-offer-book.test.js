@@ -89,6 +89,40 @@ describe('what serves a role, and nothing about the deployment', () => {
   let ctx;
   afterEach(async () => { await ctx?.cleanup?.(); ctx = null; });
 
+  test('published offers disclose qualifying unprovisioned resources without private deployment fields', async () => {
+    ctx = await createBackendTestContext('book-resource-', {
+      agents: {}, frameworkPresets: [{
+        id: 'private-resource-id', name: 'Private contribution label', framework: 'codex',
+        model: 'gpt-5.6-sol', reasoning: 'high', apiKey: 'private-key', apiBaseUrl: 'https://private.invalid',
+        ceiling: { tokens: 100000, period: 'monthly' },
+      }],
+    });
+    await publish(ctx, 'coding', { published: true });
+    await publish(ctx, 'documentation', { published: true });
+    const result = await book(ctx, ROOM);
+    expect(result.body.roles).toHaveLength(2);
+    for (const row of result.body.roles) expect(row.serving).toEqual({
+      agent: null, framework: 'codex', model: 'gpt-5.6-sol', reasoning: 'high', tier: 'strong', provisioningRequired: true,
+    });
+    expect(JSON.stringify(result.body)).not.toMatch(/private-|private\.|Private contribution|presetId|ceiling|quota|remaining|apiKey|apiBaseUrl/);
+    expect((await request(ctx.app).get('/api/capability')).body.agents).toBe(0);
+  });
+
+  test('offer book does not advertise unusable presets or relax the review family gate', async () => {
+    ctx = await createBackendTestContext('book-unusable-resource-', {
+      agents: {}, frameworkPresets: [
+        { id: 'no-budget', framework: 'codex', model: 'gpt-5.6-sol', reasoning: 'high', ceiling: { tokens: 0, period: 'monthly' } },
+        { id: 'unsupported-runner', framework: 'octos', model: 'kimi-k3', ceiling: { tokens: 100000, period: 'monthly' } },
+        { id: 'documentation-only', framework: 'claude', model: 'claude-haiku-4-5', ceiling: { tokens: 100000, period: 'monthly' } },
+      ],
+    });
+    await publish(ctx, 'coding', { published: true });
+    await publish(ctx, 'review', { published: true });
+    const result = await book(ctx, ROOM);
+    for (const row of result.body.roles) expect(row.serving).toBeNull();
+    expect(result.body.roles.find(row => row.role === 'review').crossFamilyOk).toBe(false);
+  });
+
   test('the serving framework, model, reasoning level and tier are disclosed', async () => {
     ctx = await createBackendTestContext('book-serving-', seed);
     await publish(ctx, 'coding', { published: true, budgetCapPerEngagement: 400_000, rateCap: 20_000 });
@@ -183,7 +217,7 @@ describe('the submit-only credential may read it', () => {
      */
     ctx = await createBackendTestContext('book-token-', {
       ...seed,
-      env: { API_TOKEN: 'operator-token', HAFLEET_REQUESTER_TOKEN: 'requester-token' },
+      env: { API_TOKEN: 'operator-token', HAGENCY_REQUESTER_TOKEN: 'requester-token' },
     });
     await request(ctx.app).put('/api/offers/coding')
       .set('Authorization', 'Bearer operator-token')
@@ -199,7 +233,7 @@ describe('the submit-only credential may read it', () => {
     // The scope is unchanged by adding a read: reading is not deciding.
     ctx = await createBackendTestContext('book-token-scope-', {
       ...seed,
-      env: { API_TOKEN: 'operator-token', HAFLEET_REQUESTER_TOKEN: 'requester-token' },
+      env: { API_TOKEN: 'operator-token', HAGENCY_REQUESTER_TOKEN: 'requester-token' },
     });
     const widen = await request(ctx.app).put('/api/offers/coding')
       .set('Authorization', 'Bearer requester-token')

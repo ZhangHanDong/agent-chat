@@ -4,6 +4,7 @@ import Link from 'next/link';
 import AgentHeader from '@/components/AgentHeader';
 import AgentTabs from '@/components/AgentTabs';
 import AgentActions from '@/components/AgentActions';
+import AgentExecutionPermissions from '@/components/ExecutionPermissions';
 import { Provenance, useData } from '@/components/Data';
 import { useT } from '@/components/Prefs';
 
@@ -50,6 +51,7 @@ export default function AgentDetail({ name }) {
       <Provenance slices={['agents', 'presets', 'ceilings', 'engagements']} />
       <AgentHeader agent={agent} />
       <AgentTabs agent={agent} />
+      <AgentExecutionPermissions agent={agent} />
       <AgentActions agent={agent} />
     </>
   );

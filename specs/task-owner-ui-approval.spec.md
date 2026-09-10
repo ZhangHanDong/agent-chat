@@ -32,7 +32,7 @@ verdicts in the encrypted owner DM.
 - Use Claude Code's supported channel permission request/verdict protocol for Claude agents.
 - Keep Claude agents in auto mode, but install content-scoped `ask` rules for protected external VCS operations so auto-mode hard denials become native permission prompts that the channel can relay.
 - Use Codex's supported `PermissionRequest` command hook for Codex agents.
-- Prevent recursive approval loops for the exact hafleet MCP coordination
+- Prevent recursive approval loops for the exact hagency MCP coordination
   tools that the managed runtime is expected to use. Text-only messaging and
   task-control calls may be allowed by the already-trusted hook; sending a
   local file attachment must still enter owner approval.
@@ -68,7 +68,7 @@ verdicts in the encrypted owner DM.
 
 - Owner provenance is the trusted full MXID that invited the exact managed agent into the project room.
 - The private Matrix event contract carries `agent`, `project`, `project_room_id`, `request_id`, `input_digest`, `expires_at`, and UI actions.
-- Robrix2 renders the event and emits a structured response; hafleet performs every authorization check.
+- Robrix2 renders the event and emits a structured response; hagency performs every authorization check.
 - Approval consumption uses an atomic compare-and-set from pending to a terminal state.
 - Preserve `/sync` count semantics: a missing
   `device_one_time_keys_count` field means unchanged and is never rewritten.
@@ -82,7 +82,7 @@ verdicts in the encrypted owner DM.
 ### Allowed Changes
 - backend-v2.js
 - bridge-matrix.js
-- bin/hafleet-up
+- bin/hagency-up
 - lib/approval-store.js
 - lib/codex-hook-trust.js
 - lib/codex-project-trust.js
@@ -92,7 +92,7 @@ verdicts in the encrypted owner DM.
 - lib/runtime-approval-client.js
 - remote/lib/codex-hook-trust.js
 - remote/lib/codex-project-trust.js
-- remote/bin/hafleet-up
+- remote/bin/hagency-up
 - remote/lib/codex-permission-hook.js
 - remote/lib/mcp-server-core.js
 - remote/lib/runtime-approval-client.js
@@ -115,7 +115,7 @@ verdicts in the encrypted owner DM.
 ### Forbidden
 - Do not broaden public-room command permissions.
 - Do not store approval details in public message bodies.
-- Do not treat a UI client response as trusted until hafleet validates the Matrix event.
+- Do not treat a UI client response as trusted until hagency validates the Matrix event.
 
 ## Acceptance Criteria
 
@@ -124,19 +124,19 @@ verdicts in the encrypted owner DM.
 Scenario: Public room receives redacted status only
   Test: public_approval_notice_is_redacted_and_non_actionable
   Given a runtime permission request is bound to a project room and owner
-  When hafleet publishes the waiting state
+  When hagency publishes the waiting state
   Then the project room event contains no input preview or approval action
 
 Scenario: Owner DM receives structured actions
   Test: owner_dm_approval_request_contains_structured_actions
   Given a valid encrypted owner DM exists
-  When hafleet publishes the detailed request
+  When hagency publishes the detailed request
   Then the event contains approve-once and deny UI actions
   And the event binds the request fields and digest
 
 Scenario: Multiple agents in one project room keep separate owner approval channels
   Tags: critical
-  Test: project room retains independent room-agent approval bindings
+  Test: one project room retains independent owner bindings for multiple local agents
   Given a project room already contains one managed agent and the bridge bot
   When the same trusted developer invites a second managed agent
   Then both room-agent ownership bindings remain active
@@ -172,7 +172,7 @@ Scenario: Missing one-time-key counts are reconciled without an upload loop
 
 Scenario: Access-token rotation cannot reuse another device's crypto store
   Tags: critical
-  Test: stale crypto store is archived before the token device starts syncing
+  Test: archives a stale crypto store before initializing the access-token device
   Given the active Matrix access token identifies a different device from the persisted bridge crypto store
   When the bridge starts its encrypted owner-approval client
   Then the stale crypto store is archived without deleting its private keys
@@ -214,13 +214,13 @@ Scenario: Empty owner has no administrator fallback
   Test: missing_owner_denies_without_admin_fallback
   Given no trusted inviter owner is recorded
   When a runtime requests permission
- Then hafleet denies it without creating an approvable request
+ Then hagency denies it without creating an approvable request
 
 Scenario: Claude auto mode opens a relayable prompt for protected VCS operations
-  Test: launchers_keep_sandbox_defaults_and_wire_only_supported_adapters
+  Test: launchers keep sandbox defaults and wire only supported adapters
   Given a Claude agent uses auto mode and the owner permission channel
   When it invokes GitHub CLI or git push
-  Then hafleet installs content-scoped ask rules in the agent-local Claude settings
+  Then hagency installs content-scoped ask rules in the agent-local Claude settings
   And Claude opens a native permission prompt that the channel can relay
 
 Scenario: Managed Claude approval transport fails closed
@@ -229,14 +229,14 @@ Scenario: Managed Claude approval transport fails closed
   Given a Claude permission request was emitted through the managed channel
   When the backend request, polling, consumption, or verdict relay fails
   Then the channel delivers an explicit deny for the original request id
-  And hafleet does not leave an approval prompt hidden in tmux
+  And hagency does not leave an approval prompt hidden in tmux
 
 Scenario: Managed Claude launch does not inherit an undeclared API key
   Tags: critical
   Test: launchers_clear_ambient_anthropic_key_without_explicit_profile
   Given the operator shell exports ANTHROPIC_API_KEY
   And the Claude agent runtime profile does not define an API key
-  When hafleet writes the managed launch environment
+  When hagency writes the managed launch environment
   Then the inherited API key is cleared before Claude starts
   And an explicit per-agent runtime profile API key is still exported when configured
 
@@ -244,7 +244,7 @@ Scenario: Codex hook trust is verified before background startup
   Tags: critical
   Test: codex_hook_preflight_precedes_tmux_and_requires_exact_trust
   Given a Codex agent uses the owner permission hook
-  When hafleet prepares the managed background session
+  When hagency prepares the managed background session
   Then it checks the supported Codex capability through App Server before creating tmux
   And an untrusted or modified exact hook requires explicit local confirmation
   And a non-interactive or declined confirmation aborts startup
@@ -260,9 +260,9 @@ Scenario: Codex hook changes invalidate previous trust
 
 Scenario: Repeated Codex startup keeps project trust parseable
   Tags: critical
-  Test: repairs_identical_duplicate_sections_before_codex_parses_the_file
+  Test: repairs identical duplicate sections before Codex parses the file
   Given a Codex project trust section already exists on a host without Python TOML support
-  When hafleet prepares the same managed project again
+  When hagency prepares the same managed project again
   Then exactly one trusted project section remains
   And conflicting duplicate sections abort startup without being merged
 
@@ -277,7 +277,7 @@ Scenario: Managed Codex approval transport fails closed
 Scenario: Codex coordination does not recursively request owner approval
   Tags: critical
   Test: codex_internal_coordination_tools_are_allowed_without_recursive_approval
-  Given the trusted Codex hook receives a permission request for an exact hafleet MCP tool
+  Given the trusted Codex hook receives a permission request for an exact hagency MCP tool
   When the tool reads coordination state or sends text-only workflow messages
   Then the hook returns allow without creating an owner approval request
   And a message containing a local file attachment still requires owner approval

@@ -1,8 +1,8 @@
-name: hafleet-services-team
+name: hagency-services-team
 
 services:
   backend:
-    image: "${HAFLEET_IMAGE:-hafleet-services:local}"
+    image: "${HAGENCY_IMAGE:-hagency-services:local}"
     build:
       context: ..
       dockerfile: services/Dockerfile
@@ -12,14 +12,14 @@ services:
     read_only: true
     tmpfs: [/tmp]
     env_file:
-      - ${HAFLEET_ENV_FILE:-../.env}
+      - ${HAGENCY_ENV_FILE:-../.env}
     environment:
       NODE_ENV: production
-      HAFLEET_RUNTIME_DIR: /var/lib/hafleet
+      HAGENCY_RUNTIME_DIR: /var/lib/hagency
     volumes:
-      - hafleet-runtime:/var/lib/hafleet
+      - hagency-runtime:/var/lib/hagency
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch(`http://127.0.0.1:$${process.env.HAFLEET_BACKEND_PORT || 8090}/health`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch(`http://127.0.0.1:$${process.env.HAGENCY_BACKEND_PORT || 8090}/health`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -27,7 +27,7 @@ services:
     stop_grace_period: 15s
 
   dashboard:
-    image: "${HAFLEET_IMAGE:-hafleet-services:local}"
+    image: "${HAGENCY_IMAGE:-hagency-services:local}"
     build:
       context: ..
       dockerfile: services/Dockerfile
@@ -37,17 +37,17 @@ services:
     read_only: true
     tmpfs: [/tmp]
     env_file:
-      - ${HAFLEET_ENV_FILE:-../.env}
+      - ${HAGENCY_ENV_FILE:-../.env}
     environment:
       NODE_ENV: production
-      HAFLEET_RUNTIME_DIR: /var/lib/hafleet
+      HAGENCY_RUNTIME_DIR: /var/lib/hagency
     volumes:
-      - hafleet-runtime:/var/lib/hafleet
+      - hagency-runtime:/var/lib/hagency
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch(`http://127.0.0.1:$${process.env.HAFLEET_WEB_PORT || 8084}/`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch(`http://127.0.0.1:$${process.env.HAGENCY_WEB_PORT || 8084}/`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -55,7 +55,7 @@ services:
     stop_grace_period: 10s
 
   bridge:
-    image: "${HAFLEET_IMAGE:-hafleet-services:local}"
+    image: "${HAGENCY_IMAGE:-hagency-services:local}"
     build:
       context: ..
       dockerfile: services/Dockerfile
@@ -66,19 +66,19 @@ services:
     read_only: true
     tmpfs: [/tmp]
     env_file:
-      - ${HAFLEET_ENV_FILE:-../.env}
+      - ${HAGENCY_ENV_FILE:-../.env}
     environment:
       NODE_ENV: production
-      HAFLEET_RUNTIME_DIR: /var/lib/hafleet
+      HAGENCY_RUNTIME_DIR: /var/lib/hagency
     volumes:
-      - hafleet-runtime:/var/lib/hafleet
+      - hagency-runtime:/var/lib/hagency
     depends_on:
       backend:
         condition: service_healthy
     stop_grace_period: 15s
 
   relay:
-    image: "${HAFLEET_IMAGE:-hafleet-services:local}"
+    image: "${HAGENCY_IMAGE:-hagency-services:local}"
     build:
       context: ..
       dockerfile: services/Dockerfile
@@ -88,17 +88,17 @@ services:
     read_only: true
     tmpfs: [/tmp]
     env_file:
-      - ${HAFLEET_ENV_FILE:-../.env}
+      - ${HAGENCY_ENV_FILE:-../.env}
     environment:
       NODE_ENV: production
-      HAFLEET_RUNTIME_DIR: /var/lib/hafleet
+      HAGENCY_RUNTIME_DIR: /var/lib/hagency
       PUSH_RELAY_MODE: local
     volumes:
-      - hafleet-runtime:/var/lib/hafleet
+      - hagency-runtime:/var/lib/hagency
     depends_on:
       backend:
         condition: service_healthy
     stop_grace_period: 10s
 
 volumes:
-  hafleet-runtime:
+  hagency-runtime:

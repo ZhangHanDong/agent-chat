@@ -110,7 +110,7 @@ describe('the side is resolved, never assumed', () => {
     const app = await boot({ apiBaseUrl: await fakeAppserviceHomeserver() });
     await setCredential(app, {
       kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok',
-      namespace: '@ac_.*', senderLocalpart: 'hafleet',
+      namespace: '@ac_.*', senderLocalpart: 'hagency',
     }).expect(200);
 
     const r = await mint(app);
@@ -134,7 +134,7 @@ describe('the side is resolved, never assumed', () => {
     });
     await setCredential(app, {
       kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok',
-      namespace: '@ac_.*', senderLocalpart: 'hafleet',
+      namespace: '@ac_.*', senderLocalpart: 'hagency',
     }).expect(200);
     const r = await mint(app);
     expect(r.body.sideResolvedFrom).toBe('agent.projectSide');
@@ -180,7 +180,7 @@ describe('the side is resolved, never assumed', () => {
 describe('what each credential kind yields', () => {
   test('appservice: an MXID and NO token, and it CAN send anyway', async () => {
     /*
-     * The namespace already authorises the identity, so nothing is registered and HAFleet acts as the
+     * The namespace already authorises the identity, so nothing is registered and Hagency acts as the
      * agent by masquerading. `accessToken: null` is the design.
      *
      * `canSend` USED TO BE FALSE HERE, and the note said the bridge's send path still wanted a
@@ -193,7 +193,7 @@ describe('what each credential kind yields', () => {
     const app = await boot({ apiBaseUrl: await fakeAppserviceHomeserver() });
     await setCredential(app, {
       kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok',
-      namespace: '@ac_.*', senderLocalpart: 'hafleet',
+      namespace: '@ac_.*', senderLocalpart: 'hagency',
     }).expect(200);
     const r = await mint(app);
     expect(r.body).toMatchObject({ accessToken: null, canSend: true, hasOwnToken: false });
@@ -208,7 +208,7 @@ describe('what each credential kind yields', () => {
     const app = await boot();
     await setCredential(app, {
       kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok',
-      namespace: '@bot_.*', senderLocalpart: 'hafleet',
+      namespace: '@bot_.*', senderLocalpart: 'hagency',
     }).expect(200);
     const r = await mint(app);
     expect(r.status).toBe(409);

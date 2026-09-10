@@ -106,13 +106,13 @@ function parsePositiveInt(value, fallback) {
 
 function defaultBenchmarkBackendPort(env = process.env) {
   return parsePositiveInt(
-    env.HAFLEET_BENCH_BACKEND_PORT || env.HAFLEET_BACKEND_PORT,
+    env.HAGENCY_BENCH_BACKEND_PORT || env.HAGENCY_BACKEND_PORT,
     18190
   );
 }
 
 function defaultBenchmarkBackendUrl(env = process.env) {
-  const explicit = normalizeText(env.HAFLEET_BENCH_API || env.HAFLEET_API, 2048);
+  const explicit = normalizeText(env.HAGENCY_BENCH_API || env.HAGENCY_API, 2048);
   if (explicit) return explicit.replace(/\/$/, '');
   return `http://127.0.0.1:${defaultBenchmarkBackendPort(env)}`;
 }
@@ -595,7 +595,7 @@ function buildProfilePayload({ profileId, version, description, agentType, docsF
       mcpTemplate: mcpTemplatePath ? 'config/mcp.json' : null,
       hooksRuntimeDefaults: {
         executionModel: 'host-v1-home',
-        launcher: 'hafleet-up',
+        launcher: 'hagency-up',
         scaffoldOnly: true,
       },
     },
@@ -784,8 +784,8 @@ function prepareTrial(args) {
     encoding: 'utf-8',
     env: {
       ...process.env,
-      HAFLEET_API: benchmarkBackendUrl,
-      HAFLEET_BACKEND_PORT: String(benchmarkBackendPort),
+      HAGENCY_API: benchmarkBackendUrl,
+      HAGENCY_BACKEND_PORT: String(benchmarkBackendPort),
     },
   }).trim();
   const provision = JSON.parse(provisionJson);
@@ -838,16 +838,16 @@ function prepareTrial(args) {
     },
     execution: {
       mode: 'host-v1-home-scaffold',
-      launcher: 'hafleet-up',
+      launcher: 'hagency-up',
       preparedOnly: true,
       launchPlan: {
-        command: ['hafleet', 'up', trialAgentName, trialPaths.v1Paths.workdir, run.agentType === 'codex' ? 'codex' : 'claude', '--fresh'],
+        command: ['hagency', 'up', trialAgentName, trialPaths.v1Paths.workdir, run.agentType === 'codex' ? 'codex' : 'claude', '--fresh'],
         env: {
-          HAFLEET_HOMEDIR: trialPaths.homesRoot,
-          HAFLEET_BENCH_RUNTIME_DIR: path.resolve(runtimeRoot),
-          HAFLEET_RUNTIME_DIR: path.resolve(runtimeRoot),
-          HAFLEET_API: benchmarkBackendUrl,
-          HAFLEET_BACKEND_PORT: String(benchmarkBackendPort),
+          HAGENCY_HOMEDIR: trialPaths.homesRoot,
+          HAGENCY_BENCH_RUNTIME_DIR: path.resolve(runtimeRoot),
+          HAGENCY_RUNTIME_DIR: path.resolve(runtimeRoot),
+          HAGENCY_API: benchmarkBackendUrl,
+          HAGENCY_BACKEND_PORT: String(benchmarkBackendPort),
         },
       },
       notes: 'Batch 1 scaffold only. No live agent launch or benchmark task execution performed.',
@@ -933,26 +933,26 @@ function runLongcliTrial(args) {
   };
   const launchStartedAt = new Date().toISOString();
   const upResult = runCommand(
-    path.join(REPO_ROOT, 'bin', 'hafleet'),
+    path.join(REPO_ROOT, 'bin', 'hagency'),
     ['up', trial.agentName, trialPaths.v1Paths.workdir, trial.agentType === 'codex' ? 'codex' : 'claude', '--fresh'],
     { env: launchEnv }
   );
-  ensureCommandOk(upResult, `hafleet up ${trial.agentName}`);
+  ensureCommandOk(upResult, `hagency up ${trial.agentName}`);
 
-  const backendUrl = launchEnv.HAFLEET_API || defaultBenchmarkBackendUrl(launchEnv);
+  const backendUrl = launchEnv.HAGENCY_API || defaultBenchmarkBackendUrl(launchEnv);
   writeJson(onlineStatusPath, fetchBackendAgentStatus(backendUrl, trial.agentName));
 
   const sendEnv = {
     ...launchEnv,
-    HAFLEET_WEB_PORT: process.env.HAFLEET_WEB_PORT || '18184',
-    HAFLEET_WEB_URL: process.env.HAFLEET_WEB_URL || 'http://127.0.0.1:18184',
+    HAGENCY_WEB_PORT: process.env.HAGENCY_WEB_PORT || '18184',
+    HAGENCY_WEB_URL: process.env.HAGENCY_WEB_URL || 'http://127.0.0.1:18184',
   };
   const sendResult = runCommand(
-    path.join(REPO_ROOT, 'bin', 'hafleet'),
+    path.join(REPO_ROOT, 'bin', 'hagency'),
     ['send', '--force', trial.agentName, prompt],
     { env: sendEnv }
   );
-  ensureCommandOk(sendResult, `hafleet send ${trial.agentName}`);
+  ensureCommandOk(sendResult, `hagency send ${trial.agentName}`);
 
   const sentinel = `BENCHMARK_LONGCLI_DONE ${trial.taskId}`;
   const waitResult = waitForSentinel(`${trial.agentName}:0.0`, sentinel, agentTimeoutSec, pollIntervalSec);
@@ -969,8 +969,8 @@ function runLongcliTrial(args) {
   const baseImage = extractDockerBaseImage(path.join(trialPaths.v1Paths.workdir, 'Dockerfile'));
   ensureLongcliBaseImage(baseImage, longcliRoot, baseBuildLogPath);
 
-  const dockerImageName = `hafleet-bench-${sanitizeHandle(`${trial.runId}-${trial.trialId}`)}`;
-  const dockerContainerName = `hafleet-bench-${sanitizeHandle(`${trial.runId}-${trial.trialId}`)}`;
+  const dockerImageName = `hagency-bench-${sanitizeHandle(`${trial.runId}-${trial.trialId}`)}`;
+  const dockerContainerName = `hagency-bench-${sanitizeHandle(`${trial.runId}-${trial.trialId}`)}`;
   let testStatus = null;
   let metrics = {
     parserName: task.parser_name || null,
@@ -1029,13 +1029,13 @@ function runLongcliTrial(args) {
   } finally {
     if (!forcedStopBeforeEvaluation) {
       const downResult = runCommand(
-        path.join(REPO_ROOT, 'bin', 'hafleet'),
+        path.join(REPO_ROOT, 'bin', 'hagency'),
         ['down', trial.agentName],
         { env: launchEnv }
       );
       if (downResult.status !== 0) {
         const killResult = runCommand(
-          path.join(REPO_ROOT, 'bin', 'hafleet'),
+          path.join(REPO_ROOT, 'bin', 'hagency'),
           ['down', trial.agentName, '--kill'],
           { env: launchEnv }
         );
@@ -1052,7 +1052,7 @@ function runLongcliTrial(args) {
   const endedAt = new Date().toISOString();
   const summary = `LongCLI task ${trial.taskId}: f2p=${metrics.f2p_is_pass ?? 'n/a'} (${metrics.f2p_step_score ?? 'n/a'}), p2p=${metrics.p2p_is_pass ?? 'n/a'} (${metrics.p2p_step_score ?? 'n/a'})`;
   const harnessResult = {
-    schema: 'hafleet.benchmark.harness-result/v1',
+    schema: 'hagency.benchmark.harness-result/v1',
     runId: trial.runId,
     trialId: trial.trialId,
     taskId: trial.taskId,
@@ -1098,7 +1098,7 @@ function runLongcliTrial(args) {
     },
   };
   const taskSummary = {
-    schema: 'hafleet.benchmark.task-result-summary/v1',
+    schema: 'hagency.benchmark.task-result-summary/v1',
     taskId: trial.taskId,
     agent: trial.agentName,
     status: metrics.pass ? 'passed' : 'failed',

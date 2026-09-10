@@ -6,7 +6,7 @@ import { renderDashboard } from './helpers/dashboard-render.js';
 
 const mockup = fileURLToPath(new URL('../mockup/', import.meta.url));
 const requireDashboard = createRequire(new URL('../mockup/package.json', import.meta.url));
-const hookKey = '__hafleetDataRefreshTest';
+const hookKey = '__hagencyDataRefreshTest';
 let components;
 let harness;
 let cleanups;

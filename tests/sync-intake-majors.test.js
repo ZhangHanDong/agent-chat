@@ -20,12 +20,12 @@ describe('F05: retryable join failure is not acked', () => {
   test('an HTTP 503 join THROWS (receiver will answer non-200 and retry the txn)', async () => {
     const m = await loadBridge();
     const bridge = Object.create(m.MatrixBridge.prototype);
-    bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet' } });
+    bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hagency' } });
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     const fetch503 = async () => ({ ok: false, status: 503, text: async () => 'boom' });
     const orig = globalThis.fetch; globalThis.fetch = fetch503;
     await expect(bridge.onAppserviceMembership('palpo.example', '!r:palpo.example', {
-      type: 'm.room.member', state_key: '@hafleet:palpo.example',
+      type: 'm.room.member', state_key: '@hagency:palpo.example',
       content: { membership: 'invite' }, sender: '@x:palpo.example',
     })).rejects.toThrow(/HTTP 503/);
     globalThis.fetch = orig;
@@ -35,13 +35,13 @@ describe('F05: retryable join failure is not acked', () => {
   test('an HTTP 403 join is recorded and SWALLOWED (permanent, no retry loop)', async () => {
     const m = await loadBridge();
     const bridge = Object.create(m.MatrixBridge.prototype);
-    bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet' } });
+    bridge.actingSideFor = () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hagency' } });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     bridge.postWarning = vi.fn();
     const orig = globalThis.fetch;
     globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => 'M_FORBIDDEN' });
     await expect(bridge.onAppserviceMembership('palpo.example', '!r:palpo.example', {
-      type: 'm.room.member', state_key: '@hafleet:palpo.example',
+      type: 'm.room.member', state_key: '@hagency:palpo.example',
       content: { membership: 'invite' }, sender: '@x:palpo.example',
     })).resolves.toBeUndefined();            // swallowed, not thrown
     expect(bridge.postWarning).toHaveBeenCalledTimes(1);
@@ -85,7 +85,7 @@ describe('F09: an acting-credential change invalidates the cached token and the 
     let polls = 0;
     const credentialFor = () => {
       if (polls >= 1) asToken = 'as-2';
-      return { kind: 'appservice', asToken, hsToken: 'hs', senderLocalpart: 'hafleet' };
+      return { kind: 'appservice', asToken, hsToken: 'hs', senderLocalpart: 'hagency' };
     };
     const collector = startAppserviceSyncCollector({
       baseUrl: 'https://h', side: 's1', router,
@@ -150,7 +150,7 @@ describe('F07: the projection keeps state, leaves, and gap signals', () => {
     const seen = [];
     const collector = startAppserviceSyncCollector({
       baseUrl: 'https://h', side: 's1', router: { handle: async () => ({ status: 200, body: {} }) },
-      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hagency' }),
       readCursor: () => null, writeCursor: async () => {},
       fetchImpl,
       sleep: async () => { await Promise.resolve(); },
@@ -201,7 +201,7 @@ describe('F10 (17-r1): the bridge invite→join path refuses at the single exit,
     const bridge = Object.create(m.MatrixBridge.prototype);
     bridge.actingSideFor = () => ({
       side: { apiBaseUrl: 'https://hs.example', serverName: SIDE },
-      credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet team', namespace: '@ac_.*' },
+      credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hagency team', namespace: '@ac_.*' },
     });
     const errors = [];
     const errSpy = vi.spyOn(console, 'error').mockImplementation((...a) => errors.push(a.join(' ')));
@@ -209,7 +209,7 @@ describe('F10 (17-r1): the bridge invite→join path refuses at the single exit,
     const calls = [];
     const orig = globalThis.fetch; globalThis.fetch = async (u) => { calls.push(String(u)); return { ok: true, status: 200, text: async () => '{}' }; };
     await bridge.onAppserviceMembership(SIDE, '!market:palpo.example', {
-      type: 'm.room.member', state_key: '@hafleet team:palpo.example',
+      type: 'm.room.member', state_key: '@hagency team:palpo.example',
       content: { membership: 'invite' }, sender: '@x:palpo.example',
     });
     globalThis.fetch = orig;
@@ -224,7 +224,7 @@ describe('F10 (17-r1): the bridge invite→join path refuses at the single exit,
     const bridge = Object.create(m.MatrixBridge.prototype);
     bridge.actingSideFor = () => ({
       side: { apiBaseUrl: 'https://hs.example', serverName: SIDE },
-      credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+      credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hagency', namespace: '@ac_.*' },
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -233,21 +233,21 @@ describe('F10 (17-r1): the bridge invite→join path refuses at the single exit,
     const calls = [];
     const orig = globalThis.fetch; globalThis.fetch = async (u) => { calls.push(String(u)); return { ok: true, status: 200, text: async () => '{}', json: async () => ({}) }; };
     await bridge.onAppserviceMembership(SIDE, '!market:palpo.example', {
-      type: 'm.room.member', state_key: '@hafleet:palpo.example',
+      type: 'm.room.member', state_key: '@hagency:palpo.example',
       content: { membership: 'invite' }, sender: '@x:palpo.example',
     });
     globalThis.fetch = orig;
     logSpy.mockRestore(); errSpy.mockRestore();
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain('/_matrix/client/v3/join/');
-    expect(calls[0]).toContain('user_id=%40hafleet%3Apalpo.example'); // masquerade intact via the exit
+    expect(calls[0]).toContain('user_id=%40hagency%3Apalpo.example'); // masquerade intact via the exit
   });
 });
 
 describe('F10 (17-r2): agent join/leave refuse a ghost at the single exit', () => {
   const repUrl = () => pathToFileURL(new URL('../lib/matrix-representative.js', import.meta.url).pathname).href;
   const SIDE = { serverName: 'side.example', apiBaseUrl: 'https://hs.example' };
-  const CRED = { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet', namespace: '@ac_.*' };
+  const CRED = { kind: 'appservice', asToken: 'as', senderLocalpart: 'hagency', namespace: '@ac_.*' };
   const ROOM = '!r:side.example';
 
   test('in-namespace but NOT in the fleet roster → join refuses with ZERO requests', async () => {
@@ -323,7 +323,7 @@ describe('F07 (17-r2): leaves drive cleanup and gap reconcile retries durably', 
     const collector = startAppserviceSyncCollector({
       baseUrl: 'https://h', side: 's1',
       router: { handle: async () => { delivered.push(++n); return { status: 200, body: {} }; } },
-      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hagency' }),
       readCursor: () => null, writeCursor: async (c) => { cursorWrites.push(c); },
       onLeaves: (side, ids) => leaves.push([side, ids]),
       fetchImpl,
@@ -356,7 +356,7 @@ describe('F07 (17-r2): leaves drive cleanup and gap reconcile retries durably', 
     const collector = startAppserviceSyncCollector({
       baseUrl: 'https://h', side: 's1',
       router: { handle: async () => ({ status: 200, body: {} }) },
-      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hagency' }),
       readCursor: () => null, writeCursor: async () => {},
       fetchImpl,
       sleep: async () => { await Promise.resolve(); },
@@ -390,7 +390,7 @@ describe('F07 (17-r2): leaves drive cleanup and gap reconcile retries durably', 
     const collector = startAppserviceSyncCollector({
       baseUrl: 'https://h', side: 's1',
       router: { handle: async () => ({ status: 200, body: {} }) },
-      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: 'as', hsToken: 'hs', senderLocalpart: 'hagency' }),
       readCursor: () => 'N0', writeCursor: async () => {},
       fetchImpl,
       sleep: async () => { await Promise.resolve(); },
@@ -442,7 +442,7 @@ describe('F10 (17-r3): backend admission/withdraw refuse a ghost from the backen
    */
   const backendUrl = () => pathToFileURL(new URL('../backend-v2.js', import.meta.url).pathname).href;
   const SIDE = { serverName: 'palpo.test', apiBaseUrl: 'http://127.0.0.1:8008' };
-  const CRED = { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet', namespace: '@ac_.*' };
+  const CRED = { kind: 'appservice', asToken: 'as', senderLocalpart: 'hagency', namespace: '@ac_.*' };
   const ROOM = '!r:palpo.test';
 
   // A controlled side store: side ids are real sides with real server names.

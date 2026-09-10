@@ -7,6 +7,7 @@ import { Blank } from '@/components/Blank';
 import { useT } from '@/components/Prefs';
 import { useData, Provenance } from '@/components/Data';
 import { send } from '@/lib/api';
+import { projectLabel, projectSideConnectionState } from '@/lib/console-workflow';
 
 /*
  * ③ 项目 — the projects that have asked for me, and the ones I said yes to.
@@ -47,7 +48,7 @@ function serverOf(roomId) {
 
 export default function ProjectsPage() {
   const t = useT();
-  const { invites, whitelist, contributions, provenance, refresh } = useData();
+  const { invites, whitelist, contributions, projectSides, provenance, loading, refresh } = useData();
   const [toast, say] = useToast();
 
   /*
@@ -134,7 +135,33 @@ export default function ProjectsPage() {
         <Link className="btn primary" href="/projects/new">{t('pr.addSide')}</Link>
       </div>
 
-      <Provenance slices={['invites', 'contributions', 'whitelist']} />
+      <Provenance slices={['projectSides', 'invites', 'contributions', 'whitelist']} />
+
+      <section className="card" aria-labelledby="project-side-connections">
+        <h2 id="project-side-connections">{t('pr.connectionsTitle')}</h2>
+        <p className="dim">{t('pr.connectionsWhy')}</p>
+        {loading ? <p className="dim">{t('pr.connectionsLoading')}</p>
+          : provenance.projectSides !== 'live' ? <p className="warn-text">{t('en.sidesAbsent')}</p>
+            : !projectSides?.length ? <p className="dim">{t('pr.connectionsEmpty')}</p>
+              : <ul className="steps">
+                {projectSides.map((side) => {
+                  const status = projectSideConnectionState(side);
+                  return <li key={side.id}>
+                    <div style={{ gridColumn: '1 / -1', minWidth: 0, overflowWrap: 'anywhere' }}>
+                      <strong>{side.label || side.id}</strong>{' '}
+                      <span className={status === 'accepted' ? 'pill ok-text' : status === 'inactive' ? 'pill dim' : 'pill warn-text'}>
+                        {t(`pr.connection.${status}`)}
+                      </span>
+                      {side.awaitingInstall && <span className="pill warn-text">{t('pr.connection.staged')}</span>}
+                      <p className="mono-s">{side.id}</p>
+                      <p className="dim">{t('en.colCred')}: {side.credentialKind || t('en.credNone')}</p>
+                      {side.representative && <p className="mono-s">{t('en.repHead')}: {side.representative}</p>}
+                      <Link className="btn" href="/engagements">{t('pr.manageConnection')}</Link>
+                    </div>
+                  </li>;
+                })}
+              </ul>}
+      </section>
 
       <section className="card">
         <h2>
@@ -226,8 +253,8 @@ export default function ProjectsPage() {
               {joined.map((p) => (
                 <tr key={p.projectRoomId}>
                   <td>
-                    <code>{p.projectRoomId}</code>
-                    {p.project && <><br /><small>{p.project}</small></>}
+                    <div>{projectLabel(p, projectSides, whitelist)}</div>
+                    <small className="mono-s">{p.projectRoomId}</small>
                   </td>
                   <td>{serverOf(p.projectRoomId) ?? <Blank why="pr.why.noServer" t={t} />}</td>
                   <td>

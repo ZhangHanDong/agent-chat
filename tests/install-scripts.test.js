@@ -37,7 +37,7 @@ function runScript(script, args, options = {}) {
 
 describe('local install and uninstall scripts', () => {
   test('install-full bootstraps env, systemd units, CLI links, and skill links without starting services', () => {
-    const tmp = makeTempRoot('hafleet-install-full-');
+    const tmp = makeTempRoot('hagency-install-full-');
     try {
       const home = path.join(tmp, 'home');
       const systemdDir = path.join(tmp, 'systemd');
@@ -54,43 +54,43 @@ describe('local install and uninstall scripts', () => {
         '--skip-npm',
         '--skip-mcp',
         '--no-start',
-        '--service-user', 'hafleet-user',
+        '--service-user', 'hagency-user',
         '--systemd-dir', systemdDir,
         '--bin-dir', binDir,
         '--env-file', envFile,
       ], { home, apiToken: 'fresh-token', nodeBin: fakeNode });
 
       expect(readFileSync(envFile, 'utf-8')).toContain('API_TOKEN=fresh-token');
-      const backendUnit = readFileSync(path.join(systemdDir, 'hafleet-backend.service'), 'utf-8');
-      expect(backendUnit).toContain('User=hafleet-user');
+      const backendUnit = readFileSync(path.join(systemdDir, 'hagency-backend.service'), 'utf-8');
+      expect(backendUnit).toContain('User=hagency-user');
       expect(backendUnit).toContain(`WorkingDirectory=${ROOT}`);
       expect(backendUnit).toContain(`ExecStart=${fakeNode} ${ROOT}/backend-v2.js`);
       expect(backendUnit).not.toContain('__NODE_BIN__');
 
       /*
-       * NO hafleet.service. The web portal that unit ran is deleted and the delivery queue it hosted
+       * NO hagency.service. The web portal that unit ran is deleted and the delivery queue it hosted
        * moved into the backend, so an install that still wrote the unit would enable a service whose
        * entry file does not exist — systemd would flap it against a missing script forever.
        */
-      expect(existsSync(path.join(systemdDir, 'hafleet.service'))).toBe(false);
+      expect(existsSync(path.join(systemdDir, 'hagency.service'))).toBe(false);
 
-      const relayUnit = readFileSync(path.join(systemdDir, 'hafleet-push-relay.service'), 'utf-8');
-      expect(relayUnit).toContain('After=network-online.target hafleet-backend.service');
+      const relayUnit = readFileSync(path.join(systemdDir, 'hagency-push-relay.service'), 'utf-8');
+      expect(relayUnit).toContain('After=network-online.target hagency-backend.service');
       expect(relayUnit).toContain('Environment=PUSH_RELAY_MODE=local');
       expect(relayUnit).toContain(`ExecStart=${fakeNode} ${ROOT}/push-relay.js`);
       expect(relayUnit).not.toContain('__NODE_BIN__');
 
-      expect(lstatSync(path.join(binDir, 'hafleet')).isSymbolicLink()).toBe(true);
-      expect(lstatSync(path.join(binDir, 'hafleet-send')).isSymbolicLink()).toBe(true);
-      expect(lstatSync(path.join(home, '.claude', 'skills', 'hafleet', 'SKILL.md')).isSymbolicLink()).toBe(true);
+      expect(lstatSync(path.join(binDir, 'hagency')).isSymbolicLink()).toBe(true);
+      expect(lstatSync(path.join(binDir, 'hagency-send')).isSymbolicLink()).toBe(true);
+      expect(lstatSync(path.join(home, '.claude', 'skills', 'hagency', 'SKILL.md')).isSymbolicLink()).toBe(true);
       expect(lstatSync(path.join(home, '.codex', 'skills', 'agent-message', 'SKILL.md')).isSymbolicLink()).toBe(true);
       for (const client of ['.claude', '.codex']) {
-        const skill = path.join(home, client, 'skills', 'hafleet-inner-loop');
+        const skill = path.join(home, client, 'skills', 'hagency-inner-loop');
         expect(existsSync(path.join(skill, 'scripts', 'monitor.mjs'))).toBe(true);
-        expect(realpathSync(skill)).toBe(path.join(ROOT, 'skills', 'hafleet-inner-loop'));
+        expect(realpathSync(skill)).toBe(path.join(ROOT, 'skills', 'hagency-inner-loop'));
         expect(readFileSync(path.join(skill, 'SKILL.md'), 'utf8')).toContain('scripts/monitor.mjs');
-        for (const alias of ['hafleet', 'agent-message']) {
-          expect(realpathSync(path.join(home, client, 'skills', alias, 'SKILL.md'))).toBe(path.join(ROOT, 'skills', 'hafleet', 'SKILL.md'));
+        for (const alias of ['hagency', 'agent-message']) {
+          expect(realpathSync(path.join(home, client, 'skills', alias, 'SKILL.md'))).toBe(path.join(ROOT, 'skills', 'hagency', 'SKILL.md'));
         }
       }
     } finally {
@@ -99,10 +99,10 @@ describe('local install and uninstall scripts', () => {
   });
 
   test('full installer preserves existing inner-loop skill content in a backup', () => {
-    const tmp = makeTempRoot('hafleet-install-skill-backup-');
+    const tmp = makeTempRoot('hagency-install-skill-backup-');
     try {
       const home = path.join(tmp, 'home');
-      const skills = ['.claude', '.codex'].map((client) => path.join(home, client, 'skills', 'hafleet-inner-loop'));
+      const skills = ['.claude', '.codex'].map((client) => path.join(home, client, 'skills', 'hagency-inner-loop'));
       for (const skill of skills) {
         mkdirSync(skill, { recursive: true });
         writeFileSync(path.join(skill, 'local.txt'), 'existing local skill');
@@ -116,9 +116,9 @@ describe('local install and uninstall scripts', () => {
       ], { home, nodeBin: fakeNode });
       for (const skill of skills) {
         expect(lstatSync(skill).isSymbolicLink()).toBe(true);
-        const backups = readdirSync(path.dirname(skill)).filter((name) => name.startsWith('hafleet-inner-loop.bak.'));
+        const backups = readdirSync(path.dirname(skill)).filter((name) => name.startsWith('hagency-inner-loop.bak.'));
         expect(backups).toHaveLength(2);
-        const backup = backups.find((name) => name !== 'hafleet-inner-loop.bak.older');
+        const backup = backups.find((name) => name !== 'hagency-inner-loop.bak.older');
         expect(readFileSync(path.join(path.dirname(skill), backup, 'local.txt'), 'utf8')).toBe('existing local skill');
         expect(readFileSync(`${skill}.bak.older`, 'utf8')).toBe('existing backup');
       }
@@ -126,14 +126,14 @@ describe('local install and uninstall scripts', () => {
   });
 
   test('uninstall removes only its owned inner-loop links', () => {
-    const tmp = makeTempRoot('hafleet-uninstall-inner-loop-');
+    const tmp = makeTempRoot('hagency-uninstall-inner-loop-');
     try {
       const home = path.join(tmp, 'home');
-      const owned = path.join(home, '.claude', 'skills', 'hafleet-inner-loop');
-      const custom = path.join(home, '.codex', 'skills', 'hafleet-inner-loop');
+      const owned = path.join(home, '.claude', 'skills', 'hagency-inner-loop');
+      const custom = path.join(home, '.codex', 'skills', 'hagency-inner-loop');
       mkdirSync(path.dirname(owned), { recursive: true });
       mkdirSync(custom, { recursive: true });
-      symlinkSync(path.join(ROOT, 'skills', 'hafleet-inner-loop'), owned);
+      symlinkSync(path.join(ROOT, 'skills', 'hagency-inner-loop'), owned);
       writeFileSync(path.join(custom, 'SKILL.md'), 'user-owned skill');
       runScript('uninstall.sh', [
         '--yes', '--skip-mcp', '--systemd-dir', path.join(tmp, 'systemd'),
@@ -141,12 +141,12 @@ describe('local install and uninstall scripts', () => {
       ], { home });
       expect(existsSync(owned)).toBe(false);
       expect(readFileSync(path.join(custom, 'SKILL.md'), 'utf8')).toBe('user-owned skill');
-      expect(existsSync(path.join(ROOT, 'skills', 'hafleet-inner-loop', 'scripts', 'monitor.mjs'))).toBe(true);
+      expect(existsSync(path.join(ROOT, 'skills', 'hagency-inner-loop', 'scripts', 'monitor.mjs'))).toBe(true);
     } finally { rmSync(tmp, { recursive: true, force: true }); }
   });
 
   test('install-full configures Claude Code and Codex MCP when the CLIs are available', () => {
-    const tmp = makeTempRoot('hafleet-install-mcp-');
+    const tmp = makeTempRoot('hagency-install-mcp-');
     try {
       const home = path.join(tmp, 'home');
       const systemdDir = path.join(tmp, 'systemd');
@@ -175,17 +175,17 @@ describe('local install and uninstall scripts', () => {
 
       const claudeArgs = readFileSync(claudeLogPath, 'utf-8');
       expect(claudeArgs).toContain('mcp add -s user');
-      expect(claudeArgs).toContain('HAFLEET_API=http://127.0.0.1:8090');
+      expect(claudeArgs).toContain('HAGENCY_API=http://127.0.0.1:8090');
       expect(claudeArgs).toContain('API_TOKEN=test-install-token');
-      expect(claudeArgs).toContain(`HAFLEET_HOMEDIR=${home}/.hafleet`);
-      expect(claudeArgs).toContain(`hafleet node ${ROOT}/mcp-server.js`);
+      expect(claudeArgs).toContain(`HAGENCY_HOMEDIR=${home}/.hagency`);
+      expect(claudeArgs).toContain(`hagency node ${ROOT}/mcp-server.js`);
 
       const codexArgs = readFileSync(codexLogPath, 'utf-8');
-      expect(codexArgs).toContain('mcp remove hafleet');
-      expect(codexArgs).toContain('mcp add hafleet');
-      expect(codexArgs).toContain('HAFLEET_API=http://127.0.0.1:8090');
+      expect(codexArgs).toContain('mcp remove hagency');
+      expect(codexArgs).toContain('mcp add hagency');
+      expect(codexArgs).toContain('HAGENCY_API=http://127.0.0.1:8090');
       expect(codexArgs).toContain('API_TOKEN=test-install-token');
-      expect(codexArgs).toContain(`HAFLEET_HOMEDIR=${home}/.hafleet`);
+      expect(codexArgs).toContain(`HAGENCY_HOMEDIR=${home}/.hagency`);
       expect(codexArgs).toContain(`node ${ROOT}/mcp-server.js`);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
@@ -193,7 +193,7 @@ describe('local install and uninstall scripts', () => {
   });
 
   test('install-full rejects a configured NODE_BIN that is not executable', () => {
-    const tmp = makeTempRoot('hafleet-install-node-bin-');
+    const tmp = makeTempRoot('hagency-install-node-bin-');
     try {
       const home = path.join(tmp, 'home');
       const systemdDir = path.join(tmp, 'systemd');
@@ -228,7 +228,7 @@ describe('local install and uninstall scripts', () => {
   });
 
   test('uninstall removes installed units, CLI symlinks, owned skills, and sudoers while preserving data by default', () => {
-    const tmp = makeTempRoot('hafleet-uninstall-');
+    const tmp = makeTempRoot('hagency-uninstall-');
     try {
       const home = path.join(tmp, 'home');
       const systemdDir = path.join(tmp, 'systemd');
@@ -238,8 +238,8 @@ describe('local install and uninstall scripts', () => {
       mkdirSync(home, { recursive: true });
       mkdirSync(systemdDir, { recursive: true });
       mkdirSync(sudoersDir, { recursive: true });
-      mkdirSync(path.join(home, '.hafleet'), { recursive: true });
-      writeFileSync(path.join(sudoersDir, 'hafleet-autodeploy'), 'hafleet sudoers\n');
+      mkdirSync(path.join(home, '.hagency'), { recursive: true });
+      writeFileSync(path.join(sudoersDir, 'hagency-autodeploy'), 'hagency sudoers\n');
 
       runScript('install-full.sh', [
         '--deny-existing-tmux',
@@ -260,14 +260,14 @@ describe('local install and uninstall scripts', () => {
         '--bin-dir', binDir,
       ], { home });
 
-      expect(existsSync(path.join(systemdDir, 'hafleet.service'))).toBe(false);
-      expect(existsSync(path.join(systemdDir, 'hafleet-backend.service'))).toBe(false);
-      expect(existsSync(path.join(systemdDir, 'hafleet-push-relay.service'))).toBe(false);
-      expect(existsSync(path.join(binDir, 'hafleet'))).toBe(false);
+      expect(existsSync(path.join(systemdDir, 'hagency.service'))).toBe(false);
+      expect(existsSync(path.join(systemdDir, 'hagency-backend.service'))).toBe(false);
+      expect(existsSync(path.join(systemdDir, 'hagency-push-relay.service'))).toBe(false);
+      expect(existsSync(path.join(binDir, 'hagency'))).toBe(false);
       expect(existsSync(path.join(home, '.claude', 'skills', 'agent-message'))).toBe(false);
-      expect(existsSync(path.join(home, '.codex', 'skills', 'hafleet'))).toBe(false);
-      expect(existsSync(path.join(sudoersDir, 'hafleet-autodeploy'))).toBe(false);
-      expect(existsSync(path.join(home, '.hafleet'))).toBe(true);
+      expect(existsSync(path.join(home, '.codex', 'skills', 'hagency'))).toBe(false);
+      expect(existsSync(path.join(sudoersDir, 'hagency-autodeploy'))).toBe(false);
+      expect(existsSync(path.join(home, '.hagency'))).toBe(true);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -281,16 +281,16 @@ describe('local install and uninstall scripts', () => {
   });
 
   test('local service units use optional env files and backend-first ordering', () => {
-    const backendUnit = readFileSync('hafleet-backend.service', 'utf-8');
-    const relayUnit = readFileSync('hafleet-push-relay.service', 'utf-8');
+    const backendUnit = readFileSync('hagency-backend.service', 'utf-8');
+    const relayUnit = readFileSync('hagency-push-relay.service', 'utf-8');
     const bridgeUnit = readFileSync('bridge-matrix.service', 'utf-8');
 
     expect(backendUnit).toContain('After=network.target');
-    expect(backendUnit).not.toContain('After=network.target hafleet.service');
+    expect(backendUnit).not.toContain('After=network.target hagency.service');
     expect(backendUnit).toContain('EnvironmentFile=-__INSTALL_DIR__/.env');
-    expect(relayUnit).toContain('After=network-online.target hafleet-backend.service');
+    expect(relayUnit).toContain('After=network-online.target hagency-backend.service');
     expect(relayUnit).toContain('EnvironmentFile=-__INSTALL_DIR__/.env');
-    expect(bridgeUnit).toContain('After=network.target hafleet-backend.service');
+    expect(bridgeUnit).toContain('After=network.target hagency-backend.service');
     expect(bridgeUnit).toContain('EnvironmentFile=-__INSTALL_DIR__/.env');
     expect(backendUnit).toContain('ExecStart=__NODE_BIN__ __INSTALL_DIR__/backend-v2.js');
     expect(relayUnit).toContain('ExecStart=__NODE_BIN__ __INSTALL_DIR__/push-relay.js');

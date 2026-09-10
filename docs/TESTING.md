@@ -1,7 +1,7 @@
 # Testing
 
 ```bash
-npm test                  # full suite, serial
+npm test                  # full suite, four serial process shards
 npm run test:kernel       # sharded kernel + CLI subset
 npm run verify:ci         # all gates (needs GNU timeout; macOS: brew install coreutils)
 ```
@@ -106,6 +106,22 @@ heavy `api-*` files, budget boots per file) — that work is tracked on the
 coordination board, not here. Do not raise this number to make a failing test
 pass; find the loop or the retention instead.
 
+## Full-suite process boundaries (2026-09-08 integration)
+
+The combined suite has outgrown the original single-process allowance: the
+integration run exhausted 4096 MiB after 150 completed files, while the active
+membership-observation file passed in isolation with a 1024 MiB ceiling. Its
+SSE drain now has an independent iteration watchdog as required by LOOP-R1.
+This is consistent with the cross-file module retention documented above.
+
+`npm test` and `npm run test:ci` now execute four deterministic Vitest shards
+sequentially, each in a fresh process at the same 4096 MiB ceiling. All shard
+verdicts are merged with Vitest's blob reporter; CI still writes
+`test-results.json`. A failed, crashed or missing shard fails the command even
+if the remaining shards pass. There are no automatic retries or exclusions.
+Focused selectors (`npm test -- tests/example.test.js`) keep their direct
+single-run behavior. The module-retention debt itself remains open.
+
 ## Feature work starts from a task spec (2026-08-31)
 
 Bug fixes may proceed without ceremony. A NEW feature starts with a task contract
@@ -151,7 +167,7 @@ Two further measurements close the theory's escape routes:
 **And the prescribed fix would not have worked.** "Make the runtime directory injectable so one
 module instance serves every test" is blocked by something the inventory below missed: **51 test
 files inject `seed.env` at 156 sites**, including `API_TOKEN` (17), `AGENT_HEARTBEAT_TTL_MS` (12),
-`HAFLEET_AGENT_TOKEN_MODE` (10) and `AGENT_SERVER_SWEEP_INTERVAL_MS` (7) — all read into module
+`HAGENCY_AGENT_TOKEN_MODE` (10) and `AGENT_SERVER_SWEEP_INTERVAL_MS` (7) — all read into module
 CONSTANTS at import time. One shared instance would serve all of them whatever the first import
 saw, silently: a test handed the wrong TTL does not fail, it measures the wrong thing.
 
@@ -209,7 +225,7 @@ several unrelated flakes rather than one systemic problem.
 
 ### Measured concurrency trade-off
 
-| `HAFLEET_KERNEL_MAX_CONCURRENCY` | Wall clock | Result |
+| `HAGENCY_KERNEL_MAX_CONCURRENCY` | Wall clock | Result |
 |---|---|---|
 | 5 | ~69 s | fails ~2 runs in 3 |
 | 2 | ~118 s | still fails |
@@ -223,7 +239,7 @@ performance budget.
 Override when you want speed and can tolerate flakes:
 
 ```bash
-HAFLEET_KERNEL_MAX_CONCURRENCY=5 npm run test:kernel
+HAGENCY_KERNEL_MAX_CONCURRENCY=5 npm run test:kernel
 ```
 
 ### Ruled out
@@ -312,7 +328,7 @@ belongs here once it has failed in a whole-suite run and passed in isolation imm
 | 2026-08-18 | three whole-suite runs in a row, a different file each time: `api-provenance` + `agent-state-integration`, then `router-launch-recovery` | one or two tests per run | **yes, and read the frequency note.** Every file was clean in isolation and clean run together 3/3; the FOURTH whole-suite run was 3453/3453 green. What makes this entry worth keeping is the suspicion: the change under test added a REAL outbound fetch to a dead port inside one delete test, and the 2026-08-15 `api-project-sides` entry warns that outbound HTTP in tests should be suspected before the tests are. That connection fails on ECONNREFUSED with no lingering socket, and run 4 was clean — so it is recorded as this class, with the frequency (three runs with failures, then one clean) written down so a future reader can compare rather than re-derive |
 | 2026-08-18 | `delivery-queue` | `reminders persist across a reload, and DELETE cancels one` | **yes** — 3/3 clean in isolation; same file as the 2026-08-15 pair sighting. The branch under test added an outbound fetch to `/api/matrix/reach` and one test that dials port 9, so outbound HTTP was the first suspicion again — but this file's tests do not touch reach, and the added call is one connection per request |
 | 2026-08-19 | one whole-suite run, file not identified | one test | **NO — and that is the finding.** The run was piped through `tail -6`, so the summary said `1 failed` and the specimen was thrown away. This document's own "The failures are FAST, not slow" section warns about exactly that, and I did it anyway. Recorded so the mistake is in the log rather than only in the prose |
-| 2026-08-19 | `remote-autodeploy` | `post-deploy verification failure retries on the next poll` + `…can read API settings from remote env file` | **yes** — `Error: Test timed out in 30000ms` on the second, and `Command failed: bash scripts/hafleet-remote-autodeploy.sh` on the first. A NEW file for this list and the most subprocess-heavy one in the suite: it shells out to a real bash script per test. Clean in isolation 3/3 (8/8 each). The change under test was the engagement revoke path and the appservice invite window, neither of which that script or its test reaches |
+| 2026-08-19 | `remote-autodeploy` | `post-deploy verification failure retries on the next poll` + `…can read API settings from remote env file` | **yes** — `Error: Test timed out in 30000ms` on the second, and `Command failed: bash scripts/hagency-remote-autodeploy.sh` on the first. A NEW file for this list and the most subprocess-heavy one in the suite: it shells out to a real bash script per test. Clean in isolation 3/3 (8/8 each). The change under test was the engagement revoke path and the appservice invite window, neither of which that script or its test reaches |
 | 2026-08-20 | `agent-ops-client-backend` | `agent_ops_mark_inspected_requires_non_quarantine_resource` | **yes** — `expected 404 to be 409`, the same 404-instead-of-the-real-answer shape as five earlier entries. Clean in isolation 3/3 (17/17 each). The change under test was two reply strings in `lib/bot-commands.js`, which that file never references |
 | 2026-08-22 | `api-engagement-room-admission` (twice, same test), plus `api-project-side-projects`, `api-runtime` | `but NOT while another engagement still puts that agent in that room` | **yes, and it cost the most of any entry here.** The specimen was `TypeError: Cannot read properties of undefined (reading 'id')`, which reads as a defect in the test rather than as an environment failure — the real cause was `POST /api/engagements` not answering, and the same run's other failure was a bare `read ECONNRESET`. It failed in BOTH whole-suite runs of a branch while master ran clean once, which is exactly the shape that makes you suspect the change under test; the change was three lines of a shell script no test in this repository executes. Clean 10/10 in isolation, and 66/66 running the three affected files together 3×. `approve()` in that file now throws with the status and body instead of returning a response the caller dereferences |
 | 2026-08-18 | `api-provisioned-identity` + `api-project-side-knock` | one test each | **probably, and this pair deserved the suspicion.** Both files cover minting an identity and joining a room — the exact area the change under test touches (`sayInRoom`, representative sends), so "my change broke them" was the first reading, not the last. Ruled out by 3/3 clean runs of the pair together and a clean 3474/3474 whole-suite run of the same tree immediately after. Recorded because a future sighting in these two files while this area is being edited should NOT be waved through on this entry |
@@ -543,7 +559,7 @@ would not explain `api-pool`, which flakes with one context — but one file is 
 |---|---|
 | two contexts running concurrently | `fileParallelism: false`, `maxWorkers: 1` — never two at once |
 | a leaked timer from the previous FILE | the 2026-08-15 pair ran at #7 and #197 of 198 |
-| the twelve files that set `HAFLEET_RUNTIME_DIR` themselves, bypassing the import lock | none of the recurring cast is among them; all nine use the helper |
+| the twelve files that set `HAGENCY_RUNTIME_DIR` themselves, bypassing the import lock | none of the recurring cast is among them; all nine use the helper |
 | real sockets (the `Parse Error: Expected HTTP/` shape) | **Refuted 2026-09-09:** Supertest opens a real listener for every `request(expressApp)`, even when the test does not call `.listen()` itself. See the confirmed loopback defect above. |
 
 Note also that this section's own measurements say each file gets a FRESH WORKER PROCESS, which rules
@@ -686,7 +702,7 @@ because the state inventory below is accurate and useful for other purposes — 
 correction: there are **8** module-level `Set`s, not 3.
 
 Stop minting a module per context. The cache-buster exists only because
-`backend-v2.js` reads `HAFLEET_RUNTIME_DIR` at module scope
+`backend-v2.js` reads `HAGENCY_RUNTIME_DIR` at module scope
 (`backend-v2.js:87`), so a fresh runtime directory requires a fresh module.
 
 Making the runtime directory injectable would let one module instance serve every

@@ -93,7 +93,7 @@ describe('the working directory flag is declared per adapter, not assumed', () =
   });
 
   test('the host reads the flag from the adapter rather than hardcoding it', () => {
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).toMatch(/cwdFlag: framework\.launch\.acpCwdFlag/);
     expect(readFileSync('lib/runtime/acp.js', 'utf-8')).not.toMatch(/'--cwd'/);
   });
@@ -215,7 +215,7 @@ describe('a session id that is not one never reaches the wire', () => {
   });
 
   test('the host refuses to store one', () => {
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).toMatch(/if \(!isUsableSessionId\(id\)\) \{/);
     // Both directions: never write one, never trust one already written.
     expect(host).toMatch(/ignoring a stored session id that is not one/);
@@ -224,7 +224,7 @@ describe('a session id that is not one never reaches the wire', () => {
 
   test('a failed start does not erase a good id from an earlier one', () => {
     // Clearing on failure would turn one bad boot into permanent memory loss.
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     const fn = host.slice(host.indexOf('function rememberSessionId'));
     const body = fn.slice(0, fn.indexOf('\n}'));
     expect(body).not.toMatch(/unlinkSync|rmSync|writeFileSync\(SESSION_ID_FILE, ''/);

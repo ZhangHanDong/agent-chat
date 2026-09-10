@@ -5,12 +5,23 @@ import {
   SimpleFsStorageProvider,
 } from 'matrix-bot-sdk';
 import { validateMasqueradeUserId, setMasqueradeUserParam } from './lib/matrix-representative.js';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { createAppserviceRouter } from './lib/appservice-receiver.js';
+import { MatrixDirectChats, sendDirectEvent } from './lib/matrix-direct-chat.js';
+import { prepareMatrixFile, receiveMatrixFile, encryptedRoom, MatrixFileError } from './lib/matrix-file.js';
+import { matrixMarkdownContent } from './lib/matrix-markdown.js';
+import { isMatrixActivity, matrixActivityContent } from './lib/matrix-activity.js';
+import { reconcileAgentDisplayName } from './lib/matrix-agent-profile.js';
+import { createFleetProtocol, FLEET_PROBE_EVENT, FLEET_REQUEST_EVENT } from './lib/fleet-protocol.js';
+import { FleetOutboundClient } from './lib/fleet-outbound-client.js';
+import { FleetOutboundStore, outboundDigest } from './lib/fleet-outbound-store.js';
+import { projectSideAgentPrefix, projectSideAgentMxid } from './lib/matrix-agent-identity.js';
+import { executeMatrixWork } from './lib/matrix-work-executor.js';
 import {
   createRoomOnSide, inviteToRoomOnSide, joinRoomOnSideAsAgent, joinRoomOnSideAsRepresentative,
   sendToRoomOnSide, namespaceAdmits,
-  joinedMembersOnSide, roomMessagesOnSide,
+  joinedMembersOnSide,
+  roomStateOnSide, roomMessagesOnSide, roomNameOnSide,
 } from './lib/matrix-representative.js';
 import { resolveAppserviceListenerConfig, startAppserviceListener } from './lib/appservice-listener.js';
 import {
@@ -35,6 +46,7 @@ function logProvenanceVerdict({ code, kind, provenance = {}, sideId, roomId, ref
 }
 import { resolveEdgeLinkConfig, startEdgePuller } from './lib/appservice-puller.js';
 import { resolveAppserviceSyncConfig, startAppserviceSyncCollector } from './lib/appservice-sync.js';
+import { startRepresentativeSyncCollector, reconcileRepresentativeTimeline } from './lib/representative-sync.js';
 import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { execFile } from 'child_process';
 import os from 'os';
@@ -92,6 +104,13 @@ export class ReliableMatrixClient extends MatrixClient {
       }
       return this.emit(eventName, ...payload);
     });
+  }
+
+  async doSync(_uncommittedToken) {
+    // matrix-bot-sdk advances its local loop token before processSync succeeds.
+    // Always poll from the durable token, which is written only after every
+    // awaited handler succeeds; a failed binding read must retry the same batch.
+    return super.doSync(await this.storage.getSyncToken());
   }
 
   async doRequest(method, endpoint, query = null, body = null, ...rest) {
@@ -180,7 +199,7 @@ const execFileAsync = promisify(execFile);
 let execFileAsyncImpl = execFileAsync;
 const REPO_ROOT = path.dirname(__filename);
 const RUNTIME_ROOT = (() => {
-  const raw = String(process.env.HAFLEET_RUNTIME_DIR || '').trim();
+  const raw = String(process.env.HAGENCY_RUNTIME_DIR || '').trim();
   return raw ? path.resolve(raw) : REPO_ROOT;
 })();
 assertRuntimeDir(RUNTIME_ROOT);
@@ -189,34 +208,34 @@ const HOMESERVER = process.env.MATRIX_HOMESERVER || 'https://matrix.example.com'
 // LINE PROTOCOL vs PRODUCT NAME. The wire namespace is `com.agentchat.*` because robrix2 —
 // the only deployed consumer of these events — matches exactly those strings. Renaming the
 // product renamed the constants in an earlier round and silently broke both directions: the
-// bridge sent `com.hafleet.*` nobody read, and verdicts sent by deployed clients as
+// bridge sent `com.hagency.*` nobody read, and verdicts sent by deployed clients as
 // `com.agentchat.*` were ignored. The wire name stays `com.agentchat.*` regardless of what
 // the product is called; outbound sends ONLY the wire name. Inbound verdicts accept BOTH
 // during the transition so events already in flight under the old name are not lost.
 const APPROVAL_EVENT_KEY = 'com.agentchat.approval';
-const LEGACY_APPROVAL_EVENT_KEY = 'com.hafleet.approval';
+const LEGACY_APPROVAL_EVENT_KEY = 'com.hagency.approval';
 const APPROVAL_STATUS_MSGTYPE = 'com.agentchat.approval.status.v1';
 const APPROVAL_REQUEST_MSGTYPE = 'com.agentchat.approval.request.v1';
 const APPROVAL_VERDICT_MSGTYPE = 'com.agentchat.approval.verdict.v1';
-const LEGACY_APPROVAL_VERDICT_MSGTYPE = 'com.hafleet.approval.verdict.v1';
-const AGENT_OPS_EVENT_KEY = 'com.hafleet.agent_ops';
-const AGENT_OPS_SESSION_REQUEST_MSGTYPE = 'com.hafleet.agent_ops.client_session.request.v1';
-const AGENT_OPS_SESSION_GRANT_MSGTYPE = 'com.hafleet.agent_ops.client_session.grant.v1';
-const AGENT_OPS_SESSION_REVOKE_MSGTYPE = 'com.hafleet.agent_ops.client_session.revoke.v1';
+const LEGACY_APPROVAL_VERDICT_MSGTYPE = 'com.hagency.approval.verdict.v1';
+const AGENT_OPS_EVENT_KEY = 'com.hagency.agent_ops';
+const AGENT_OPS_SESSION_REQUEST_MSGTYPE = 'com.hagency.agent_ops.client_session.request.v1';
+const AGENT_OPS_SESSION_GRANT_MSGTYPE = 'com.hagency.agent_ops.client_session.grant.v1';
+const AGENT_OPS_SESSION_REVOKE_MSGTYPE = 'com.hagency.agent_ops.client_session.revoke.v1';
 const MATRIX_MEGOLM_ALGORITHM = 'm.megolm.v1.aes-sha2';
 const REGISTRATION_TOKEN = (process.env.MATRIX_REG_TOKEN || '').trim();
 
 export function resolveApprovalDmMode(env = process.env) {
-  const requested = String(env.HAFLEET_APPROVAL_DM_MODE || 'required').trim().toLowerCase();
+  const requested = String(env.HAGENCY_APPROVAL_DM_MODE || 'required').trim().toLowerCase();
   if (requested === 'required') return 'required';
   if (requested !== 'plaintext-test') {
-    throw new Error(`unsupported HAFLEET_APPROVAL_DM_MODE: ${requested || '<empty>'}`);
+    throw new Error(`unsupported HAGENCY_APPROVAL_DM_MODE: ${requested || '<empty>'}`);
   }
   if (String(env.NODE_ENV || '').trim().toLowerCase() === 'production') {
     throw new Error('plaintext approval diagnostics are forbidden in production');
   }
-  if (String(env.HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST || '').trim() !== '1') {
-    throw new Error('plaintext approval diagnostics require HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST=1');
+  if (String(env.HAGENCY_ALLOW_PLAINTEXT_APPROVAL_TEST || '').trim() !== '1') {
+    throw new Error('plaintext approval diagnostics require HAGENCY_ALLOW_PLAINTEXT_APPROVAL_TEST=1');
   }
   return 'plaintext-test';
 }
@@ -258,23 +277,23 @@ async function fetchWithRateLimit(url, init, tries = 6) {
   }
   return res;
 }
-const DEFAULT_BACKEND_PORT_RAW = Number.parseInt(process.env.HAFLEET_BACKEND_PORT || '8090', 10);
+const DEFAULT_BACKEND_PORT_RAW = Number.parseInt(process.env.HAGENCY_BACKEND_PORT || '8090', 10);
 const DEFAULT_BACKEND_PORT = Number.isFinite(DEFAULT_BACKEND_PORT_RAW) && DEFAULT_BACKEND_PORT_RAW > 0
   ? DEFAULT_BACKEND_PORT_RAW
   : 8090;
-const BACKEND_URL = (process.env.HAFLEET_API || `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`).trim().replace(/\/$/, '');
-const BACKEND_FETCH_TIMEOUT_MS_RAW = Number.parseInt(process.env.HAFLEET_BACKEND_FETCH_TIMEOUT_MS || '12000', 10);
+const BACKEND_URL = (process.env.HAGENCY_API || `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`).trim().replace(/\/$/, '');
+const BACKEND_FETCH_TIMEOUT_MS_RAW = Number.parseInt(process.env.HAGENCY_BACKEND_FETCH_TIMEOUT_MS || '12000', 10);
 const BACKEND_FETCH_TIMEOUT_MS = Number.isFinite(BACKEND_FETCH_TIMEOUT_MS_RAW) && BACKEND_FETCH_TIMEOUT_MS_RAW > 0
   ? BACKEND_FETCH_TIMEOUT_MS_RAW
   : 12000;
-const BACKEND_FETCH_RETRY_DELAY_MS_RAW = Number.parseInt(process.env.HAFLEET_BACKEND_FETCH_RETRY_DELAY_MS || '2500', 10);
+const BACKEND_FETCH_RETRY_DELAY_MS_RAW = Number.parseInt(process.env.HAGENCY_BACKEND_FETCH_RETRY_DELAY_MS || '2500', 10);
 const BACKEND_FETCH_RETRY_DELAY_MS = Number.isFinite(BACKEND_FETCH_RETRY_DELAY_MS_RAW) && BACKEND_FETCH_RETRY_DELAY_MS_RAW > 0
   ? BACKEND_FETCH_RETRY_DELAY_MS_RAW
   : 2500;
 const THREAD_SESSIONS_ENABLED = ['1', 'true', 'yes', 'on'].includes(
-  String(process.env.HAFLEET_THREAD_SESSIONS || '').trim().toLowerCase(),
+  String(process.env.HAGENCY_THREAD_SESSIONS || '').trim().toLowerCase(),
 );
-const ROUTER_OUTBOX_POLL_MS_RAW = Number.parseInt(process.env.HAFLEET_ROUTER_OUTBOX_POLL_MS || '1000', 10);
+const ROUTER_OUTBOX_POLL_MS_RAW = Number.parseInt(process.env.HAGENCY_ROUTER_OUTBOX_POLL_MS || '1000', 10);
 const ROUTER_OUTBOX_POLL_MS = Number.isFinite(ROUTER_OUTBOX_POLL_MS_RAW)
   ? Math.max(250, ROUTER_OUTBOX_POLL_MS_RAW)
   : 1000;
@@ -291,7 +310,7 @@ function appendMsgPath(baseUrl) {
 }
 
 function resolveMessageBaseUrl(env = process.env) {
-  const webBase = normalizeBaseUrl(env.HAFLEET_WEB_URL);
+  const webBase = normalizeBaseUrl(env.HAGENCY_WEB_URL);
   if (webBase) return appendMsgPath(webBase);
 
   const legacyMsgBase = normalizeBaseUrl(env.MSG_BASE_URL);
@@ -303,13 +322,13 @@ function resolveMessageBaseUrl(env = process.env) {
    * These links go into Matrix messages and outlive the process that answered them, so the default has
    * to point at something that will still be there. `backend-v2.js` serves `/msg/:id` itself — it has
    * all along — while the copy on the old web portal existed only for that portal's own pages, which
-   * are now deleted. `HAFLEET_WEB_URL` and `MSG_BASE_URL` above still override, so a deployment that
+   * are now deleted. `HAGENCY_WEB_URL` and `MSG_BASE_URL` above still override, so a deployment that
    * put the viewer somewhere else keeps working.
    *
    * LINKS ALREADY SENT still say 8084. Nothing can rewrite a message that has been delivered, so those
    * break when that process stops — which is the cost of retiring it, stated rather than discovered.
    */
-  const backendPortRaw = Number.parseInt(env.HAFLEET_BACKEND_PORT || '8090', 10);
+  const backendPortRaw = Number.parseInt(env.HAGENCY_BACKEND_PORT || '8090', 10);
   const backendPort = Number.isFinite(backendPortRaw) && backendPortRaw > 0 ? backendPortRaw : 8090;
   return `http://127.0.0.1:${backendPort}/msg`;
 }
@@ -1088,14 +1107,12 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const AGENT_PREFIX_RE = escapeRegex(AGENT_PREFIX);
-
 if (!BOT_PASSWORD) {
   console.warn('MATRIX_BOT_PASSWORD is not set. Bridge can run with cached token, but re-login will fail if token expires.');
 }
 
 if (!AUTO_AVATAR_ENABLED) {
-  console.warn('MATRIX_AUTO_AVATAR is disabled. Automatic avatar generation/sync is off; use hafleet-cli avatar <name> <image-file> for manual updates.');
+  console.warn('MATRIX_AUTO_AVATAR is disabled. Automatic avatar generation/sync is off; use hagency-cli avatar <name> <image-file> for manual updates.');
 }
 
 function makeUserId(localpart) {
@@ -1159,8 +1176,12 @@ function agentUserId(name) {
  * ownership was recorded, and every later approval failed `owner_binding_missing`. That was a
  * case difference. A wrong SERVER is the same mechanism with a larger error.
  */
-function agentMxid(name) {
-  return agentCredential(name)?.mxid || agentUserId(name);
+function agentMxid(name, bridge = null) {
+  const recorded = agentCredential(name)?.mxid;
+  if (recorded) return recorded;
+  const acting = bridge?.actingSideFor?.(MATRIX_SERVER_NAME);
+  return acting?.credential?.kind === 'appservice'
+    ? projectSideAgentMxid(name, acting, AGENT_PREFIX) : agentUserId(name);
 }
 
 function humanUserId(name) {
@@ -2030,7 +2051,7 @@ async function setCustomAgentAvatar(agentName, imageBuffer, mimeType) {
  * router preserves receivers whose token has not changed, so a refresh is cheap and does not disturb
  * deduplication.
  */
-const APPSERVICE_SIDE_REFRESH_MS = Number.parseInt(process.env.HAFLEET_APPSERVICE_REFRESH_MS || '60000', 10) || 60_000;
+const APPSERVICE_SIDE_REFRESH_MS = Number.parseInt(process.env.HAGENCY_APPSERVICE_REFRESH_MS || '60000', 10) || 60_000;
 const MATRIX_BRIDGE_SECRET = (process.env.MATRIX_BRIDGE_SECRET || '').trim();
 const BRIDGE_API_TOKEN = (process.env.API_TOKEN || '').trim();
 
@@ -2257,6 +2278,7 @@ function sweepLeftRoomsOnSides(sideId, roomIds) {
     if (state.trustedManagedRooms?.[roomId]) {
       delete state.trustedManagedRooms[roomId];
     }
+    delete state.roomAgentBindings?.[roomId];
     const unmappedKey = unmapRoom(roomId);
     console.log(
       `[appservice-sync] side ${sideId}: left ${roomId} — trust cleared (${wasTrusted})`
@@ -2592,9 +2614,19 @@ export function buildOwnerApprovalRequest(approval) {
     expires_at: Number(approval?.expires_at || 0),
     actions: [
       { id: 'approve_once', label: 'Approve once', style: 'primary' },
+      ...(approval?.reusable_scope?.task_id ? [{ id: 'approve_task', label: 'Allow for this task', style: 'secondary' }] : []),
+      ...(approval?.reusable_scope ? [{ id: 'approve_always', label: 'Always allow this operation', style: 'secondary' }] : []),
       { id: 'deny', label: 'Deny', style: 'danger' },
     ],
   };
+  if (approval?.reusable_scope) {
+    const scope = approval.reusable_scope;
+    detail.reusable_scope = scope;
+    detail.description += `\nAuthorization scope for ${detail.agent} in project ${detail.project}:\n${scope.description}`
+      + `\nWorkspace: ${scope.workspace}`
+      + (scope.task_id ? `\nThis task: ${scope.task_id}` : '')
+      + '\nAlways allow saves this exact rule for this Agent and project. Revoke it in Hagency → Agent → Execution permissions.';
+  }
   const lines = [
     `Approval required for ${detail.agent}`,
     `Project: ${detail.project}`,
@@ -2603,7 +2635,8 @@ export function buildOwnerApprovalRequest(approval) {
     detail.description ? `Description: ${detail.description}` : null,
     detail.input_preview ? `Input: ${detail.input_preview}` : null,
     `Expires: ${new Date(detail.expires_at).toISOString()}`,
-    'Use the Approve once or Deny button. Text replies are not approval.',
+    approval?.reusable_scope ? 'Choose an approval button for the scope shown above. Text replies are not approval.'
+      : 'Use the Approve once or Deny button. Text replies are not approval.',
   ].filter(Boolean);
   return {
     msgtype: APPROVAL_REQUEST_MSGTYPE,
@@ -2618,7 +2651,7 @@ export function parseApprovalVerdictEvent(roomId, event) {
   /*
    * STRICT PAIRING, not per-field fallback. The transition accepts two complete shapes — the
    * current (msgtype com.agentchat.* + payload key com.agentchat.*) and the legacy
-   * (com.hafleet.* + com.hafleet.*) — and NOTHING mixed. A per-field `newKey ?? legacyKey`
+   * (com.hagency.* + com.hagency.*) — and NOTHING mixed. A per-field `newKey ?? legacyKey`
    * would let a hybrid through that neither side ever declared, widening the protocol surface
    * the transition was meant to shrink; a full-payload hybrid in EITHER direction is rejected.
    */
@@ -2632,7 +2665,7 @@ export function parseApprovalVerdictEvent(roomId, event) {
   }
   if (!detail || detail.version !== 1 || detail.kind !== 'verdict') return null;
   if (!detail || detail.version !== 1 || detail.kind !== 'verdict') return null;
-  const action = detail.action === 'approve_once' || detail.action === 'deny' ? detail.action : null;
+  const action = ['approve_once', 'approve_task', 'approve_always', 'deny'].includes(detail.action) ? detail.action : null;
   const senderMxid = typeof event?.sender === 'string' ? event.sender.trim() : '';
   const requestId = typeof detail.request_id === 'string' ? detail.request_id.trim() : '';
   const agent = typeof detail.agent === 'string' ? detail.agent.trim() : '';
@@ -2656,7 +2689,7 @@ export function parseApprovalVerdictEvent(roomId, event) {
 }
 
 function agentOpsClientFeatureEnabled(env = process.env) {
-  return ['1', 'true', 'yes', 'on'].includes(String(env.HAFLEET_AGENT_OPS_CLIENT || '').trim().toLowerCase());
+  return ['1', 'true', 'yes', 'on'].includes(String(env.HAGENCY_AGENT_OPS_CLIENT || '').trim().toLowerCase());
 }
 
 export function parseAgentOpsClientControlEvent(roomId, event) {
@@ -2667,7 +2700,7 @@ export function parseAgentOpsClientControlEvent(roomId, event) {
   const detail = content[AGENT_OPS_EVENT_KEY];
   const senderMxid = typeof event?.sender === 'string' ? event.sender.trim() : '';
   const eventId = typeof event?.event_id === 'string' ? event.event_id.trim() : '';
-  if (!detail || detail.schema !== 'com.hafleet.agent_ops.v1' || !/^@[^:\s]+:[^\s]+$/.test(senderMxid) || !eventId) {
+  if (!detail || detail.schema !== 'com.hagency.agent_ops.v1' || !/^@[^:\s]+:[^\s]+$/.test(senderMxid) || !eventId) {
     return { invalid: true, eventId: eventId || null };
   }
   if (content.msgtype === AGENT_OPS_SESSION_REVOKE_MSGTYPE) {
@@ -2718,7 +2751,7 @@ export function resolveInboundRoute({ groupName, targetAgent, isBotDm }) {
 // someone: prefer a coordinator, else wake the factory coordinator for the
 // single-agent mapped-room case, else nobody (let explicit
 // mentions decide). `agentUserIds` are Matrix MXIDs; `agentNameFromId` maps one
-// to an hafleet name (or null if it is not an agent account).
+// to an hagency name (or null if it is not an agent account).
 export function pickDefaultGroupRecipient(agentUserIds, agentNameFromId) {
   const ids = Array.isArray(agentUserIds) ? agentUserIds.filter(Boolean) : [];
   if (ids.length === 0) return null;
@@ -3039,9 +3072,13 @@ function renderMarkdownToMatrixHtml(raw) {
 }
 
 // ── Extract agent name from Matrix user ID ───────────────────────────
-function agentNameFromUserId(userId) {
+function agentNameFromUserId(userId, bridge = null) {
   // @ac_agentname:<server> → agentname
-  const match = userId.match(new RegExp(`^@${AGENT_PREFIX}([^:]+):`));
+  if (typeof userId !== 'string') return null;
+  const server = userId.slice(userId.indexOf(':') + 1).toLowerCase();
+  const acting = bridge?.actingSideFor?.(server);
+  const prefix = projectSideAgentPrefix(acting ?? {}, AGENT_PREFIX);
+  const match = userId.match(new RegExp(`^@${escapeRegex(prefix)}([^:]+):`));
   return match ? match[1] : null;
 }
 
@@ -3088,21 +3125,24 @@ function humanNameFromUserId(userId) {
   return match[1];
 }
 
-function isAgentUser(userId) {
-  return userId.includes(`:`) && userId.startsWith(`@${AGENT_PREFIX}`);
+function isAgentUser(userId, bridge = null) {
+  return agentNameFromUserId(userId, bridge) !== null;
 }
 
 // ── Parse mentions from Matrix message ───────────────────────────────
-function parseMentions(content, plainBody = null) {
+function parseMentions(content, plainBody = null, bridge = null, roomId = null) {
   const mentions = [];
+  const server = typeof roomId === 'string' ? roomId.slice(roomId.indexOf(':') + 1).toLowerCase() : null;
+  const prefix = projectSideAgentPrefix(bridge?.actingSideFor?.(server) ?? {}, AGENT_PREFIX);
+  const prefixRegex = escapeRegex(prefix);
 
   // 1. Parse m.mentions.user_ids (modern Matrix spec)
   if (content['m.mentions']?.user_ids) {
     for (const userId of content['m.mentions'].user_ids) {
       // @ac_agentname:<server> → agentname
-      const agentMatch = userId.match(new RegExp(`^@${AGENT_PREFIX}([^:]+):`));
-      if (agentMatch) {
-        mentions.push(agentMatch[1]);
+      const agentName = agentNameFromUserId(userId, bridge);
+      if (agentName) {
+        mentions.push(agentName);
       } else {
         // @username:<server> → username (human or other)
         const userMatch = userId.match(/^@([^:]+):/);
@@ -3113,7 +3153,7 @@ function parseMentions(content, plainBody = null) {
 
   // 2. Fallback: parse HTML pills from formatted_body
   if (!mentions.length && content.formatted_body) {
-    const hrefRegex = new RegExp(`matrix\\.to/#/@(?:${AGENT_PREFIX_RE})?([a-z0-9_-]+):`, 'gi');
+    const hrefRegex = new RegExp(`matrix\\.to/#/@(?:${prefixRegex})?([a-z0-9_-]+):`, 'gi');
     let match;
     while ((match = hrefRegex.exec(content.formatted_body)) !== null) {
       mentions.push(match[1]);
@@ -3123,7 +3163,7 @@ function parseMentions(content, plainBody = null) {
   // 3. Fallback: plain text @mentions in body
   const body = typeof plainBody === 'string' ? plainBody : content.body;
   if (!mentions.length && body) {
-    const atRegex = new RegExp(`@(?:${AGENT_PREFIX_RE})?([a-z0-9_-]+)`, 'gi');
+    const atRegex = new RegExp(`@(?:${prefixRegex})?([a-z0-9_-]+)`, 'gi');
     let match;
     while ((match = atRegex.exec(body)) !== null) {
       mentions.push(match[1]);
@@ -3252,7 +3292,7 @@ export function parseInboundTextMessage(content) {
   const msgType = typeof content.msgtype === 'string' ? content.msgtype : '';
   const relates = content['m.relates_to'] || {};
   if (relates.rel_type === 'm.replace') {
-    // Ignore edit events: they should not create a new hafleet message.
+    // Ignore edit events: they should not create a new hagency message.
     return { skip: true, body: '', replyEventId: null, threadRootEventId: null };
   }
   const threadRootEventId = relates.rel_type === 'm.thread' && typeof relates.event_id === 'string'
@@ -3735,7 +3775,9 @@ export class MatrixBridge {
     if (!this._rosterWasArray) {
       console.error(`[roster] /api/agents?view=names returned ${typeof payload}, not an array — treating the roster as untrusted`);
     }
-    return normalizeAgentNameList(payload);
+    const names = normalizeAgentNameList(payload);
+    if (this._rosterWasArray) this.authoritativeAgentNames = new Set(names.map(name => this.nameKey(name)));
+    return names;
   }
 
   /**
@@ -3803,9 +3845,9 @@ export class MatrixBridge {
   }
 
   managedAgentBotInviteTrust(roomId, inviterMxid) {
-    if (!inviterMxid || !isAgentUser(inviterMxid)) return null;
+    if (!inviterMxid || !isAgentUser(inviterMxid, this)) return null;
 
-    const inviterAgent = agentNameFromUserId(inviterMxid);
+    const inviterAgent = agentNameFromUserId(inviterMxid, this);
     const canonicalAgent = this.resolveKnownAgentName(inviterAgent);
     const managedBinding = findRoomAgentBinding(roomId, canonicalAgent);
     if (!canonicalAgent || !managedBinding) return null;
@@ -3813,15 +3855,15 @@ export class MatrixBridge {
     // Do not trust an agent-looking account from another homeserver, nor a
     // different local agent. The room became managed only after a trusted
     // developer invited this exact local puppet and it successfully joined.
-    if (inviterMxid !== agentMxid(canonicalAgent)) return null;
+    if (inviterMxid !== agentMxid(canonicalAgent, this)) return null;
     return { trusted: true, reason: 'managed_agent' };
   }
 
   /**
    * A room on a configured project side is not the bot's to refuse.
    *
-   * THE DEFECT, walked on two machines. HAFleet's bot and a side's representative can be the same Matrix
-   * user — `hafleet` is the representative's default localpart, so an operator who names the bot `hafleet`
+   * THE DEFECT, walked on two machines. Hagency's bot and a side's representative can be the same Matrix
+   * user — `hagency` is the representative's default localpart, so an operator who names the bot `hagency`
    * on a co-located deployment has one account doing both jobs. Both invite handlers then see the same
    * invite. Under `MATRIX_TRUST_MODE=enforce` the bot's ran first, found `untrusted_inviter` (a customer
    * is not in `MATRIX_TRUSTED_INVITER_MXIDS` and never will be), and LEFT the room — which consumed the
@@ -3935,10 +3977,9 @@ export class MatrixBridge {
    * match the namespace regex.
    */
   isKnownAgentMxid(mxid) {
-    const local = String(mxid || '').slice(1, String(mxid).indexOf(':'));
-    if (!local) return false;
-    if (!local.startsWith(AGENT_PREFIX)) return false;
-    return this.isKnownAgentName(local.slice(AGENT_PREFIX.length));
+    const name = agentNameFromUserId(mxid, this);
+    return Boolean(name && this.isKnownAgentName(name)
+      && (!this.authoritativeAgentNames || this.authoritativeAgentNames.has(this.nameKey(name))));
   }
 
   /*
@@ -3994,7 +4035,7 @@ export class MatrixBridge {
     for (const serverName of this.actingCredentials?.keys() ?? []) {
       const acting = this.actingSideFor(serverName);
       if (acting?.credential?.kind !== 'appservice') continue;
-      const mxid = `@${AGENT_PREFIX}${canonical}:${acting.side.serverName}`.toLowerCase();
+      const mxid = projectSideAgentMxid(canonical, acting, AGENT_PREFIX);
       /*
        * `=== true`, NOT truthiness. `namespaceAdmits` returns `true` on success and a REASON STRING on
        * failure — and a non-empty string is truthy, so `if (namespaceAdmits(...))` admitted every
@@ -4192,7 +4233,7 @@ export class MatrixBridge {
   }
 
   /**
-   * Everything that needs HAFleet's own bot account, in one place so it can fail on its own.
+   * Everything that needs Hagency's own bot account, in one place so it can fail on its own.
    *
    * Extracted rather than guarded site by site: the bot touches fifteen call sites in `start`, and fifteen
    * `if (this.botClient)` checks would be fifteen chances to forget one. A single boundary makes "the bot is
@@ -4323,7 +4364,7 @@ export class MatrixBridge {
     console.log(`[matrix-e2ee] bot crypto device verified device=${botSession.deviceId}`);
     console.log('Bot syncing...');
 
-    // 6. Listen to backend SSE for hafleet → Matrix
+    // 6. Listen to backend SSE for hagency → Matrix
     this.connectSSE();
 
     // 7. Scan all joined rooms for unmapped groups + backfill avatars
@@ -4384,7 +4425,7 @@ export class MatrixBridge {
      * THE BOT IS NOT THE ONLY WAY IN, and treating it as one turned a missing password into a total outage.
      *
      * On a co-located appservice deployment the inbound path is: customer's homeserver → edge → THIS process.
-     * None of it needs HAFleet's own bot. But every step of bringing that bot up sat before the intake with no
+     * None of it needs Hagency's own bot. But every step of bringing that bot up sat before the intake with no
      * guard, so `MATRIX_BOT_PASSWORD is required` — a credential with nothing to do with inbound — exited 1
      * and every customer went silent. Observed on clean machines; the console kept answering and the side kept
      * reporting `accepted`, because that describes the outbound direction.
@@ -4415,7 +4456,10 @@ export class MatrixBridge {
      * ONE decision, read once: hasConfiguredInboundPath consults the same three resolvers the intake
      * itself opens, so start() never carries its own reading of "is there an inbound path".
      */
-    const hasInboundPath = hasConfiguredInboundPath(process.env);
+    const hasInboundPath = hasConfiguredInboundPath(process.env)
+      || [...(this.actingCredentials?.values() ?? [])].some(row => row.kind === 'appservice' && row.transport?.mode === 'outbound')
+      || [...(this.actingCredentials?.values() ?? [])].some(row => row.kind === 'registrationToken'
+        && row.representativeToken && row.representative?.mxid && row.registration);
     try {
       await this.startBotSide();
     } catch (error) {
@@ -4435,7 +4479,7 @@ export class MatrixBridge {
       console.error(`[bridge] the bot could not be brought up: ${this.botUnavailable}`);
       console.error(
         '[bridge] CONTINUING WITHOUT IT because this deployment has an appservice path. What is lost: talking '
-        + 'to the operator from HAFleet\'s own homeserver, E2EE anywhere, approval DM rooms, and room/avatar '
+        + 'to the operator from Hagency\'s own homeserver, E2EE anywhere, approval DM rooms, and room/avatar '
         + 'scanning. What still works: appservice intake, and sends into project-side rooms as the '
         + 'representative. Fix the bot credential to get the rest back.',
       );
@@ -4466,12 +4510,31 @@ export class MatrixBridge {
 
     // 9. Poll for new agents and humans.
     await this.pollRegistrations();
+    this.directChats = new MatrixDirectChats({
+      directory: path.join(DATA_DIR, 'direct-agents'), Client: ReliableMatrixClient,
+      sdk: { EncryptedRoomEvent, RustSdkCryptoStorageProvider, SimpleFsStorageProvider },
+      backend: (...args) => this.callBackendApi(...args),
+      onMessage: (roomId, event) => this.onRoomMessage(roomId, event),
+      onBinding: binding => {
+        state.trustedManagedRooms ??= {};
+        state.trustedManagedRooms[binding.roomId] = { ...state.trustedManagedRooms[binding.roomId],
+          dm: binding.mode !== 'group', directChat: true, agent: binding.agent, humanMxid: binding.humanMxid,
+          projectRoomId: binding.projectRoomId,
+          projectSide: binding.projectRoomId.slice(binding.projectRoomId.indexOf(':') + 1),
+          addedAt: state.trustedManagedRooms[binding.roomId]?.addedAt ?? Date.now() };
+        saveState();
+      },
+      warning: message => this.postWarning(message, { kind: 'agent-direct-chat' }),
+    });
+    await this.refreshDirectChats();
     setInterval(() => this.pollRegistrations(), 30_000);
+    await this.pollMatrixWork();
+    setInterval(() => this.pollMatrixWork(), 2_000);
 
     // 10. Inbound appservice traffic, if this deployment exposes a socket for it (ADR-016).
     await this.startAppserviceIntake();
     /*
-     * THE BACKEND EVENT STREAM IS NOT BOT WORK. connectSSE() — the hafleet → Matrix half — was only
+     * THE BACKEND EVENT STREAM IS NOT BOT WORK. connectSSE() — the hagency → Matrix half — was only
      * ever called inside the bot bring-up, so a bot-less bridge collected every customer message and
      * never delivered a single agent reply: the first live run had the agent write its file, post
      * "done" to the backend, and the room stay silent. The consumer needs no bot client (its sends
@@ -4539,7 +4602,8 @@ export class MatrixBridge {
      * ① REGISTRATION RECHECK against the loaded snapshot — per event, never the wiring-time
      * closure. Absent snapshot (refresh never succeeded) is UNAVAILABLE, not empty.
      */
-    const snapshot = this.appserviceInboundSnapshot;
+    const snapshot = meta?.representativeSync === true
+      ? this.representativeInboundSnapshot : this.appserviceInboundSnapshot;
     if (!snapshot) {
       throw new SideProvenanceError(
         'side_registry_unavailable',
@@ -4787,6 +4851,20 @@ export class MatrixBridge {
         continue;
       }
       try {
+        // Dedicated agent devices own direct-room sync and encryption. Verify
+        // transport identity before coalescing AS copies; these rooms do not
+        // contain the project representative and must not block its AS queue.
+        const directEntry = this.directChats?.entryForRoom(roomId);
+        const directInvite = this.directChats?.clients.has(event.state_key) && event.type === 'm.room.member' && event.content?.membership === 'invite'
+          && this.isKnownAgentMxid(event.state_key);
+        if (directEntry || directInvite) {
+          const registered = this.appserviceInboundSnapshot?.get(normalizeSideKey(sideId));
+          if (registered) {
+            assertTransportProvenanceConsistency({ provenance: meta?.provenance, authenticatedSideId: sideId, snapshotEntry: registered });
+            if (directEntry ? directEntry.sender.side.serverName === normalizeSideKey(sideId)
+              : namespaceAdmits(this.actingSideFor(sideId)?.credential?.namespace, event.state_key)) continue;
+          }
+        }
         /*
          * F06 L3 — THE PROVENANCE GATE, before any typed path and before any dedup claim.
          * Fixed order (board release note): ①registration rechecked against the loaded registry
@@ -4823,7 +4901,10 @@ export class MatrixBridge {
           if (settled?.state === 'completed') continue;
           if (outcome?.ok === false) {
             await this.executeTypedForClaim(verdict.claimKey, async () => {
-              if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
+              if ([FLEET_PROBE_EVENT, FLEET_REQUEST_EVENT].includes(event.type)
+                && await this.fleetProtocolForBridge().recordEvent({ sideId, registration: meta?.provenance?.registration,
+                event, mode: meta?.mode })) return;
+              if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event, meta);
               if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
               else await this.onRoomEvent(roomId, event);
             });
@@ -4873,7 +4954,10 @@ export class MatrixBridge {
          * releases it (the redelivery re-enters the typed path) and propagates for the 500.
          */
         await this.executeTypedForClaim(verdict.claimKey, async () => {
-          if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event);
+          if ([FLEET_PROBE_EVENT, FLEET_REQUEST_EVENT].includes(event.type)
+            && await this.fleetProtocolForBridge().recordEvent({ sideId, registration: meta?.provenance?.registration,
+            event, mode: meta?.mode })) return;
+          if (event.type === 'm.room.member') await this.onAppserviceMembership(sideId, roomId, event, meta);
           if (event.type === 'm.room.message') await this.onRoomMessage(roomId, event);
           else await this.onRoomEvent(roomId, event);
         });
@@ -4912,13 +4996,13 @@ export class MatrixBridge {
    * around them. An invite for anyone else (an agent, a human, the bot) is left to the paths that own
    * those.
    */
-  async onAppserviceMembership(sideId, roomId, event) {
+  async onAppserviceMembership(sideId, roomId, event, meta = {}) {
     const membership = event?.content?.membership;
     if (membership !== 'invite') return;
     const acting = this.actingSideFor(sideId);
     if (!acting) return;
-    const representative = `@${String(acting.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
-    if (String(event?.state_key || '').toLowerCase() !== representative) return;
+    const representative = acting.side.representative?.mxid || `@${String(acting.credential?.senderLocalpart || '')}:${sideId}`;
+    if (String(event?.state_key || '') !== representative) return;
 
     /*
      * F10 (17-r1): the join goes through `joinRoomOnSideAsRepresentative`, which sets the masquerade
@@ -4989,7 +5073,7 @@ export class MatrixBridge {
        * The representative has the identical window — invite at t, join at t+2s, and sync starts at the
        * join — and this path never looked. Proven live, on a clean pair of machines: the ask before the
        * join produced no engagement, no reply and no error, while the same ask one second after the join
-       * worked. Inviting HAFleet and saying what you want in the same breath is the obvious way to use
+       * worked. Inviting Hagency and saying what you want in the same breath is the obvious way to use
        * this, so it is the case that has to work rather than the one to document around.
        *
        * AFTER THE JOIN IS REPORTED, AND UNABLE TO UNREPORT IT. The join is what makes the project
@@ -4998,9 +5082,16 @@ export class MatrixBridge {
        * surfaced to the operator as "the join failed", which is the opposite of what happened.
        */
       try {
-        await this.backfillJoinedRoomOnSide(sideId, roomId, representative);
+        if (meta.provenance) {
+          await this.backfillJoinedRoomOnSide(sideId, roomId, representative, {
+            provenance: meta.provenance, representativeSync: meta.representativeSync === true,
+          });
+        } else {
+          await this.backfillJoinedRoomOnSide(sideId, roomId, representative);
+        }
       } catch (error) {
         console.warn(`[appservice] ${sideId}: join backfill failed for ${roomId}: ${error?.message || error}`);
+        if (meta.provenance) throw error;
       }
     } catch (error) {
       /*
@@ -5084,14 +5175,108 @@ export class MatrixBridge {
      */
     const gone = [...(this.actingCredentials?.keys() ?? [])].filter((sideId) => !next.has(sideId));
     this.actingCredentials = next;
+    if (this.appserviceRouter) await this.refreshOutboundFleets();
     if (gone.length) this.forgetRoomsOnSides(gone);
+    if (this.representativeIntakeReady) this.refreshRepresentativeCollectors();
+    if (this.directChats) {
+      try { await this.refreshDirectChats(); }
+      catch (error) { this.postWarning(`Private chat refresh awaits backend recovery: ${error.message}`, { kind: 'agent-direct-chat' }); }
+    }
+  }
+
+  async refreshDirectChats() {
+    const payload = await this.callBackendApi('GET', '/api/matrix/direct-agents');
+    if (!Array.isArray(payload.agents)) throw new Error('direct agent roster unavailable');
+    const senders = payload.agents.map(name => this.agentSenderFor(name)).filter(sender => sender?.kind === 'appservice');
+    await this.directChats.refresh(senders);
+  }
+
+  /** Keep one ordinary-token collector per verified representative generation. */
+  refreshRepresentativeCollectors() {
+    this.representativeCollectors ??= new Map();
+    const next = new Map([...(this.actingCredentials ?? new Map())].filter(([, row]) =>
+      row.kind === 'registrationToken' && row.representativeToken && row.registration
+      && /^@[^:\s]+:[^\s]+$/.test(row.representative?.mxid || '')));
+    this.representativeInboundSnapshot = next;
+    for (const [sideId, entry] of this.representativeCollectors) {
+      const row = next.get(sideId);
+      if (!row || row.registration !== entry.registration || row.apiBaseUrl !== entry.baseUrl
+          || row.representative.mxid !== entry.mxid) {
+        entry.collector.stop();
+        this.representativeCollectors.delete(sideId);
+      }
+    }
+    for (const [sideId, row] of next) {
+      if (this.representativeCollectors.has(sideId)) continue;
+      state.representativeSync ??= {};
+      let stored = state.representativeSync[sideId];
+      if (stored?.registration !== row.registration) {
+        stored = state.representativeSync[sideId] = { registration: row.registration, cursor: null, pending: {} };
+        saveState();
+      }
+      const start = this.startRepresentativeCollector ?? startRepresentativeSyncCollector;
+      const collector = start({
+        side: sideId, baseUrl: row.apiBaseUrl, accessToken: row.representativeToken, registration: row.registration,
+        representativeMxid: row.representative.mxid,
+        shouldContinue: () => this.representativeInboundSnapshot?.get(sideId)?.registration === row.registration,
+        onEvents: (events, meta) => this.handleAppserviceEvents(sideId, events, { ...meta, representativeSync: true }),
+        readCursor: () => stored.cursor,
+        writeCursor: async cursor => { stored.cursor = cursor; saveState(); },
+        readPendingReconcile: () => Object.keys(stored.pending ?? {}),
+        writePendingReconcile: async (roomId, verdict, detail) => {
+          stored.pending ??= {};
+          if (verdict === 'cleared') delete stored.pending[roomId];
+          else if (!stored.pending[roomId]) stored.pending[roomId] = {
+            from: detail?.from ?? null, knownEventIds: [...(stored.observed?.[roomId] ?? [])],
+          };
+          saveState();
+        },
+        onObservedTimeline: async events => {
+          stored.observed ??= {};
+          for (const event of events) {
+            if (!event.room_id || !event.event_id) continue;
+            const previous = stored.observed[event.room_id] ?? [];
+            stored.observed[event.room_id] = [...new Set([...previous, event.event_id])].slice(-512);
+          }
+          saveState();
+        },
+        onReconcile: roomId => reconcileRepresentativeTimeline({
+          ...stored.pending[roomId],
+          readPage: from => {
+            const acting = this.actingSideFor(sideId);
+            if (acting?.credential?.registration !== row.registration) throw new Error('sync gap credential generation changed');
+            return roomMessagesOnSide({ ...acting, roomId, from, dir: 'b', limit: MATRIX_JOIN_BACKFILL_LIMIT });
+          },
+          onEvents: events => this.handleAppserviceEvents(sideId, events.map(event => ({ ...event, room_id: roomId })), {
+            provenance: buildSideProvenance({ sideId, registration: row.registration, mode: 'sync' }),
+            representativeSync: true, txnId: 'gap-reconcile',
+          }),
+        }),
+        onLeaves: roomIds => sweepLeftRoomsOnSides(sideId, roomIds),
+        onReconcileBlocked: (roomId, reason) => {
+          stored.pending[roomId].blockedReason = reason;
+          saveState();
+          this.postWarning(`representative sync gap recovery is blocked for side ${sideId} in ${roomId}: ${reason}. `
+            + 'The gap remains recorded; no historical events were guessed or replayed. Restarting intake retries recovery.',
+          { kind: 'representative_sync_gap', scope: `${sideId}:${roomId}` });
+        },
+        onCircuitBreak: detail => this.postWarning(
+          `representative sync intake circuit-broke for side ${sideId} after ${detail.attempts} failed deliveries; cursor remains held`,
+          { kind: 'representative_sync', scope: `side:${sideId}` },
+        ),
+      });
+      this.representativeCollectors.set(sideId, {
+        registration: row.registration, baseUrl: row.apiBaseUrl, mxid: row.representative.mxid, collector,
+      });
+      console.log(`[representative-sync] collecting side ${sideId} as its recorded representative`);
+    }
   }
 
   /**
    * Drop local state for rooms on sides that no longer exist.
    *
    * WHAT THIS IS NOT: it does not touch the rooms themselves. They are on somebody else's homeserver and
-   * remain theirs — the same rule the backend's cascade follows for records, and the reason HAFleet tells
+   * remain theirs — the same rule the backend's cascade follows for records, and the reason Hagency tells
    * project sides it will not delete their rooms. This forgets our own pointers, nothing more.
    *
    * WHY FORGET RATHER THAN KEEP: every one of these maps is a claim that a room is usable. A DM room on a
@@ -5120,6 +5305,7 @@ export class MatrixBridge {
     for (const roomId of Object.keys(state.trustedManagedRooms || {})) {
       if (!onGoneSide(roomId)) continue;
       delete state.trustedManagedRooms[roomId];
+      delete state.roomAgentBindings?.[roomId];
       dropped.trustedManagedRooms += 1;
     }
     for (const [group, roomId] of Object.entries(state.groupRoomMap || {})) {
@@ -5161,11 +5347,12 @@ export class MatrixBridge {
     const row = this.actingCredentials?.get(sideId);
     if (!row) return null;
     return {
-      side: { id: sideId, apiBaseUrl: row.apiBaseUrl, serverName: row.serverName },
+      side: { id: sideId, apiBaseUrl: row.apiBaseUrl, serverName: row.serverName, representative: row.representative },
       credential: row.kind === 'appservice'
         ? {
           kind: 'appservice', asToken: row.asToken, senderLocalpart: row.senderLocalpart,
           namespace: row.namespace,
+          ...(row.transport ? { transport: row.transport } : {}),
           /*
            * 16-impl-r5 rotation: the acting credential carries the SAME derived registration the
            * inbound snapshot holds, so the gate can refuse a mixed-generation pair (two refreshes
@@ -5173,7 +5360,8 @@ export class MatrixBridge {
            */
           registration: row.registration ?? null,
         }
-        : { kind: 'registrationToken', representativeToken: row.representativeToken, registrationToken: null },
+        : { kind: 'registrationToken', representativeToken: row.representativeToken, registrationToken: null,
+          registration: row.registration ?? null },
     };
   }
 
@@ -5253,6 +5441,112 @@ export class MatrixBridge {
    * reset a deduplication window — which matters because this runs on a timer and a refresh landing
    * between a transaction and its retry would otherwise double-deliver it.
    */
+  fleetProtocolForBridge() {
+    if (this.fleetProtocol) return this.fleetProtocol;
+    this.fleetProtocol = createFleetProtocol({
+      load: () => state.fleetProtocol ?? {},
+      save: next => {
+        const previous = state.fleetProtocol;
+        state.fleetProtocol = next;
+        try { saveState(); } catch (error) { state.fleetProtocol = previous; throw error; }
+      },
+      sideFor: sideId => {
+        const snapshot = this.appserviceInboundSnapshot?.get(normalizeSideKey(sideId));
+        const acting = this.actingSideFor(sideId);
+        if (!snapshot || acting?.credential?.kind !== 'appservice'
+          || acting.credential.registration !== snapshot.registration) return null;
+        return { ...snapshot, representativeMxid: snapshot.representative?.mxid,
+          credential: acting.credential };
+      },
+      approvalBotMxid: () => this.botUserId || null,
+      backend: async body => {
+        const result = await this.callBackendApi('POST', '/api/fleet-control', body, 'context=fleet-protocol');
+        if (result.ok === false) throw Object.assign(new Error(result.error), { code: result.code, status: result.status ?? 409 });
+        return result;
+      },
+      readRoom: async (side, roomId, suffix, options = {}) => {
+        const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/${suffix}`;
+        if (options.privateOwner) {
+          if (!this.botClient) throw new Error('private approval bot unavailable');
+          return this.botClient.doRequest('GET', endpoint);
+        }
+        const url = new URL(`${String(side.apiBaseUrl).replace(/\/+$/, '')}${endpoint}`);
+        url.searchParams.set('user_id', side.representativeMxid);
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${side.credential.asToken}` },
+          signal: AbortSignal.timeout(15_000) });
+        if (options.optional && response.status === 404) return null;
+        if (!response.ok) throw new Error(`Matrix authority read failed (${response.status})`);
+        return response.json();
+      },
+    });
+    return this.fleetProtocol;
+  }
+
+  refreshOutboundFleets() {
+    // Credential and registry refreshes may overlap while an old poll is aborting.
+    // Serialize replacements so no untracked collector can survive rotation.
+    const previous = this.outboundRefreshPromise ?? Promise.resolve();
+    this.outboundRefreshPromise = previous.catch(() => {}).then(() => this.reconcileOutboundFleets());
+    return this.outboundRefreshPromise;
+  }
+
+  async reconcileOutboundFleets() {
+    if (!this.appserviceRouter) return;
+    this.outboundFleets ??= new Map();
+    const desired = new Map([...(this.actingCredentials ?? new Map())].filter(([sideId, row]) =>
+      row.kind === 'appservice' && row.transport?.mode === 'outbound'
+      && row.registration && this.appserviceInboundSnapshot?.get(sideId)?.registration === row.registration));
+    for (const [sideId, entry] of this.outboundFleets) {
+      const row = desired.get(sideId);
+      if (!row || entry.fingerprint !== outboundDigest({ registration: row.registration, transport: row.transport })) {
+        await entry.client.stop(); this.outboundFleets.delete(sideId);
+      }
+    }
+    for (const [sideId, row] of desired) {
+      if (this.outboundFleets.has(sideId)) continue;
+      const edge = resolveEdgeLinkConfig(process.env), sync = resolveAppserviceSyncConfig(process.env);
+      if (edge.enabled && edge.side === sideId || sync.enabled && sync.side === sideId) {
+        console.error(`[outbound] remove the legacy edge/sync intake for ${sideId} before enabling its outbound transport`);
+        continue;
+      }
+      const fleetId = /^(hf_[a-f0-9]{32})_representative$/.exec(row.senderLocalpart ?? '')?.[1];
+      if (!fleetId) { console.warn(`[outbound] invalid managed fleet identity for ${sideId}`); continue; }
+      const fingerprint = outboundDigest({ registration: row.registration, transport: row.transport });
+      const options = {
+        fleetId, transport: row.transport,
+        protocol: request => this.fleetProtocolForBridge().handle({ ...request, sideId, registration: row.registration }),
+        transaction: (payload, origin = {}) => {
+          if (!payload || typeof payload.transactionId !== 'string' || !Array.isArray(payload.body?.events)) throw new Error('invalid outbound Matrix transaction');
+          // This mode is supplied only by our authenticated outbound collector.
+          // Event JSON can neither select it nor change the registered side.
+          return this.appserviceRouter.handle({ method: 'PUT',
+            path: `/_matrix/app/v1/transactions/${encodeURIComponent(payload.transactionId)}`,
+            headers: { authorization: `Bearer ${this.appserviceSideTokens?.get(sideId) ?? ''}` },
+            body: origin.generation !== undefined && origin.generation !== row.transport.generation
+              ? { ...payload.body, events: payload.body.events.filter(event => event.type !== FLEET_PROBE_EVENT) }
+              : payload.body, transport: { mode: 'edge', sideId } });
+        },
+        warning: message => console.warn(`[outbound:${sideId}] ${message}`),
+      };
+      try {
+        let client;
+        if (this.outboundClientFactory) client = this.outboundClientFactory(options);
+        else {
+          // Machine rotation keeps the same Matrix registration and its owned
+          // durable messages. A new machine lease cannot discard acknowledged work.
+          const binding = { sideId, fleetId, registration: row.registration };
+          const store = new FleetOutboundStore(path.join(DATA_DIR, 'outbound', `${outboundDigest(binding)}.sqlite`), binding);
+          try {
+            store.activateTransport({ generation: row.transport.generation, fingerprint });
+            client = new FleetOutboundClient({ ...options, store });
+          } catch (error) { store.close(); throw error; }
+        }
+        this.outboundFleets.set(sideId, { fingerprint, client }); client.start();
+        console.log(`[outbound] collecting Matrix and fleet work for ${sideId}`);
+      } catch (error) { console.warn(`[outbound] could not start ${sideId}: ${error.message}`); }
+    }
+  }
+
   async refreshAppserviceSides() {
     if (!this.appserviceRouter) return;
     let payload;
@@ -5318,7 +5612,13 @@ export class MatrixBridge {
     this.appserviceRouter.setSides(wirable.map((side) => ({
       sideId: normalizeSideKey(side.sideId),
       hsToken: side.hsToken,
-      onEvents: (events, meta) => this.handleAppserviceEvents(side.sideId, events, {
+      onFleetRequest: request => this.fleetProtocolForBridge().handle({ ...request,
+        sideId: side.sideId, registration: side.registration }),
+      onEvents: (events, meta) => {
+        if (this.actingCredentials?.get(normalizeSideKey(side.sideId))?.transport?.mode === 'outbound' && meta?.mode !== 'edge') {
+          throw new Error('outbound side only accepts its authenticated outbound collector');
+        }
+        return this.handleAppserviceEvents(side.sideId, events, {
         ...meta,
         /*
          * F06: provenance is attached HERE, at the bridge-owned adapter boundary, outside the event
@@ -5332,9 +5632,13 @@ export class MatrixBridge {
           sideId: side.sideId,
           mode: meta?.mode ?? 'push',
         }),
-      }),
-      onUserQuery: async (userId) => Boolean(findCaseInsensitiveKey(state.agentTokens || {}, String(userId))) || String(userId).startsWith(`@${AGENT_PREFIX}`),
+      });
+      },
+      onUserQuery: async (userId) => Boolean(findCaseInsensitiveKey(state.agentTokens || {}, String(userId)))
+        || Boolean(agentNameFromUserId(userId, this)
+          && String(userId).slice(String(userId).indexOf(':') + 1).toLowerCase() === side.serverName.toLowerCase()),
     })));
+    await this.refreshOutboundFleets();
     const ids = this.appserviceRouter.sideIds();
     console.log(`[appservice] serving ${ids.length} project side(s)${ids.length ? `: ${ids.join(', ')}` : ''}`);
   }
@@ -5342,18 +5646,20 @@ export class MatrixBridge {
   /**
    * Bring up the inbound socket, if this deployment has decided to expose one.
    *
-   * Silent-by-default is the point: with no `HAFLEET_APPSERVICE_PORT` there is no socket and no
+   * Silent-by-default is the point: with no `HAGENCY_APPSERVICE_PORT` there is no socket and no
    * warning, because a deployment using registration-token sides has no reason to expose one. The
    * reason is logged rather than hidden so `doctor`-style questions have an answer.
    */
   async startAppserviceIntake() {
+    this.representativeIntakeReady = true;
+    this.refreshRepresentativeCollectors?.();
     /*
      * TWO WAYS IN, and a deployment may use either, both, or neither.
      *
-     * The LISTENER is the original: a socket here that the homeserver dials. It only works when HAFleet is
+     * The LISTENER is the original: a socket here that the homeserver dials. It only works when Hagency is
      * reachable from the homeserver, which rules out a laptop or an internal network.
      *
-     * The EDGE LINK is the co-located one: `bin/hafleet-appservice-edge` runs beside the homeserver and
+     * The EDGE LINK is the co-located one: `bin/hagency-appservice-edge` runs beside the homeserver and
      * this dials OUT to collect. Nothing here needs to be reachable, which is the point.
      *
      * Both feed the same router, so ordering, duplicate suppression and failure behave identically. The
@@ -5373,7 +5679,7 @@ export class MatrixBridge {
      */
     const conflicts = [];
     if (config.enabled && (edge.enabled || sync.enabled)) {
-      conflicts.push(`listener (HAFLEET_APPSERVICE_PORT=${config.port}) serves every side and cannot coexist with `
+      conflicts.push(`listener (HAGENCY_APPSERVICE_PORT=${config.port}) serves every side and cannot coexist with `
         + `${edge.enabled ? `edge (side ${edge.side}) ` : ''}${sync.enabled ? `sync (side ${sync.side})` : ''}`.trim());
     }
     if (edge.enabled && sync.enabled && edge.side === sync.side) {
@@ -5383,21 +5689,25 @@ export class MatrixBridge {
       throw new Error(`[appservice] multiple intakes configured for the same side(s): ${conflicts.join('; ')}. `
         + 'Pick one way in per side — running two on one side would deliver every event twice.');
     }
+    // Imported outbound credentials must activate even when no legacy intake
+    // environment variables or listening socket have ever been configured.
+    this.appserviceRouter = createAppserviceRouter();
+    await this.refreshAppserviceSides();
+    this.appserviceRefreshTimer = setInterval(() => this.refreshAppserviceSides(), APPSERVICE_SIDE_REFRESH_MS);
     if (!config.enabled && !edge.enabled && !sync.enabled) {
       console.log(`[appservice] inbound listener disabled (${config.reason})`);
       console.log(`[appservice] co-located edge not in use (${edge.reason})`);
       console.log(`[appservice] sync intake not in use (${sync.reason})`);
       return;
     }
-    this.appserviceRouter = createAppserviceRouter();
-    await this.refreshAppserviceSides();
 
     if (edge.enabled) {
       /*
-       * The `hs_token` comes from OUR OWN credential store, never from the link. HAFleet issued it, so
+       * The `hs_token` comes from OUR OWN credential store, never from the link. Hagency issued it, so
        * sending it back over the wire would put a credential in flight for nothing.
        */
       this.edgePuller = startEdgePuller({
+        side: edge.side,
         url: edge.url,
         token: edge.token,
         router: this.appserviceRouter,
@@ -5455,7 +5765,9 @@ export class MatrixBridge {
           for (const roomId of roomIds) {
             const pending = state.appserviceSyncReconcile?.[sideId]?.[roomId];
             if (pending?.kind === 'join') {
-              const representative = `@${String(this.actingSideFor(sideId)?.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
+              const acting = this.actingSideFor(sideId);
+              const representative = acting?.side?.representative?.mxid
+                || `@${String(acting?.credential?.senderLocalpart || '').toLowerCase()}:${sideId}`;
               await this.backfillJoinedRoomOnSide(sideId, roomId, representative || null);
             } else {
               await this.backfillSyncGapOnSide(sideId, roomId, pending);
@@ -5506,7 +5818,6 @@ export class MatrixBridge {
      * used to return early here, so no timer ran and a credential issued after start-up never
      * reached the router until the process restarted — the exact gap sync must not copy (gap #9).
      */
-    setInterval(() => this.refreshAppserviceSides(), APPSERVICE_SIDE_REFRESH_MS);
     if (!config.enabled) {
       console.log(`[appservice] no local socket (${config.reason}); ${edge.enabled ? 'the edge link' : 'the sync loop'} is the only way in`);
       return;
@@ -5522,7 +5833,6 @@ export class MatrixBridge {
        * port was busy. Reported loudly instead.
        */
       console.error(`[appservice] could not listen on ${config.host}:${config.port}: ${error?.message || error}`);
-      this.appserviceRouter = null;
       return;
     }
     if (config.exposedBeyondLoopback) {
@@ -5531,7 +5841,41 @@ export class MatrixBridge {
         + 'homeserver on another machine and is stated here so it is a decision rather than a discovery.',
       );
     }
-    setInterval(() => this.refreshAppserviceSides(), APPSERVICE_SIDE_REFRESH_MS);
+  }
+
+  async pollMatrixWork() {
+    if (this.matrixWorkBusy) return;
+    this.matrixWorkBusy = true;
+    try {
+      for (let i = 0; i < 8; i++) {
+        const { job } = await this.callBackendApi('POST', '/api/matrix-work/claim', {}, 'context=matrix-work');
+        if (!job) break;
+        let outcome;
+        try {
+          outcome = await executeMatrixWork(job, {
+            readCredential: (name) => agentCredential(name),
+            saveCredential: (name, value) => {
+              const before = state.agentTokens[name];
+              if (value) state.agentTokens[name] = value;
+              else delete state.agentTokens[name];
+              // Keep an unsaved credential in memory on failure, but never ACK it
+              // until a retry has persisted it. A remote account cannot be rolled back.
+              try { saveState(); } catch (error) {
+                if (!value && before) state.agentTokens[name] = before;
+                throw error;
+              }
+            },
+          });
+          if (outcome.ok && job.action === 'identity') saveState();
+        } catch (error) {
+          console.error(`[matrix-work] ${job.id}: ${error.message}`);
+          outcome = { ok: false, code: 'bridge_operation_failed' };
+        }
+        await this.callBackendApi('POST', `/api/matrix-work/${job.id}/complete`,
+          { claimToken: job.claimToken, outcome }, 'context=matrix-work-complete');
+      }
+    } catch (error) { console.error(`[matrix-work] poll: ${error.message}`); }
+    finally { this.matrixWorkBusy = false; }
   }
 
   async pollRegistrations() {
@@ -5546,6 +5890,10 @@ export class MatrixBridge {
         const canonicalName = this.addKnownAgent(agentName) || this.normalizeName(agentName);
         if (canonicalName && !this.getAgentToken(canonicalName)) {
           await this.ensureAgentToken(canonicalName, 'registration_poll');
+        }
+        if (canonicalName) {
+          try { await this.reconcileAgentProfile(canonicalName); }
+          catch (error) { console.warn(`[profile] ${canonicalName}: ${error.message}`); }
         }
         if (!wasKnown) {
           console.log(`Discovered new agent: ${agentName}`);
@@ -5568,7 +5916,7 @@ export class MatrixBridge {
 
     /*
      * Discover humans from Matrix user directory and greet them — BOT WORK, so skipped when there is no bot.
-     * It searches HAFleet's own homeserver and greets in a bot DM; without a bot it logged
+     * It searches Hagency's own homeserver and greets in a bot DM; without a bot it logged
      * `Failed to discover humans: fetch failed` every poll, and a degraded mode that fills the log with its
      * own failures teaches an operator to stop reading it.
      *
@@ -5587,7 +5935,72 @@ export class MatrixBridge {
     };
   }
 
+  async reconcileAgentProfile(agentName) {
+    this.agentProfileCheckedAt ??= new Map();
+    if (Date.now() - (this.agentProfileCheckedAt.get(agentName) || 0) < 300_000) return;
+    const info = await this.callBackendApi('GET', `/api/agents/${encodeURIComponent(agentName)}`);
+    const displayName = info?.displayName || info?.projectAgentDefinition?.name;
+    if (!displayName) return;
+    const sender = this.agentSenderFor(agentName);
+    if (!sender) return;
+    const mxid = sender.kind === 'appservice' ? sender.agentUserId : this.getAgentCredential(agentName)?.mxid;
+    if (!mxid) return;
+    if (info.matrixIdentity?.mxid && info.matrixIdentity.mxid !== mxid) throw new Error('profile identity differs from provisioned Matrix identity');
+    if (sender.kind === 'appservice' && !namespaceAdmits(sender.credential.namespace, mxid)) throw new Error('profile identity is outside registered namespace');
+    await reconcileAgentDisplayName({ agentName, displayName, mxid,
+      baseUrl: sender.kind === 'appservice' ? sender.side.apiBaseUrl : baseUrlForToken(sender.token),
+      token: sender.kind === 'appservice' ? sender.credential.asToken : sender.token,
+      asUserId: sender.kind === 'appservice' ? mxid : null });
+    this.agentProfileCheckedAt.set(agentName, Date.now());
+  }
+
+  async fileRoomContext(agentName, roomId, content, origin = {}) {
+    const sender = this.agentSenderFor(agentName, roomId);
+    if (!sender) throw new MatrixFileError('file_sender_unavailable', 'Agent sender is unavailable');
+    const entry = this.directChats?.entryForRoom(roomId, agentName);
+    let client;
+    if (entry) {
+      await this.directChats.verify(entry, entry.rooms[roomId]);
+      this.directChats.assertReplyScope(entry, roomId, content, origin);
+      client = entry.client;
+    } else {
+      const mxid = sender.agentUserId || this.getAgentCredential(agentName)?.mxid;
+      const room = await this.refreshRepresentativeRoomBindings(roomId, mxid);
+      if (!room?.agents?.has(agentName) || room.rejected) throw new MatrixFileError('file_room_not_admitted', 'Agent is not admitted to this room');
+      client = this.directChats?.clients.get(mxid)?.client;
+      if (!client && sender.kind === 'token') client = new MatrixClient(baseUrlForToken(sender.token), sender.token);
+      if (!client) throw new Error('Agent media device is not ready');
+    }
+    const state = await client.getRoomState(roomId);
+    return { sender, client, encrypted: encryptedRoom(state), invited: Boolean(entry) };
+  }
+
+  async deliverRouterFile(command) {
+    const relation = command.threadRootEventId ? this.routerThreadRelation(command.threadRootEventId) : null;
+    let content = command.file.preparedContent;
+    let context = await this.fileRoomContext(command.senderAgentName, command.roomId,
+      content || (relation ? { 'm.relates_to': relation } : {}), command);
+    if (!content) {
+      content = await prepareMatrixFile({ file: command.file, caption: command.body, relation,
+        encrypted: context.encrypted, crypto: context.client.crypto,
+        upload: (bytes, mime) => context.client.uploadContent(bytes, mime) });
+      const prepared = await this.callBackendApi('POST', `/api/router/reply-outbox/${encodeURIComponent(command.commandId)}/prepared-file`,
+        { claim_token: command.claimToken, content });
+      if (!prepared?.ok || !prepared.content) throw new Error('Uploaded file was not durably prepared');
+      content = prepared.content;
+    }
+    context = await this.fileRoomContext(command.senderAgentName, command.roomId, content, command);
+    if (context.encrypted !== Boolean(content.file)) throw new MatrixFileError('file_encryption_changed', 'Room encryption changed; resend the file');
+    const eventId = context.encrypted && !context.invited
+      ? await sendDirectEvent(context.client, command.roomId, content, command.transactionId)
+      : await this.sendAsAgentContent(context.sender, command.roomId, content, null, { transactionId: command.transactionId, throwOnFailure: true, sourceCreatedAt: command.sourceCreatedAt });
+    if (!eventId) throw new Error('Matrix file send returned no event id');
+    await this.callBackendApi('POST', `/api/router/reply-outbox/${encodeURIComponent(command.commandId)}/delivered`,
+      { claim_token: command.claimToken, event_id: eventId });
+  }
+
   async deliverRouterCommand(kind, command) {
+    if (command.file) return this.deliverRouterFile(command);
     const agentName = this.normalizeName(command?.senderAgentName);
     if (!agentName) throw new Error('router command has no valid sender agent');
     let token = this.getAgentToken(agentName);
@@ -5598,10 +6011,11 @@ export class MatrixBridge {
     const root = typeof command.threadRootEventId === 'string' && command.threadRootEventId.trim()
       ? command.threadRootEventId.trim()
       : null;
-    const content = { msgtype: 'm.text', body: String(command.body || '') };
-    if (root) content['m.relates_to'] = this.routerThreadRelation(root);
+    const content = command.activity ? matrixActivityContent(command, root ? this.routerThreadRelation(root) : null)
+      : { msgtype: 'm.text', body: String(command.body || ''), ...(root ? { 'm.relates_to': this.routerThreadRelation(root) } : {}) };
     const eventId = await this.sendAsAgentContent(token, command.roomId, content, null, {
       transactionId: command.transactionId,
+      sourceCreatedAt: command.sourceCreatedAt,
       throwOnFailure: true,
     });
     if (!eventId) throw new Error('Matrix send returned no event id');
@@ -5614,6 +6028,7 @@ export class MatrixBridge {
   }
 
   isPermanentRouterMatrixFailure(error) {
+    if (error?.permanent === true) return true;
     const text = String(error?.message || error);
     return /M_FORBIDDEN|M_BAD_JSON|M_NOT_FOUND|HTTP 40[013456789]\b/i.test(text);
   }
@@ -5634,7 +6049,7 @@ export class MatrixBridge {
         await this.callBackendApi(
           'POST',
           `/api/router/${kind}-outbox/${encodeURIComponent(command.commandId)}/failed`,
-          { claim_token: command.claimToken, error_code: 'matrix_permanent_rejection' },
+          { claim_token: command.claimToken, error_code: error?.code || 'matrix_permanent_rejection' },
           `context=router-${kind}-failure`,
         );
       } else {
@@ -5662,7 +6077,7 @@ export class MatrixBridge {
 
   async discoverAndGreetHumans() {
     /*
-     * It searches the user directory of HAFleet's OWN homeserver with the bot's TOKEN, and greets what it
+     * It searches the user directory of Hagency's OWN homeserver with the bot's TOKEN, and greets what it
      * finds in a bot DM. With no bot there is no token, no directory to search and nowhere to greet — it
      * logged `Failed to discover humans: fetch failed` on every poll instead. Humans on a project side arrive
      * through the appservice; they are not discovered this way.
@@ -5720,7 +6135,7 @@ export class MatrixBridge {
       const name = match[1];
 
       // Skip agents, bot, system accounts, underscore-prefixed
-      if (name.startsWith(AGENT_PREFIX)) continue;
+      if (isAgentUser(user.user_id, this)) continue;
       if (name.startsWith('_')) continue;
       if (SKIP_USERS.has(name)) continue;
 
@@ -5936,7 +6351,7 @@ export class MatrixBridge {
    * Say something into a room, as whichever identity is actually IN it.
    *
    * WHY THIS EXISTS. `!offer` from a customer's room reached the command dispatcher and its answer never
-   * arrived: `M_FORBIDDEN: sender's membership is not 'join'`. Every reply went out as HAFleet's own bot,
+   * arrived: `M_FORBIDDEN: sender's membership is not 'join'`. Every reply went out as Hagency's own bot,
    * and on a project side the bot is not a member — the REPRESENTATIVE is. So in an appservice deployment
    * the entire ordering conversation (`!offer`, `!request`) looked like the bot ignoring the customer.
    *
@@ -5948,11 +6363,20 @@ export class MatrixBridge {
    * side we hold an acting credential for, the representative is who speaks there. Falls back to the bot for
    * our own rooms, which is every other caller of this.
    */
+  /** Read the label with the identity already admitted to this trusted room. */
+  async roomNameOf(roomId) {
+    const sideId = state.trustedManagedRooms?.[roomId]?.side;
+    const acting = sideId ? this.actingSideFor(sideId) : null;
+    if (acting) return roomNameOnSide({ ...acting, roomId });
+    const content = await this.botClient?.getRoomStateEvent?.(roomId, 'm.room.name', '');
+    return typeof content?.name === 'string' ? content.name : null;
+  }
+
   /**
    * Who is joined to a room, asked of whichever identity can see it.
    *
    * The read half of `sayInRoom`, and it exists for the same reason: the bridge classifies an inbound room by
-   * its membership, and on a project side HAFleet's own bot is not in the room to ask. The representative is.
+   * its membership, and on a project side Hagency's own bot is not in the room to ask. The representative is.
    *
    * RETURNS `{ known, members }` RATHER THAN THROWING, because the caller is mid-message. A room whose
    * membership cannot be read must still be handled — as a group, which is the safe classification: it means
@@ -5985,19 +6409,28 @@ export class MatrixBridge {
     }
   }
 
-  async sayInRoom(roomId, content, { txnSeed = null } = {}) {
+  async sayInRoom(roomId, content, { txnSeed = null, targetAgent = null, receivedAt = null } = {}) {
     const at = String(roomId || '').indexOf(':');
     const server = at > 0 ? String(roomId).slice(at + 1).toLowerCase() : '';
-    /*
-     * A SEED THAT IS STABLE PER ANSWER, not per clock tick. `sendToRoomOnSide` deduplicates on a
-     * transaction id derived from this, so a retry after a timeout must reuse it or the customer gets the
-     * answer twice.
-     */
+    // Durable callers supply the input/work identity for retry deduplication.
+    // An unkeyed call is a new send: identical text is not evidence of a retry.
+    const sendSeed = txnSeed || `say:${roomId}:${randomUUID()}`;
+    if (this.directChats?.entriesForRoom(roomId)?.length) {
+      try {
+        return await this.directChats.send(roomId, content,
+          `command_${createHash('sha256').update(sendSeed).digest('hex').slice(0, 40)}`, targetAgent,
+          { sourceCreatedAt: receivedAt });
+      } catch (cause) {
+        const error = new Error('Direct-room command reply could not be delivered', { cause });
+        error.commandReplyFailure = true;
+        throw error;
+      }
+    }
     const asRepresentative = () => sendToRoomOnSide({
       ...this.actingSideFor(server),
       roomId,
       content,
-      txnSeed: txnSeed || `say:${roomId}:${content?.body ?? ''}`,
+      txnSeed: sendSeed,
     });
 
     // A room on somebody else's server is the representative's territory outright.
@@ -6012,7 +6445,7 @@ export class MatrixBridge {
     } catch (error) {
       /*
        * THE BOT NOT BEING IN THE ROOM IS NOT THE SAME AS THE ROOM BEING ELSEWHERE, and a first version
-       * conflated them. When a project side runs on the SAME homeserver as HAFleet's own bot — which is a
+       * conflated them. When a project side runs on the SAME homeserver as Hagency's own bot — which is a
        * perfectly ordinary deployment, and the one this was walked on — the server comparison above says
        * "ours", the bot is used, and the bot is still not a member of the customer's room. Same silence.
        *
@@ -6278,7 +6711,12 @@ export class MatrixBridge {
       console.warn(`[matrix-ingress] ignored event without event_id room=${roomId}`);
       return { ignored: true, reason: 'missing_event_id' };
     }
-    if (eventId && this.isDuplicateMatrixEvent(eventId)) return;
+    // Outgoing delivery remembers its Matrix ID to suppress routing echoes, but
+    // the authenticated echo still owns the sender/time/thread needed by the
+    // shared discussion archive. Agent messages pass the normal room admission
+    // and background-only guards below; they never create another worker turn.
+    const agentDiscussion = event.type === 'm.room.message' && isAgentUser(event.sender, this);
+    if (this.isDuplicateMatrixEvent(eventId) && !agentDiscussion) return;
     const inFlight = this.processingMatrixEventIds.get(eventId);
     if (inFlight) return inFlight;
     const attempt = this._onRoomMessageClaimed(roomId, event, eventId);
@@ -6292,7 +6730,241 @@ export class MatrixBridge {
     }
   }
 
+  /** Backend admission owns these bindings; the representative only proves reachability. */
+  async refreshRepresentativeRoomBindings(roomId, senderId) {
+    const meta = state.trustedManagedRooms?.[roomId];
+    if (!meta?.side || meta.approvalDm || meta.dm || meta.botDm) return null;
+    const acting = this.actingSideFor(meta.side);
+    const representative = acting?.side?.representative?.mxid;
+    if (!representative) throw new Error('project representative identity is unavailable');
+    const membership = await joinedMembersOnSide({ ...acting, roomId });
+    if (!membership.known) throw new Error(membership.reason || 'project membership is unavailable');
+    if (!membership.members.includes(representative) || !membership.members.includes(senderId)) {
+      return { rejected: 'project_sender_or_representative_not_joined' };
+    }
+    const payload = await this.callBackendApi('GET', `/api/approval-bindings?project=${encodeURIComponent(roomId)}`);
+    if (!Array.isArray(payload?.bindings)) throw new Error('project approval bindings are unavailable');
+    const candidates = new Map();
+    const identities = new Map();
+    const conflicts = new Set();
+    for (const binding of payload.bindings) {
+      if (binding?.active === false || binding?.projectRoomId !== roomId) continue;
+      const agent = this.resolveKnownAgentName(binding.agent);
+      let mxid = agent && this.getAgentCredential(agent)?.mxid;
+      if (agent && acting.credential.kind === 'appservice') {
+        // AS agents have no per-agent credential. Select the actual joined identity
+        // from the namespace we own, rather than requiring a nonexistent token row.
+        const joinedIdentities = membership.members.filter(member =>
+          member.slice(member.indexOf(':') + 1).toLowerCase() === acting.side.serverName.toLowerCase()
+          && namespaceAdmits(acting.credential.namespace, member) === true
+          && this.sameName(agentNameFromUserId(member, this), agent));
+        mxid = joinedIdentities.length === 1 ? joinedIdentities[0] : null;
+      }
+      if (!agent || !mxid || !membership.members.includes(mxid)
+          || !/^@[^:\s]+:[^\s]+$/.test(binding.ownerMxid || '')
+          || isAgentUser(binding.ownerMxid, this) || binding.ownerMxid === representative
+          || !/^![^:\s]+:\S+$/.test(binding.ownerDmRoomId || '')) continue;
+      const existing = candidates.get(agent);
+      if (existing && (existing.ownerMxid !== binding.ownerMxid || existing.ownerDmRoomId !== binding.ownerDmRoomId)) {
+        conflicts.add(agent);
+      }
+      candidates.set(agent, binding);
+      identities.set(agent, mxid);
+    }
+    const accepted = new Set();
+    for (const [agent, binding] of candidates) {
+      if (conflicts.has(agent)) continue;
+      const stored = upsertRoomAgentBinding(roomId, agent, binding.ownerMxid, { approvalDmRoomId: binding.ownerDmRoomId });
+      if (stored) {
+        stored.binding.source = 'backend_admission';
+        accepted.add(agent);
+      }
+    }
+    for (const [agent, binding] of roomAgentBindingEntries(roomId)) {
+      if (binding.source === 'backend_admission' && !accepted.has(agent)) delete state.roomAgentBindings[roomId][agent];
+    }
+    saveState();
+    return { agents: accepted, agentMxids: identities, members: membership.members, representative };
+  }
+
+  isAgentActivity(event, roomId) {
+    if (!isMatrixActivity(event, true)) return false;
+    const name = agentNameFromUserId(event.sender, this);
+    if (!name || !this.isKnownAgentName(name)) return false;
+    const sender = this.agentSenderFor(name, roomId);
+    const mxid = sender?.kind === 'appservice' ? sender.agentUserId : this.getAgentCredential(name)?.mxid;
+    return isMatrixActivity(event, event.sender === mxid);
+  }
+
+  async archiveConversationEvent(roomId, event, parsed, { deferAttachment = false } = {}) {
+    let attachment;
+    if (['m.image', 'm.file'].includes(event.content?.msgtype) && deferAttachment) {
+      attachment = { remoteContent: event.content };
+    } else if (['m.image', 'm.file'].includes(event.content?.msgtype)) {
+      let access;
+      for (const entry of this.directChats?.entriesForRoom(roomId) || []) {
+        try {
+          await this.directChats.verify(entry, entry.rooms[roomId]);
+          access = { baseUrl: entry.client.homeserverUrl, token: entry.client.accessToken };
+          break;
+        } catch (error) { if (!/403|not_authorized|not joined/.test(error.message)) throw error; }
+      }
+      if (!access) {
+        const acting = this.actingSideFor(state.trustedManagedRooms?.[roomId]?.side);
+        if (!acting) throw new Error('attachment room credential unavailable');
+        access = { baseUrl: acting.side.apiBaseUrl,
+          token: acting.credential.kind === 'appservice' ? acting.credential.asToken : acting.credential.representativeToken,
+          asUserId: acting.credential.kind === 'appservice' ? acting.side.representative.mxid : null };
+      }
+      try { attachment = await receiveMatrixFile({ ...access, content: event.content, directory: MEDIA_DIR }); }
+      catch (error) {
+        if (!error.permanent) throw error;
+        attachment = { name: String(event.content.filename || event.content.body || 'attachment').slice(0, 240),
+          errorCode: error.code, error: error.message };
+      }
+    }
+    return this.callBackendApi('POST', '/api/matrix/conversations/events', {
+      roomId, eventId: event.event_id, senderMxid: event.sender, body: parsed.body,
+      timestamp: Number.isSafeInteger(event.origin_server_ts) ? event.origin_server_ts : Date.now(),
+      threadRoot: parsed.threadRootEventId || null, ...(attachment ? { attachment } : {}),
+    });
+  }
+
+  async archiveProjectDiscussion(roomId, room) {
+    this.discussionBackfills ??= new Map();
+    const key = `${roomId}:${[...room.agents].sort().join(',')}`;
+    if (this.discussionBackfills.has(key)) return this.discussionBackfills.get(key);
+    const backfill = (async () => {
+      const acting = this.actingSideFor(state.trustedManagedRooms?.[roomId]?.side);
+      if (!acting) throw new Error('discussion history credential unavailable');
+      const currentState = await roomStateOnSide({ ...acting, roomId });
+      const admissions = [...room.agents].map(agent => {
+        const mxid = room.agentMxids.get(agent);
+        const member = currentState.find(e => e.type === 'm.room.member' && e.state_key === mxid && e.content?.membership === 'join');
+        if (!member || !Number.isSafeInteger(member.origin_server_ts)) throw new Error('Agent admission timestamp is unavailable');
+        return { agent, sinceTs: member.origin_server_ts };
+      });
+      if (!admissions.length) return;
+      await this.callBackendApi('POST', '/api/matrix/conversations/admissions', { roomId, admissions });
+      const sinceTs = Math.min(...admissions.map(row => row.sinceTs));
+      const collected = []; let from = null; const cursors = new Set();
+      for (let page = 0; page < 5; page++) {
+        const history = await roomMessagesOnSide({ ...acting, roomId, from, limit: 100 });
+        if (!history.known) throw new Error(history.reason || 'discussion history unavailable');
+        collected.push(...history.chunk.filter(event => Number.isSafeInteger(event.origin_server_ts) && event.origin_server_ts >= sinceTs));
+        if (history.chunk.some(event => Number.isSafeInteger(event.origin_server_ts) && event.origin_server_ts < sinceTs)) break;
+        if (!history.chunk.length || !history.end) break;
+        if (cursors.has(history.end)) throw new Error('discussion history pagination repeated a cursor');
+        cursors.add(history.end); from = history.end;
+        if (page === 4) this.postWarning(`Discussion history in ${roomId} is limited to the latest 500 events since Agent admission.`);
+      }
+      for (const event of collected.reverse()) {
+        if (event.type !== 'm.room.message') continue;
+        if (this.isAgentActivity(event, roomId)) continue;
+        const parsed = parseInboundTextMessage(event.content);
+        if (parsed.skip || !event.event_id) continue;
+        await this.archiveConversationEvent(roomId, event, parsed, { deferAttachment: true });
+      }
+    })();
+    this.discussionBackfills.set(key, backfill);
+    try { await backfill; } catch (error) { this.discussionBackfills.delete(key); throw error; }
+  }
+
+  async onInvitedAgentRoomMessage(roomId, event) {
+    if (this.isAgentActivity(event, roomId)) return { ignored: true, reason: 'agent_activity' };
+    const parsed = parseInboundTextMessage(event.content);
+    if (parsed.skip || !event.event_id) return;
+    const entries = this.directChats.entriesForRoom(roomId);
+    if (!entries.length) return;
+    let first;
+    for (const entry of entries) {
+      try { first = await this.directChats.verify(entry, entry.rooms[roomId]); break; }
+      catch (error) { if (!/403|not_authorized|not joined/.test(error.message)) throw error; }
+    }
+    if (!first) return { ignored: true, reason: 'room_has_no_active_agent' };
+    if (!first.members.includes(event.sender)) return { ignored: true, reason: 'room_sender_not_joined' };
+    const senderIsAgent = isAgentUser(event.sender, this);
+    const knownMentions = parseMentions(event.content, parsed.body, this, roomId)
+      .map(name => this.resolveKnownAgentName(name)).filter(Boolean);
+    const recipients = [];
+    for (const entry of entries) {
+      if (!first.members.includes(entry.sender.agentUserId)) continue;
+      try {
+        const current = await this.directChats.verify(entry, entry.rooms[roomId], senderIsAgent ? null : event.sender);
+        if (!senderIsAgent && (current.mode === 'direct' || knownMentions.includes(entry.sender.agentName))) recipients.push(entry.sender.agentName);
+      } catch (error) {
+        if (!/403|not_authorized|not joined/.test(error.message)) throw error;
+      }
+    }
+    // An addressed Agent may still be accepting its invite. Let its device's
+    // backfill retry this event instead of permanently consuming half the targets.
+    if (knownMentions.some(name => !entries.some(e => e.sender.agentName === name)
+      && first.members.some(mxid => agentNameFromUserId(mxid, this) === name
+        && this.directChats.starting?.has(mxid)))) throw new Error('room Agent invitation is still being admitted');
+    try {
+      await this.archiveConversationEvent(roomId, event, parsed);
+    } catch (error) { if (/403/.test(error.message)) return { ignored: true, reason: 'room_sender_not_authorized' }; throw error; }
+    let body = parsed.body;
+    if (!senderIsAgent && ['m.image', 'm.file'].includes(event.content?.msgtype)) {
+      body = `${body}\nAttachment event: ${event.event_id}. Use receive_file(event_id) to read it.`;
+    }
+    let cmdBody = body.trim();
+    if (!cmdBody.startsWith('!') && /^<a\s+href="https:\/\/matrix\.to\/#\/@[^"]+">.*?<\/a>\s*:\s*!/i.test(event.content?.formatted_body || '')) {
+      const cmdIdx = cmdBody.indexOf('!');
+      if (cmdIdx > 0) cmdBody = cmdBody.slice(cmdIdx).trim();
+    }
+    if (!senderIsAgent && !['m.file', 'm.image'].includes(event.content?.msgtype) && cmdBody.startsWith('!')) {
+      try {
+        await this.commands.handle(roomId, event.sender, cmdBody, { groupName: first.mode === 'group' ? roomId : null,
+          targetAgent: recipients.length === 1 ? recipients[0] : null, approvalRoom: false,
+          eventId: event.event_id, receivedAt: event.origin_server_ts });
+      } catch (error) {
+        if (!error?.commandReplyFailure) throw error;
+        // Command execution may already have completed. Retrying the whole sync
+        // batch can repeat its effects forever; record the failed reply visibly.
+        this.postWarning(`Command reply delivery failed in ${roomId} for event ${event.event_id}. The command will not be repeated automatically.`);
+      }
+      this.rememberMatrixEvent(event.event_id);
+      return;
+    }
+    if (!recipients.length) return { ignored: true, reason: senderIsAgent ? 'agent_background' : 'group_unaddressed' };
+    const result = await this.submitHumanMessage(roomId, {
+      from: humanNameFromUserId(event.sender), to: recipients[0], target_type: 'agent', type: 'human',
+      summary: body, full: '', mentions: first.mode === 'direct' ? [] : recipients, room_agent_targets: recipients,
+      source: 'matrix', source_room: roomId, source_event_id: event.event_id, sender_mxid: event.sender,
+      ...(parsed.threadRootEventId ? { thread_root_event_id: parsed.threadRootEventId } : {}),
+    });
+    if (!result?.id) throw new Error('backend Matrix acceptance did not return a message id');
+    this.checkpointMatrixEvent(event.event_id, result.id);
+    for (const name of recipients) this.beginAgentWork(name, roomId, event.event_id);
+    return result;
+  }
+
   async _onRoomMessageClaimed(roomId, event, eventId) {
+    if (this.isAgentActivity(event, roomId)) return { ignored: true, reason: 'agent_activity' };
+    if (state.trustedManagedRooms?.[roomId]?.directChat && this.directChats?.entryForRoom(roomId)) {
+      return this.onInvitedAgentRoomMessage(roomId, event);
+    }
+    // The representative's own receipts can contain full agent addresses and
+    // command examples. They are fleet output, not new borrower instructions.
+    const roomOrigin = typeof roomId === 'string' && roomId.includes(':')
+      ? roomId.slice(roomId.indexOf(':') + 1).toLowerCase() : null;
+    const representative = roomOrigin && this.actingSideFor?.(roomOrigin)?.side?.representative?.mxid;
+    // Agent/public service replies are discussion context too, but can never
+    // trigger another agent. Archive them before the existing loop-prevention
+    // returns, and only through the same admitted project membership gate.
+    if (eventId && (event.sender === representative || isAgentUser(event.sender, this))
+      && state.trustedManagedRooms?.[roomId]?.side && getRoomTrust(roomId).trusted) {
+      const room = await this.refreshRepresentativeRoomBindings(roomId, event.sender);
+      const parsed = parseInboundTextMessage(event.content);
+      if (room?.agents?.size && !room.rejected && !parsed.skip) {
+        await this.archiveProjectDiscussion(roomId, room);
+        await this.archiveConversationEvent(roomId, event, parsed);
+      }
+    }
+    if (representative && event.sender === representative) {
+      return { ignored: true, reason: 'representative_message' };
+    }
     const agentOpsControl = parseAgentOpsClientControlEvent(roomId, event);
     if (agentOpsControl) {
       if (agentOpsControl.invalid || !agentOpsClientFeatureEnabled()) {
@@ -6313,7 +6985,7 @@ export class MatrixBridge {
     const senderId = event.sender;
 
     // Ignore messages from our agent accounts (prevent loops)
-    if (isAgentUser(senderId)) return;
+    if (isAgentUser(senderId, this)) return;
     if (senderId === this.botUserId) return;
     if (MATRIX_IGNORED_SENDER_MXIDS.has(senderId)) return;
 
@@ -6323,25 +6995,42 @@ export class MatrixBridge {
       roomTrustLog('message-ingress', roomId, msgTrust, `sender=${senderId}`);
       if (MATRIX_TRUST_MODE === 'enforce') return;
     }
+    const representativeRoom = await this.refreshRepresentativeRoomBindings?.(roomId, senderId);
+    if (representativeRoom?.rejected) {
+      this.rememberMatrixEvent(eventId);
+      return { ignored: true, reason: representativeRoom.rejected };
+    }
+    const directMeta = state.trustedManagedRooms?.[roomId]?.directChat ? state.trustedManagedRooms[roomId] : null;
+    if (directMeta) {
+      const entry = this.directChats?.entryForRoom(roomId);
+      if (!entry || senderId !== directMeta.humanMxid) return { ignored: true, reason: 'direct_sender_not_admitted' };
+      await this.directChats.verify(entry, entry.rooms[roomId]);
+    }
+    if ((representativeRoom?.agents?.size || directMeta) && eventId) {
+      if (representativeRoom?.agents?.size) await this.archiveProjectDiscussion(roomId, representativeRoom);
+      await this.archiveConversationEvent(roomId, event, parsed);
+    }
 
-    const groupName = groupForRoom(roomId);
+    const groupName = directMeta ? null : groupForRoom(roomId);
     const humanName = humanNameFromUserId(senderId);
     let body = parsed.body;
     if (event.content?.msgtype === 'm.image' || event.content?.msgtype === 'm.file') {
-      const localPath = await this.cacheInboundMediaToLocal(event.content);
-      if (localPath) {
-        body = `${body}\nLocalPath: ${localPath}`;
+      if (representativeRoom?.agents?.size || directMeta) {
+        body = `${body}\nAttachment event: ${event.event_id}. Use receive_file(event_id) to read it.`;
+      } else {
+        const localPath = await this.cacheInboundMediaToLocal(event.content);
+        if (localPath) body = `${body}\nLocalPath: ${localPath}`;
       }
     }
-    const mentions = parseMentions(event.content, body);
+    const mentions = parseMentions(event.content, body, this, roomId);
     const replyTo = this.resolveReplyToMessageId(parsed.replyEventId);
     let effectiveMentions = [...new Set(mentions
       // Matrix rooms may also contain Octos or other external bot pills.
-      // Only registered hafleet agents are routable mention targets.
+      // Only registered hagency agents are routable mention targets.
       .map(name => this.resolveKnownAgentName(name))
       .filter(Boolean))];
 
-    if (groupName && replyTo) {
+    if (groupName && replyTo && !representativeRoom) {
       const inferred = await this.inferReplyMention({
         groupName,
         humanName,
@@ -6355,7 +7044,7 @@ export class MatrixBridge {
     }
 
     // Check if this is a DM room (bot-DM or agent-DM)
-    let targetAgent = null;
+    let targetAgent = directMeta?.agent || null;
     let isBotDm = false;
     let agentMembers = [];
     try {
@@ -6364,32 +7053,49 @@ export class MatrixBridge {
        * a member: the read threw, the catch below logged a warning, and the room was classified as a group —
        * so a customer's DM with one agent was treated as a broadcast and reached nobody by name.
        */
-      const membership = await this.joinedMembersOf(roomId);
+      const membership = directMeta ? { known: true, members: [directMeta.humanMxid, this.directChats.entryForRoom(roomId).sender.agentUserId] } : representativeRoom
+        ? { known: true, members: representativeRoom.members }
+        : await this.joinedMembersOf(roomId);
       if (!membership.known) throw new Error(membership.reason || 'membership unreadable');
       const members = membership.members;
-      const nonBot = members.filter(m => m !== this.botUserId);
-      agentMembers = nonBot.filter(m => isAgentUser(m));
-      const humanMembers = nonBot.filter(m => !isAgentUser(m));
+      const nonBot = members.filter(m => m !== this.botUserId && m !== representativeRoom?.representative);
+      agentMembers = nonBot.filter(m => isAgentUser(m, this));
+      const humanMembers = nonBot.filter(m => !isAgentUser(m, this));
 
-      if (agentMembers.length === 1 && humanMembers.length >= 1 && !isAgentUser(senderId)) {
+      if (!representativeRoom && agentMembers.length === 1 && humanMembers.length >= 1 && !isAgentUser(senderId, this)) {
         // 1 agent + 1-2 humans + bot → agent DM
-        targetAgent = agentNameFromUserId(agentMembers[0]);
-      } else if (agentMembers.length === 0 && humanMembers.length === 1) {
+        targetAgent = agentNameFromUserId(agentMembers[0], this);
+      } else if (!representativeRoom && agentMembers.length === 0 && humanMembers.length === 1) {
         // Exactly 1 human + bot in room → bot command DM
         isBotDm = true;
       }
     } catch (e) {
       console.warn(`Failed to inspect room members for ${roomId}: ${e.message}`);
     }
+    if (representativeRoom) {
+      const mentionedMxids = event.content?.['m.mentions']?.user_ids;
+      effectiveMentions = effectiveMentions.filter(name => representativeRoom.agents.has(name)
+        && (!Array.isArray(mentionedMxids) || !mentionedMxids.length
+          || mentionedMxids.includes(representativeRoom.agentMxids.get(name))));
+    }
     if (!targetAgent && state.trustedManagedRooms?.[roomId]) {
       const managedAgents = roomAgentBindingEntries(roomId)
         .map(([agentName]) => this.resolveKnownAgentName(agentName) || this.normalizeName(agentName))
-        .filter(Boolean);
+        .filter(name => name && (!representativeRoom || representativeRoom.agents.has(name)));
       const explicitlyMentioned = managedAgents
         .filter(agentName => effectiveMentions.some(name => this.sameName(name, agentName)));
       if (explicitlyMentioned.length === 1) {
         [targetAgent] = explicitlyMentioned;
-      } else if (!groupName && managedAgents.length > 0) {
+      } else if (representativeRoom && !mentions.length && parsed.threadRootEventId && !body.trim().startsWith('!')) {
+        // ADR-023: project discussion, including ordinary thread replies, is
+        // retained above. Only a mention wakes a worker; direct rooms are the
+        // continuous no-mention conversation surface.
+        this.rememberMatrixEvent(eventId);
+        return { ignored: true, reason: 'managed_thread_unaddressed' };
+      }
+      if (!targetAgent && !groupName && (managedAgents.length > 0 || representativeRoom)
+          && !body.trim().startsWith('!')
+          && !/^<a\s+href="https:\/\/matrix\.to\/#\/@[^"]+">.*?<\/a>\s*:\s*!/i.test(event.content?.formatted_body || '')) {
         // A trusted agent-managed room is not necessarily a DM. Until the bot
         // has joined and mapped the room, fail closed instead of treating every
         // message in a potentially-public project room as direct agent input.
@@ -6413,7 +7119,7 @@ export class MatrixBridge {
         }
       }
     }
-    if (cmdBody.startsWith('!')) {
+    if (!['m.file', 'm.image'].includes(event.content?.msgtype) && cmdBody.startsWith('!')) {
       const context = {
         groupName,
         targetAgent,
@@ -6433,16 +7139,16 @@ export class MatrixBridge {
     const route = resolveInboundRoute({ groupName, targetAgent, isBotDm });
     if (route === 'bot-dm') {
       // Non-command text in bot DM
-      await this.commands.handle(roomId, senderId, body, {});
+      await this.commands.handle(roomId, senderId, body, { eventId });
       /*
        * RECORDED, LIKE ITS THREE SIBLINGS — and it was the one branch that acted without recording.
        *
        * The command branch above calls `rememberMatrixEvent`; `group` and `agent-dm` below both
        * `checkpointMatrixEvent`. This one replied and remembered nothing, so every redelivery of the
-       * transaction answered again. An appservice transaction is retried whenever HAFleet does not
+       * transaction answered again. An appservice transaction is retried whenever Hagency does not
        * return 200 — a restarted edge, a 500, an ack that arrives late — and none of those is unusual.
        *
-       * Watched on the rig: 20 messages sent with a `docker restart hafleet-edge` in the middle drew 32
+       * Watched on the rig: 20 messages sent with a `docker restart hagency-edge` in the middle drew 32
        * replies, arriving in bursts of six as the homeserver re-delivered the un-acked batches. Nothing
        * was lost, which is the design working; the same customer being told "Send !help for available
        * commands." six times in one second is not.
@@ -6459,7 +7165,7 @@ export class MatrixBridge {
       // recipient behavior with MATRIX_DEFAULT_WAKE=auto.
       let matrixDefaultRecipient = null;
       if (effectiveMentions.length === 0 && matrixDefaultWakeEnabled()) {
-        const defaultRecipient = pickDefaultGroupRecipient(agentMembers, agentNameFromUserId);
+        const defaultRecipient = pickDefaultGroupRecipient(agentMembers, mxid => agentNameFromUserId(mxid, this));
         if (defaultRecipient) {
           effectiveMentions = [defaultRecipient];
           matrixDefaultRecipient = defaultRecipient;
@@ -6562,7 +7268,7 @@ export class MatrixBridge {
       }
       projectRoomId = control.projectRoomId;
     }
-    const expectedMembers = new Set([this.botUserId, control.senderMxid, agentUserId(canonicalAgent)]);
+    const expectedMembers = new Set([this.botUserId, control.senderMxid, agentMxid(canonicalAgent, this)]);
     const joinedMembers = await this.botClient.getJoinedRoomMembers(control.roomId);
     if (joinedMembers.length !== expectedMembers.size || joinedMembers.some((member) => !expectedMembers.has(member))) {
       this.rememberMatrixEvent(control.eventId);
@@ -6589,7 +7295,7 @@ export class MatrixBridge {
       return result;
     }
     const result = await this.callBackendApi('POST', '/api/agent-ops/v1/control/bootstrap', {
-      schema: 'com.hafleet.agent_ops.v1',
+      schema: 'com.hagency.agent_ops.v1',
       agent: canonicalAgent,
       project_room_id: projectRoomId,
       owner_mxid: control.senderMxid,
@@ -6684,9 +7390,9 @@ export class MatrixBridge {
             throw membershipUnknownError(roomId, name, membership.reason);
           }
           const joinedMembers = membership.members;
-          const members = joinedMembers.filter(m => isAgentUser(m)).map(m => agentNameFromUserId(m)).filter(Boolean);
+          const members = joinedMembers.filter(m => isAgentUser(m, this)).map(m => agentNameFromUserId(m, this)).filter(Boolean);
           const humanMembers = joinedMembers
-            .filter(m => !isAgentUser(m) && m !== this.botUserId)
+            .filter(m => !isAgentUser(m, this) && m !== this.botUserId)
             .map(m => humanNameFromUserId(m))
             .filter(Boolean);
           this._bridgeCreatedGroups.add(name);
@@ -6718,9 +7424,9 @@ export class MatrixBridge {
             throw membershipUnknownError(roomId, name, membership.reason);
           }
           const joinedMembers = membership.members;
-            const members = joinedMembers.filter(m => isAgentUser(m)).map(m => agentNameFromUserId(m)).filter(Boolean);
+            const members = joinedMembers.filter(m => isAgentUser(m, this)).map(m => agentNameFromUserId(m, this)).filter(Boolean);
             const humanMembers = joinedMembers
-              .filter(m => !isAgentUser(m) && m !== this.botUserId)
+              .filter(m => !isAgentUser(m, this) && m !== this.botUserId)
               .map(m => humanNameFromUserId(m))
               .filter(Boolean);
             this._bridgeCreatedGroups.add(name);
@@ -6788,8 +7494,8 @@ export class MatrixBridge {
       if (this.recentlyCreatedRooms.has(roomId)) return;
 
       let memberName;
-      if (isAgentUser(targetUserId)) {
-        memberName = agentNameFromUserId(targetUserId);
+      if (isAgentUser(targetUserId, this)) {
+        memberName = agentNameFromUserId(targetUserId, this);
       } else if (targetUserId !== this.botUserId) {
         memberName = humanNameFromUserId(targetUserId);
       }
@@ -6975,9 +7681,9 @@ export class MatrixBridge {
         return;
       }
       const joinedMembers = membership.members;
-      const agentMembers = joinedMembers.filter(m => isAgentUser(m)).map(m => agentNameFromUserId(m)).filter(Boolean);
+      const agentMembers = joinedMembers.filter(m => isAgentUser(m, this)).map(m => agentNameFromUserId(m, this)).filter(Boolean);
       const humanMembers = joinedMembers
-        .filter(m => !isAgentUser(m) && m !== this.botUserId)
+        .filter(m => !isAgentUser(m, this) && m !== this.botUserId)
         .map(m => humanNameFromUserId(m))
         .filter(Boolean);
       const matrixMembers = [...new Set([...agentMembers, ...humanMembers].filter(Boolean))];
@@ -7074,9 +7780,9 @@ export class MatrixBridge {
             throw membershipUnknownError(roomId, name, membership.reason);
           }
           const joinedMembers = membership.members;
-        const agentMembers = joinedMembers.filter(m => isAgentUser(m)).map(m => agentNameFromUserId(m)).filter(Boolean);
+        const agentMembers = joinedMembers.filter(m => isAgentUser(m, this)).map(m => agentNameFromUserId(m, this)).filter(Boolean);
         const humanMembers = joinedMembers
-          .filter(m => !isAgentUser(m) && m !== this.botUserId)
+          .filter(m => !isAgentUser(m, this) && m !== this.botUserId)
           .map(m => humanNameFromUserId(m))
           .filter(Boolean);
         this._bridgeCreatedGroups.add(name);
@@ -7265,7 +7971,7 @@ export class MatrixBridge {
            * every later approval fails `owner_binding_missing`. Fixing agentUserId() alone did not
            * help while this copy existed, which is the argument for having one.
            */
-          const expectedStateKey = agentMxid(agentName);
+          const expectedStateKey = agentMxid(agentName, this);
           const inviter = inviteState.find(e => e.type === 'm.room.member' && e.state_key === expectedStateKey)?.sender || null;
           const trust = getRoomTrust(roomId, { inviterMxid: inviter, requireTrustedInviter: true });
           roomTrustLog('agent-invite', roomId, trust, `agent=${agentName} inviter=${inviter}`);
@@ -7348,7 +8054,7 @@ export class MatrixBridge {
              * the agent would join with NO binding and every later approval would fail
              * `owner_binding_missing`. Refusing the trust promotion says so instead.
              */
-            if (trust.trusted && isAgentUser(inviter)) {
+            if (trust.trusted && isAgentUser(inviter, this)) {
               console.warn(
                 `Agent invite poll: refusing to bind ${agentName} in ${roomId} — inviter `
                 + `${inviter} is an agent, not a human owner`,
@@ -7606,10 +8312,11 @@ export class MatrixBridge {
    * than missing it. Both outcomes are logged, because a silently empty backfill is indistinguishable
    * from one that never ran, and that ambiguity has already misled me once on this path.
    */
-  async backfillJoinedRoomOnSide(sideId, roomId, representative) {
+  async backfillJoinedRoomOnSide(sideId, roomId, representative, { provenance = null, representativeSync = false } = {}) {
     const acting = this.actingSideFor(sideId);
     if (!acting || !representative) {
       console.warn(`Join backfill (side) ${roomId}: no acting credential for ${sideId}; routed nothing`);
+      if (provenance) throw new Error('representative backfill credential is unavailable');
       return 0;
     }
     let chunk = [];
@@ -7644,10 +8351,21 @@ export class MatrixBridge {
       console.warn(
         `Join backfill (side) ${roomId}: ${unreadable}; routed nothing rather than guess a boundary`,
       );
+      if (provenance) throw new Error(unreadable);
       return 0;
     }
     const { events: pending, boundary } = pendingJoinBackfill(chunk, { botUserId: representative });
-    const { delivered, alreadySeen } = await this.routeBackfilledEvents(roomId, pending);
+    let delivered = 0;
+    let alreadySeen = 0;
+    if (provenance) {
+      for (const event of pending) {
+        if (this.isDuplicateMatrixEvent(event.event_id)) { alreadySeen += 1; continue; }
+        await this.handleAppserviceEvents(sideId, [{ ...event, room_id: roomId }], { provenance, representativeSync, txnId: 'join-backfill' });
+        delivered += 1;
+      }
+    } else {
+      ({ delivered, alreadySeen } = await this.routeBackfilledEvents(roomId, pending));
+    }
     if (boundary === 'unproven') {
       console.warn(
         `Join backfill (side) ${roomId}: could not locate ${representative}'s invite within `
@@ -8033,7 +8751,7 @@ export class MatrixBridge {
 
   async ensureApprovalDmRoom(agentName, ownerMxid) {
     const canonicalAgent = this.resolveKnownAgentName(agentName) || this.normalizeName(agentName);
-    if (!canonicalAgent || !/^@[^:\s]+:[^\s]+$/.test(ownerMxid) || isAgentUser(ownerMxid)) {
+    if (!canonicalAgent || !/^@[^:\s]+:[^\s]+$/.test(ownerMxid) || isAgentUser(ownerMxid, this)) {
       return { ok: false, ready: false, reason: 'invalid_owner_binding' };
     }
     const baseKey = approvalDmKey(canonicalAgent, ownerMxid);
@@ -8060,7 +8778,7 @@ export class MatrixBridge {
         topic: plaintextTest
           ? 'UNENCRYPTED TEST ONLY. Private UI approval diagnostics; text replies do not authorize execution.'
           : 'Private, UI-only coding-agent approval requests. Text replies do not authorize execution.',
-        invite: [ownerMxid, agentMxid(canonicalAgent)],
+        invite: [ownerMxid, agentMxid(canonicalAgent, this)],
         power_level_content_override: approvalRoomPowerLevels(this.botUserId),
         initial_state: plaintextTest ? [] : [{
           type: 'm.room.encryption',
@@ -8085,7 +8803,7 @@ export class MatrixBridge {
     // Keep the local agent visibly attached to its approval room. The bridge bot
     // remains the E2EE sender and authorization service; the agent token is never
     // used to submit a verdict.
-    const agentRoomMxid = agentMxid(canonicalAgent);
+    const agentRoomMxid = agentMxid(canonicalAgent, this);
     let members = await this.botClient.getJoinedRoomMembers(roomId);
     if (!members.includes(agentRoomMxid)) {
       try { await this.botClient.inviteUser(agentRoomMxid, roomId); } catch {}
@@ -8343,7 +9061,7 @@ export class MatrixBridge {
      * null, and a room-agent binding with no owner is exactly the `owner_binding_missing` dead
      * end this whole change exists to remove — it would look accepted and work for nothing.
      */
-    if (!record.inviter || !/^@[^:\s]+:[^\s]+$/.test(record.inviter) || isAgentUser(record.inviter)) {
+    if (!record.inviter || !/^@[^:\s]+:[^\s]+$/.test(record.inviter) || isAgentUser(record.inviter, this)) {
       return { ok: false, reason: 'invite_names_no_human_inviter' };
     }
     const canonicalAgent = this.resolveKnownAgentName(agentName) || this.normalizeName(agentName);
@@ -8436,11 +9154,12 @@ export class MatrixBridge {
     const meta = state.trustedManagedRooms?.[projectRoomId];
     const stored = findRoomAgentBinding(projectRoomId, agentName);
     if (!meta || meta.approvalDm || !stored) return { ok: false, reason: 'not_agent_project_room' };
+    if (stored.binding.source === 'backend_admission') return { ok: true, reason: 'backend_owned_binding' };
     const canonicalAgent = this.resolveKnownAgentName(stored.agentName) || this.normalizeName(stored.agentName);
     const ownerMxid = typeof stored.binding.ownerMxid === 'string'
       ? stored.binding.ownerMxid
       : stored.binding.inviter;
-    if (!canonicalAgent || !/^@[^:\s]+:[^\s]+$/.test(ownerMxid || '') || isAgentUser(ownerMxid)) {
+    if (!canonicalAgent || !/^@[^:\s]+:[^\s]+$/.test(ownerMxid || '') || isAgentUser(ownerMxid, this)) {
       return { ok: false, reason: 'missing_trusted_owner' };
     }
     const dm = await this.ensureApprovalDmRoom(canonicalAgent, ownerMxid);
@@ -8527,13 +9246,13 @@ export class MatrixBridge {
    * proves the message landed in a room — not that the human who has to decide is in that room. Found on
    * a live rig: `bridge-state.json` held a `botDmRooms` entry for `@operator:…` whose only member was the
    * BOT. The operator had been invited and had never joined, so the room existed, was recorded, and was
-   * the room `HAFLEET_OWNER_DM_ROOM` would have been set to — and every approval sent there would have
+   * the room `HAGENCY_OWNER_DM_ROOM` would have been set to — and every approval sent there would have
    * waited for a decision from somebody who could not see it being asked for.
    *
    * NOTHING VALIDATES THAT CONFIG. `resolveOwnerFor` takes the mxid and the room id as given, and
    * `upsertBinding` requires both fields without checking that one is in the other; the backend cannot
    * check, because reading a room's membership needs a Matrix credential and the room is usually on
-   * HAFleet's own homeserver where only the bridge has one. So the check belongs here, at the one place
+   * Hagency's own homeserver where only the bridge has one. So the check belongs here, at the one place
    * that has both the room and a credential for it.
    *
    * AFTER THE SEND, AND IT NEVER BLOCKS ONE. Refusing to deliver would be worse than delivering into a
@@ -8568,7 +9287,7 @@ export class MatrixBridge {
         `approval request for ${approval.agent ?? 'an agent'} was delivered to ${roomId}, but its owner `
         + `${owner} is NOT in that room — invited and never joined, or since departed. Nobody who can `
         + 'decide will see it. Remedy: have the owner accept the invitation to that room, or point '
-        + 'HAFLEET_OWNER_DM_ROOM (or the binding) at a room they are actually in.',
+        + 'HAGENCY_OWNER_DM_ROOM (or the binding) at a room they are actually in.',
         { kind: 'approval-owner-absent', scope: roomId },
       );
     } catch (error) {
@@ -8643,7 +9362,7 @@ export class MatrixBridge {
        *
        * An appservice project side mints NO per-agent token: the namespace makes the agent ours to act
        * for, which is the whole reason a project-side agent needs no registration. So `getAgentToken`
-       * answers null for exactly the agents HAFleet dispatches, and the throw here refused the public
+       * answers null for exactly the agents Hagency dispatches, and the throw here refused the public
        * notice before it was attempted. Both surfaces or neither, so the whole approval then failed
        * closed and was DENIED for delivery failure. Walked on the rig: an approval for `soaker` in its
        * own project room logged `missing Matrix token for approval agent soaker` and came back
@@ -8953,7 +9672,7 @@ export class MatrixBridge {
         }
       }
       if (canonicalAgent && appservice) {
-        const userId = fullMxid ? m : `@${AGENT_PREFIX}${canonicalAgent.toLowerCase()}:${server}`;
+        const userId = fullMxid ? m : projectSideAgentMxid(canonicalAgent, acting, AGENT_PREFIX);
         const allowed = validateMasqueradeUserId({
           userId, namespace: credential.namespace, isRegisteredAgent, label: 'agent-join',
         });
@@ -9024,7 +9743,7 @@ export class MatrixBridge {
             operation = 'kick';
             const base = acting.side.apiBaseUrl.replace(/\/+$/, '');
             await post('kick', new URL(`${base}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/kick`),
-              actorToken, { user_id: userId, reason: 'Removed from hafleet group' },
+              actorToken, { user_id: userId, reason: 'Removed from hagency group' },
               appservice ? `@${credential.senderLocalpart.toLowerCase()}:${server}` : null);
             currentMembers.delete(userId);
             result.removed.push({ member: m, userId, status: 'kicked' });
@@ -9495,7 +10214,7 @@ export class MatrixBridge {
     const otherName = agentName === resolvedFromName ? resolvedToName : resolvedFromName;
     const otherIsAgent = agentName === resolvedFromName ? toIsAgent : fromIsAgent;
     const toUserId = otherIsAgent
-      ? agentMxid(otherName)
+      ? agentMxid(otherName, this)
       : humanUserId(otherName);
 
     const invite = [toUserId, this.botUserId];
@@ -9781,7 +10500,7 @@ export class MatrixBridge {
    * read receipt or reaction was ever sent, so "working" and "never heard you" looked
    * identical. That ambiguity is what an operator actually reported.
    *
-   * WHY NOT RELAY THE PANE. HAFleet can read it (GET /api/agents/:name/pane), and it is the
+   * WHY NOT RELAY THE PANE. Hagency can read it (GET /api/agents/:name/pane), and it is the
    * wrong thing to send. It carries ANSI, tool output and reasoning; a message per second
    * would flood the room and hit the rate limits this bridge already backs off from; and the
    * pane is the agent's whole screen, which may hold another project's content or a token in
@@ -9816,7 +10535,7 @@ export class MatrixBridge {
       return false;
     }
     if (!token) return false;
-    const userId = agentMxid(agentName);
+    const userId = agentMxid(agentName, this);
     try {
       const res = await fetch(
         `${baseUrlForToken(token)}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(userId)}`,
@@ -10010,23 +10729,25 @@ export class MatrixBridge {
      */
     const side = roomId ? this.sideForRoom(roomId) : null;
     if (side) {
-      const mxid = `@${AGENT_PREFIX}${canonical}:${side.side.serverName}`.toLowerCase();
+      const mxid = projectSideAgentMxid(canonical, side, AGENT_PREFIX);
       return { kind: 'appservice', ...side, agentUserId: mxid, agentName: canonical };
     }
 
     const token = this.getAgentToken(canonical);
     if (token) return { kind: 'token', token, agentName: canonical };
 
-    const mxid = agentMxid(canonical);
+    const mxid = agentMxid(canonical, this);
     const server = typeof mxid === 'string' && mxid.includes(':')
       ? mxid.slice(mxid.indexOf(':') + 1).toLowerCase()
       : null;
     const acting = server ? this.actingSideFor(server) : null;
     if (!acting || acting.credential?.kind !== 'appservice') return null;
-    return { kind: 'appservice', ...acting, agentUserId: mxid.toLowerCase(), agentName: canonical };
+    return { kind: 'appservice', ...acting,
+      agentUserId: this.getAgentCredential?.(canonical)?.mxid || projectSideAgentMxid(canonical, acting, AGENT_PREFIX), agentName: canonical };
   }
 
   async sendAsAgentContent(tokenOrSender, roomId, content, sourceMsgId = null, delivery = null) {
+    content = matrixMarkdownContent(content);
     const sender = MatrixBridge.normalizeSender(tokenOrSender);
     if (!sender) {
       /*
@@ -10069,6 +10790,13 @@ export class MatrixBridge {
       : `${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
     const txnId = suppliedTxnId || `bridge_${createHash('sha256').update(txnSeed).digest('hex').slice(0, 32)}`;
     const doSend = async () => {
+      if (state.trustedManagedRooms?.[roomId]?.directChat) {
+        const senderName = sender.agentName || Object.keys(state.agentTokens || {}).find(name => this.getAgentToken(name) === token);
+        const eventId = await this.directChats.send(roomId, content, txnId, senderName, { sourceCreatedAt: delivery?.sourceCreatedAt });
+        this.rememberMatrixEvent(eventId, sourceMsgId);
+        this.endAgentWork(sender.agentName, roomId);
+        return eventId;
+      }
       /*
        * The token's OWN side, not this deployment's server. `sendAsAgentContent` is the choke point for
        * every outbound agent message, so reading the constant here sent a project side's token to our
@@ -10325,7 +11053,7 @@ export class MatrixBridge {
     }
   }
 
-  // ── Create Matrix room for hafleet group ───────────────────────
+  // ── Create Matrix room for hagency group ───────────────────────
   async createRoomForGroup(groupName, members) {
     const invite = [];
     for (const m of members) {
@@ -10574,7 +11302,7 @@ if (isMainModule) {
      *
      * Walked on clean machines: `MATRIX_BOT_PASSWORD is required to login/register bridge bot account` and
      * exit 1. The console went on answering, `verify` went on saying `accepted`, and the edge's counter read
-     * `HAFleet last seen: never`. Nothing connected those three facts for the operator, and the message they
+     * `Hagency last seen: never`. Nothing connected those three facts for the operator, and the message they
      * had named a bot password.
      *
      * Printed from the resolved edge config rather than from a flag, so it appears only when there IS an

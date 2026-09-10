@@ -29,6 +29,18 @@ export default function AgentActions({ agent }) {
   const currentRecord = useRef(null);
   currentRecord.current = { live, name: agent.name, typed, confirming };
 
+  async function stopAgent() {
+    if (busy) return;
+    setBusy(true);
+    const res = await send(`agents/${encodeURIComponent(agent.name)}/stop`, { method: 'POST', body: {} });
+    setBusy(false);
+    if (!res.ok) return say('fail', res.error);
+    if (res.body?.stopped !== true) return say('fail', t('ag.stopNotConfirmed'));
+    setConfirming(null);
+    await refresh();
+    return say('ok', t('ag.stopped', { name: agent.name }));
+  }
+
   /*
    * REAL, as of now. Both of these were `setConfirming(null); say('ok', …)` — a toast and nothing
    * else. Remove announced "removed" and issued no request at all, which is exactly what was
@@ -85,17 +97,10 @@ export default function AgentActions({ agent }) {
         <div className="notice warn" style={{ marginTop: 10 }}>
           {t('ag.stopConfirm', { name: agent.name })}
           <div className="btn-row" style={{ marginTop: 10 }}>
-            {/*
-              * Stop is NOT wired, because there is nothing to wire it to: the only "go offline"
-              * route is POST /api/agents/:name/offline, guarded by the AGENT's own token — it is how
-              * an agent reports itself down, not how an operator stops one. Killing the tmux session
-              * would need an endpoint that does not exist. Left disabled and labelled rather than
-              * left saying "stopped" while nothing stops.
-              */}
-            <button className="btn warn" disabled title={t('ag.stopUnavailable')} onClick={() => setConfirming(null)}>
+            <button className="btn warn" disabled={busy} onClick={stopAgent}>
               {t('ag.stopIt')}
             </button>
-            <button className="btn" onClick={() => setConfirming(null)}>{t('act.cancel')}</button>
+            <button className="btn" disabled={busy} onClick={() => setConfirming(null)}>{t('act.cancel')}</button>
           </div>
         </div>
       )}

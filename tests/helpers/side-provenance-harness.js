@@ -78,7 +78,7 @@ export async function fakePalpo({
       }
       if (url.includes('/login')) {
         // the sync collector logs in as the sender_localpart with the as_token
-        return json(200, { user_id: '@hafleet:palpo.test', access_token: 'sync-access-token', device_id: 'DEV' });
+        return json(200, { user_id: '@hagency:palpo.test', access_token: 'sync-access-token', device_id: 'DEV' });
       }
       if (url.includes('/_matrix/client/v3/sync')) {
         /*

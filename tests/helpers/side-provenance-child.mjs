@@ -1,7 +1,7 @@
 /*
  * 16-impl-r5 E: a short-lived child process driving the REAL adapters.
  *
- * Lifecycle: config on argv (JSON). The child binds HAFLEET_RUNTIME_DIR BEFORE importing the
+ * Lifecycle: config on argv (JSON). The child binds HAGENCY_RUNTIME_DIR BEFORE importing the
  * bridge, reads its OWN store through the real ProjectSideStore, projects through the real
  * inboundCredentialsProjection (the ONLY seam is the backend HTTP hop), refreshes through the
  * real refreshAppserviceSides wiring the REAL createAppserviceRouter, and then starts ONE REAL
@@ -15,7 +15,7 @@
 process.on('SIGTERM', () => process.exit(0));
 
 const cfg = JSON.parse(process.argv[2] ?? '{}');
-process.env.HAFLEET_RUNTIME_DIR = cfg.runtimeDir;
+process.env.HAGENCY_RUNTIME_DIR = cfg.runtimeDir;
 
 const emit = (obj) => process.stdout.write(`${JSON.stringify({ ...obj, pid: process.pid })}\n`);
 
@@ -48,7 +48,7 @@ const self = {
   actingCredentials: new Map([[cfg.sideId, {
     apiBaseUrl: cfg.palpoBaseUrl, serverName: cfg.serverName, kind: 'appservice',
     asToken: projected?.asToken ?? cfg.asToken, hsToken: projected?.hsToken,
-    senderLocalpart: projected?.senderLocalpart ?? 'hafleet', namespace: projected?.namespace ?? '@ac_.*',
+    senderLocalpart: projected?.senderLocalpart ?? 'hagency', namespace: projected?.namespace ?? '@ac_.*',
     registration: projected?.registration ?? null,
   }]]),
   actingSideFor(id) {
@@ -64,6 +64,8 @@ self.handleAppserviceEvents = proto.handleAppserviceEvents.bind(self);
 self.assertSideProvenanceForEvent = proto.assertSideProvenanceForEvent.bind(self);
 self.executeTypedForClaim = proto.executeTypedForClaim.bind(self);
 self.refreshAppserviceSides = proto.refreshAppserviceSides.bind(self);
+self.refreshOutboundFleets = proto.refreshOutboundFleets.bind(self);
+self.reconcileOutboundFleets = proto.reconcileOutboundFleets.bind(self);
 self.refreshActingCredentials = proto.refreshActingCredentials.bind(self);
 // THE ONLY SEAM: the backend HTTP hop returns the real projection over this child's real store.
 self.backendApiForSides = async () => ({ sides: [projected] });
@@ -109,7 +111,7 @@ const startAdapters = async () => {
       baseUrl: cfg.palpoBaseUrl, side: projected.sideId, router: self.appserviceRouter,
       credentialFor: () => ({
         kind: 'appservice', asToken: projected.hsToken, hsToken: projected.hsToken,
-        senderLocalpart: projected.senderLocalpart ?? 'hafleet',
+        senderLocalpart: projected.senderLocalpart ?? 'hagency',
       }),
       readCursor: () => self.__cursor ?? null,
       writeCursor: async (next) => { self.__cursor = next; counters.cursor += 1; },

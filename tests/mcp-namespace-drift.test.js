@@ -4,9 +4,9 @@ import { readFileSync } from 'fs';
 
 import { codexPermissionRequestNeedsOwnerApproval } from '../lib/codex-permission-hook.js';
 
-// The Codex permission hook allowlists HAFleet's own MCP tools by their
+// The Codex permission hook allowlists Hagency's own MCP tools by their
 // fully-qualified name, mcp__<server>__<tool>, so they skip owner approval. The
-// rename changed the MCP server from agent_chat to hafleet, and the allowlist was
+// rename changed the MCP server from agent_chat to hagency, and the allowlist was
 // not updated — the sweep covered AGENT_CHAT_, agent-chat and agentchat, but not
 // agent_chat with an underscore, which is exactly the form MCP namespaces use.
 //
@@ -20,9 +20,9 @@ import { codexPermissionRequestNeedsOwnerApproval } from '../lib/codex-permissio
 
 /** The default MCP server name, read from the launcher rather than hardcoded. */
 function defaultMcpServerName() {
-  const source = readFileSync('bin/hafleet-up', 'utf-8');
-  const match = source.match(/MCP_SERVER_NAME="\$\{HAFLEET_MCP_SERVER_NAME:-([a-z0-9_-]+)\}"/);
-  expect(match, 'could not read the default MCP server name from bin/hafleet-up').toBeTruthy();
+  const source = readFileSync('bin/hagency-up', 'utf-8');
+  const match = source.match(/MCP_SERVER_NAME="\$\{HAGENCY_MCP_SERVER_NAME:-([a-z0-9_-]+)\}"/);
+  expect(match, 'could not read the default MCP server name from bin/hagency-up').toBeTruthy();
   return match[1];
 }
 
@@ -73,7 +73,7 @@ describe('the permission hook allowlist matches the MCP server it will actually 
   test.each(['check_inbox', 'whoami', 'list_tasks', 'accept_task'])(
     '%s does not require owner approval',
     (tool) => {
-      // These are calls into HAFleet itself, not shell access. Requiring an owner
+      // These are calls into Hagency itself, not shell access. Requiring an owner
       // binding for them makes an agent unusable wherever no Matrix bridge exists.
       expect(codexPermissionRequestNeedsOwnerApproval({ tool_name: `${prefix}${tool}` })).toBe(false);
     },

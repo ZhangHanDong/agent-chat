@@ -79,7 +79,7 @@ function usage() {
 
 Options:
   --type <claude|codex>       Agent client type (default: claude)
-  --home <path>               HAFLEET_HOMEDIR override
+  --home <path>               HAGENCY_HOMEDIR override
   --project <path>            Source project directory to materialize under workdir/projects/
   --project-mode <mode>       copy (default) | symlink
   --project-name <name>       Override project directory name in workdir/projects/
@@ -122,9 +122,9 @@ function parseOptionalBool(value, fallback = null) {
 }
 
 function defaultBackendBaseUrl(env = process.env) {
-  const explicit = String(env.HAFLEET_API || '').trim();
+  const explicit = String(env.HAGENCY_API || '').trim();
   if (explicit) return explicit.replace(/\/$/, '');
-  const port = parsePositiveInt(env.HAFLEET_BACKEND_PORT, 8090);
+  const port = parsePositiveInt(env.HAGENCY_BACKEND_PORT, 8090);
   return `http://127.0.0.1:${port}`;
 }
 
@@ -143,7 +143,7 @@ function safeReadJson(filePath, fallback = null) {
 }
 
 function workspaceTemplateMarker(version = WORKSPACE_CLAUDE_TEMPLATE_VERSION) {
-  return `hafleet-workspace-template: ${version}`;
+  return `hagency-workspace-template: ${version}`;
 }
 
 function isManagedWorkspaceClaudeContent(content) {
@@ -151,7 +151,7 @@ function isManagedWorkspaceClaudeContent(content) {
 }
 
 function workspaceAgentsTemplateMarker(version = WORKSPACE_AGENTS_TEMPLATE_VERSION) {
-  return `hafleet-workspace-agents-template: ${version}`;
+  return `hagency-workspace-agents-template: ${version}`;
 }
 
 function isManagedWorkspaceAgentsContent(content) {
@@ -159,7 +159,7 @@ function isManagedWorkspaceAgentsContent(content) {
 }
 
 function supervisorClaudeTemplateMarker(version = SUPERVISOR_CLAUDE_TEMPLATE_VERSION) {
-  return `hafleet-supervisor-workspace-template: ${version}`;
+  return `hagency-supervisor-workspace-template: ${version}`;
 }
 
 function isManagedSupervisorClaudeContent(content) {
@@ -167,7 +167,7 @@ function isManagedSupervisorClaudeContent(content) {
 }
 
 function supervisorAgentsTemplateMarker(version = SUPERVISOR_AGENTS_TEMPLATE_VERSION) {
-  return `hafleet-supervisor-agents-template: ${version}`;
+  return `hagency-supervisor-agents-template: ${version}`;
 }
 
 function isManagedSupervisorAgentsContent(content) {
@@ -175,7 +175,7 @@ function isManagedSupervisorAgentsContent(content) {
 }
 
 function taskWriterWrapperMarker(version = TASK_WRITER_WRAPPER_VERSION) {
-  return `hafleet-task-writer-wrapper: ${version}`;
+  return `hagency-task-writer-wrapper: ${version}`;
 }
 
 function isManagedTaskWriterWrapper(content) {
@@ -551,7 +551,7 @@ function main() {
     ? path.resolve(String(args.homeDir).trim())
     : defaultAgentchatHomeDir(process.env);
   const agentId = String(args.agentId || '').trim() || v1AgentIdFromName(name);
-  const paths = buildV1AgentPaths(name, { ...process.env, HAFLEET_HOMEDIR: homeRoot }, agentId);
+  const paths = buildV1AgentPaths(name, { ...process.env, HAGENCY_HOMEDIR: homeRoot }, agentId);
   if (!paths) throw new Error('failed to build v1 agent paths');
 
   ensureDir(paths.homeRoot);

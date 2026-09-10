@@ -43,7 +43,7 @@ until all of these pre-implementation spikes have passed and been recorded in
   checkout, WAL restart recovery passes, and remote packaging is still
   deterministic;
 - measured Claude and Codex wrapper cold starts establish
-  `HAFLEET_RUNNER_ACK_MS`; first model output is not the acknowledgement.
+  `HAGENCY_RUNNER_ACK_MS`; first model output is not the acknowledgement.
 
 Failure of a spike returns the ADR/REQ to design. It must not be hidden by a
 JSON fallback, experimental `node:sqlite`, a trust bypass, or a longer
@@ -98,7 +98,7 @@ unmeasured timeout.
   intent/outbox path. Work never executes in a worker main session.
 - Main sessions are bounded front desks. Their identity persists while rolling
   summaries, pinned agreements, recent inputs, and coordinator global digests
-  rotate under `HAFLEET_REBUILD_TOKEN_BUDGET`.
+  rotate under `HAGENCY_REBUILD_TOKEN_BUDGET`.
 - Batching changes launch count only. Every input keeps its own identity and
   order, and messages arriving during a dispatch form the next batch.
 - Reply routing is read from the dispatch/session record. Runner input and
@@ -113,7 +113,7 @@ unmeasured timeout.
   as started and ambiguous; it is never automatically replayed.
 - The wrapper acknowledges delivery only after the verified child accepted the
   complete stdin payload. Missing acknowledgement before the measured timeout
-  (`HAFLEET_RUNNER_ACK_MS`, default 60000) settles `outcome_unknown` as
+  (`HAGENCY_RUNNER_ACK_MS`, default 60000) settles `outcome_unknown` as
   stalled delivery.
 - A short-lived guardian owns each actual Claude/Codex process tree. Backend
   shutdown first stops new pump work, then aborts and awaits every guardian;
@@ -140,7 +140,7 @@ unmeasured timeout.
   must apply it idempotently before allow reaches the runner. Failure withholds
   allow and restart reconciliation replays the event.
 - A runner parked for approval stays alive and keeps all leases. Both
-  `HAFLEET_MAX_LIVE_RUNNERS` and `HAFLEET_MAX_PARKED_RUNNERS` are finite
+  `HAGENCY_MAX_LIVE_RUNNERS` and `HAGENCY_MAX_PARKED_RUNNERS` are finite
   host-wide limits, and the parked limit stays below the live limit to reserve
   non-parked capacity. A full parked cap fails a new approval request closed
   before parking and never relaxes an existing lease.
@@ -148,7 +148,7 @@ unmeasured timeout.
   views. Events are versioned invalidation signals with transactional
   low/high watermarks; clients re-snapshot on a gap. Absolute paths and
   owner-private approval data are never serialized.
-- `HAFLEET_THREAD_SESSIONS` defaults off and gates session ingestion and
+- `HAGENCY_THREAD_SESSIONS` defaults off and gates session ingestion and
   dispatch only. Off restores legacy delivery but never switches the already
   migrated task writer back to JSON.
 - Octos and remote-registered agents are rejected visibly from this path.
@@ -453,7 +453,7 @@ Scenario: Worktree mode allows genuinely isolated writers
   And each holds only its own workspace lease
 
 Scenario: Worktree bootstrap is operator-owned and secret-free
-  Test: runner workspace configuration requires operator authority
+  Test: runner workspace configuration is not settable through the agent API
   Given an agent token attempts to set runner workspace or bootstrap configuration
   When the agent registration API validates the request
   Then it refuses the change without an operator bearer token
@@ -499,7 +499,7 @@ Scenario: Approval replay stays bound to the original dispatch
 
 Scenario: Parked cap fails closed without relaxing leases
   Test: test_parked_runner_cap_denies_new_park_request
-  Given HAFLEET_MAX_PARKED_RUNNERS is full
+  Given HAGENCY_MAX_PARKED_RUNNERS is full
   When another runner requests owner approval
   Then the request is denied before it enters parked state
   And no existing workspace lease is released or transferred
@@ -567,7 +567,7 @@ Scenario: Kill switch off preserves legacy delivery after task-store cutover
     Level: integration
     Test Double: isolated runtime directory and legacy delivery recorder
     Targets: backend-v2.js, lib/task-store.js
-  Given task storage has cut over to SQLite and HAFLEET_THREAD_SESSIONS is unset
+  Given task storage has cut over to SQLite and HAGENCY_THREAD_SESSIONS is unset
   When a thread message and task API request are processed
   Then message delivery follows the pre-contract path
   And the task API writes only SQLite through its existing contract

@@ -90,7 +90,7 @@
     "input": "--dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --dangerously-skip-permissions"
     }
   },
   {
@@ -99,7 +99,7 @@
     "input": "--allow-dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --allow-dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --allow-dangerously-skip-permissions"
     }
   },
   {
@@ -108,7 +108,7 @@
     "input": "--permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -117,7 +117,7 @@
     "input": "--permission-mode=auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode=auto"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode=auto"
     }
   },
   {
@@ -126,7 +126,7 @@
     "input": "--permission-mode auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -382,7 +382,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -391,7 +391,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -472,7 +472,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -481,7 +481,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -490,7 +490,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -499,7 +499,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -521,7 +521,7 @@
     "input": "--sandbox --dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --dangerously-skip-permissions"
     }
   },
   {
@@ -673,7 +673,7 @@
     "input": "--yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -682,7 +682,7 @@
     "input": "--full-auto",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --full-auto"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --full-auto"
     }
   },
   {
@@ -691,7 +691,7 @@
     "input": "--dangerously-bypass-approvals-and-sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --dangerously-bypass-approvals-and-sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --dangerously-bypass-approvals-and-sandbox"
     }
   },
   {
@@ -700,7 +700,7 @@
     "input": "--sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -709,7 +709,7 @@
     "input": "--sandbox=danger-full-access",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox=danger-full-access"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox=danger-full-access"
     }
   },
   {
@@ -718,7 +718,7 @@
     "input": "-s",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s"
     }
   },
   {
@@ -727,7 +727,7 @@
     "input": "-s=x",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s=x"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s=x"
     }
   },
   {
@@ -736,7 +736,7 @@
     "input": "-sfoo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -sfoo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -sfoo"
     }
   },
   {
@@ -745,7 +745,7 @@
     "input": "-should",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -should"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -should"
     }
   },
   {
@@ -754,7 +754,7 @@
     "input": "--ask-for-approval",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval"
     }
   },
   {
@@ -763,7 +763,7 @@
     "input": "--ask-for-approval=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval=never"
     }
   },
   {
@@ -772,7 +772,7 @@
     "input": "-a",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a"
     }
   },
   {
@@ -781,7 +781,7 @@
     "input": "-a=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a=never"
     }
   },
   {
@@ -790,7 +790,7 @@
     "input": "-anever",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -anever"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -anever"
     }
   },
   {
@@ -799,7 +799,7 @@
     "input": "-c approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -808,7 +808,7 @@
     "input": "--config approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -817,7 +817,7 @@
     "input": "--config=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -826,7 +826,7 @@
     "input": "-c=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -835,7 +835,7 @@
     "input": "-capproval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -844,7 +844,7 @@
     "input": "-c profiles.x.approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: profiles.x.approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: profiles.x.approval_policy"
     }
   },
   {
@@ -877,7 +877,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -886,7 +886,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -967,7 +967,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -976,7 +976,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -985,7 +985,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -994,7 +994,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -1003,7 +1003,7 @@
     "input": "-c unrelated=1 --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -1012,7 +1012,7 @@
     "input": "--sandbox --dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -1103,7 +1103,7 @@
     "input": "--dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --dangerously-skip-permissions"
     }
   },
   {
@@ -1112,7 +1112,7 @@
     "input": "--allow-dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --allow-dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --allow-dangerously-skip-permissions"
     }
   },
   {
@@ -1121,7 +1121,7 @@
     "input": "--permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1130,7 +1130,7 @@
     "input": "--permission-mode=auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode=auto"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode=auto"
     }
   },
   {
@@ -1139,7 +1139,7 @@
     "input": "--permission-mode auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1148,7 +1148,7 @@
     "input": "--yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -1157,7 +1157,7 @@
     "input": "--full-auto",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --full-auto"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --full-auto"
     }
   },
   {
@@ -1166,7 +1166,7 @@
     "input": "--dangerously-bypass-approvals-and-sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --dangerously-bypass-approvals-and-sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --dangerously-bypass-approvals-and-sandbox"
     }
   },
   {
@@ -1175,7 +1175,7 @@
     "input": "--sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -1184,7 +1184,7 @@
     "input": "--sandbox=danger-full-access",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox=danger-full-access"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox=danger-full-access"
     }
   },
   {
@@ -1193,7 +1193,7 @@
     "input": "-s",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s"
     }
   },
   {
@@ -1202,7 +1202,7 @@
     "input": "-s=x",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s=x"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s=x"
     }
   },
   {
@@ -1211,7 +1211,7 @@
     "input": "-sfoo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -sfoo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -sfoo"
     }
   },
   {
@@ -1220,7 +1220,7 @@
     "input": "-should",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -should"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -should"
     }
   },
   {
@@ -1229,7 +1229,7 @@
     "input": "--ask-for-approval",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval"
     }
   },
   {
@@ -1238,7 +1238,7 @@
     "input": "--ask-for-approval=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval=never"
     }
   },
   {
@@ -1247,7 +1247,7 @@
     "input": "-a",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a"
     }
   },
   {
@@ -1256,7 +1256,7 @@
     "input": "-a=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a=never"
     }
   },
   {
@@ -1265,7 +1265,7 @@
     "input": "-anever",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -anever"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -anever"
     }
   },
   {
@@ -1274,7 +1274,7 @@
     "input": "-c approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -1283,7 +1283,7 @@
     "input": "--config approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -1292,7 +1292,7 @@
     "input": "--config=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -1301,7 +1301,7 @@
     "input": "-c=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -1310,7 +1310,7 @@
     "input": "-capproval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -1319,7 +1319,7 @@
     "input": "-c profiles.x.approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: profiles.x.approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: profiles.x.approval_policy"
     }
   },
   {
@@ -1352,7 +1352,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -1361,7 +1361,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -1442,7 +1442,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -1451,7 +1451,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1460,7 +1460,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -1469,7 +1469,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1478,7 +1478,7 @@
     "input": "-c unrelated=1 --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -1487,7 +1487,7 @@
     "input": "--sandbox --dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -1581,7 +1581,7 @@
     "input": "--dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --dangerously-skip-permissions"
     }
   },
   {
@@ -1590,7 +1590,7 @@
     "input": "--allow-dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --allow-dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --allow-dangerously-skip-permissions"
     }
   },
   {
@@ -1599,7 +1599,7 @@
     "input": "--permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1608,7 +1608,7 @@
     "input": "--permission-mode=auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode=auto"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode=auto"
     }
   },
   {
@@ -1617,7 +1617,7 @@
     "input": "--permission-mode auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1873,7 +1873,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -1882,7 +1882,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -1963,7 +1963,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1972,7 +1972,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1981,7 +1981,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -1990,7 +1990,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -2012,7 +2012,7 @@
     "input": "--sandbox --dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --dangerously-skip-permissions"
     }
   },
   {
@@ -2164,7 +2164,7 @@
     "input": "--yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -2173,7 +2173,7 @@
     "input": "--full-auto",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --full-auto"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --full-auto"
     }
   },
   {
@@ -2182,7 +2182,7 @@
     "input": "--dangerously-bypass-approvals-and-sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --dangerously-bypass-approvals-and-sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --dangerously-bypass-approvals-and-sandbox"
     }
   },
   {
@@ -2191,7 +2191,7 @@
     "input": "--sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -2200,7 +2200,7 @@
     "input": "--sandbox=danger-full-access",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox=danger-full-access"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox=danger-full-access"
     }
   },
   {
@@ -2209,7 +2209,7 @@
     "input": "-s",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s"
     }
   },
   {
@@ -2218,7 +2218,7 @@
     "input": "-s=x",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s=x"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s=x"
     }
   },
   {
@@ -2227,7 +2227,7 @@
     "input": "-sfoo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -sfoo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -sfoo"
     }
   },
   {
@@ -2236,7 +2236,7 @@
     "input": "-should",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -should"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -should"
     }
   },
   {
@@ -2245,7 +2245,7 @@
     "input": "--ask-for-approval",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval"
     }
   },
   {
@@ -2254,7 +2254,7 @@
     "input": "--ask-for-approval=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval=never"
     }
   },
   {
@@ -2263,7 +2263,7 @@
     "input": "-a",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a"
     }
   },
   {
@@ -2272,7 +2272,7 @@
     "input": "-a=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a=never"
     }
   },
   {
@@ -2281,7 +2281,7 @@
     "input": "-anever",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -anever"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -anever"
     }
   },
   {
@@ -2290,7 +2290,7 @@
     "input": "-c approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -2299,7 +2299,7 @@
     "input": "--config approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -2308,7 +2308,7 @@
     "input": "--config=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -2317,7 +2317,7 @@
     "input": "-c=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -2326,7 +2326,7 @@
     "input": "-capproval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -2335,7 +2335,7 @@
     "input": "-c profiles.x.approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: profiles.x.approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: profiles.x.approval_policy"
     }
   },
   {
@@ -2368,7 +2368,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -2377,7 +2377,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -2458,7 +2458,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -2467,7 +2467,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -2476,7 +2476,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -2485,7 +2485,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -2494,7 +2494,7 @@
     "input": "-c unrelated=1 --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -2503,7 +2503,7 @@
     "input": "--sandbox --dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -2650,7 +2650,7 @@
     "input": "--yolo",
     "out": {
       "ok": false,
-      "reason": "Hermes approval policy flag is managed by hafleet: --yolo"
+      "reason": "Hermes approval policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -2895,7 +2895,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -2904,7 +2904,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -2985,7 +2985,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Hermes approval policy flag is managed by hafleet: --yolo"
+      "reason": "Hermes approval policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -2994,7 +2994,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Hermes approval policy flag is managed by hafleet: --yolo"
+      "reason": "Hermes approval policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3003,7 +3003,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Hermes approval policy flag is managed by hafleet: --yolo"
+      "reason": "Hermes approval policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3012,7 +3012,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Hermes approval policy flag is managed by hafleet: --yolo"
+      "reason": "Hermes approval policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3021,7 +3021,7 @@
     "input": "-c unrelated=1 --yolo",
     "out": {
       "ok": false,
-      "reason": "Hermes approval policy flag is managed by hafleet: --yolo"
+      "reason": "Hermes approval policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3180,7 +3180,7 @@
     "input": "--yolo",
     "out": {
       "ok": false,
-      "reason": "Octos sandbox flag is managed by hafleet: --yolo"
+      "reason": "Octos sandbox flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3222,7 +3222,7 @@
     "input": "--sandbox=danger-full-access",
     "out": {
       "ok": false,
-      "reason": "Octos sandbox flag is managed by hafleet: --sandbox=danger-full-access"
+      "reason": "Octos sandbox flag is managed by hagency: --sandbox=danger-full-access"
     }
   },
   {
@@ -3423,7 +3423,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -3432,7 +3432,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -3513,7 +3513,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Octos sandbox flag is managed by hafleet: --yolo"
+      "reason": "Octos sandbox flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3522,7 +3522,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Octos sandbox flag is managed by hafleet: --yolo"
+      "reason": "Octos sandbox flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3531,7 +3531,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Octos sandbox flag is managed by hafleet: --yolo"
+      "reason": "Octos sandbox flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3540,7 +3540,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Octos sandbox flag is managed by hafleet: --yolo"
+      "reason": "Octos sandbox flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3549,7 +3549,7 @@
     "input": "-c unrelated=1 --yolo",
     "out": {
       "ok": false,
-      "reason": "Octos sandbox flag is managed by hafleet: --yolo"
+      "reason": "Octos sandbox flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3652,7 +3652,7 @@
     "input": "--dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --dangerously-skip-permissions"
     }
   },
   {
@@ -3661,7 +3661,7 @@
     "input": "--allow-dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --allow-dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --allow-dangerously-skip-permissions"
     }
   },
   {
@@ -3670,7 +3670,7 @@
     "input": "--permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -3679,7 +3679,7 @@
     "input": "--permission-mode=auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode=auto"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode=auto"
     }
   },
   {
@@ -3688,7 +3688,7 @@
     "input": "--permission-mode auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -3697,7 +3697,7 @@
     "input": "--yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -3706,7 +3706,7 @@
     "input": "--full-auto",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --full-auto"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --full-auto"
     }
   },
   {
@@ -3715,7 +3715,7 @@
     "input": "--dangerously-bypass-approvals-and-sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --dangerously-bypass-approvals-and-sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --dangerously-bypass-approvals-and-sandbox"
     }
   },
   {
@@ -3724,7 +3724,7 @@
     "input": "--sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -3733,7 +3733,7 @@
     "input": "--sandbox=danger-full-access",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox=danger-full-access"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox=danger-full-access"
     }
   },
   {
@@ -3742,7 +3742,7 @@
     "input": "-s",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s"
     }
   },
   {
@@ -3751,7 +3751,7 @@
     "input": "-s=x",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s=x"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s=x"
     }
   },
   {
@@ -3760,7 +3760,7 @@
     "input": "-sfoo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -sfoo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -sfoo"
     }
   },
   {
@@ -3769,7 +3769,7 @@
     "input": "-should",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -should"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -should"
     }
   },
   {
@@ -3778,7 +3778,7 @@
     "input": "--ask-for-approval",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval"
     }
   },
   {
@@ -3787,7 +3787,7 @@
     "input": "--ask-for-approval=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval=never"
     }
   },
   {
@@ -3796,7 +3796,7 @@
     "input": "-a",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a"
     }
   },
   {
@@ -3805,7 +3805,7 @@
     "input": "-a=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a=never"
     }
   },
   {
@@ -3814,7 +3814,7 @@
     "input": "-anever",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -anever"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -anever"
     }
   },
   {
@@ -3823,7 +3823,7 @@
     "input": "-c approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -3832,7 +3832,7 @@
     "input": "--config approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -3841,7 +3841,7 @@
     "input": "--config=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -3850,7 +3850,7 @@
     "input": "-c=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -3859,7 +3859,7 @@
     "input": "-capproval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -3868,7 +3868,7 @@
     "input": "-c profiles.x.approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: profiles.x.approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: profiles.x.approval_policy"
     }
   },
   {
@@ -3901,7 +3901,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -3910,7 +3910,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -3991,7 +3991,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -4000,7 +4000,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -4009,7 +4009,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -4018,7 +4018,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -4027,7 +4027,7 @@
     "input": "-c unrelated=1 --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -4036,7 +4036,7 @@
     "input": "--sandbox --dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -4127,7 +4127,7 @@
     "input": "--dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --dangerously-skip-permissions"
     }
   },
   {
@@ -4136,7 +4136,7 @@
     "input": "--allow-dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --allow-dangerously-skip-permissions"
+      "reason": "Claude permission policy flag is managed by hagency: --allow-dangerously-skip-permissions"
     }
   },
   {
@@ -4145,7 +4145,7 @@
     "input": "--permission-mode",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -4154,7 +4154,7 @@
     "input": "--permission-mode=auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode=auto"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode=auto"
     }
   },
   {
@@ -4163,7 +4163,7 @@
     "input": "--permission-mode auto",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -4172,7 +4172,7 @@
     "input": "--yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -4181,7 +4181,7 @@
     "input": "--full-auto",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --full-auto"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --full-auto"
     }
   },
   {
@@ -4190,7 +4190,7 @@
     "input": "--dangerously-bypass-approvals-and-sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --dangerously-bypass-approvals-and-sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --dangerously-bypass-approvals-and-sandbox"
     }
   },
   {
@@ -4199,7 +4199,7 @@
     "input": "--sandbox",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -4208,7 +4208,7 @@
     "input": "--sandbox=danger-full-access",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox=danger-full-access"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox=danger-full-access"
     }
   },
   {
@@ -4217,7 +4217,7 @@
     "input": "-s",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s"
     }
   },
   {
@@ -4226,7 +4226,7 @@
     "input": "-s=x",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -s=x"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -s=x"
     }
   },
   {
@@ -4235,7 +4235,7 @@
     "input": "-sfoo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -sfoo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -sfoo"
     }
   },
   {
@@ -4244,7 +4244,7 @@
     "input": "-should",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -should"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -should"
     }
   },
   {
@@ -4253,7 +4253,7 @@
     "input": "--ask-for-approval",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval"
     }
   },
   {
@@ -4262,7 +4262,7 @@
     "input": "--ask-for-approval=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --ask-for-approval=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --ask-for-approval=never"
     }
   },
   {
@@ -4271,7 +4271,7 @@
     "input": "-a",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a"
     }
   },
   {
@@ -4280,7 +4280,7 @@
     "input": "-a=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -a=never"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -a=never"
     }
   },
   {
@@ -4289,7 +4289,7 @@
     "input": "-anever",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: -anever"
+      "reason": "Codex Level 2 policy flag is managed by hagency: -anever"
     }
   },
   {
@@ -4298,7 +4298,7 @@
     "input": "-c approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -4307,7 +4307,7 @@
     "input": "--config approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: approval_policy"
     }
   },
   {
@@ -4316,7 +4316,7 @@
     "input": "--config=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -4325,7 +4325,7 @@
     "input": "-c=sandbox_mode=danger",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -4334,7 +4334,7 @@
     "input": "-capproval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet"
+      "reason": "Codex Level 2 config is managed by hagency"
     }
   },
   {
@@ -4343,7 +4343,7 @@
     "input": "-c profiles.x.approval_policy=never",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 config is managed by hafleet: profiles.x.approval_policy"
+      "reason": "Codex Level 2 config is managed by hagency: profiles.x.approval_policy"
     }
   },
   {
@@ -4376,7 +4376,7 @@
     "input": "--verbose --",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -4385,7 +4385,7 @@
     "input": "--",
     "out": {
       "ok": false,
-      "reason": "the launch argument delimiter is managed by hafleet"
+      "reason": "the launch argument delimiter is managed by hagency"
     }
   },
   {
@@ -4466,7 +4466,7 @@
     "input": "--yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -4475,7 +4475,7 @@
     "input": "--permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -4484,7 +4484,7 @@
     "input": "--verbose --yolo --permission-mode",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -4493,7 +4493,7 @@
     "input": "--verbose --permission-mode --yolo",
     "out": {
       "ok": false,
-      "reason": "Claude permission policy flag is managed by hafleet: --permission-mode"
+      "reason": "Claude permission policy flag is managed by hagency: --permission-mode"
     }
   },
   {
@@ -4502,7 +4502,7 @@
     "input": "-c unrelated=1 --yolo",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --yolo"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --yolo"
     }
   },
   {
@@ -4511,7 +4511,7 @@
     "input": "--sandbox --dangerously-skip-permissions",
     "out": {
       "ok": false,
-      "reason": "Codex Level 2 policy flag is managed by hafleet: --sandbox"
+      "reason": "Codex Level 2 policy flag is managed by hagency: --sandbox"
     }
   },
   {
@@ -4519,9 +4519,9 @@
     "out": {
       "claude": "auto-mode",
       "codex": "level2 (workspace-write + on-request)",
-      "codex-acp": "codex-acp asks before each tool call and hafleet declines all but its own coordination tools; hafleet passes NO filesystem sandbox flag on this transport",
+      "codex-acp": "codex-acp asks before each tool call and hagency declines all but its own coordination tools; hagency passes NO filesystem sandbox flag on this transport",
       "hermes": "hermes interactive approval prompts (bypass flags refused)",
-      "octos": "octos sandbox as configured (hafleet never passes --danger-full-access)"
+      "octos": "octos sandbox as configured (hagency never passes --danger-full-access)"
     }
   }
 ]

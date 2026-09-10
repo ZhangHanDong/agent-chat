@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
 const REPO_ROOT = path.resolve('.');
-const HAFLEET_BIN = path.join(REPO_ROOT, 'bin', 'hafleet');
+const HAGENCY_BIN = path.join(REPO_ROOT, 'bin', 'hagency');
 const execFileAsync = promisify(execFile);
 const cleanupPaths = new Set();
 
@@ -18,7 +18,7 @@ function trackTempDir(prefix) {
 }
 
 async function runCli(args, env = {}) {
-  const { stdout } = await execFileAsync(HAFLEET_BIN, args, {
+  const { stdout } = await execFileAsync(HAGENCY_BIN, args, {
     cwd: REPO_ROOT,
     encoding: 'utf-8',
     env: {
@@ -36,9 +36,9 @@ afterEach(() => {
   cleanupPaths.clear();
 });
 
-describe('hafleet graph cli', () => {
-  test('hafleet graph create/list/show/cancel manages graphs from JSON files', async () => {
-    const context = await createBackendTestContext('hafleet-graph-cli-test-', {
+describe('hagency graph cli', () => {
+  test('hagency graph create/list/show/cancel manages graphs from JSON files', async () => {
+    const context = await createBackendTestContext('hagency-graph-cli-test-', {
       agents: {
         alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: false, manualDown: true, offlineReason: 'idle' },
         beta: { name: 'beta', type: 'agent', kind: 'agent', online: false, manualDown: true, offlineReason: 'idle' },
@@ -49,7 +49,7 @@ describe('hafleet graph cli', () => {
     cleanupPaths.add(context.runtimeDir);
 
     try {
-      const graphFile = path.join(trackTempDir('hafleet-graph-def-'), 'graph.json');
+      const graphFile = path.join(trackTempDir('hagency-graph-def-'), 'graph.json');
       writeFileSync(graphFile, JSON.stringify({
         owner: 'orchestrator',
         label: 'cli graph',
@@ -66,7 +66,7 @@ describe('hafleet graph cli', () => {
         },
       }, null, 2));
 
-      const cliEnv = { HAFLEET_API: listener.baseUrl };
+      const cliEnv = { HAGENCY_API: listener.baseUrl };
       const createOutput = await runCli(['graph', 'create', graphFile], cliEnv);
       expect(createOutput).toContain('Created graph');
 

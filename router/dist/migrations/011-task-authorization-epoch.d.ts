@@ -1,0 +1,1 @@
+export declare const TASK_AUTHORIZATION_EPOCH_SCHEMA = "\nALTER TABLE tasks ADD COLUMN execution_epoch INTEGER NOT NULL DEFAULT 0;\nCREATE TRIGGER tasks_finish_execution_epoch AFTER UPDATE OF status ON tasks\nWHEN NEW.status = 'done' AND OLD.status != 'done'\nBEGIN\n  UPDATE tasks SET execution_epoch = OLD.execution_epoch + 1 WHERE task_id = NEW.task_id;\nEND;\n";

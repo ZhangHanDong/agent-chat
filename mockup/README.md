@@ -1,8 +1,8 @@
-# HAFleet contribution console
+# Hagency contribution console
 
 A Next.js app implementing the design in
-[`../docs/design/hafleet-as-contribution-console.md`](../docs/design/hafleet-as-contribution-console.md).
-It reads a real backend through a same-origin proxy (`app/api/hafleet/`) and writes to it where a
+[`../docs/design/hagency-as-contribution-console.md`](../docs/design/hagency-as-contribution-console.md).
+It reads a real backend through a same-origin proxy (`app/api/hagency/`) and writes to it where a
 page has a form; every page labels which of its slices came from the backend and which from the
 fixture. With no backend reachable — a static export has no proxy at all — it renders the fixture
 and says so. (This line read "mock data only", which stopped being true when the integration
@@ -11,8 +11,8 @@ landed.)
 ```bash
 cd mockup
 npm ci
-# Set HAFLEET_BACKEND (default http://127.0.0.1:8090) and
-# HAFLEET_API_TOKEN in this server process's environment, or in .env.local.
+# Set HAGENCY_BACKEND (default http://127.0.0.1:8090) and
+# HAGENCY_API_TOKEN in this server process's environment, or in .env.local.
 # Use the operator token for the same local deployment; never use NEXT_PUBLIC_*.
 npm run build && npm start   # http://localhost:3100
 ```
@@ -63,8 +63,13 @@ and is it healthy" is not answerable from any single layer.
 | `/engagements` | Inbound requests, the routing that decided them, and the whitelist |
 | `/usage` | What ran, for whom, and the metering gap |
 | `/agents/[name]` | One agent: what it contributes, its ceiling, who it serves |
-| `/onboard` | What this host can employ, and bringing one up with a preset |
+| `/onboard` | Compatibility redirect to `/resources`; approved requests provision Agents |
 | `/alerts`, `/config` | Incidents; fleet-wide policy and the destructive things |
+
+The provider workflow is Resource configuration → request approval → automatic
+Agent provisioning → Agent management. Resource configurations can exist before
+any Agent instance. There is no separate web Create Agent step. The controlled
+browser regression is `BASE=http://127.0.0.1:13203 node scripts/check-resource-first.mjs`.
 
 ## Decisions you can see working
 
@@ -112,7 +117,7 @@ and is it healthy" is not answerable from any single layer.
   the chart, values from the table.
 - **A blank is never a zero.** A consumption figure appears only where something measured it;
   everywhere else it is a dash with the reason in place. `0` would claim a measurement nobody
-  took. (This read "nothing in HAFleet meters tokens", which was true when it was written and
+  took. (This read "nothing in Hagency meters tokens", which was true when it was written and
   is now true only per framework and per agent — the rule is unchanged, its reach is not.)
 - **An unenforced ceiling says so beside the number**, or a reader treats a declaration of
   intent as a guard rail.
@@ -158,7 +163,7 @@ Never as data a backend would return. In dependency order:
    `usage`/`budget` match in `lib/` and `backend-v2.js` is a CLI help string. Without it,
    ceilings are decoration and `/usage` is empty.
 2. **A token ceiling on a preset** — `{ tokens, period, rateCapPerDay }`.
-3. **`GET /api/frameworks/detect`**, which `/onboard` is drawn against.
+3. **`GET /api/frameworks/detect`**, used when configuring a Resource.
 4. **Inbound engagement requests**, plus approve/reject writing a per-agent allocation.
    `lib/approval-store.js` is the pattern: durable, audited, terminal states, TTL.
 5. **The standing offer** and **the whitelist**, both with an audit trail.

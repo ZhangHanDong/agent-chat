@@ -25,7 +25,7 @@ Usage: ./install-full.sh [options]
 Install the full local Agent Chat stack on Linux:
   - Node dependencies
   - .env bootstrap with required API_TOKEN
-  - hafleet-backend, hafleet, and hafleet-push-relay systemd units
+  - hagency-backend, hagency, and hagency-push-relay systemd units
   - CLI symlinks in ~/.local/bin
   - Claude/Codex skill links
   - Claude Code and Codex MCP user config when the CLIs are available
@@ -42,7 +42,7 @@ Options:
   --skip-prereq-check   Do not check host prerequisites
   --with-bridge         Also install/enable bridge-matrix.service
   --deny-existing-tmux  Install even if unrelated tmux sessions exist, adding them
-                        to HAFLEET_SESSION_DENYLIST so HAFleet leaves them alone
+                        to HAGENCY_SESSION_DENYLIST so Hagency leaves them alone
   --allow-existing-tmux Install and manage pre-existing tmux sessions anyway
   -h, --help            Show this help
 
@@ -163,7 +163,7 @@ parse_args() {
   done
 }
 
-# HAFleet registers tmux sessions as agents and the relay delivers by typing into
+# Hagency registers tmux sessions as agents and the relay delivers by typing into
 # their panes, so a host with unrelated sessions can have someone else's work typed
 # into. Observed on a fleet host: a fresh install claimed five sessions that had
 # been running for eleven days. The macOS installer has warned about this for a
@@ -180,13 +180,13 @@ check_existing_tmux() {
   log "WARNING: $count existing tmux session(s) on this host:"
   printf '%s\n' "$sessions" | sed 's/^/           /'
   log ""
-  log "  HAFleet registers tmux sessions as agents, and the push relay delivers"
+  log "  Hagency registers tmux sessions as agents, and the push relay delivers"
   log "  messages by typing into their panes. These sessions would become"
   log "  addressable, and anything sent to them would be typed into whatever is"
   log "  running there."
   log ""
   log "  Either stop or rename them first, pass --deny-existing-tmux to have"
-  log "  HAFleet ignore exactly these sessions, or pass --allow-existing-tmux to"
+  log "  Hagency ignore exactly these sessions, or pass --allow-existing-tmux to"
   log "  accept the risk and manage them."
   log ""
 
@@ -211,18 +211,18 @@ apply_session_denylist() {
   [ "$DENY_EXISTING_TMUX" = true ] || return 0
   [ -n "$EXISTING_TMUX_SESSIONS" ] || { log "No sessions to deny."; return 0; }
   if [ "$DRY_RUN" = true ]; then
-    log "[dry-run] would set HAFLEET_SESSION_DENYLIST=$EXISTING_TMUX_SESSIONS"
+    log "[dry-run] would set HAGENCY_SESSION_DENYLIST=$EXISTING_TMUX_SESSIONS"
     return 0
   fi
   local existing merged
-  existing="$(read_env_value HAFLEET_SESSION_DENYLIST "$ENV_FILE")"
+  existing="$(read_env_value HAGENCY_SESSION_DENYLIST "$ENV_FILE")"
   if [ -n "$existing" ]; then
     merged="$existing,$EXISTING_TMUX_SESSIONS"
   else
     merged="$EXISTING_TMUX_SESSIONS"
   fi
-  set_env_value HAFLEET_SESSION_DENYLIST "$merged" "$ENV_FILE"
-  log "HAFLEET_SESSION_DENYLIST=$merged"
+  set_env_value HAGENCY_SESSION_DENYLIST "$merged" "$ENV_FILE"
+  log "HAGENCY_SESSION_DENYLIST=$merged"
 }
 
 check_prereqs() {
@@ -385,7 +385,7 @@ link_cli_commands() {
 
 link_skill() {
   local target="$1"
-  local template="${2:-$INSTALL_DIR/skills/hafleet/SKILL.md}"
+  local template="${2:-$INSTALL_DIR/skills/hagency/SKILL.md}"
   [ -e "$template" ] || die "missing skill template: $template"
   run mkdir -p "$(dirname "$target")"
   if [ "$DRY_RUN" = false ] && [ -e "$target" ] && [ ! -L "$target" ]; then
@@ -402,17 +402,17 @@ link_skill() {
 }
 
 install_skills() {
-  local inner_loop="$INSTALL_DIR/skills/hafleet-inner-loop"
+  local inner_loop="$INSTALL_DIR/skills/hagency-inner-loop"
   local resource
   for resource in SKILL.md scripts/monitor.mjs; do
     [ -f "$inner_loop/$resource" ] || die "missing skill resource: $inner_loop/$resource"
   done
-  link_skill "$HOME/.claude/skills/hafleet/SKILL.md"
-  link_skill "$HOME/.codex/skills/hafleet/SKILL.md"
+  link_skill "$HOME/.claude/skills/hagency/SKILL.md"
+  link_skill "$HOME/.codex/skills/hagency/SKILL.md"
   link_skill "$HOME/.claude/skills/agent-message/SKILL.md"
   link_skill "$HOME/.codex/skills/agent-message/SKILL.md"
-  link_skill "$HOME/.claude/skills/hafleet-inner-loop" "$inner_loop"
-  link_skill "$HOME/.codex/skills/hafleet-inner-loop" "$inner_loop"
+  link_skill "$HOME/.claude/skills/hagency-inner-loop" "$inner_loop"
+  link_skill "$HOME/.codex/skills/hagency-inner-loop" "$inner_loop"
 }
 
 configure_claude_mcp() {
@@ -422,20 +422,20 @@ configure_claude_mcp() {
   fi
   if ! command -v claude >/dev/null 2>&1; then
     log "Claude Code CLI not found; skipping MCP configuration."
-    log "Run: claude mcp add -s user -e HAFLEET_API=http://127.0.0.1:8090 -e API_TOKEN=<token> -e HAFLEET_HOMEDIR=$HOME/.hafleet -- hafleet node $INSTALL_DIR/mcp-server.js"
+    log "Run: claude mcp add -s user -e HAGENCY_API=http://127.0.0.1:8090 -e API_TOKEN=<token> -e HAGENCY_HOMEDIR=$HOME/.hagency -- hagency node $INSTALL_DIR/mcp-server.js"
     return 0
   fi
-  local api_token api_base hafleet_home
+  local api_token api_base hagency_home
   api_token="$(read_env_value API_TOKEN "$ENV_FILE")"
-  api_base="$(read_env_value HAFLEET_API "$ENV_FILE")"
-  hafleet_home="${HAFLEET_HOMEDIR:-$HOME/.hafleet}"
+  api_base="$(read_env_value HAGENCY_API "$ENV_FILE")"
+  hagency_home="${HAGENCY_HOMEDIR:-$HOME/.hagency}"
   [ -n "$api_base" ] || api_base="http://127.0.0.1:8090"
   run claude mcp add -s user \
-    -e "HAFLEET_API=$api_base" \
+    -e "HAGENCY_API=$api_base" \
     -e "API_TOKEN=$api_token" \
-    -e "HAFLEET_HOMEDIR=$hafleet_home" \
-    -e "HAFLEET_MCP_SERVER_NAME=hafleet" \
-    -- hafleet node "$INSTALL_DIR/mcp-server.js"
+    -e "HAGENCY_HOMEDIR=$hagency_home" \
+    -e "HAGENCY_MCP_SERVER_NAME=hagency" \
+    -- hagency node "$INSTALL_DIR/mcp-server.js"
 }
 
 configure_codex_mcp() {
@@ -445,28 +445,28 @@ configure_codex_mcp() {
   fi
   if ! command -v codex >/dev/null 2>&1; then
     log "Codex CLI not found; skipping MCP configuration."
-    log "Run: codex mcp add hafleet --env HAFLEET_API=http://127.0.0.1:8090 --env API_TOKEN=<token> --env HAFLEET_HOMEDIR=$HOME/.hafleet -- node $INSTALL_DIR/mcp-server.js"
+    log "Run: codex mcp add hagency --env HAGENCY_API=http://127.0.0.1:8090 --env API_TOKEN=<token> --env HAGENCY_HOMEDIR=$HOME/.hagency -- node $INSTALL_DIR/mcp-server.js"
     return 0
   fi
-  local api_token api_base hafleet_home
+  local api_token api_base hagency_home
   api_token="$(read_env_value API_TOKEN "$ENV_FILE")"
-  api_base="$(read_env_value HAFLEET_API "$ENV_FILE")"
-  hafleet_home="${HAFLEET_HOMEDIR:-$HOME/.hafleet}"
+  api_base="$(read_env_value HAGENCY_API "$ENV_FILE")"
+  hagency_home="${HAGENCY_HOMEDIR:-$HOME/.hagency}"
   [ -n "$api_base" ] || api_base="http://127.0.0.1:8090"
-  run codex mcp remove hafleet >/dev/null 2>&1 || true
-  run codex mcp add hafleet \
-    --env "HAFLEET_API=$api_base" \
+  run codex mcp remove hagency >/dev/null 2>&1 || true
+  run codex mcp add hagency \
+    --env "HAGENCY_API=$api_base" \
     --env "API_TOKEN=$api_token" \
-    --env "HAFLEET_HOMEDIR=$hafleet_home" \
-    --env "HAFLEET_MCP_SERVER_NAME=hafleet" \
+    --env "HAGENCY_HOMEDIR=$hagency_home" \
+    --env "HAGENCY_MCP_SERVER_NAME=hagency" \
     -- node "$INSTALL_DIR/mcp-server.js"
 }
 
 install_services() {
   run mkdir -p "$SYSTEMD_DIR"
   local services=(
-    "hafleet-backend.service"
-    "hafleet-push-relay.service"
+    "hagency-backend.service"
+    "hagency-push-relay.service"
   )
   if [ "$WITH_BRIDGE" = true ]; then
     services+=("bridge-matrix.service")
@@ -489,9 +489,9 @@ install_services() {
     return 0
   fi
 
-  systemctl_run enable hafleet-backend.service hafleet-push-relay.service
-  systemctl_run restart hafleet-backend.service
-  systemctl_run restart hafleet-push-relay.service
+  systemctl_run enable hagency-backend.service hagency-push-relay.service
+  systemctl_run restart hagency-backend.service
+  systemctl_run restart hagency-push-relay.service
   if [ "$WITH_BRIDGE" = true ]; then
     systemctl_run enable bridge-matrix.service
     systemctl_run restart bridge-matrix.service
@@ -500,17 +500,17 @@ install_services() {
 
 verify_installation() {
   [ "$DRY_RUN" = false ] || return 0
-  [ -x "$BIN_DIR/hafleet" ] || die "hafleet command was not linked into $BIN_DIR"
-  [ -f "$SYSTEMD_DIR/hafleet-backend.service" ] || die "hafleet-backend.service was not installed"
-  [ -f "$SYSTEMD_DIR/hafleet-push-relay.service" ] || die "hafleet-push-relay.service was not installed"
+  [ -x "$BIN_DIR/hagency" ] || die "hagency command was not linked into $BIN_DIR"
+  [ -f "$SYSTEMD_DIR/hagency-backend.service" ] || die "hagency-backend.service was not installed"
+  [ -f "$SYSTEMD_DIR/hagency-push-relay.service" ] || die "hagency-push-relay.service was not installed"
 
   if [ "$WITH_BRIDGE" = true ]; then
     [ -f "$SYSTEMD_DIR/bridge-matrix.service" ] || die "bridge-matrix.service was not installed"
   fi
 
   if is_system_dir && [ "$NO_START" = false ]; then
-    systemctl_run is-active --quiet hafleet-backend.service
-    systemctl_run is-active --quiet hafleet-push-relay.service
+    systemctl_run is-active --quiet hagency-backend.service
+    systemctl_run is-active --quiet hagency-push-relay.service
     # Previously unchecked, so a bridge that fail-closed on startup still let
     # the installer print "Installation complete."
     if [ "$WITH_BRIDGE" = true ]; then

@@ -39,6 +39,7 @@ preventing a quiet legacy pane from hiding a started or parked dispatch.
 - mockup/components/AgentHeader.jsx
 - mockup/components/AgentTabs.jsx
 - tests/backend-runner-projection.test.js
+- tests/api-agent-stop.test.js
 - tests/dashboard-runner-ui.test.js
 - tests/dashboard-agent-detail.test.js
 - knowledge/requirements/req-dashboard-runner-projection.md

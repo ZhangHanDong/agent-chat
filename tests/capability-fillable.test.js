@@ -101,4 +101,79 @@ describe('capability: fillable respects the cross-family rule', () => {
       }
     }
   });
+
+  test('unused eligible resources can staff roles and supply the second review family', async () => {
+    const context = await createBackendTestContext('cap-unused-resources-', {
+      agents: {},
+      frameworkPresets: [
+        {
+          id: 'resource-claude', name: 'Claude contribution', framework: 'claude',
+          provider: 'anthropic', model: 'claude-opus-5',
+          ceiling: { tokens: 100000, period: 'monthly' }, apiKey: 'private-seat-secret',
+        },
+        {
+          id: 'resource-codex', name: 'Codex contribution', framework: 'codex',
+          provider: 'openai', model: 'gpt-5.6-sol', reasoning: 'high',
+          ceiling: { tokens: 200000, period: 'monthly' },
+        },
+      ],
+    });
+    try {
+      const response = await request(context.app).get('/api/capability').expect(200);
+      expect(roleNamed(response.body, 'review')).toMatchObject({
+        able: [], families: ['claude', 'gpt'], crossFamilyOk: true, fillable: 2,
+      });
+      expect(response.body.resources.coding.qualified).toContainEqual({
+        presetId: 'resource-codex', name: 'Codex contribution', framework: 'codex',
+        model: 'gpt-5.6-sol', reasoning: 'high', family: 'gpt',
+        tier: 'strong', overTier: 1, ceilingTokens: 200000,
+      });
+      expect(JSON.stringify(response.body)).not.toContain('private-seat-secret');
+    } finally {
+      await context.cleanup();
+    }
+  });
+
+  test('a resource represented by an eligible agent is not double counted', async () => {
+    const seeded = fleet([{ name: 'worker', framework: 'claude', model: 'claude-opus-5' }]);
+    seeded.frameworkPresets[0].ceiling = { tokens: 100000, period: 'monthly' };
+    const context = await createBackendTestContext('cap-represented-resource-', seeded);
+    try {
+      const response = await request(context.app).get('/api/capability').expect(200);
+      expect(roleNamed(response.body, 'coding')).toMatchObject({ fillable: 1 });
+      expect(roleNamed(response.body, 'coding').able[0]).toMatchObject({ presetId: 'p0' });
+      expect(roleNamed(response.body, 'review')).toMatchObject({ crossFamilyOk: false, fillable: 0 });
+    } finally {
+      await context.cleanup();
+    }
+  });
+
+  test('unsupported unused runtimes neither mask a provisionable resource nor count as a review family', async () => {
+    const context = await createBackendTestContext('cap-supported-provisioning-', {
+      agents: {},
+      frameworkPresets: [
+        {
+          id: 'a-octos', name: 'Existing-runtime configuration', framework: 'octos',
+          provider: 'moonshot', model: 'kimi-k3', ceiling: { tokens: 100000, period: 'monthly' },
+        },
+        {
+          id: 'z-codex', name: 'Provisionable configuration', framework: 'codex',
+          provider: 'openai', model: 'gpt-5.6-sol', reasoning: 'high',
+          ceiling: { tokens: 100000, period: 'monthly' },
+        },
+      ],
+    });
+    try {
+      const response = await request(context.app).get('/api/capability').expect(200);
+      expect(roleNamed(response.body, 'coding')).toMatchObject({ fillable: 1, families: ['gpt'] });
+      expect(roleNamed(response.body, 'review')).toMatchObject({ fillable: 0, crossFamilyOk: false, families: ['gpt'] });
+      expect(response.body.resources.coding).toMatchObject({ selected: 'z-codex', considered: 2 });
+      expect(response.body.resources.coding.qualified.map((row) => row.presetId)).toEqual(['z-codex']);
+      expect(response.body.resources.coding.unqualified).toContainEqual({
+        presetId: 'a-octos', name: 'Existing-runtime configuration', tier: 'strong', reason: 'framework-not-provisionable',
+      });
+    } finally {
+      await context.cleanup();
+    }
+  });
 });

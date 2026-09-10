@@ -11,6 +11,13 @@ import { RUNNER_RECOVERY_HARDENING_SCHEMA } from './migrations/005-runner-recove
 import { AGENT_OPS_CLIENT_SCHEMA } from './migrations/006-agent-ops-client.js';
 import { AGENT_OPS_SERVER_IDENTITY_SCHEMA } from './migrations/007-agent-ops-server-identity.js';
 import { SESSION_OVERRIDES_SCHEMA } from './migrations/008-session-overrides.js';
+import { APPROVAL_REQUEST_IDENTITY_SCHEMA } from './migrations/009-approval-request-identity.js';
+import { TASK_AUTHORIZATION_EPOCH_SCHEMA } from './migrations/011-task-authorization-epoch.js';
+import { ConversationStore } from './conversations.js';
+import { CONVERSATION_SCHEMA } from './migrations/010-conversations.js';
+import { DELIVERY_STORAGE_SCHEMA } from './migrations/013-delivery-storage.js';
+import { ActivityStore, type ActivityEvent } from './activity.js';
+import { type FileReplyManifest, type FileReplyRow, type FileReplyResult } from './files.js';
 import { TASK_OPERATIONS_SCHEMA } from './migrations/009-task-operations.js';
 import { applyTaskOperation, type TaskOperationInput, type TaskOperationResult } from './task-operations.js';
 import type {
@@ -233,6 +240,7 @@ interface ApprovalWaitRow {
   created_at: number;
   resolved_at: number | null;
   decision: 'allow' | 'deny' | null;
+  resumed_at: number | null;
 }
 
 interface MetaRow {
@@ -326,6 +334,13 @@ function safeParseObject(value: string): Readonly<Record<string, unknown>> {
   return parsed as Readonly<Record<string, unknown>>;
 }
 
+function publicRuntimeReason(reason: string | null): string | null {
+  if (reason && /(?:^|[\s"'`=(,:])(?:\/[^\s]|~\/|[A-Za-z]:[\\/])/.test(reason)) {
+    return 'Runtime details redacted; inspect the dispatch through the operator recovery flow';
+  }
+  return reason;
+}
+
 function safeParseStringArray(value: string): string[] {
   const parsed: unknown = JSON.parse(value);
   if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string')) {
@@ -380,6 +395,8 @@ const MODEL_OVERRIDE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 class RouterInputError extends Error {}
 
 export class RouterStore {
+  readonly conversations: ConversationStore;
+  private readonly activity: ActivityStore;
   /** @internal Router package and white-box tests only; never a production integration surface. */
   readonly db: Database.Database;
   readonly dbPath: string;
@@ -398,6 +415,8 @@ export class RouterStore {
     this.db.pragma('foreign_keys = ON');
     this.db.pragma('busy_timeout = 5000');
     this.applyMigrations();
+    this.conversations = new ConversationStore(this.db);
+    this.activity = new ActivityStore(this.db);
   }
 
   close(): void {
@@ -507,12 +526,26 @@ export class RouterStore {
       });
       migrate();
     }
-    if (!this.db.prepare<[number], IdRow>('SELECT version AS id FROM router_schema_migrations WHERE version = ?').get(9)) {
-      this.db.transaction(() => {
+    // Two released branches used migration 9 for different schemas. Migration
+    // numbers alone cannot distinguish them. Converge their physical schemas
+    // atomically, retaining the original history and recording the union as 12.
+    if (!this.db.prepare('SELECT 1 FROM router_schema_migrations WHERE version=12').get()) this.db.transaction(() => {
+      const hasColumn = (table: string, column: string) =>
+        (this.db.pragma(`table_info(${table})`) as { name: string }[]).some((row: { name: string }) => row.name === column);
+      if (!hasColumn('approval_waits', 'resumed_at')) this.db.exec(APPROVAL_REQUEST_IDENTITY_SCHEMA);
+      if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runner_task_operations'").get()) {
         this.db.exec(TASK_OPERATIONS_SCHEMA);
-        this.db.prepare<[number, number]>('INSERT INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(9, this.now());
-      })();
-    }
+      }
+      this.db.exec(CONVERSATION_SCHEMA);
+      if (!hasColumn('tasks', 'execution_epoch')) this.db.exec(TASK_AUTHORIZATION_EPOCH_SCHEMA);
+      for (const version of [9, 10, 11, 12]) {
+        this.db.prepare('INSERT OR IGNORE INTO router_schema_migrations(version, applied_at) VALUES (?, ?)').run(version, this.now());
+      }
+    })();
+    if (!this.db.prepare('SELECT 1 FROM router_schema_migrations WHERE version=13').get()) this.db.transaction(() => {
+      this.db.exec(DELIVERY_STORAGE_SCHEMA);
+      this.db.prepare('INSERT INTO router_schema_migrations(version,applied_at) VALUES (?,?)').run(13, this.now());
+    })();
   }
 
   private emit(kind: string, payload: Readonly<Record<string, unknown>>, audience = 'operator'): number {
@@ -862,8 +895,19 @@ export class RouterStore {
         const root = this.db.prepare<[string], MessageRow>(
           'SELECT * FROM router_messages WHERE message_id = ?',
         ).get(rootMessageId);
-        if (!root || root.room_id !== roomId || root.matrix_event_id !== rootEvent) {
-          return refusal('bad_request', 'task root must be the authenticated Matrix event of the root input');
+        if (!root || root.room_id !== roomId || !root.matrix_event_id
+          || (root.thread_root_event_id ?? root.matrix_event_id) !== rootEvent) {
+          return refusal('bad_request', 'task root must match the authenticated Matrix root of the source input');
+        }
+        // A source may itself be a thread reply. Preserve that source input,
+        // but acknowledgements must address its existing top-level thread.
+        // Refuse a known nested target instead of perpetuating invalid history.
+        const nestedRoot = this.db.prepare<[string, string], IdRow>(
+          `SELECT message_id AS id FROM router_messages WHERE room_id = ? AND matrix_event_id = ?
+           AND thread_root_event_id IS NOT NULL LIMIT 1`,
+        ).get(roomId, rootEvent);
+        if (nestedRoot) {
+          return refusal('bad_request', 'task thread root must be a top-level Matrix event');
         }
         for (const messageId of uniqueMessageIds) {
           const message = this.db.prepare<[string], MessageRow>(
@@ -937,7 +981,7 @@ export class RouterStore {
           ).run(taskId, messageId, messageId === rootMessageId ? 'root' : 'supplement', now);
         }
         const commandId = `matrix_${randomUUID()}`;
-        const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+        const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
         const commandPayload = {
           roomId,
           threadRootEventId: rootEvent,
@@ -1035,7 +1079,9 @@ export class RouterStore {
       const body = typeof payload.body === 'string' ? payload.body : '';
       const senderAgentName = typeof payload.senderAgentName === 'string' ? payload.senderAgentName : '';
       if (!roomId || !threadRootEventId || !body || !senderAgentName) throw new Error('stored Matrix command is corrupt');
+      const task = this.db.prepare<[string], { created_at: string }>('SELECT created_at FROM tasks WHERE task_id=?').get(row.task_id);
       return {
+        sourceCreatedAt: task ? Date.parse(task.created_at) : null,
         commandId: row.command_id,
         taskId: row.task_id,
         transactionId: row.txn_id,
@@ -1212,6 +1258,26 @@ export class RouterStore {
     return this.db.prepare<[string, string, string], SessionRow>(
       "SELECT * FROM sessions WHERE agent_id = ? AND room_id = ? AND scope_kind = 'thread' AND thread_root_event_id = ?",
     ).get(agentId, roomId, root);
+  }
+
+  findThreadTaskBinding(agentIdInput: string, roomIdInput: string, rootInput: string): {
+    taskId: string; activationState: TaskBindingRow['activation_state'];
+  } | Refusal | null {
+    try {
+      const agentId = requiredText(agentIdInput, 'agent_id', 255);
+      const roomId = requiredText(roomIdInput, 'room_id', 512);
+      const root = requiredText(rootInput, 'thread_root_event_id', 512);
+      const bindings = this.db.prepare<[string, string, string], TaskBindingRow>(
+        `SELECT * FROM task_bindings WHERE assignee_agent_id = ? AND room_id = ?
+         AND thread_root_event_id = ?`,
+      ).all(agentId, roomId, root);
+      if (bindings.length > 1) return refusal('missing_task_credential', 'multiple task bindings make this thread ambiguous');
+      const binding = bindings[0];
+      return binding ? { taskId: binding.task_id, activationState: binding.activation_state } : null;
+    } catch (error) {
+      if (error instanceof RouterInputError) return refusal('bad_request', error.message);
+      throw error;
+    }
   }
 
   findActiveTaskBinding(agentIdInput: string, roomIdInput: string, rootInput: string): ActiveTaskBinding | Refusal {
@@ -1467,11 +1533,12 @@ export class RouterStore {
             );
             continue;
           }
+          let completedFollowup: { messageId: string; previousCompletedAt: string | null } | null = null;
           if (row.task_id) {
-            const task = this.db.prepare<[string], { status: string }>(
-              'SELECT status FROM tasks WHERE task_id = ?',
+            const task = this.db.prepare<[string], { status: string; completed_at: string | null }>(
+              'SELECT status, completed_at FROM tasks WHERE task_id = ?',
             ).get(row.task_id);
-            if (!task || task.status === 'blocked' || task.status === 'done') {
+            if (!task || task.status === 'blocked') {
               if (task?.status === 'blocked') {
                 this.enqueueThreadNotice(
                   row,
@@ -1480,6 +1547,41 @@ export class RouterStore {
                 );
               }
               continue;
+            }
+            if (task.status === 'done') {
+              // A fresh human follow-up continues the unique task for this
+              // thread. Only already authenticated, unprocessed batch input
+              // from its original requester can reopen it; old work and peer
+              // messages never supply this authority. Check again at claim so
+              // a completion/arrival race and an existing queued dispatch after
+              // restart follow exactly the same path.
+              const followup = row.started_at === null ? this.db.prepare<[string], IdRow>(
+                `SELECT m.message_id AS id FROM dispatch_messages dm
+                 JOIN dispatches d ON d.dispatch_id = dm.dispatch_id AND d.session_id = dm.session_id
+                 JOIN sessions s ON s.session_id = d.session_id
+                 JOIN task_bindings b ON b.task_id = d.task_id AND b.assignee_agent_id = s.agent_id
+                   AND b.room_id = s.room_id AND b.thread_root_event_id = s.thread_root_event_id
+                 JOIN task_inputs ti ON ti.task_id = b.task_id AND ti.message_id = dm.message_id AND ti.role = 'supplement'
+                 JOIN router_messages m ON m.message_id = dm.message_id
+                 JOIN session_messages sm ON sm.session_id = s.session_id AND sm.message_id = m.message_id
+                 JOIN task_inputs original ON original.task_id = b.task_id AND original.role = 'root'
+                 JOIN router_messages root ON root.message_id = original.message_id
+                 WHERE d.dispatch_id = ? AND d.state = 'queued'
+                   AND b.activation_state = 'active' AND b.thread_anchor_event_id IS NOT NULL
+                   AND sm.processed_at IS NULL AND ti.activated_at IS NOT NULL
+                   AND m.matrix_event_id IS NOT NULL AND m.sender_mxid IS NOT NULL
+                   AND m.room_id = b.room_id AND m.thread_root_event_id = b.thread_root_event_id
+                   AND root.room_id = b.room_id AND root.matrix_event_id IS NOT NULL
+                   AND COALESCE(root.thread_root_event_id, root.matrix_event_id) = b.thread_root_event_id
+                   AND m.sender_mxid = root.sender_mxid AND m.message_id != root.message_id
+                 ORDER BY m.received_at, m.message_id LIMIT 1`,
+              ).get(row.dispatch_id) : undefined;
+              if (!followup) {
+                this.enqueueThreadNotice(row, `completed_task_followup:${row.dispatch_id}:${row.task_id}`,
+                  'This task is complete. To continue it, the original requester must send a new message mentioning the agent in this thread. Other project members can start a new task by mentioning the agent in the main room.');
+                continue;
+              }
+              completedFollowup = { messageId: followup.id, previousCompletedAt: task.completed_at };
             }
           }
           const sameSessionRunning = this.db.prepare<[string], CountRow>(
@@ -1524,6 +1626,16 @@ export class RouterStore {
             }
           }
           if (!available) continue;
+          if (completedFollowup && row.task_id) {
+            this.db.prepare<[string, string]>(
+              `UPDATE tasks SET status = 'in_progress', completed_at = NULL,
+               waiting_reason = NULL, waiting_until = NULL, updated_at = ?
+               WHERE task_id = ? AND status = 'done'`,
+            ).run(new Date(now).toISOString(), row.task_id);
+            this.emit('task.reopened_for_followup', { taskId: row.task_id,
+              dispatchId: row.dispatch_id, messageId: completedFollowup.messageId,
+              previousCompletedAt: completedFollowup.previousCompletedAt });
+          }
           const fence = row.fence_generation + 1;
           const leaseUntil = now + Math.floor(input.leaseMs);
           const rawCapability = this.randomBytes(32).toString('base64url');
@@ -1680,6 +1792,7 @@ export class RouterStore {
           checked.dispatch.task_id,
           requestedBudget,
         );
+        context.discussion = this.conversations.prepare(checked.dispatch.dispatch_id, session.room_id, session.agent_id);
         this.emit('dispatch.started', {
           dispatchId: checked.dispatch.dispatch_id,
           runnerId: input.runnerId,
@@ -1851,6 +1964,14 @@ export class RouterStore {
     return context;
   }
 
+  readConversation(input: CapabilityInput, offset = 0) {
+    const checked = this.validateCapability(input);
+    if ('ok' in checked) return checked;
+    if (checked.dispatch.state !== 'started') return refusal('invalid_transition', 'conversation reads require a started dispatch');
+    try { return { ok: true as const, ...this.conversations.page(input.dispatchId, offset) }; }
+    catch (error) { return refusal('bad_request', String((error as Error).message)); }
+  }
+
   acknowledgeRunnerEffect(input: RunnerEffectInput): { ok: true } | Refusal {
     const tx = this.db.transaction((): { ok: true } | Refusal => {
       const checked = this.validateCapability(input);
@@ -1860,6 +1981,7 @@ export class RouterStore {
         'UPDATE dispatches SET effect_ack_at = ? WHERE dispatch_id = ?',
       ).run(input.acceptedAt ?? this.now(), input.dispatchId);
       this.emit('dispatch.effect_acknowledged', { dispatchId: input.dispatchId });
+      this.updateActivity(checked.dispatch, { phase: 'started' });
       return { ok: true };
     });
     return tx();
@@ -1872,17 +1994,30 @@ export class RouterStore {
         if ('ok' in checked) return checked;
         const approvalId = requiredText(input.approvalId, 'approval_id', 255);
         const operationDigest = requiredText(input.operationDigest, 'operation_digest', 128);
+        const upstreamThreadId = optionalText(input.upstreamThreadId, 255);
+        const upstreamTurnId = optionalText(input.upstreamTurnId, 255);
+        const upstreamItemId = optionalText(input.upstreamItemId, 255);
+        const upstreamRequestId = optionalText(input.upstreamRequestId, 255);
         const prior = this.db.prepare<[string], ApprovalWaitRow>(
           'SELECT * FROM approval_waits WHERE approval_id = ?',
         ).get(approvalId);
         if (prior) {
-          if (prior.dispatch_id !== input.dispatchId || prior.operation_digest !== operationDigest) {
+          if (prior.dispatch_id !== input.dispatchId || prior.operation_digest !== operationDigest
+            || prior.upstream_thread_id !== upstreamThreadId || prior.upstream_turn_id !== upstreamTurnId
+            || prior.upstream_item_id !== upstreamItemId || prior.upstream_request_id !== upstreamRequestId) {
             return refusal('approval_mismatch', 'approval id is already bound to another operation');
           }
           return { ok: true, replayed: true };
         }
         if (checked.dispatch.state !== 'started') {
           return refusal('invalid_transition', 'only a started dispatch may park for approval');
+        }
+        if (upstreamThreadId !== null && upstreamTurnId !== null && upstreamRequestId !== null) {
+          const previousRequest = this.db.prepare<[string, string, string, string], IdRow>(
+            `SELECT approval_id AS id FROM approval_waits WHERE dispatch_id = ?
+             AND upstream_thread_id = ? AND upstream_turn_id = ? AND upstream_request_id = ?`,
+          ).get(input.dispatchId, upstreamThreadId, upstreamTurnId, upstreamRequestId);
+          if (previousRequest) return refusal('approval_mismatch', 'runtime request is already bound to an approval');
         }
         const parked = this.db.prepare<[], CountRow>(
           "SELECT COUNT(*) AS count FROM dispatches WHERE state = 'parked'",
@@ -1900,16 +2035,17 @@ export class RouterStore {
           approvalId,
           input.dispatchId,
           operationDigest,
-          optionalText(input.upstreamThreadId, 255),
-          optionalText(input.upstreamTurnId, 255),
-          optionalText(input.upstreamItemId, 255),
-          optionalText(input.upstreamRequestId, 255),
+          upstreamThreadId,
+          upstreamTurnId,
+          upstreamItemId,
+          upstreamRequestId,
           this.now(),
         );
         this.db.prepare<[number, string]>(
           "UPDATE dispatches SET state = 'parked', parked_at = ? WHERE dispatch_id = ?",
         ).run(this.now(), input.dispatchId);
         this.emit('dispatch.parked', { dispatchId: input.dispatchId, approvalId });
+        this.updateActivity(checked.dispatch, { phase: 'waiting' });
         return { ok: true, replayed: false };
       });
       return tx();
@@ -1949,6 +2085,11 @@ export class RouterStore {
         if (!wait || wait.dispatch_id !== input.dispatchId || wait.operation_digest !== input.operationDigest) {
           return refusal('approval_mismatch', 'approval decision does not match the parked operation');
         }
+        if (wait.decision !== null) {
+          if (wait.decision !== input.decision) return refusal('approval_mismatch', 'approval decision is already final');
+          return { ok: true, replayed: true };
+        }
+        if (wait.resumed_at !== null) return refusal('approval_mismatch', 'approval request was already consumed');
         const dispatch = this.db.prepare<[string], DispatchRow>(
           'SELECT * FROM dispatches WHERE dispatch_id = ?',
         ).get(input.dispatchId);
@@ -2005,7 +2146,11 @@ export class RouterStore {
         if (!dispatch) return refusal('not_found', 'approval dispatch is missing');
         if (previous) {
           if (previous.payload_digest !== payloadDigest) return refusal('approval_mismatch', 'decision event digest changed');
-          return { ok: true, replayed: true, deliverable: dispatch.state === 'parked' };
+          return { ok: true, replayed: true, deliverable: dispatch.state === 'parked' && wait.resumed_at === null };
+        }
+        if (wait.decision !== null) {
+          if (wait.decision !== input.decision) return refusal('approval_mismatch', 'approval decision is already final');
+          return { ok: true, replayed: true, deliverable: dispatch.state === 'parked' && wait.resumed_at === null };
         }
         this.db.prepare<[string, string, string, string, string, number]>(
           `INSERT INTO approval_inbox(decision_event_id, approval_id, dispatch_id,
@@ -2019,9 +2164,9 @@ export class RouterStore {
           approvalId,
           dispatchId: wait.dispatch_id,
           decision: input.decision,
-          deliverable: dispatch.state === 'parked',
+          deliverable: dispatch.state === 'parked' && wait.resumed_at === null,
         }, 'owner');
-        return { ok: true, replayed: false, deliverable: dispatch.state === 'parked' };
+        return { ok: true, replayed: false, deliverable: dispatch.state === 'parked' && wait.resumed_at === null };
       });
       return tx();
     } catch (error) {
@@ -2069,9 +2214,13 @@ export class RouterStore {
         || wait.dispatch_id !== input.dispatchId
         || wait.operation_digest !== input.operationDigest
         || wait.decision === null
+        || wait.resumed_at !== null
       ) {
         return refusal('approval_mismatch', 'approval decision is not durably applied');
       }
+      this.db.prepare<[number, string]>(
+        'UPDATE approval_waits SET resumed_at = ? WHERE approval_id = ?',
+      ).run(this.now(), input.approvalId);
       this.db.prepare<[string]>(
         "UPDATE dispatches SET state = 'started', parked_at = NULL WHERE dispatch_id = ?",
       ).run(input.dispatchId);
@@ -2080,6 +2229,7 @@ export class RouterStore {
         approvalId: input.approvalId,
         decision: wait.decision,
       });
+      this.updateActivity(checked.dispatch, { phase: 'resumed' });
       return { ok: true, decision: wait.decision };
     });
     return tx();
@@ -2109,6 +2259,7 @@ export class RouterStore {
           return refusal('invalid_transition', 'only a started dispatch may settle; parked approval state must resolve first');
         }
         const terminal = input.outcome;
+        this.updateActivity(checked.dispatch, { phase: terminal === 'completed' ? 'completed' : 'interrupted' });
         const now = this.now();
         this.db.prepare<[string, number, string | null, string | null, string]>(
           `UPDATE dispatches SET state = ?, settled_at = ?, terminal_reason = ?,
@@ -2140,10 +2291,10 @@ export class RouterStore {
           );
         }
         if (terminal === 'completed') {
-          this.db.prepare<[number, string]>(
-            `UPDATE session_messages SET processed_at = ? WHERE message_id IN
+          this.db.prepare<[number, string, string]>(
+            `UPDATE session_messages SET processed_at = ? WHERE session_id = ? AND message_id IN
              (SELECT message_id FROM dispatch_messages WHERE dispatch_id = ?)`,
-          ).run(now, input.dispatchId);
+          ).run(now, checked.dispatch.session_id, input.dispatchId);
           const text = input.output && typeof input.output.text === 'string'
             ? input.output.text.trim()
             : '';
@@ -2178,7 +2329,7 @@ export class RouterStore {
               ) VALUES (?, ?, ?, ?)`,
             ).run(session.session_id, replyMessageId, now, now);
             const commandId = `reply_${randomUUID()}`;
-            const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+            const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
             const payloadDigest = digest({
               dispatchId: input.dispatchId,
               roomId: session.room_id,
@@ -2192,10 +2343,10 @@ export class RouterStore {
             ).run(commandId, input.dispatchId, txnId, session.room_id, session.thread_root_event_id, text, session.agent_name, payloadDigest);
           }
         } else {
-          this.db.prepare<[number, string]>(
-            `UPDATE session_messages SET processed_at = COALESCE(processed_at, ?) WHERE message_id IN
+          this.db.prepare<[number, string, string]>(
+            `UPDATE session_messages SET processed_at = COALESCE(processed_at, ?) WHERE session_id = ? AND message_id IN
              (SELECT message_id FROM dispatch_messages WHERE dispatch_id = ?)`,
-          ).run(now, input.dispatchId);
+          ).run(now, checked.dispatch.session_id, input.dispatchId);
           this.enqueueThreadNotice(
             checked.dispatch,
             `outcome_unknown:${input.dispatchId}`,
@@ -2244,18 +2395,24 @@ export class RouterStore {
          ORDER BY rowid LIMIT 1`,
       ).get(now);
       if (!row) {
-        const notice = this.db.prepare<[number], NoticeOutboxRow>(
+        const notice = this.db.prepare<[number, number], NoticeOutboxRow>(
           `SELECT * FROM notice_outbox
-           WHERE state = 'pending' OR (state = 'claimed' AND claimed_until < ?)
-           ORDER BY created_at LIMIT 1`,
-        ).get(now);
+           WHERE (state = 'pending' OR (state = 'claimed' AND claimed_until < ?))
+           AND NOT (dedupe_key LIKE 'activity:%' AND EXISTS (
+             SELECT 1 FROM notice_outbox held WHERE held.dispatch_id = notice_outbox.dispatch_id
+             AND held.dedupe_key LIKE 'activity:%' AND held.state = 'claimed'
+             AND held.command_id != notice_outbox.command_id AND held.claimed_until >= ?))
+           ORDER BY CASE WHEN dedupe_key LIKE 'activity:%' THEN 1 ELSE 0 END, created_at LIMIT 1`,
+        ).get(now, now);
         if (!notice) return null;
+        const file = this.db.prepare<[string], FileReplyRow>('SELECT * FROM file_replies WHERE command_id = ?').get(notice.command_id);
         const claimToken = this.randomBytes(32).toString('base64url');
         const claimUntil = now + Math.max(1_000, claimMs);
         this.db.prepare<[string, number, string]>(
           "UPDATE notice_outbox SET state = 'claimed', claim_token_hash = ?, claimed_until = ? WHERE command_id = ?",
         ).run(digest(claimToken), claimUntil, notice.command_id);
         return {
+          sourceCreatedAt: notice.dispatch_id ? this.replySessionCreatedAt(notice.dispatch_id) : notice.created_at,
           commandId: notice.command_id,
           dispatchId: notice.dispatch_id,
           transactionId: notice.txn_id,
@@ -2266,6 +2423,11 @@ export class RouterStore {
           payloadDigest: notice.payload_digest,
           claimToken,
           claimUntil,
+          ...(notice.dedupe_key.startsWith('activity:') ? {
+            activity: { replaceEventId: this.activity.read(notice.dispatch_id!)?.anchor ?? null },
+          } : {}),
+          ...(file ? { file: { ...JSON.parse(file.manifest_json) as FileReplyManifest,
+            preparedContent: file.prepared_json ? JSON.parse(file.prepared_json) as Readonly<Record<string, unknown>> : null } } : {}),
         };
       }
       const claimToken = this.randomBytes(32).toString('base64url');
@@ -2274,6 +2436,7 @@ export class RouterStore {
         "UPDATE reply_outbox SET state = 'claimed', claim_token_hash = ?, claimed_until = ? WHERE command_id = ?",
       ).run(digest(claimToken), claimUntil, row.command_id);
       return {
+        sourceCreatedAt: this.replySessionCreatedAt(row.dispatch_id),
         commandId: row.command_id,
         dispatchId: row.dispatch_id,
         transactionId: row.txn_id,
@@ -2287,6 +2450,11 @@ export class RouterStore {
       };
     });
     return tx();
+  }
+
+  private replySessionCreatedAt(dispatchId: string): number | null {
+    return this.db.prepare<[string], { created_at: number }>(`SELECT s.created_at FROM sessions s
+      JOIN dispatches d ON d.session_id=s.session_id WHERE d.dispatch_id=?`).get(dispatchId)?.created_at ?? null;
   }
 
   recordReplyDelivery(input: { commandId: string; claimToken: string; eventId: string }):
@@ -2312,6 +2480,7 @@ export class RouterStore {
           "UPDATE reply_outbox SET state = 'delivered', delivered_event_id = ?, claim_token_hash = NULL, claimed_until = NULL WHERE command_id = ?",
         ).run(eventId, commandId);
         this.emit('reply.delivered', { commandId, dispatchId: row.dispatch_id, eventId });
+        this.conversations.delivered(row.dispatch_id);
         return { ok: true, replayed: false };
       });
       return tx();
@@ -2452,6 +2621,7 @@ export class RouterStore {
   }
 
   private settleUnknownInternal(row: DispatchRow, reason: string): void {
+    this.updateActivity(row, { phase: 'interrupted' });
     const now = this.now();
     this.db.prepare<[number, string, string]>(
       "UPDATE dispatches SET state = 'outcome_unknown', settled_at = ?, terminal_reason = ? WHERE dispatch_id = ?",
@@ -2460,10 +2630,10 @@ export class RouterStore {
       'UPDATE runner_capabilities SET revoked_at = ? WHERE dispatch_id = ? AND revoked_at IS NULL',
     ).run(now, row.dispatch_id);
     this.db.prepare<[string]>('DELETE FROM resource_leases WHERE dispatch_id = ?').run(row.dispatch_id);
-    this.db.prepare<[number, string]>(
-      `UPDATE session_messages SET processed_at = COALESCE(processed_at, ?) WHERE message_id IN
+    this.db.prepare<[number, string, string]>(
+      `UPDATE session_messages SET processed_at = COALESCE(processed_at, ?) WHERE session_id = ? AND message_id IN
        (SELECT message_id FROM dispatch_messages WHERE dispatch_id = ?)`,
-    ).run(now, row.dispatch_id);
+    ).run(now, row.session_id, row.dispatch_id);
     if (row.workspace_resource_id && row.may_write === 1) {
       this.db.prepare<[string, string, string]>(
         `UPDATE resources SET dirty = 1, dirty_reason = ?,
@@ -2506,6 +2676,91 @@ export class RouterStore {
     });
   }
 
+  recordRunnerActivity(input: CapabilityInput & { event: ActivityEvent }): { ok: true } | Refusal {
+    return this.db.transaction((): { ok: true } | Refusal => {
+      const checked = this.validateCapability(input);
+      if ('ok' in checked) return checked;
+      if (checked.dispatch.state !== 'started') return refusal('invalid_transition', 'activity requires an active runner');
+      if (!['tool_start', 'tool_end', 'heartbeat'].includes(input.event.phase)) return refusal('bad_request', 'runner cannot set lifecycle activity');
+      this.updateActivity(checked.dispatch, input.event);
+      return { ok: true };
+    })();
+  }
+
+  authorizeFileReply(input: CapabilityInput): { ok: true } | Refusal {
+    const checked = this.validateCapability(input);
+    if ('ok' in checked) return checked;
+    return checked.dispatch.state === 'started' ? { ok: true } : refusal('invalid_transition', 'file tools require a running dispatch');
+  }
+
+  receiveFile(input: CapabilityInput & { eventId: string }): { ok: true; file: Readonly<Record<string, unknown>> } | Refusal {
+    const authorized = this.authorizeFileReply(input); if (!authorized.ok) return authorized;
+    const file = this.conversations.receivedFile(input.dispatchId, input.eventId);
+    return file ? { ok: true, file } : refusal('not_found', 'attachment is not available in this conversation input');
+  }
+
+  findFileReply(input: CapabilityInput & { requestKey: string; requestDigest: string }): { ok: true; delivery: FileReplyResult | null } | Refusal {
+    const authorized = this.authorizeFileReply(input); if (!authorized.ok) return authorized;
+    const key = `file:${input.dispatchId}:${input.requestKey}`;
+    const file = this.db.prepare<[string], FileReplyRow>('SELECT * FROM file_replies WHERE request_key = ?').get(key);
+    if (!file) return { ok: true, delivery: null };
+    if (file.request_digest !== input.requestDigest) return refusal('matrix_command_conflict', 'file request id is already bound to another request');
+    return this.readFileReply({ ...input, commandId: file.command_id });
+  }
+
+  queueFileReply(input: CapabilityInput & { requestKey: string; requestDigest: string; file: FileReplyManifest; body: string }): { ok: true; delivery: FileReplyResult | null } | Refusal {
+    return this.db.transaction(() => {
+      const prior = this.findFileReply(input); if (!prior.ok || prior.delivery) return prior;
+      const checked = this.validateCapability(input); if ('ok' in checked) return checked;
+      const key = `file:${input.dispatchId}:${input.requestKey}`;
+      const commandId = `notice_${digest(key).slice(0, 40)}`;
+      this.enqueueThreadNotice(checked.dispatch, key, input.body || input.file.name);
+      this.db.prepare('INSERT INTO file_replies(command_id, request_key, request_digest, manifest_json) VALUES (?, ?, ?, ?)')
+        .run(commandId, key, input.requestDigest, canonicalJson(input.file));
+      this.db.prepare('UPDATE notice_outbox SET payload_digest = ? WHERE command_id = ?')
+        .run(digest({ file: input.file, body: input.body }), commandId);
+      return this.readFileReply({ ...input, commandId });
+    })();
+  }
+
+  readFileReply(input: CapabilityInput & { commandId: string }): { ok: true; delivery: FileReplyResult } | Refusal {
+    const checked = this.validateCapability(input); if ('ok' in checked) return checked;
+    if (checked.dispatch.state !== 'started') return refusal('invalid_transition', 'file status requires a running dispatch');
+    const notice = this.db.prepare<[string], NoticeOutboxRow>('SELECT * FROM notice_outbox WHERE command_id = ?').get(input.commandId);
+    const file = this.db.prepare<[string], FileReplyRow>('SELECT * FROM file_replies WHERE command_id = ?').get(input.commandId);
+    if (!notice || !file) return refusal('not_found', 'file delivery not found');
+    const source = this.db.prepare<[string], DispatchRow>('SELECT * FROM dispatches WHERE dispatch_id = ?').get(notice.dispatch_id!);
+    if (source?.session_id !== checked.dispatch.session_id) return refusal('invalid_capability', 'file delivery is outside this conversation');
+    const manifest = JSON.parse(file.manifest_json) as FileReplyManifest;
+    return { ok: true, delivery: { deliveryId: input.commandId,
+      status: notice.state === 'delivered' ? 'delivered' : notice.state === 'failed' ? 'failed' : 'queued',
+      filename: manifest.name, size: manifest.size, sha256: manifest.sha256,
+      eventId: notice.delivered_event_id, errorCode: notice.last_error } };
+  }
+
+  prepareFileReply(input: { commandId: string; claimToken: string; content: Readonly<Record<string, unknown>> }): { ok: true; content: Readonly<Record<string, unknown>> } | Refusal {
+    return this.db.transaction((): { ok: true; content: Readonly<Record<string, unknown>> } | Refusal => {
+      const notice = this.db.prepare<[string], NoticeOutboxRow>('SELECT * FROM notice_outbox WHERE command_id = ?').get(input.commandId);
+      const file = this.db.prepare<[string], FileReplyRow>('SELECT * FROM file_replies WHERE command_id = ?').get(input.commandId);
+      if (!notice || !file) return refusal('not_found', 'file delivery not found');
+      if (notice.state !== 'claimed' || notice.claim_token_hash !== digest(input.claimToken)) return refusal('matrix_command_conflict', 'file delivery claim is stale');
+      const json = canonicalJson(input.content);
+      if (json.length > 32_000 || !['m.file', 'm.image'].includes(String(input.content.msgtype))) return refusal('bad_request', 'invalid prepared file content');
+      if (file.prepared_json && file.prepared_json !== json) return refusal('matrix_command_conflict', 'uploaded file content is already frozen');
+      this.db.prepare('UPDATE file_replies SET prepared_json = ? WHERE command_id = ?').run(json, input.commandId);
+      return { ok: true, content: input.content };
+    })();
+  }
+
+  private updateActivity(row: DispatchRow, event: ActivityEvent): void {
+    const update = this.activity.update(row.dispatch_id, event, this.now());
+    if (!update) return;
+    // Supersede only unclaimed projections. A claimed transaction remains immutable for retries.
+    this.db.prepare(`UPDATE notice_outbox SET state = 'failed', last_error = 'activity_superseded'
+      WHERE dispatch_id = ? AND dedupe_key LIKE 'activity:%' AND state = 'pending'`).run(row.dispatch_id);
+    this.enqueueThreadNotice(row, `activity:${row.dispatch_id}:${update.revision}`, update.body);
+  }
+
   private enqueueTaskNotice(taskId: string, dedupeKey: string, body: string): void {
     const row = this.db.prepare<[string], {
       room_id: string;
@@ -2536,7 +2791,7 @@ export class RouterStore {
     body: string;
   }): void {
     const commandId = `notice_${digest(input.dedupeKey).slice(0, 40)}`;
-    const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+    const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
     const payloadDigest = digest({
       dispatchId: input.dispatchId,
       taskId: input.taskId,
@@ -2583,6 +2838,7 @@ export class RouterStore {
     if (row.state !== 'claimed' || row.claim_token_hash !== digest(input.claimToken)) {
       return refusal('matrix_command_conflict', 'notice command claim is absent or stale');
     }
+    if (row.dedupe_key.startsWith('activity:') && row.dispatch_id) this.activity.delivered(row.dispatch_id, eventId);
     this.db.prepare<[string, string]>(
       "UPDATE notice_outbox SET state = 'delivered', delivered_event_id = ?, claim_token_hash = NULL, claimed_until = NULL WHERE command_id = ?",
     ).run(eventId, commandId);
@@ -3102,9 +3358,109 @@ export class RouterStore {
     }
   }
 
+  listAgentDispatches(agentIdInput: string): readonly {
+    dispatchId: string; sessionId: string; state: DispatchRow['state']; createdAt: number; startedAt: number | null;
+  }[] {
+    const agentId = requiredText(agentIdInput, 'agent_id', 255);
+    return this.db.prepare<[string], DispatchRow>(
+      `SELECT d.* FROM dispatches d JOIN sessions s ON s.session_id = d.session_id
+       WHERE s.agent_id = ? AND d.state IN ('queued', 'leased', 'started', 'parked') ORDER BY d.created_at`,
+    ).all(agentId).map((row) => ({ dispatchId: row.dispatch_id, sessionId: row.session_id,
+      state: row.state, createdAt: row.created_at, startedAt: row.started_at }));
+  }
+
+  authorizeTaskFromDispatch(input: CapabilityInput & { taskId: string; write?: boolean }): { ok: true } | Refusal {
+    if (typeof input.taskId !== 'string' || !input.taskId) return refusal('bad_request', 'task id is required');
+    const checked = this.validateCapability(input);
+    if ('ok' in checked) return checked;
+    if (input.write && checked.dispatch.state !== 'started') return refusal('invalid_transition', 'task writes require a started dispatch');
+    if (checked.dispatch.task_id === input.taskId) return { ok: true };
+    if (!input.write && checked.dispatch.task_id) {
+      const child = this.db.prepare<[string, string, string], IdRow>(
+        `SELECT t.task_id AS id FROM tasks t JOIN task_bindings b ON b.task_id = t.task_id
+         JOIN sessions s ON s.session_id = ? WHERE t.task_id = ? AND t.parent_id = ?
+           AND b.room_id = s.room_id AND b.creator_agent_id = s.agent_id`,
+      ).get(checked.dispatch.session_id, input.taskId, checked.dispatch.task_id);
+      if (child) return { ok: true };
+    }
+    return refusal('invalid_capability', 'task is outside this dispatch session');
+  }
+
+  deliverPeerMessageFromDispatch(input: CapabilityInput & {
+    recipientAgentId: string; recipientAgentName: string; targetTaskId?: string; toolCallId: string; body: string;
+  }): (IngestResult & { taskId?: string; threadRootEventId?: string }) {
+    return this.db.transaction((): (IngestResult & { taskId?: string; threadRootEventId?: string }) => {
+      const checked = this.validateCapability(input);
+      if ('ok' in checked) return checked;
+      if (checked.dispatch.state !== 'started') return refusal('invalid_transition', 'messages require a started dispatch');
+      const session = this.sessionById(checked.dispatch.session_id);
+      if (!session) return refusal('not_found', 'sender session not found');
+      const targets = this.db.prepare<[string, string], { task_id: string; thread_root_event_id: string }>(
+        `SELECT b.task_id, b.thread_root_event_id FROM task_bindings b JOIN tasks t ON t.task_id = b.task_id
+         WHERE b.room_id = ? AND b.assignee_agent_id = ? AND b.activation_state = 'active'
+           AND t.status != 'done'`,
+      ).all(session.roomId, input.recipientAgentId).filter((row) => !input.targetTaskId || row.task_id === input.targetTaskId);
+      if (targets.length !== 1) return refusal('missing_task_binding', 'message target must identify one active task in this project');
+      const target = targets[0];
+      if (!target) return refusal('missing_task_binding', 'target task is missing');
+      const key = requiredText(input.toolCallId, 'tool_call_id', 512);
+      const messageId = `peer_${createHash('sha256').update(`${checked.dispatch.dispatch_id}\0${key}`).digest('hex')}`;
+      const requestScope = `peer:${checked.dispatch.dispatch_id}`;
+      const previous = this.db.prepare<[string, string], { task_id: string }>(
+        'SELECT task_id FROM task_input_requests WHERE request_scope = ? AND request_key = ?',
+      ).get(requestScope, key);
+      if (previous && previous.task_id !== target.task_id) {
+        return refusal('idempotency_conflict', 'peer message request key was reused for another task');
+      }
+      const result = this.ingestMessage({ messageId, roomId: session.roomId,
+        threadRootEventId: target.thread_root_event_id, senderName: session.agentName,
+        recipientAgentId: input.recipientAgentId, recipientAgentName: input.recipientAgentName,
+        normalizedBody: requiredText(input.body, 'body', 100_000) });
+      if (!result.ok) return result;
+      const attached = this.attachTaskInputs({ taskId: target.task_id, requestScope, requestKey: key, messageIds: [messageId] });
+      // A failure here must roll back the message and its projection as well.
+      if (!attached.ok) throw new RouterInputError(attached.message);
+      return { ...result, taskId: target.task_id, threadRootEventId: target.thread_root_event_id };
+    })();
+  }
+
+  listPendingPeerTaskInputs(): readonly {
+    messageId: string; sessionId: string; taskId: string; roomId: string; threadRootEventId: string;
+    recipientAgentId: string; recipientAgentName: string; senderAgentId: string; senderAgentName: string;
+  }[] {
+    // Recover only previously accepted, backend-addressed peer projections.
+    // The exact durable recipient session fixes the target; no message body or
+    // name heuristic may choose a room/task. Assigned/processed inputs stay inert.
+    return this.db.prepare<[], {
+      message_id: string; session_id: string; task_id: string; room_id: string; thread_root_event_id: string;
+      agent_id: string; agent_name: string; sender_agent_id: string; sender_name: string;
+    }>(`SELECT DISTINCT m.message_id, s.session_id, b.task_id, s.room_id, s.thread_root_event_id,
+          s.agent_id, s.agent_name, sender.agent_id AS sender_agent_id, m.sender_name
+        FROM session_messages sm JOIN router_messages m ON m.message_id = sm.message_id
+        JOIN sessions s ON s.session_id = sm.session_id
+        JOIN task_bindings b ON b.room_id = s.room_id AND b.thread_root_event_id = s.thread_root_event_id
+          AND b.assignee_agent_id = s.agent_id
+        JOIN tasks t ON t.task_id = b.task_id
+        JOIN sessions sender ON sender.agent_name = m.sender_name AND sender.room_id = s.room_id
+        JOIN dispatches sent ON sent.session_id = sender.session_id
+          AND sent.started_at <= m.received_at AND (sent.settled_at IS NULL OR sent.settled_at >= m.received_at)
+        LEFT JOIN dispatch_messages dm ON dm.session_id = sm.session_id AND dm.message_id = sm.message_id
+        WHERE sm.processed_at IS NULL AND dm.message_id IS NULL
+          AND m.matrix_event_id IS NULL AND m.sender_mxid IS NULL
+          AND m.room_id = s.room_id AND m.thread_root_event_id = s.thread_root_event_id
+          AND m.message_id GLOB 'peer_*' AND length(m.message_id) = 69
+          AND substr(m.message_id, 6) NOT GLOB '*[^0-9a-f]*'
+          AND b.activation_state = 'active' AND b.thread_anchor_event_id IS NOT NULL AND t.status != 'done'
+        ORDER BY sm.projected_at, m.message_id`).all().map((row) => ({
+      messageId: row.message_id, sessionId: row.session_id, taskId: row.task_id, roomId: row.room_id,
+      threadRootEventId: row.thread_root_event_id, recipientAgentId: row.agent_id, recipientAgentName: row.agent_name,
+      senderAgentId: row.sender_agent_id, senderAgentName: row.sender_name,
+    }));
+  }
+
   createTaskFromDispatch(input: CapabilityInput & {
     toolCallId: string;
-    rootMessageId: string;
+    rootMessageId?: string;
     inputMessageIds: readonly string[];
     task: {
       title: string;
@@ -3124,11 +3480,21 @@ export class RouterStore {
       if (checked.dispatch.state !== 'started') {
         return refusal('invalid_transition', 'create_task requires a currently started dispatch');
       }
+      if (input.task.parentId && input.task.parentId !== checked.dispatch.task_id) {
+        return refusal('missing_task_credential', 'delegation parent must be the current dispatch task');
+      }
       const session = this.db.prepare<[string], SessionRow>(
         'SELECT * FROM sessions WHERE session_id = ?',
       ).get(checked.dispatch.session_id);
       if (!session) throw new Error('dispatch session is missing');
-      const rootMessageId = requiredText(input.rootMessageId, 'root_message_id', 512);
+      const defaultRoot = input.rootMessageId === undefined ? this.db.prepare<[string, string], IdRow>(
+        `SELECT m.message_id AS id FROM session_messages sm JOIN router_messages m ON m.message_id = sm.message_id
+         LEFT JOIN dispatch_messages dm ON dm.session_id = sm.session_id AND dm.message_id = sm.message_id
+         WHERE sm.session_id = ? AND m.matrix_event_id IS NOT NULL
+           AND (sm.processed_at IS NOT NULL OR dm.dispatch_id = ?)
+         ORDER BY m.received_at DESC, m.message_id DESC LIMIT 1`,
+      ).get(session.session_id, checked.dispatch.dispatch_id)?.id : undefined;
+      const rootMessageId = requiredText(input.rootMessageId ?? defaultRoot, 'root_message_id', 512);
       const messageIds = [...new Set([rootMessageId, ...input.inputMessageIds])];
       for (const messageId of messageIds) {
         const projected = this.db.prepare<[string, string, string], IdRow>(
@@ -3150,7 +3516,7 @@ export class RouterStore {
         requestScope: `dispatch:${checked.dispatch.dispatch_id}`,
         requestKey: requiredText(input.toolCallId, 'tool_call_id', 512),
         roomId: session.room_id,
-        threadRootEventId: root.matrix_event_id,
+        threadRootEventId: root.thread_root_event_id ?? root.matrix_event_id,
         rootMessageId,
         inputMessageIds: messageIds,
         task: {
@@ -3380,7 +3746,7 @@ export class RouterStore {
         mayWrite: row.may_write === 1,
         workspaceMode: row.workspace_mode,
         fenceGeneration: row.fence_generation,
-        terminalReason: row.terminal_reason,
+        terminalReason: publicRuntimeReason(row.terminal_reason),
         blockedBy,
         createdAt: row.created_at,
         startedAt: row.started_at,
@@ -3398,7 +3764,7 @@ export class RouterStore {
       safeLabel: row.safe_label,
       branchName: row.branch_name,
       dirty: row.dirty === 1,
-      dirtyReason: row.dirty_reason,
+      dirtyReason: publicRuntimeReason(row.dirty_reason),
       dirtyGeneration: row.dirty_generation,
       quarantinedByDispatchId: row.dirty_dispatch_id,
       inspectedAt: row.inspected_at,
@@ -3429,13 +3795,17 @@ export class RouterStore {
     const rows = gap ? [] : this.db.prepare<[number, number], EventRow>(
       'SELECT seq, schema_version, at, kind, payload_json FROM router_events WHERE seq > ? ORDER BY seq LIMIT ?',
     ).all(normalizedAfter, Math.min(Math.max(1, limit), 2_000));
-    const events: RouterEvent[] = rows.map((row) => ({
-      seq: row.seq,
-      schemaVersion: row.schema_version,
-      at: row.at,
-      kind: row.kind,
-      payload: safeParseObject(row.payload_json),
-    }));
+    const events: RouterEvent[] = rows.map((row) => {
+      const payload = safeParseObject(row.payload_json);
+      return {
+        seq: row.seq,
+        schemaVersion: row.schema_version,
+        at: row.at,
+        kind: row.kind,
+        payload: typeof payload.reason === 'string'
+          ? { ...payload, reason: publicRuntimeReason(payload.reason) } : payload,
+      };
+    });
     return {
       schemaVersion: meta.schema_version,
       lowWatermark: meta.low_watermark,

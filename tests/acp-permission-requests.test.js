@@ -64,13 +64,13 @@ const OPTIONS = [
   { optionId: 'decline', name: 'Decline', kind: 'reject_once' },
 ];
 
-const HAFLEET_CALL = {
-  toolCallId: 'exec-1', kind: 'execute', title: 'mcp.hafleet.whoami',
-  rawInput: { server: 'hafleet', tool: 'whoami', arguments: {} },
+const HAGENCY_CALL = {
+  toolCallId: 'exec-1', kind: 'execute', title: 'mcp.hagency.whoami',
+  rawInput: { server: 'hagency', tool: 'whoami', arguments: {} },
 };
 
 /** Drive a prompt and return the response the runtime sent for request id 0. */
-async function answerFor({ toolCall = HAFLEET_CALL, options = OPTIONS, decidePermission, meta } = {}) {
+async function answerFor({ toolCall = HAGENCY_CALL, options = OPTIONS, decidePermission, meta } = {}) {
   const { spawnFn, sent } = permissionAskingAgent({ toolCall, options, meta });
   const rt = createAcpRuntime({ command: 'x', args: [], spawnFn, decidePermission });
   await rt.startSession('a', { cwd: '/ws' });
@@ -117,7 +117,7 @@ describe('a permission request is always answered', () => {
     let seen = null;
     await answerFor({ decidePermission: (ctx) => { seen = ctx; return null; } });
     expect(seen).toMatchObject({
-      server: 'hafleet', tool: 'whoami', title: 'mcp.hafleet.whoami', isMcpToolApproval: true,
+      server: 'hagency', tool: 'whoami', title: 'mcp.hagency.whoami', isMcpToolApproval: true,
     });
   });
 
@@ -169,7 +169,7 @@ describe('every other agent request gets an explicit error', () => {
 });
 
 describe('the host reuses the tmux permission rule', () => {
-  const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+  const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
 
   test('it imports the existing hook rather than restating the allowlist', () => {
     // Two copies of a security rule is how one of them gets missed — which is
@@ -200,8 +200,8 @@ describe('the policy sees the tool arguments, not just its name', () => {
   // tell — refer for approval". Passing only the name declined every reply: the
   // agent read its inbox, composed the answer, and was refused permission to
   // send it. Observed live as
-  //   declining mcp__hafleet__send_message: not a trusted coordination tool
-  const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+  //   declining mcp__hagency__send_message: not a trusted coordination tool
+  const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
 
   test('tool_input is forwarded to the hook', () => {
     expect(host).toMatch(/tool_name: qualified, tool_input: input \?\? \{\}/);
@@ -211,8 +211,8 @@ describe('the policy sees the tool arguments, not just its name', () => {
     let seen = null;
     await answerFor({
       toolCall: {
-        toolCallId: 'exec-2', kind: 'execute', title: 'mcp.hafleet.send_message',
-        rawInput: { server: 'hafleet', tool: 'send_message', arguments: { to: 'ops', summary: 'PARITY' } },
+        toolCallId: 'exec-2', kind: 'execute', title: 'mcp.hagency.send_message',
+        rawInput: { server: 'hagency', tool: 'send_message', arguments: { to: 'ops', summary: 'PARITY' } },
       },
       decidePermission: (ctx) => { seen = ctx; return null; },
     });
@@ -223,15 +223,15 @@ describe('the policy sees the tool arguments, not just its name', () => {
     // Exercises the shipped rule rather than a stub, so the two cannot diverge.
     const { codexPermissionRequestNeedsOwnerApproval } = await import('../lib/codex-permission-hook.js');
     expect(codexPermissionRequestNeedsOwnerApproval({
-      tool_name: 'mcp__hafleet__send_message', tool_input: { to: 'ops', summary: 'PARITY' },
+      tool_name: 'mcp__hagency__send_message', tool_input: { to: 'ops', summary: 'PARITY' },
     })).toBe(false);
     expect(codexPermissionRequestNeedsOwnerApproval({
-      tool_name: 'mcp__hafleet__send_message', tool_input: { to: 'ops', attachments: ['/etc/passwd'] },
+      tool_name: 'mcp__hagency__send_message', tool_input: { to: 'ops', attachments: ['/etc/passwd'] },
     })).toBe(true);
     // And the bug itself: name with no arguments must still be refused, because
     // the hook genuinely cannot tell. The fix is to pass the arguments, not to
     // weaken this.
-    expect(codexPermissionRequestNeedsOwnerApproval({ tool_name: 'mcp__hafleet__send_message' })).toBe(true);
+    expect(codexPermissionRequestNeedsOwnerApproval({ tool_name: 'mcp__hagency__send_message' })).toBe(true);
   });
 });
 
@@ -241,7 +241,7 @@ describe('the decider function actually runs', () => {
   // so the agent reported "the MCP call was rejected" and the log said nothing.
   // A shape test cannot catch this; the function has to be executed.
   test('every name the body uses is destructured', async () => {
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     const start = host.indexOf('function decidePermission(');
     const sig = host.slice(start, host.indexOf(')', start) + 1);
     const body = host.slice(host.indexOf('{', start), host.indexOf('\n}', start));
@@ -254,7 +254,7 @@ describe('the decider function actually runs', () => {
   test('a throwing policy is reported, not silently treated as a refusal', async () => {
     // The runtime must deny on a throw — but say why.
     const lines = [];
-    const { spawnFn } = permissionAskingAgent({ toolCall: HAFLEET_CALL, options: OPTIONS });
+    const { spawnFn } = permissionAskingAgent({ toolCall: HAGENCY_CALL, options: OPTIONS });
     const rt = createAcpRuntime({
       command: 'x', args: [], spawnFn,
       decidePermission: () => { throw new Error('input is not defined'); },

@@ -10,10 +10,15 @@ export interface OwnerApprovalRequest {
     reason: string | null;
     command: string | null;
     cwd: string | null;
+    inputPreview?: string;
     upstreamThreadId: string;
     upstreamTurnId: string;
     upstreamItemId: string;
     upstreamRequestId: string;
+    nativeRequest?: {
+        method: string;
+        params: Readonly<Record<string, unknown>>;
+    };
 }
 export interface OwnerApprovalVerdict {
     decisionEventId: string;
@@ -33,6 +38,8 @@ export interface RunnerBaseOptions {
     acknowledgementTimeoutMs?: number;
     executionTimeoutMs?: number;
     signal?: AbortSignal;
+    /** Host-owned process cleanup evidence, independent of dispatch settlement. */
+    onCleanup?: (confirmed: boolean) => void;
     /**
      * Whether this dispatch holds the workspace lease. Defaults to `false` so
      * that a caller which forgets to pass it gets the confined runtime rather
@@ -47,7 +54,9 @@ export interface CodexRunnerOptions extends RunnerBaseOptions {
     approvalTimeoutMs: number;
     maxParkedRunners: number;
     requestOwnerApproval: OwnerApprovalHandler;
-    /** Backend-owned, exact HAFleet control-plane policy; absent means owner-gated. */
+    /** Contributor-owned setting; never sourced from a task/message payload. */
+    yolo?: boolean;
+    /** Backend-owned, exact Hagency control-plane policy; absent means owner-gated. */
     coordinationNeedsOwnerApproval?: (input: {
         tool_name: string;
         tool_input: Readonly<Record<string, unknown>>;

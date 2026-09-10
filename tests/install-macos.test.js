@@ -4,7 +4,7 @@ import { readFileSync, statSync } from 'fs';
 import os from 'os';
 
 // install-full.sh is Linux-only (it renders systemd units), so installing on a
-// Mac previously meant doing it by hand. That matters because HAFleet fleets are
+// Mac previously meant doing it by hand. That matters because Hagency fleets are
 // commonly Mac minis.
 const SCRIPT = 'install/install-macos.sh';
 const source = readFileSync(SCRIPT, 'utf-8');
@@ -29,7 +29,7 @@ describe('install/install-macos.sh', () => {
   test('uses launchd and the supervisor, never systemd', () => {
     expect(source).toContain('LaunchAgents');
     expect(source).toContain('launchctl bootstrap');
-    expect(source).toContain('services/hafleet-services.mjs run');
+    expect(source).toContain('services/hagency-services.mjs run');
 
     // systemd does not exist on macOS, so no systemd command may be *invoked*.
     // Prose mentions in comments are fine and in fact expected — the header
@@ -83,11 +83,11 @@ describe('install/install-macos.sh', () => {
     });
 
     test('offers a safe third option that excludes them by policy', () => {
-      // Before this existed the only choices were "abort" or "let HAFleet type
+      // Before this existed the only choices were "abort" or "let Hagency type
       // into someone else's work", which left a host like mini5 uninstallable.
       expect(source).toContain('--deny-existing-tmux');
       expect(source).toContain('apply_session_denylist');
-      expect(source).toContain('HAFLEET_SESSION_DENYLIST');
+      expect(source).toContain('HAGENCY_SESSION_DENYLIST');
     });
 
     test('the denylist step runs after prepare_env, since it edits .env', () => {
@@ -98,7 +98,7 @@ describe('install/install-macos.sh', () => {
     test('merges rather than overwriting an existing denylist', () => {
       const fn = source.slice(source.indexOf('apply_session_denylist() {'));
       const body = fn.slice(0, fn.indexOf('\n}'));
-      expect(body).toContain('read_env_value HAFLEET_SESSION_DENYLIST');
+      expect(body).toContain('read_env_value HAGENCY_SESSION_DENYLIST');
       expect(body).toMatch(/\$existing,\$EXISTING_TMUX_SESSIONS/);
     });
 

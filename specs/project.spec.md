@@ -1,11 +1,11 @@
 spec: project
-name: "hafleet project contract"
+name: "hagency project contract"
 tags: [project, security, matrix, agent-runtime]
 ---
 
 ## Intent
 
-Keep hafleet's local coding-agent runtime, Matrix bridge, and control plane
+Keep hagency's local coding-agent runtime, Matrix bridge, and control plane
 safe by default and mechanically verifiable. Durable project truth belongs in
 the agent-spec knowledge layer, while each bounded change is implemented from
 an executable task contract.
@@ -35,6 +35,19 @@ an executable task contract.
 ## Boundaries
 
 ### Allowed Changes
+- bin/**
+- remote/**
+- scripts/**
+- services/**
+- install/**
+- deploy/**
+- src/**
+- schemas/**
+- .github/**
+- ./.env.example
+- *.service
+- *.plist
+- *.sh
 - AGENTS.md
 - CLAUDE.md
 - .agent-spec/**
@@ -46,12 +59,24 @@ an executable task contract.
 - router/**
 - tests/**
 - mockup/**
+- bin/hagency-up
+- bin/hagency-up-v1
+- bin/hagency-down
 - README.md
+- README.zh-CN.md
+- OPERATIONS.md
+- ROADMAP-remote.md
+- CHANGELOG.md
+- ./NOTICE
 - .github/workflows/ci.yml
-- bin/hafleet-sync-skills
+- bin/hagency-sync-skills
 - tsconfig*.json
 - scripts/check-router-build.sh
+- scripts/run-suite-tests.mjs
+- scripts/write-v1-agent-task.js
+- scripts/probe-task-maintenance.mjs
 - scripts/check-architecture-boundaries.js
+- scripts/architecture-boundaries.json
 - scripts/verify-ci.sh
 - remote/lib/mcp-server-core.js
 - remote/lib/push-relay-core.js
@@ -62,9 +87,9 @@ an executable task contract.
 - backend-v2.js
 - bridge-matrix.js
 - server.js
-- package.json
-- package-lock.json
-- .gitignore
+- ./package.json
+- ./package-lock.json
+- ./.gitignore
 
 ### Forbidden
 - Do not commit runtime data, Matrix access tokens, API tokens, or local `.env` files.

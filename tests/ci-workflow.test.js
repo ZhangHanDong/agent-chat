@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'path';
 
 const workflowPath = path.resolve('.github/workflows/ci.yml');
@@ -51,4 +53,37 @@ describe('GitHub Actions CI workflow', () => {
       expect(flag).toMatch(/^--(reporter|outputFile)/);
     }
   });
+});
+
+
+test('sharded suite retains failure when a child crashes or omits its report', () => {
+  for (const failure of ['none', 'exit', 'missing', 'signal']) {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-suite-verdict-'));
+    try {
+      mkdirSync(path.join(root, 'scripts'));
+      mkdirSync(path.join(root, 'node_modules/vitest'), { recursive: true });
+      writeFileSync(path.join(root, 'scripts/run-suite-tests.mjs'), readFileSync('scripts/run-suite-tests.mjs'));
+      // Only the external Vitest process is replaced. The real suite wrapper
+      // must retain a failed child even if the later report merge returns zero.
+      writeFileSync(path.join(root, 'node_modules/vitest/vitest.mjs'), String.raw`
+        import { appendFileSync, writeFileSync } from 'node:fs';
+        const args = process.argv.slice(2);
+        appendFileSync('calls.jsonl', JSON.stringify(args) + '\n');
+        const second = args.includes('--shard=2/4');
+        if (second && process.env.FIXTURE_FAILURE === 'signal') process.kill(process.pid, 'SIGTERM');
+        const blob = args.find(arg => arg.startsWith('--outputFile.blob='));
+        if (blob && !(second && process.env.FIXTURE_FAILURE === 'missing')) writeFileSync(blob.split('=').slice(1).join('='), '{}');
+        process.exitCode = second && process.env.FIXTURE_FAILURE === 'exit' ? 1 : 0;
+      `);
+      const result = spawnSync(process.execPath, ['scripts/run-suite-tests.mjs', '--reporter=json', '--outputFile.json=test-results.json'],
+        { cwd: root, env: { ...process.env, FIXTURE_FAILURE: failure }, encoding: 'utf8' });
+      expect(result.status, result.stderr).toBe(failure === 'none' ? 0 : 1);
+      const calls = readFileSync(path.join(root, 'calls.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+      expect(calls).toHaveLength(5);
+      expect(calls.slice(0, 4).map(args => args.find(arg => arg.startsWith('--shard='))))
+        .toEqual(['--shard=1/4', '--shard=2/4', '--shard=3/4', '--shard=4/4']);
+      expect(calls[4]).toContain('--outputFile.json=test-results.json');
+      expect(calls[4][0]).toMatch(/^--merge-reports=/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });

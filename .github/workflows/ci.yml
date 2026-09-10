@@ -55,6 +55,9 @@ jobs:
           node-version: 22.22.0
       - run: npm ci
         if: needs.changes.outputs.code == 'true'
+      # Specification bindings collect console tests, which import Next.js.
+      - run: npm ci --prefix mockup
+        if: needs.changes.outputs.code == 'true'
       - run: node --check backend-v2.js
         if: needs.changes.outputs.code == 'true'
       - run: node --check lib/mcp-server-core.js

@@ -156,7 +156,7 @@ describe('ACP as the transport, which needs nothing installed', () => {
   /*
    * WHY THIS EXISTS AND HOOKS DO NOT COVER IT. Each framework installs hooks differently — different file,
    * different scope, different trust model — and octos has none at all, so one hook for every framework is
-   * not a thing that can be built. `session/update` is: HAFleet already receives it, already parses tool
+   * not a thing that can be built. `session/update` is: Hagency already receives it, already parses tool
    * calls from it, and three of four frameworks speak the protocol. The mapping below is what lets ONE
    * policy and ONE vocabulary serve both transports.
    */

@@ -255,7 +255,7 @@ describe('fleet summary keeps gaps visible', () => {
 
   test('agents sharing a workspace are ambiguous, not summed', () => {
     /*
-     * The transcript records the directory, not which agent hafleet started in it.
+     * The transcript records the directory, not which agent hagency started in it.
      * Attributing the whole directory to each would double the fleet; splitting it evenly
      * would invent a division.
      */

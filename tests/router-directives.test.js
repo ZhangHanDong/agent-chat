@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 function openTestRouter() {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-directives-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-directives-'));
   roots.push(root);
   const router = openRouter({ dbPath: path.join(root, 'router.db') });
   return { root, router };
@@ -112,12 +112,12 @@ describe('thread directive backend integration', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-router-directives-', {
+    context = await createBackendTestContext('hagency-router-directives-', {
       env: {
-        HAFLEET_THREAD_SESSIONS: '1',
-        HAFLEET_ROUTER_TASK_CUTOVER: '1',
-        HAFLEET_CLAUDE_RUNNER_BIN: path.join(fixtures, 'fake-claude-runner.mjs'),
-        HAFLEET_CODEX_RUNNER_BIN: path.join(fixtures, 'fake-codex-app-server.mjs'),
+        HAGENCY_THREAD_SESSIONS: '1',
+        HAGENCY_ROUTER_TASK_CUTOVER: '1',
+        HAGENCY_CLAUDE_RUNNER_BIN: path.join(fixtures, 'fake-claude-runner.mjs'),
+        HAGENCY_CODEX_RUNNER_BIN: path.join(fixtures, 'fake-codex-app-server.mjs'),
         MATRIX_BRIDGE_SECRET: 'router-bridge-secret',
         API_TOKEN: 'router-api-token',
         MATRIX_OPERATOR_MXIDS: '@alex:test',

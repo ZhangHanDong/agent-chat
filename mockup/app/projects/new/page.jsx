@@ -1,9 +1,12 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
 import { Toast, useToast } from '@/components/Toast';
 import { send } from '@/lib/api';
+import { registrationCallback, verificationState } from '@/lib/console-workflow';
+import { connectFleetCredentialImport, fleetImportSummary, parseFleetCredentialImport } from '@/lib/fleet-credential-import';
+import { useT } from '@/components/Prefs';
 
 /*
  * Adding a project side, as a form rather than a shell recipe.
@@ -20,15 +23,15 @@ import { send } from '@/lib/api';
  *   reachable" is answered before anything is issued rather than inferred later from silence.
  *
  *   THE CALLBACK URL IS A CHOICE WITH REASONS. `127.0.0.1` is right when the homeserver is a process on
- *   the HAFleet host and is the most common wrong answer when it is a container — where the appservice
+ *   the Hagency host and is the most common wrong answer when it is a container — where the appservice
  *   looks installed and receives nothing. The list says which is which rather than leaving it to be
  *   discovered from silence.
  *
- *   THE APPSERVICE SOCKET IS CHECKED FIRST. With no `HAFLEET_APPSERVICE_PORT` the bridge opens no socket,
+ *   THE APPSERVICE SOCKET IS CHECKED FIRST. With no `HAGENCY_APPSERVICE_PORT` the bridge opens no socket,
  *   so a perfect registration installed at a perfect address still hears nothing. Said before step one.
  *
  * WHAT IT DELIBERATELY DOES NOT DO: it never displays a token. The registration is written to a 0600 file
- * on the HAFleet host and this page is told a path and two fingerprints. The endpoint that returns the
+ * on the Hagency host and this page is told a path and two fingerprints. The endpoint that returns the
  * YAML is not proxied to the browser at all, and that refusal is marked in the proxy as a decision rather
  * than an omission — an `as_token` authorises a whole namespace on someone else's homeserver, and a
  * browser is memory, devtools, history, and whatever extension is watching.
@@ -39,9 +42,10 @@ import { send } from '@/lib/api';
  * whole value is looking like a single thing.
  */
 
-const STEPS = ['选服务器', '建立客户方', '生成代表凭据', '安装并验证'];
+const STEPS = ['选服务器', '建立客户方', '配置接单员凭据', '验证连接'];
 
 export default function NewProjectSide() {
+  const t = useT();
   const [toast, say] = useToast();
   const [reach, setReach] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
@@ -66,9 +70,9 @@ export default function NewProjectSide() {
    * deployment. The operator said it plainly: 「我的 agent 都在内网，而且接入 matrix 服务器本身不需要公网
    * 地址，你这个设计是错的」.
    *
-   * They are right. An APPSERVICE is inbound: the homeserver PUSHES transactions to HAFleet, so HAFleet
+   * They are right. An APPSERVICE is inbound: the homeserver PUSHES transactions to Hagency, so Hagency
    * must be reachable from it — which for an internal network means exposing it. A REGISTRATION TOKEN is
-   * outbound only: HAFleet registers accounts and talks to the homeserver over the client-server API with
+   * outbound only: Hagency registers accounts and talks to the homeserver over the client-server API with
    * `/sync`, exactly as a phone does, and needs no inbound reachability at all.
    *
    * So the outbound one is the default. The previous version offered only the appservice path and then
@@ -81,6 +85,65 @@ export default function NewProjectSide() {
   const [issued, setIssued] = useState(null);
   const [verdict, setVerdict] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [asMethod, setAsMethod] = useState('import');
+  const [importFile, setImportFile] = useState(null);
+  const [importError, setImportError] = useState(null);
+  const [readingImport, setReadingImport] = useState(false);
+  const [verifyError, setVerifyError] = useState(null);
+  const importRead = useRef(0);
+  useEffect(() => () => { importRead.current += 1; }, []);
+
+  function clearImport() {
+    importRead.current += 1;
+    setImportFile(null);
+    setImportError(null);
+    setReadingImport(false);
+  }
+
+  function chooseCredential(kind) {
+    clearImport();
+    setRegToken('');
+    setCredKind(kind);
+  }
+
+  async function readPalpoImport(event) {
+    const input = event.target;
+    const file = input.files?.[0];
+    input.value = '';
+    clearImport();
+    if (!file) return;
+    const read = importRead.current;
+    setReadingImport(true);
+    try {
+      if (file.size > 65536) throw new Error('cr.importInvalid');
+      const text = await file.text();
+      const parsed = parseFleetCredentialImport(text, { serverName: server });
+      if (read === importRead.current) setImportFile({ name: file.name, text, summary: fleetImportSummary(parsed) });
+    } catch (error) {
+      if (read === importRead.current) setImportError(t(error.message.startsWith('cr.') ? error.message : 'cr.importInvalid'));
+    } finally {
+      if (read === importRead.current) setReadingImport(false);
+    }
+  }
+
+  async function savePalpoImport() {
+    if (!importFile || busy || readingImport) return;
+    setBusy(true);
+    setImportError(null);
+    setVerifyError(null);
+    setVerdict(null);
+    try {
+      const result = await connectFleetCredentialImport(importFile.text, { id: server, serverName: server }, {
+        send,
+        onSaved: (summary) => { clearImport(); setIssued(summary); setStep(3); },
+      });
+      if (!result.saved) setImportError(result.error);
+      else if (!result.verification.ok) setVerifyError(result.verification.error || '验证失败，请重试。');
+      else setVerdict(result.verification.body);
+    } catch (error) {
+      setImportError(t(error.message.startsWith('cr.') ? error.message : 'cr.importInvalid'));
+    } finally { setBusy(false); }
+  }
 
   /*
    * PROBED ON EVERY VISIT, not cached. An operator opens this page because something is being set up or
@@ -101,6 +164,29 @@ export default function NewProjectSide() {
   const servers = [...(reach?.homeservers ?? []), ...manual];
   const appservice = reach?.appservice ?? null;
   const chosen = servers.find((s) => s.serverName === server) ?? null;
+  const accessState = verificationState(verdict);
+
+  async function prepareCredentialStep() {
+    clearImport();
+    setStep(2);
+    setIssued(null);
+    setVerdict(null);
+    setVerifyError(null);
+    setCbCheck(null);
+    setCallback(registrationCallback(appservice));
+  }
+
+  useEffect(() => {
+    if (step !== 2 || credKind !== 'appservice' || asMethod !== 'generate') return;
+    let current = true;
+    send('matrix/callback-check', { method: 'POST', body: { homeserver_url: chosen?.url } }).then(check => {
+      if (current && check.ok !== false) {
+        setCbCheck(check.body);
+        setCallback(registrationCallback(appservice, check.body));
+      }
+    });
+    return () => { current = false; };
+  }, [step, credKind, asMethod, chosen?.url, appservice]);
 
   async function probeManual() {
     const name = draftName.trim();
@@ -163,33 +249,7 @@ export default function NewProjectSide() {
     setBusy(false);
     if (res.ok === false) return say('fail', `建立失败：${res.error}`);
     say('ok', `已建立客户方 ${server}`);
-    setStep(2);
-    /*
-     * ASKED, NOT GUESSED, whenever the homeserver is a container this host can see. The alternative is
-     * making the operator certain about container networking — the one thing the failure mode hides.
-     */
-    const check = await send('matrix/callback-check', {
-      method: 'POST',
-      body: { homeserver_url: chosen?.url },
-    });
-    if (check.ok !== false) {
-      setCbCheck(check.body);
-      if (check.body?.recommended) setCallback(check.body.recommended);
-    }
-    /*
-     * PRE-SELECTED FROM THE EDGE even when the container check cannot run — a homeserver that is not a local
-     * container is unverifiable from here, and leaving the field blank would block the flow on a question
-     * whose answer the operator already gave when they configured the edge.
-     */
-    /*
-     * THE EDGE'S OWN ADDRESS, NOT THE ONE HAFLEET COLLECTS FROM. `edgeUrl` is how HAFleet reaches the edge;
-     * the registration needs the address the HOMESERVER dials, which only the edge knows. Pre-filling
-     * `edgeUrl` shipped a registration a homeserver could not reach — and `verify` still said `accepted`,
-     * because it proves the outbound direction only.
-     */
-    if (!callback && reach?.appservice?.inboundVia === 'edge' && reach.appservice.edgeRegistrationUrl) {
-      setCallback(reach.appservice.edgeRegistrationUrl);
-    }
+    await prepareCredentialStep();
     return undefined;
   }
 
@@ -228,12 +288,12 @@ export default function NewProjectSide() {
     setRegToken('');
     setIssued({
       registrationToken: true,
-      representative: `@hafleet:${server}`,
+      representative: `@hagency:${server}`,
       nextSteps: [
-        'Nothing to install on the homeserver, and nothing to restart: HAFleet registers the '
+        'Nothing to install on the homeserver, and nothing to restart: Hagency registers the '
         + 'representative and one account per agent over the client-server API.',
-        'No inbound reachability is needed. HAFleet talks OUT to your homeserver, so this works with '
-        + 'HAFleet behind NAT or on an internal network.',
+        'No inbound reachability is needed. Hagency talks OUT to your homeserver, so this works with '
+        + 'Hagency behind NAT or on an internal network.',
         'The representative arrives in your rooms with users_default power. A default Matrix room needs '
         + 'power 50 to invite, so grant it that or invite each agent yourself.',
       ],
@@ -244,6 +304,8 @@ export default function NewProjectSide() {
 
   async function verify() {
     setBusy(true);
+    setVerifyError(null);
+    setVerdict(null);
     const res = await send(`project-sides/${encodeURIComponent(server)}/verify`, { method: 'POST' });
     /*
      * AND ASK WHETHER ANYTHING IS ARRIVING, because `verify` cannot answer that. It exercises the OUTBOUND
@@ -257,13 +319,13 @@ export default function NewProjectSide() {
     const fresh = await send('matrix/reach', { method: 'GET' });
     if (fresh.ok !== false) setReach(fresh.body ?? null);
     setBusy(false);
-    if (res.ok === false) return say('fail', `验证失败：${res.error}`);
+    if (res.ok === false) return setVerifyError(`验证失败：${res.error}`);
     return setVerdict(res.body);
   }
 
   return (
     <main className="main">
-      <PageHead title="接入一个客户方" sub="选择系统能到达的 Matrix 服务器，生成接单员凭据" />
+      <PageHead title="接入一个客户方" sub="选择 Matrix 服务器，导入或配置接单员凭据并验证连接" />
 
       <div className="btn-row">
         {STEPS.map((s, i) => (
@@ -283,19 +345,25 @@ export default function NewProjectSide() {
         * listening" told the operator to open an inbound port, which is exactly what co-locating avoids, on
         * a host with a public address.
         */}
-      {appservice?.inboundVia === 'edge' && (
+      {credKind === 'registrationToken' && (
+        <div className="notice">
+          <span className="pill ok-text">注册令牌 · 出站接收</span>{' '}
+          <span className="dim">凭据验证通过后，接单员通过 Matrix /sync 接收项目消息；不需要 Appservice 入站端口。</span>
+        </div>
+      )}
+      {credKind === 'appservice' && asMethod === 'generate' && appservice?.inboundVia === 'edge' && (
         <div className="notice">
           <span className="pill ok-text">入站走 co-located edge</span>{' '}
           <span className="dim">{appservice.reason}</span>
         </div>
       )}
-      {appservice && !appservice.listening && appservice.inboundVia !== 'edge' && (
+      {credKind === 'appservice' && asMethod === 'generate' && appservice && !appservice.listening && appservice.inboundVia !== 'edge' && (
         <div className="notice">
           <strong className="warn-text">没有任何东西会接收入站事务。</strong>
           <p className="dim">{appservice.reason}</p>
           <p className="dim">
             现在生成的注册文件本身是对的，但你的 homeserver 推送过来的事务不会有人接。
-            要么开一个入站端口，要么在 homeserver 旁边跑 <span className="mono-s">bin/hafleet-appservice-edge</span>。
+            要么开一个入站端口，要么在 homeserver 旁边跑 <span className="mono-s">bin/hagency-appservice-edge</span>。
           </p>
         </div>
       )}
@@ -400,19 +468,10 @@ export default function NewProjectSide() {
                  * showing a form whose only outcome is an error is worse than not showing it.
                  */
                 if (!chosen?.alreadyASide) return setStep(1);
-                setStep(2);
-                const check = await send('matrix/callback-check', {
-                  method: 'POST',
-                  body: { homeserver_url: chosen?.url },
-                });
-                if (check.ok !== false) {
-                  setCbCheck(check.body);
-                  if (check.body?.recommended) setCallback(check.body.recommended);
-                }
-                return undefined;
+                return prepareCredentialStep();
               }}
             >
-              {chosen?.alreadyASide ? '接着做（已建立，直接去生成凭据）' : '下一步'}
+              {chosen?.alreadyASide ? '接着做（已建立，配置凭据）' : '下一步'}
             </button>
           </div>
         </section>
@@ -454,16 +513,17 @@ export default function NewProjectSide() {
                 type="radio"
                 name="ck"
                 checked={credKind === 'registrationToken'}
-                onChange={() => setCredKind('registrationToken')}
+                  disabled={busy}
+                  onChange={() => chooseCredential('registrationToken')}
               />
               <div>
                 <strong>注册令牌</strong> <span className="pill ok-text">不需要公网地址</span>
                 <div className="why-inline">
-                  纯出站：HAFleet 主动连你的 homeserver，用客户端 API 和 <span className="mono-s">/sync</span>，
-                  和手机上的 Matrix 客户端一样。HAFleet 在内网、NAT 后面都能用。
+                  纯出站：Hagency 主动连你的 homeserver，用客户端 API 和 <span className="mono-s">/sync</span>，
+                  和手机上的 Matrix 客户端一样。Hagency 在内网、NAT 后面都能用。
                 </div>
                 <div className="why-inline">
-                  代价：HAFleet 会为接单员和每个 agent 各注册一个账号——账号更多，但不用你装任何东西、不用重启。
+                  代价：Hagency 会为接单员和每个 agent 各注册一个账号——账号更多，但不用你装任何东西、不用重启。
                 </div>
               </div>
             </li>
@@ -472,16 +532,17 @@ export default function NewProjectSide() {
                 type="radio"
                 name="ck"
                 checked={credKind === 'appservice'}
-                onChange={() => setCredKind('appservice')}
+                  disabled={busy}
+                  onChange={() => chooseCredential('appservice')}
               />
               <div>
-                <strong>Appservice</strong> <span className="pill warn-text">需要你的 homeserver 能反向找到 HAFleet</span>
+                <strong>Appservice</strong> <span className="pill ok-text">Palpo 授权配置支持纯出站</span>
                 <div className="why-inline">
-                  入站：homeserver 把事件<strong>推</strong>给 HAFleet，所以 HAFleet 必须从它那一侧可达。
-                  两边在同一台机器或同一内网时合适；HAFleet 在内网而 homeserver 在外面时，这条要求你把 HAFleet 暴露出去。
+                  导入 Palpo 纯出站授权配置后，Hagency 主动领取消息和申请，并自动发布资源、心跳和处理结果。
+                  Hagency 在内网或 NAT 后也能使用。手工生成的传统回调配置仍要求 homeserver 能访问 Hagency。
                 </div>
                 <div className="why-inline">
-                  好处：一份凭据覆盖 <span className="mono-s">@ac_*</span> 整个命名空间，agent 无需逐个注册账号。
+                  好处：一份凭据覆盖项目方授权的 Agent 命名空间，由 Hagency 自动准备其中的 Agent 身份。
                 </div>
               </div>
             </li>
@@ -490,7 +551,7 @@ export default function NewProjectSide() {
           {credKind === 'registrationToken' && (
             <>
               <p className="dim">
-                把客户方给你的注册令牌填进来。接单员 <span className="mono-s">@hafleet:{server}</span> 会用它注册，
+                把客户方给你的注册令牌填进来。接单员 <span className="mono-s">@hagency:{server}</span> 会用它注册，
                 之后每个 agent 也用它领自己的账号。
               </p>
               <div className="field-row">
@@ -518,9 +579,50 @@ export default function NewProjectSide() {
 
           {credKind === 'appservice' && (
             <>
+          <div className="field-row">
+            <label htmlFor="as-method">Appservice 配置方式</label>
+            <select id="as-method" className="inp" value={asMethod} disabled={busy}
+              onChange={(e) => { clearImport(); setAsMethod(e.target.value); }}>
+              <option value="import">导入 Palpo 已授权配置</option>
+              <option value="generate">生成注册文件供手工安装</option>
+            </select>
+          </div>
+          {asMethod === 'import' ? (
+            <>
+              <p className="dim">
+                在项目方 Palpo 管理页面，用 Hagency 所有者账号打开 My Hagency access，
+                点击 Download Hagency configuration。回到这里选择下载的 JSON 文件即可继续。
+                尚未获授权时，请项目方管理员先完成 Authorize a Hagency。
+              </p>
+              <div className="field-row">
+                <label htmlFor="palpo-registration">Palpo 授权配置 JSON</label>
+                <input id="palpo-registration" type="file" accept="application/json,.json"
+                  disabled={busy} onChange={readPalpoImport} />
+              </div>
+              <p className="why-inline">连接方式和接单员身份从授权文件读取。纯出站配置保存后会自动连接 Palpo，无需配置 Hagency 公网地址或 SSH 转发。选择文件只在本页校验，点击保存后才会提交凭据。</p>
+              {readingImport && <p role="status">正在读取配置…</p>}
+              {importFile && <p role="status">已读取：{importFile.name}。请核对以下授权配置。</p>}
+              {importFile && <dl className="kv" aria-label="授权配置预览">
+                <dt>服务器</dt><dd>{importFile.summary.serverName}</dd>
+                <dt>接单员</dt><dd className="mono-s">{importFile.summary.representative}</dd>
+                <dt>连接方式</dt><dd>{importFile.summary.connectionMode === 'outbound' ? '纯出站 · Hagency 主动连接 Palpo' : 'Appservice 回调'}</dd>
+                <dt>{importFile.summary.connectionMode === 'outbound' ? 'Palpo 地址' : '回调地址'}</dt><dd className="mono-s">{importFile.summary.endpoint ?? importFile.summary.url}</dd>
+                <dt>命名空间</dt><dd className="mono-s">{importFile.summary.namespace}</dd>
+              </dl>}
+              {importError && <p className="warn-text" role="alert">{importError}</p>}
+              <div className="btn-row">
+                <button type="button" className="btn" disabled={busy}
+                  onClick={() => { clearImport(); setStep(0); }}>返回选服务器</button>
+                <button type="button" className="btn" disabled={!importFile || busy || readingImport} onClick={savePalpoImport}>
+                  {busy ? '保存并验证中…' : '保存并验证'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
           <p className="dim">
             接单员不用你手工注册账号——它就是 appservice 的 <span className="mono-s">sender_localpart</span>，
-            装上注册文件后 <span className="mono-s">@hafleet:{server}</span> 自动成为代表，
+            装上注册文件后 <span className="mono-s">@hagency:{server}</span> 自动成为代表，
             <span className="mono-s"> @ac_*</span> 命名空间让所有 agent 无需注册即可寻址。
           </p>
           {/*
@@ -538,22 +640,22 @@ export default function NewProjectSide() {
                 </p>
               ) : (
                 /*
-                 * REFUSED RATHER THAN GUESSED. An edge HAFleet cannot reach collects nothing, and issuing a
+                 * REFUSED RATHER THAN GUESSED. An edge Hagency cannot reach collects nothing, and issuing a
                  * registration here would hand the customer a file that receives nothing while every screen
                  * says the side is fine. The address is not knowable from here; the edge owns it.
                  */
                 <div className="notice">
                   <span className="pill warn-text">还不能生成</span>{' '}
-                  {appservice.edgeNote ?? 'HAFleet 还问不到那个 edge 该用哪个地址。'}
+                  {appservice.edgeNote ?? 'Hagency 还问不到那个 edge 该用哪个地址。'}
                 </div>
               )}
               <p className="why-inline">
-                HAFleet 从 <span className="mono-s">{appservice.edgeUrl}</span> 取件——这是另一个方向，
+                Hagency 从 <span className="mono-s">{appservice.edgeUrl}</span> 取件——这是另一个方向，
                 和上面那个地址不是一回事，不要写进注册文件。
               </p>
             </>
           ) : (
-            <p><strong>你的 homeserver 从它自己那一侧，用哪个地址能找到 HAFleet？</strong></p>
+            <p><strong>你的 homeserver 从它自己那一侧，用哪个地址能找到 Hagency？</strong></p>
           )}
           {/*
             * The one question this flow cannot answer for the operator, stated as such. Matrix has no
@@ -580,6 +682,13 @@ export default function NewProjectSide() {
               </li>
             ))}
           </ul>
+          {appservice?.inboundVia !== 'edge' && (
+            <div className="field-row">
+              <label htmlFor="callback-url">其他可达的回调地址</label>
+              <input id="callback-url" className="inp" type="url" value={callback}
+                onChange={(e) => setCallback(e.target.value)} placeholder="https://hagency.example:8095" />
+            </div>
+          )}
           {cbCheck?.applicable && (
             <div className="notice">
               <span className={cbCheck.recommended ? 'pill ok-text' : 'pill warn-text'}>
@@ -602,12 +711,14 @@ export default function NewProjectSide() {
           </div>
             </>
           )}
+            </>
+          )}
         </section>
       )}
 
       {step === 3 && issued && (
         <section className="card">
-          <h3 className="sub">4. 安装并验证</h3>
+          <h3 className="sub">4. 验证连接</h3>
           {/*
             * A PATH AND FINGERPRINTS, never the tokens. This page is never told them, so it cannot show
             * them, and no later "just display it once" can leak them from here.
@@ -617,7 +728,21 @@ export default function NewProjectSide() {
             * writes no file and has nothing to install, and rendering the appservice fields for it showed
             * "权限 undefined" — a form claiming to have done something it had not.
             */}
-          {issued.registrationToken ? (
+          {issued.imported ? (
+            <>
+              <p>Palpo 授权配置已保存。</p>
+              <dl className="kv">
+                <dt>服务器</dt><dd>{issued.serverName}</dd>
+                <dt>接单员</dt><dd className="mono-s">{issued.representative}</dd>
+                <dt>连接方式</dt><dd>{issued.connectionMode === 'outbound' ? '纯出站 · 后台自动连接' : 'Appservice 回调'}</dd>
+                <dt>{issued.connectionMode === 'outbound' ? 'Palpo 地址' : '回调地址'}</dt><dd className="mono-s">{issued.endpoint ?? issued.url}</dd>
+                <dt>命名空间</dt><dd className="mono-s">{issued.namespace}</dd>
+              </dl>
+              <p className="dim">凭据验证检查 Hagency 能否以接单员身份访问 Matrix。
+                随后在 Palpo 的 My Hagency access 点击 Verify connection &amp; create reception，
+                验证事件投递并建立接洽房间；显示 Ready to receive requests 后可以接收项目申请。</p>
+            </>
+          ) : issued.registrationToken ? (
             <>
               <p className="dim">凭据已保存。没有文件要装，homeserver 也不用重启。</p>
               <dl className="kv">
@@ -627,7 +752,7 @@ export default function NewProjectSide() {
             </>
           ) : (
             <>
-              <p className="dim">注册文件已写到 HAFleet 主机上，权限 {issued.mode}：</p>
+              <p className="dim">注册文件已写到 Hagency 主机上，权限 {issued.mode}：</p>
               <p className="mono-s">{issued.path}</p>
               <dl className="kv">
                 <dt>接单员</dt><dd className="mono-s">{issued.representative}</dd>
@@ -651,7 +776,9 @@ export default function NewProjectSide() {
               {busy ? '验证中…' : '验证凭据'}
             </button>
             <Link className="btn" href="/projects">回到项目页</Link>
+            {issued.imported && <Link className="btn" href="/engagements">继续设置项目方额度</Link>}
           </div>
+          {verifyError && <p className="warn-text" role="alert">{verifyError} 凭据已保留，可以重试验证。</p>}
           {/*
             * TWO DIRECTIONS, TWO ANSWERS, and never one badge. `accepted` means we can act as the
             * representative; it says nothing about whether the homeserver's events reach us. Showing only
@@ -677,8 +804,8 @@ export default function NewProjectSide() {
           )}
           {verdict && (
             <div className="notice">
-              <span className={verdict.accessState === 'accepted' ? 'pill ok-text' : 'pill warn-text'}>
-                {verdict.accessState ?? '未知'}
+              <span className={accessState === 'accepted' ? 'pill ok-text' : 'pill warn-text'}>
+                {accessState === 'accepted' ? '凭据验证通过' : accessState ?? '未知'}
               </span>{' '}
               {verdict.side?.accessDetail ?? verdict.detail ?? verdict.reason ?? ''}
               {/*
@@ -686,11 +813,13 @@ export default function NewProjectSide() {
                 * for a taken localpart — an outage verdict on a homeserver that was answering fine.
                 */}
               <p className="dim">
-                {verdict.accessState === 'rejected'
+                {accessState === 'accepted'
+                  ? 'Hagency 已能以接单员身份访问 Matrix。事件投递状态需要单独验证。'
+                  : accessState === 'rejected'
                   ? '凭据被拒（401/403）——令牌不对或已撤销，需要客户方给一份新的。'
-                  : verdict.accessState === 'blocked'
-                    ? '服务器是好的，但有东西挡着：接单员那个账号名已经被占用了。要么把那个账号交给 HAFleet，要么换一个 sender_localpart。'
-                    : verdict.accessState === 'unreachable'
+                  : accessState === 'blocked'
+                    ? '服务器是好的，但有东西挡着：接单员那个账号名已经被占用了。要么把那个账号交给 Hagency，要么换一个 sender_localpart。'
+                    : accessState === 'unreachable'
                       ? '连不上那台服务器——这不是对令牌的判决，先检查地址和网络。'
                       : '「凭据被拒」「被占用」「服务器不可达」是三个不同的答案，各自要去不同的地方修。'}
               </p>

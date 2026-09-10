@@ -27,7 +27,7 @@ const IDLE = { busy: false, reason: null };
 
 // A realistic frame: a header, some output, and the client's status line.
 const frame = (statusLine, filler = 4) => [
-  '$ hafleet up alpha',
+  '$ hagency up alpha',
   ...Array.from({ length: filler }, (_, i) => `  reading src/file${i}.js`),
   statusLine,
 ].join('\n');

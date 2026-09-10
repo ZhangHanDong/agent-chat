@@ -38,7 +38,7 @@ describe('join backfill: messages sent before the bot joined', () => {
   let pendingJoinBackfill;
   let envSnapshot;
 
-  const BOT = '@hafleet-bot:matrix.test';
+  const BOT = '@hagency-bot:matrix.test';
 
   /** A message event, with the fields the selector actually reads. */
   const msg = (id, body, sender = '@lin:matrix.test', ts = 1000) => ({
@@ -71,8 +71,8 @@ describe('join backfill: messages sent before the bot joined', () => {
     writeFileSync(path.join(matrixDir, 'bridge-state.json'), JSON.stringify({
       botToken: null, agentTokens: {}, roomGroupMap: {}, groupRoomMap: {}, dmRooms: {},
     }, null, 2));
-    envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_TRUST_MODE']);
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_TRUST_MODE']);
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_TRUST_MODE = 'audit';
 
     const bridgeUrl = pathToFileURL(path.resolve('bridge-matrix.js')).href;

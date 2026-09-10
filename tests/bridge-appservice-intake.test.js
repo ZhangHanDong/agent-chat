@@ -54,14 +54,14 @@ beforeAll(async () => {
   });
   await new Promise((resolve) => backend.listen(0, '127.0.0.1', resolve));
 
-  for (const key of ['HAFLEET_API', 'MATRIX_BRIDGE_SECRET', 'MATRIX_HOMESERVER', 'MATRIX_SERVER_NAME',
-    'HAFLEET_APPSERVICE_PORT', 'HAFLEET_APPSERVICE_BIND']) remember(key);
-  process.env.HAFLEET_API = `http://127.0.0.1:${backend.address().port}`;
+  for (const key of ['HAGENCY_API', 'MATRIX_BRIDGE_SECRET', 'MATRIX_HOMESERVER', 'MATRIX_SERVER_NAME',
+    'HAGENCY_APPSERVICE_PORT', 'HAGENCY_APPSERVICE_BIND']) remember(key);
+  process.env.HAGENCY_API = `http://127.0.0.1:${backend.address().port}`;
   process.env.MATRIX_BRIDGE_SECRET = 'bridge-secret-for-intake-test';
   process.env.MATRIX_HOMESERVER = 'http://127.0.0.1:1';
   process.env.MATRIX_SERVER_NAME = 'intake.test';
-  delete process.env.HAFLEET_APPSERVICE_PORT;
-  delete process.env.HAFLEET_APPSERVICE_BIND;
+  delete process.env.HAGENCY_APPSERVICE_PORT;
+  delete process.env.HAGENCY_APPSERVICE_BIND;
 
   const url = pathToFileURL(new URL('../bridge-matrix.js', import.meta.url).pathname).href;
   bridgeModule = await import(`${url}?appservice-intake=${Date.now()}`);
@@ -91,7 +91,7 @@ function withProvenanceGate(base, { registration = 'reg-test' } = {}) {
    */
   base.appserviceInboundSnapshot = new Map();
   base.appserviceInboundSnapshot.get = (id) => ({
-    sideId: id, serverName: id, registration, representative: { mxid: '@hafleet:palpo.test' },
+    sideId: id, serverName: id, registration, representative: { mxid: '@hagency:palpo.test' },
   });
   base.sideProvenanceClaims = new Map();
   base.sideProvenanceClaimOrder = [];
@@ -249,7 +249,7 @@ describe('which project sides the bridge serves', () => {
       ok: true,
       sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000', registration: 'a.example@deadbeef' }],
     }];
-    const self = { appserviceRouter: createAppserviceRouter() };
+    const self = Object.assign(Object.create(bridgeModule.MatrixBridge.prototype), { appserviceRouter: createAppserviceRouter() });
     await bridgeModule.MatrixBridge.prototype.refreshAppserviceSides.call(self);
 
     const hit = backendCalls.find((c) => c.path === '/api/project-sides/inbound-credentials');
@@ -267,7 +267,7 @@ describe('which project sides the bridge serves', () => {
     backendReply = () => [200, {
       ok: true, sides: [{ sideId: 'a.example', hsToken: 'hs_a_token_000000000000000000000000', registration: 'a.example@deadbeef' }],
     }];
-    const self = { appserviceRouter: createAppserviceRouter() };
+    const self = Object.assign(Object.create(bridgeModule.MatrixBridge.prototype), { appserviceRouter: createAppserviceRouter() });
     await bridgeModule.MatrixBridge.prototype.refreshAppserviceSides.call(self);
     expect(self.appserviceRouter.sideIds()).toEqual(['a.example']);
 
@@ -284,16 +284,18 @@ describe('which project sides the bridge serves', () => {
 });
 
 describe('the socket is off unless the deployment asked for one', () => {
-  test('with no port set, nothing is created and the reason is logged', async () => {
+  test('with no port set, the registry refreshes without opening a socket', async () => {
     /*
      * Silent-by-default matters here: a deployment using only registration-token sides has no reason
      * to expose a socket, and a warning on every start would train an operator to ignore this log.
      */
-    delete process.env.HAFLEET_APPSERVICE_PORT;
-    const self = {};
-    await bridgeModule.MatrixBridge.prototype.startAppserviceIntake.call(self);
-    expect(self.appserviceRouter).toBeUndefined();
+    delete process.env.HAGENCY_APPSERVICE_PORT;
+    backendReply = () => [200, { ok: true, sides: [] }];
+    const self = Object.create(bridgeModule.MatrixBridge.prototype);
+    await self.startAppserviceIntake();
+    expect(self.appserviceRouter.sideIds()).toEqual([]);
     expect(self.appserviceListener).toBeUndefined();
+    clearInterval(self.appserviceRefreshTimer);
   });
 });
 
@@ -351,12 +353,12 @@ describe('a cosmetic step must not take approval down with it', () => {
  */
 describe('an invite for the representative is a knock being answered', () => {
   const SIDE = 'palpo.test';
-  const REP = `@hafleet:${SIDE}`;
+  const REP = `@hagency:${SIDE}`;
   const ROOM = `!market:${SIDE}`;
 
   const acting = {
     side: { serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:8008' },
-    credential: { kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+    credential: { kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hagency', namespace: '@ac_.*' },
   };
 
   function self({ sides = { [SIDE]: acting } } = {}) {
@@ -435,7 +437,7 @@ describe('an invite for the representative is a knock being answered', () => {
      */
     const calls = capture();
     const it = self();
-    for (const who of [`@ac_worker:${SIDE}`, `@borrower:${SIDE}`, '@hafleetbot:matrix.example.test']) {
+    for (const who of [`@ac_worker:${SIDE}`, `@borrower:${SIDE}`, '@hagencybot:matrix.example.test']) {
       await it.onAppserviceMembership(SIDE, ROOM, invite(who));
     }
     expect(calls).toHaveLength(0);
@@ -485,7 +487,7 @@ describe('an invite for the representative is a knock being answered', () => {
  * is not any more has been removed — so the sweep hangs off the diff rather than off a message nobody
  * sends.
  *
- * IT FORGETS POINTERS, NOT ROOMS. The rooms are on somebody else's homeserver and stay theirs; HAFleet
+ * IT FORGETS POINTERS, NOT ROOMS. The rooms are on somebody else's homeserver and stay theirs; Hagency
  * tells project sides exactly that. What is dropped is our claim that those rooms are usable — and in the
  * case of `trustedManagedRooms`, a PERMISSION nobody meant to keep granting.
  */
@@ -602,10 +604,10 @@ describe('the sync collector is handed BOTH tokens', () => {
   const SIDE = 'sync.test';
   const withSyncEnv = async (fn) => {
     const saved = { ...process.env };
-    process.env.HAFLEET_APPSERVICE_SYNC_SIDE = SIDE;
-    process.env.HAFLEET_APPSERVICE_SYNC_URL = 'http://sync.test';
-    delete process.env.HAFLEET_APPSERVICE_PORT;
-    delete process.env.HAFLEET_EDGE_URL;
+    process.env.HAGENCY_APPSERVICE_SYNC_SIDE = SIDE;
+    process.env.HAGENCY_APPSERVICE_SYNC_URL = 'http://sync.test';
+    delete process.env.HAGENCY_APPSERVICE_PORT;
+    delete process.env.HAGENCY_EDGE_URL;
     const timers = [];
     const realSetInterval = globalThis.setInterval;
     globalThis.setInterval = (...args) => { const h = realSetInterval(...args); timers.push(h); return h; };
@@ -622,7 +624,7 @@ describe('the sync collector is handed BOTH tokens', () => {
     await withSyncEnv(async () => {
       const self = {
         refreshAppserviceSides: async () => {},
-        actingCredentials: new Map([[SIDE, { credential: { kind: 'appservice', asToken: 'as-secret', senderLocalpart: 'hafleet' } }]]),
+        actingCredentials: new Map([[SIDE, { credential: { kind: 'appservice', asToken: 'as-secret', senderLocalpart: 'hagency' } }]]),
         appserviceSideTokens: new Map([[SIDE, 'hs-secret']]),
         postWarning: () => {},
       };

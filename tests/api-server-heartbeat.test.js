@@ -753,7 +753,7 @@ describe('server heartbeat api', () => {
     context = await createBackendTestContext('api-server-heartbeat-test-', baseSeed({
       env: {
         API_TOKEN: 'operator-token',
-        HAFLEET_SERVER_TOKEN: 'server-token',
+        HAGENCY_SERVER_TOKEN: 'server-token',
       },
     }));
 
@@ -767,7 +767,7 @@ describe('server heartbeat api', () => {
       serverTokenConfigured: true,
       serverTokenAccepted: false,
       serverTokenEnforced: false,
-      futureCredential: 'HAFLEET_SERVER_TOKEN',
+      futureCredential: 'HAGENCY_SERVER_TOKEN',
     });
     expect(health.body.auth.serverCredential.serverOwnedRoutes).toEqual([
       'POST /api/servers/heartbeat',
@@ -788,7 +788,7 @@ describe('server heartbeat api', () => {
     context = await createBackendTestContext('api-server-heartbeat-test-', baseSeed({
       env: {
         API_TOKEN: 'operator-token',
-        HAFLEET_SERVER_TOKEN: 'server-token',
+        HAGENCY_SERVER_TOKEN: 'server-token',
       },
     }));
 

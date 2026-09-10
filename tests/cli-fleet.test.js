@@ -5,11 +5,11 @@ import path from 'path';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
 const REPO_ROOT = path.resolve('.');
-const HAFLEET_BIN = path.join(REPO_ROOT, 'bin', 'hafleet');
+const HAGENCY_BIN = path.join(REPO_ROOT, 'bin', 'hagency');
 const execFileAsync = promisify(execFile);
 
 async function runCli(args, env = {}) {
-  const { stdout } = await execFileAsync(HAFLEET_BIN, args, {
+  const { stdout } = await execFileAsync(HAGENCY_BIN, args, {
     cwd: REPO_ROOT,
     encoding: 'utf-8',
     env: {
@@ -39,7 +39,7 @@ function seedFleet() {
   };
 }
 
-describe('hafleet fleet cli', () => {
+describe('hagency fleet cli', () => {
   let context = null;
 
   afterEach(() => {
@@ -48,12 +48,12 @@ describe('hafleet fleet cli', () => {
   });
 
   test('prints fleet inventory as json without failing on non-current rows', async () => {
-    context = await createBackendTestContext('hafleet-cli-fleet-test-', seedFleet());
+    context = await createBackendTestContext('hagency-cli-fleet-test-', seedFleet());
     const listener = await context.listen();
 
     try {
       const output = await runCli(['cli', 'fleet', '--expect-version', 'cur1234', '--json'], {
-        HAFLEET_API: listener.baseUrl,
+        HAGENCY_API: listener.baseUrl,
       });
       const inventory = JSON.parse(output);
 
@@ -82,12 +82,12 @@ describe('hafleet fleet cli', () => {
   });
 
   test('prints fleet inventory table', async () => {
-    context = await createBackendTestContext('hafleet-cli-fleet-test-', seedFleet());
+    context = await createBackendTestContext('hagency-cli-fleet-test-', seedFleet());
     const listener = await context.listen();
 
     try {
       const output = await runCli(['cli', 'fleet', '--expect-version', 'cur1234'], {
-        HAFLEET_API: listener.baseUrl,
+        HAGENCY_API: listener.baseUrl,
       });
 
       expect(output).toContain('FLEET expected=cur1234');

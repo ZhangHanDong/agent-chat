@@ -172,7 +172,7 @@ function LivePane({ agent }) {
     let timer = null;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/hafleet/agents/${encodeURIComponent(agent.name)}/pane`, {
+        const res = await fetch(`/api/hagency/agents/${encodeURIComponent(agent.name)}/pane`, {
           headers: { Accept: 'application/json' },
         });
         const body = await res.json().catch(() => null);

@@ -11,7 +11,7 @@ describe('Agent Operations canonical client contract', () => {
     expect(output).toContain('[agent-ops-contract] PASS');
     const manifest = JSON.parse(readFileSync('specs/fixtures/agent-ops-client-v1/manifest.json', 'utf8'));
     expect(manifest).toMatchObject({
-      contract: 'com.hafleet.agent_ops.v1',
+      contract: 'com.hagency.agent_ops.v1',
       release_status: 'development',
       source_commit: null,
     });

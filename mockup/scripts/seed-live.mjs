@@ -1,5 +1,5 @@
 /*
- * Seed a throwaway hafleet backend for live UX validation.
+ * Seed a throwaway hagency backend for live UX validation.
  *
  * WHY THIS IS A SCRIPT AND NOT A FEW CURL LINES. Two reasons, both learned the
  * hard way in one sitting:

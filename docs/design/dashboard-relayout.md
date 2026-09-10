@@ -42,7 +42,7 @@ What Activity actually resolves to:
 |---|---|---|
 | tmux (`codex-agent`, `claude-agent`) | `GET /api/tmux/capture/:session` | exists today |
 | ACP (`octos-agent`, `hermes-agent`, `codex-acp-agent`) | tail of `data/services-local/logs/agent:<name>.log` | file exists (189 KB for octos); needs one read-only endpoint |
-| neither / not started | empty state naming why, and a link to `hafleet acp-up` | to draw |
+| neither / not started | empty state naming why, and a link to `hagency acp-up` | to draw |
 
 The ACP path is a log tail, not a protocol surface. That is deliberate: the host already writes
 turn boundaries, tool names and agent output to that log — the work is one bounded-range file
@@ -105,7 +105,7 @@ lifecycle behind a `destructive` marker.
 "a blank field leaves the existing value unchanged". That was wrong twice. It was
 fabricated — `config-page.js` has no credentials endpoint, only `/api/agents` and
 `/api/framework-presets` — and it inverted where provider auth belongs. **An agent
-authenticates itself before it joins the fleet**, and HAFleet never sees the secret:
+authenticates itself before it joins the fleet**, and Hagency never sees the secret:
 
 | framework | credential lives in | set by |
 |---|---|---|
@@ -115,12 +115,12 @@ authenticates itself before it joins the fleet**, and HAFleet never sees the sec
 | octos | `~/.config/octos/config.json` | its own config |
 
 What replaces it is **read-only**: whether each agent resolved a provider, and the command
-to fix it if not. That is information HAFleet legitimately has, because a missing provider
+to fix it if not. That is information Hagency legitimately has, because a missing provider
 is the most common onboarding failure — hermes reported healthy and then crash-looped 35
 times on one. `acp-up` already refuses to report success in that case rather than offering
 to configure it.
 
-HAFleet's own secrets — `API_TOKEN`, per-agent tokens, `MATRIX_REG_TOKEN` — are a different
+Hagency's own secrets — `API_TOKEN`, per-agent tokens, `MATRIX_REG_TOKEN` — are a different
 kind: install-time `.env` material at mode 600, deliberately not editable from a browser. A
 dashboard that can rewrite its own auth token is a dashboard that can lock everyone out of
 itself. The static `page-config.jpg` above still shows the withdrawn panel; the prototype is
@@ -681,7 +681,7 @@ so **every `POST /api/dispatch` on this fleet queues, and nothing will ever staf
 cell.** The page is not broken; it was never connected.
 
 `POST /api/agents` already destructures `role` and `capability`. No onboarding path
-sends either — not `hafleet acp-up`, not `register-agents`, not the ACP host. That gap is
+sends either — not `hagency acp-up`, not `register-agents`, not the ACP host. That gap is
 the whole explanation.
 
 One asymmetry to know before building the fix: `PATCH /api/agents/:name` destructures
@@ -694,13 +694,13 @@ printing an `acp-up` line that silently cannot carry the field.
 .../api/agents/<name> -d '{"role":"coding"}'` — could not, in three ways, and the page's
 whole argument for printing a command is that seeing it is how you notice the form built
 the wrong one. `...` is not a host, so it uses `http://127.0.0.1:8090`, the documented
-`HAFLEET_API` default. **`-H 'Content-Type: application/json'` is load-bearing**: the
+`HAGENCY_API` default. **`-H 'Content-Type: application/json'` is load-bearing**: the
 global `express.json()` parses nothing without it, so `role` arrives `undefined`, and the
 handler's `if (role !== undefined)` guard turns the request into a 200 that changed
 nothing — a silent no-op on the one command that fixes the empty grid. Auth stays a note
 rather than a printed flag, because it is conditional: the `/api` gate exempts local
 requests, and the per-agent `X-Agent-Token` check only bites when that agent has a token
-and `HAFLEET_AGENT_TOKEN_MODE` is not `audit`. A printed header that the local case does
+and `HAGENCY_AGENT_TOKEN_MODE` is not `audit`. A printed header that the local case does
 not need is its own small lie.
 
 ### How the page handles it
@@ -795,7 +795,7 @@ the picture. From the final review round:
 | The benchmark's *today* column | estimated | must be measured once before it means anything |
 | `page-config.jpg` still shows the withdrawn *Credentials* panel | `page-config.jpg` | the prototype is correct; the drawing is stale |
 | `page-capacity.jpg` still shows the withdrawn "retire it" notice and no leases | `page-capacity.jpg` | the prototype is correct; the drawing is stale |
-| Nothing populates the dispatch pool: no onboarding path sends `role`/`capability`, so the grid is empty and every dispatch queues forever | `bin/hafleet-acp-up`, `bin/register-agents`, `scripts/hafleet-acp-agent.mjs` | open — the real fix is upstream of the dashboard. `/onboard` offers the fields and shows the `PATCH`, which is as far as a page can go |
+| Nothing populates the dispatch pool: no onboarding path sends `role`/`capability`, so the grid is empty and every dispatch queues forever | `bin/hagency-acp-up`, `bin/register-agents`, `scripts/hagency-acp-agent.mjs` | open — the real fix is upstream of the dashboard. `/onboard` offers the fields and shows the `PATCH`, which is as far as a page can go |
 | `PATCH /api/agents/:name` accepts `role` but not `capability` | `backend-v2.js` | open — an existing agent can only reach its role's default tier |
 | The dispatch queue and the message queue share the word "queue" | naming | open — needs one renamed before either page ships. Both pages currently point at each other and say so |
 | Three buttons shipped with no handler — projects Refresh, the agent cadence button, Pause display | header controls | **closed** — all three do something, and `check-switches.mjs` now fails on any button React gave no `onClick`. A dead control teaches the operator to distrust the live ones |
@@ -827,7 +827,7 @@ matrix... The execution layer is driven by OpenFab: OpenFab asks for 'a `<role>`
 
 | outcome | when | what comes back |
 |---|---|---|
-| `routed` | `selectAgent()` finds a free agent in the cell | a **lease** marking it busy — `HAFLEET_DISPATCH_LEASE_TTL_MS`, default 15 min, floor 1s |
+| `routed` | `selectAgent()` finds a free agent in the cell | a **lease** marking it busy — `HAGENCY_DISPATCH_LEASE_TTL_MS`, default 15 min, floor 1s |
 | `provision` | no free agent, `MATRIX_AGENT_MAX_PER_CELL > 0`, cell under cap | a plan (`mx_<role>_<tier>_<n>`) for the launcher to run `up-v1`. Default 0 = off |
 | queued | otherwise | a ticket on that cell's dispatch queue |
 
@@ -897,7 +897,7 @@ What is **not** translated, and why:
 |---|---|
 | agent names, task/alert/lease/ticket ids, repo paths | identifiers |
 | lifecycle values — `open`, `acknowledged`, `assigned`, `resolved`, `suppressed`, `in_progress`, `blocked`, `done` | the operator reads these in `curl` output and logs. Translating the value breaks the correspondence; the column *heading* is translated |
-| `ACTIVE` / `IDLE` | the exact strings `runtimeStatusText()` emits, and what `hafleet ls` prints |
+| `ACTIVE` / `IDLE` | the exact strings `runtimeStatusText()` emits, and what `hagency ls` prints |
 | shell commands, env var names, config paths | `hermes auth add`, `DEEPSEEK_API_KEY`, `~/.codex/` |
 | the activity log, alert summaries, task titles, waiting reasons | data, not chrome. In the product these come from the API; a dashboard cannot translate its payload |
 
@@ -995,7 +995,7 @@ frameworks:
 |---|---|
 | `onPath`, `version` | `launch.command` resolved on `PATH`, then `--version` |
 | `transport` | `raw.transport === 'acp' ? 'acp' : 'tmux'` — the manifest's own default |
-| `startWith` | derived from `transport`: `hafleet acp-up` or `hafleet up` |
+| `startWith` | derived from `transport`: `hagency acp-up` or `hagency up` |
 | `credentialHome`, `credentialPresent`, `authFix` | per-framework path, `stat`, and the one command that fixes it |
 | `acpModelFlag` | `launch.acpModelFlag`, verbatim |
 | `permissionSummary` | `launch.permissionSummary` — the manifest requires it precisely because it is shown to operators |
@@ -1015,7 +1015,7 @@ and stacking them made one framework look like it had two credential faults.
 
 ### The form
 
-Mirrors `hafleet acp-up <name> <workspace> <framework> --supervised` field for field,
+Mirrors `hagency acp-up <name> <workspace> <framework> --supervised` field for field,
 and prints the **equivalent command** underneath. Shown, not hidden: an operator has to
 be able to reproduce and script what the page just did, and seeing the command is also
 how you notice the form built the wrong one. The command block scrolls sideways rather
@@ -1031,7 +1031,7 @@ Constraints the form enforces because the CLI does:
   that always shows the field lies for two of the five frameworks — so for those it
   shows why, and `onboardCommand()` drops the flag.
 - **`--supervised` appears only for ACP frameworks.** A tmux framework goes through
-  `hafleet up` and has no supervised option here; selecting one says so, and notes that
+  `hagency up` and has no supervised option here; selecting one says so, and notes that
   a host with existing tmux sessions needs a stance on adopting them.
 - **Duplicate and malformed names are refused inline**, against `/^[\w-]+$/` — the same
   expression `POST /api/agents/create` validates with, so the page cannot accept a name
@@ -1054,12 +1054,12 @@ re-introducing it.
 ### What is not on this page
 
 No credential fields, for the reason the operator gave about Config: **an agent
-authenticates itself before it joins the fleet.** HAFleet never sees the secret and
+authenticates itself before it joins the fleet.** Hagency never sees the secret and
 offers no way to set one. An unauthenticated framework gets the one command that fixes
-it and no input box. HAFleet also does not install frameworks — `absent` rows are
+it and no input box. Hagency also does not install frameworks — `absent` rows are
 informational, and the page says so in its opening line rather than implying a missing
 framework is something it can fetch.
 
 Prerequisite findings **are** translated, unlike alert summaries. The distinction:
-these are HAFleet's own detection output, and an alert summary arrives from the API. A
+these are Hagency's own detection output, and an alert summary arrives from the API. A
 dashboard can translate its own words and cannot translate its payload.

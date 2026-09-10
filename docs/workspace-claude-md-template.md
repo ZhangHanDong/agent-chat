@@ -1,4 +1,4 @@
-<!-- hafleet-workspace-template: v1 -->
+<!-- hagency-workspace-template: v1 -->
 # {{AGENT_NAME}} Workspace
 
 Template-Version: v1

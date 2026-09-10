@@ -72,7 +72,7 @@ async function boot({ hs = null, credential = 'appservice' } = {}) {
       .set('Authorization', `Bearer ${TOKEN}`)
       .send({
         credential: credential === 'appservice'
-          ? { kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok', namespace: '@ac_.*', senderLocalpart: 'hafleet' }
+          ? { kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok', namespace: '@ac_.*', senderLocalpart: 'hagency' }
           : { kind: 'registrationToken', registrationToken: 'reg-tok' },
       })
       .expect(200);
@@ -88,7 +88,7 @@ describe('POST /api/project-sides/:id/knock', () => {
     const hs = await fakeHomeserver({ directory: ROOM });
     const app = await boot({ hs });
 
-    const r = await knock(app, { alias: ALIAS, reason: 'HAFleet asks to take work here' });
+    const r = await knock(app, { alias: ALIAS, reason: 'Hagency asks to take work here' });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ok: true, sideId: SIDE, alias: ALIAS, roomId: ROOM, state: 'knocked' });
     /*
@@ -101,7 +101,7 @@ describe('POST /api/project-sides/:id/knock', () => {
     const dir = hs.seen.find((c) => c.url.includes('/directory/room/'));
     const knocked = hs.seen.find((c) => c.url.includes('/knock/'));
     expect(dir).toBeDefined();
-    expect(knocked.body).toEqual({ reason: 'HAFleet asks to take work here' });
+    expect(knocked.body).toEqual({ reason: 'Hagency asks to take work here' });
     // The knock targets the RESOLVED room id, not the alias — one resolution, reported.
     expect(knocked.url).toContain(encodeURIComponent(ROOM));
   });

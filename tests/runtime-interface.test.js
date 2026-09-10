@@ -9,7 +9,7 @@ import {
 } from '../lib/runtime/index.js';
 import { createTmuxRuntime, isTmuxEmptyServerError } from '../lib/runtime/tmux.js';
 
-// HAFleet reached its agents through 43 raw tmux invocations, 34 of them in
+// Hagency reached its agents through 43 raw tmux invocations, 34 of them in
 // backend-v2.js with no abstraction. That coupling is what pins the project to
 // Linux and macOS, since tmux has no native Windows build. lib/runtime/ is the
 // seam that lets another runtime be added without touching the backend.

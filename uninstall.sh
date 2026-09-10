@@ -9,7 +9,7 @@ SUDOERS_DIR="${SUDOERS_DIR:-/etc/sudoers.d}"
 YES=false
 DRY_RUN=false
 SKIP_MCP=false
-PURGE_HAFLEET_HOME=false
+PURGE_HAGENCY_HOME=false
 PURGE_DATA=false
 
 usage() {
@@ -27,7 +27,7 @@ Options:
   --systemd-dir PATH        Remove service units from PATH instead of /etc/systemd/system
   --sudoers-dir PATH        Remove sudoers rule from PATH instead of /etc/sudoers.d
   --skip-mcp               Do not call the Claude Code or Codex MCP remover
-  --purge-hafleet-home   Also remove ~/.hafleet after separate confirmation
+  --purge-hagency-home   Also remove ~/.hagency after separate confirmation
   --purge-data             Also remove INSTALL_DIR/data after separate confirmation
   -h, --help               Show this help
 USAGE
@@ -118,7 +118,7 @@ parse_args() {
         SUDOERS_DIR="$2"; shift
         ;;
       --skip-mcp) SKIP_MCP=true ;;
-      --purge-hafleet-home) PURGE_HAFLEET_HOME=true ;;
+      --purge-hagency-home) PURGE_HAGENCY_HOME=true ;;
       --purge-data) PURGE_DATA=true ;;
       -h|--help)
         usage
@@ -134,12 +134,12 @@ parse_args() {
 
 stop_services() {
   local services=(
-    hafleet-push-relay.service
-    hafleet-remote-autodeploy.service
-    hafleet-stable-autodeploy.service
+    hagency-push-relay.service
+    hagency-remote-autodeploy.service
+    hagency-stable-autodeploy.service
     bridge-matrix.service
-    hafleet.service
-    hafleet-backend.service
+    hagency.service
+    hagency-backend.service
   )
   if [ "$DRY_RUN" = true ] || ! is_system_dir; then
     log "Skipping systemctl stop/disable outside real systemd dir."
@@ -195,12 +195,12 @@ remove_skill_dir_if_owned() {
 remove_skills() {
   remove_skill_dir_if_owned "$HOME/.claude/skills/agent-message"
   remove_skill_dir_if_owned "$HOME/.codex/skills/agent-message"
-  remove_skill_dir_if_owned "$HOME/.claude/skills/hafleet"
-  remove_skill_dir_if_owned "$HOME/.codex/skills/hafleet"
+  remove_skill_dir_if_owned "$HOME/.claude/skills/hagency"
+  remove_skill_dir_if_owned "$HOME/.codex/skills/hagency"
   local client target resolved expected
-  expected="$(readlink -f "$INSTALL_DIR/skills/hafleet-inner-loop" 2>/dev/null || true)"
+  expected="$(readlink -f "$INSTALL_DIR/skills/hagency-inner-loop" 2>/dev/null || true)"
   for client in .claude .codex; do
-    target="$HOME/$client/skills/hafleet-inner-loop"
+    target="$HOME/$client/skills/hagency-inner-loop"
     if [ -L "$target" ]; then
       resolved="$(readlink -f "$target" 2>/dev/null || true)"
       if [ -n "$expected" ] && [ "$resolved" = "$expected" ]; then
@@ -215,7 +215,7 @@ remove_skills() {
 }
 
 remove_sudoers() {
-  remove_file "$SUDOERS_DIR/hafleet-autodeploy"
+  remove_file "$SUDOERS_DIR/hagency-autodeploy"
 }
 
 remove_claude_mcp() {
@@ -224,7 +224,7 @@ remove_claude_mcp() {
     return 0
   fi
   if command -v claude >/dev/null 2>&1; then
-    run claude mcp remove -s user hafleet || true
+    run claude mcp remove -s user hagency || true
   else
     log "Claude Code CLI not found; skipping MCP removal."
   fi
@@ -236,18 +236,18 @@ remove_codex_mcp() {
     return 0
   fi
   if command -v codex >/dev/null 2>&1; then
-    run codex mcp remove hafleet || true
+    run codex mcp remove hagency || true
   else
     log "Codex CLI not found; skipping MCP removal."
   fi
 }
 
 purge_optional_data() {
-  if [ "$PURGE_HAFLEET_HOME" = true ]; then
-    if confirm "Remove user data directory $HOME/.hafleet?"; then
-      run rm -rf "$HOME/.hafleet"
+  if [ "$PURGE_HAGENCY_HOME" = true ]; then
+    if confirm "Remove user data directory $HOME/.hagency?"; then
+      run rm -rf "$HOME/.hagency"
     else
-      log "Preserved $HOME/.hafleet"
+      log "Preserved $HOME/.hagency"
     fi
   fi
   if [ "$PURGE_DATA" = true ]; then
@@ -275,7 +275,7 @@ main() {
   remove_claude_mcp
   remove_codex_mcp
   purge_optional_data
-  log "Uninstall complete. .env, data, and ~/.hafleet are preserved unless purge flags were confirmed."
+  log "Uninstall complete. .env, data, and ~/.hagency are preserved unless purge flags were confirmed."
 }
 
 main "$@"

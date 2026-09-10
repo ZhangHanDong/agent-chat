@@ -30,7 +30,7 @@ describe('provision-team', () => {
   beforeEach(() => {
     tmp = mkdtempSync(path.join(os.tmpdir(), 'provteam-'));
     repo = makeTempGitRepo(tmp);
-    home = path.join(tmp, 'hafleet-home');
+    home = path.join(tmp, 'hagency-home');
   });
 
   afterEach(() => {

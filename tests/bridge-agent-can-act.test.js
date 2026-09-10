@@ -44,7 +44,7 @@ function selfWith({ credentials = [], token = null } = {}) {
       return {
         side: { serverName: row.serverName, apiBaseUrl: row.apiBaseUrl ?? 'http://x' },
         credential: row.kind === 'appservice'
-          ? { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet', namespace: row.namespace }
+          ? { kind: 'appservice', asToken: 'as', senderLocalpart: 'hagency', namespace: row.namespace }
           // A namespace is carried here too, so a test cannot pass by accident when the kind check is gone.
           : { kind: 'registrationToken', representativeToken: 'rt', registrationToken: null, namespace: row.namespace },
       };
@@ -76,7 +76,7 @@ describe('whether an agent can act on Matrix', () => {
   test('a registrationToken side does not authorise an agent that has no token', () => {
     /*
      * The asymmetry that matters. An appservice namespace covers every agent; a registration token means
-     * HAFleet must REGISTER an account and hold its access token, so until that has happened the agent
+     * Hagency must REGISTER an account and hold its access token, so until that has happened the agent
      * cannot act — and saying otherwise would suppress the warning that tells an operator to provision it.
      */
     /*
@@ -154,7 +154,7 @@ describe('the ordering that made a correct rule always false', () => {
 
 describe('who speaks in a room, chosen by the room\'s own server', () => {
   /*
-   * `!offer` from a customer's room was answered as HAFleet's own bot, which is not a member there:
+   * `!offer` from a customer's room was answered as Hagency's own bot, which is not a member there:
    * `M_FORBIDDEN: sender's membership is not 'join'`. The representative is the identity in that room, and a
    * room id already says which server it belongs to — so the choice needs no flag and no extra state.
    *
@@ -176,7 +176,7 @@ describe('who speaks in a room, chosen by the room\'s own server', () => {
     expect(fn).toMatch(/this\.botClient\.sendMessage\(roomId, content\)/);
     /*
      * AND THE FALLBACK KEYS ON THE FAILURE, NOT ON THE ADDRESS. A first version compared the room's server
-     * against ours and stopped there — so when a project side runs on the SAME homeserver as HAFleet's bot,
+     * against ours and stopped there — so when a project side runs on the SAME homeserver as Hagency's bot,
      * which is an ordinary deployment and the one this was walked on, the comparison said "ours", the bot
      * was used, and the bot still was not a member. The same silence, one branch over.
      */
@@ -234,9 +234,9 @@ describe('the bot is not the only way in', () => {
      * resolvers with every combination of the three configured intakes. sync-only is the case that used
      * to throw (#5 wired the collector but not this guard).
      */
-    const listener = { HAFLEET_APPSERVICE_PORT: '8095' };
-    const edge = { HAFLEET_EDGE_URL: 'http://edge.example:8095', HAFLEET_EDGE_LINK_TOKEN: 'link', HAFLEET_EDGE_SIDE: 'side-a' };
-    const sync = { HAFLEET_APPSERVICE_SYNC_SIDE: 'side-a', HAFLEET_APPSERVICE_SYNC_URL: 'http://hs.example' };
+    const listener = { HAGENCY_APPSERVICE_PORT: '8095' };
+    const edge = { HAGENCY_EDGE_URL: 'http://edge.example:8095', HAGENCY_EDGE_LINK_TOKEN: 'link', HAGENCY_EDGE_SIDE: 'side-a' };
+    const sync = { HAGENCY_APPSERVICE_SYNC_SIDE: 'side-a', HAGENCY_APPSERVICE_SYNC_URL: 'http://hs.example' };
     const cases = [
       [{}, false],
       [listener, true],
@@ -249,7 +249,7 @@ describe('the bot is not the only way in', () => {
     ];
     for (const [env, expected] of cases) expect(hasConfiguredInboundPath(env)).toBe(expected);
     // Half-configured sync is refused by its resolver, so it is NOT an inbound path.
-    expect(hasConfiguredInboundPath({ HAFLEET_APPSERVICE_SYNC_SIDE: 'side-a' })).toBe(false);
+    expect(hasConfiguredInboundPath({ HAGENCY_APPSERVICE_SYNC_SIDE: 'side-a' })).toBe(false);
   });
 
   test('the intake starts AFTER the bot attempt, so a failed bot cannot skip it', () => {
@@ -276,7 +276,7 @@ describe('the bot is not the only way in', () => {
   test('a bot-less bridge still subscribes to the backend event stream, or no agent reply ever leaves', () => {
     /*
      * connectSSE() lived only inside the bot bring-up. The first live run: the agent did its task,
-     * posted "done" to the backend, and the room stayed silent — hafleet → Matrix had no consumer.
+     * posted "done" to the backend, and the room stayed silent — hagency → Matrix had no consumer.
      */
     const body = startBody();
     const intake = body.indexOf('await this.startAppserviceIntake();');

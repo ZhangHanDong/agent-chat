@@ -40,7 +40,7 @@ describe('restart backoff', () => {
     });
   };
 
-  beforeEach(() => { dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-backoff-')); });
+  beforeEach(() => { dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-backoff-')); });
   afterEach(() => {
     supervisor = null;
     rmSync(dir, { recursive: true, force: true });
@@ -126,7 +126,7 @@ describe('restart backoff', () => {
 describe('a real crash-looping service backs off instead of hammering', () => {
   let dir;
 
-  beforeEach(() => { dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-backoff-live-')); });
+  beforeEach(() => { dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-backoff-live-')); });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   test('a service that exits immediately is not respawned at a fixed tight interval', async () => {
@@ -185,7 +185,7 @@ describe('supervised agents', () => {
 
   test('two agents sharing one script are told apart by their arguments', async () => {
     // pidMatchesService originally compared only command[1]. Every ACP agent runs
-    // scripts/hafleet-acp-agent.mjs, so agent A would match agent B's process and
+    // scripts/hagency-acp-agent.mjs, so agent A would match agent B's process and
     // report healthy while its own child was gone.
     const source = await import('fs').then((fs) =>
       fs.readFileSync('src/local-service-supervisor.mjs', 'utf-8'));

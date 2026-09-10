@@ -48,7 +48,7 @@ describe('auth mode', () => {
 
 describe('seat identity', () => {
   it('gives two agents on one host, framework and auth mode the SAME seat', () => {
-    // The whole point. bin/hafleet-up never reassigns $HOME, so both read the same
+    // The whole point. bin/hagency-up never reassigns $HOME, so both read the same
     // credential home and consume one subscription.
     const a = seatIdentity(withModel('a', 'claude-opus-5'));
     const b = seatIdentity(withModel('b', 'claude-sonnet-5'));

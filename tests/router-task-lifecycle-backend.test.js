@@ -5,8 +5,8 @@ import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 describe('runner task endpoint authorization', () => {
   let context, router, claim, taskId, headers;
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-task-endpoint-', {
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', API_TOKEN: 'operator', HAFLEET_AGENT_TOKEN_MODE: 'hard' },
+    context = await createBackendTestContext('hagency-task-endpoint-', {
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', API_TOKEN: 'operator', HAGENCY_AGENT_TOKEN_MODE: 'hard' },
       agents: { worker: { name: 'worker', agentId: 'agent_worker', type: 'claude', kind: 'agent', role: 'coding', workdir: process.cwd(), online: true } },
       agentTokens: { worker: 'worker-token' },
     });
@@ -20,13 +20,13 @@ describe('runner task endpoint authorization', () => {
     router.enqueueDispatch({ sessionId: active.sessionId, taskId, framework: 'claude', localServerId: 'local', workspaceResourceId: 'work', mayWrite: true, payload: {} });
     claim = router.claimDispatch({ runnerId: 'runner', leaseMs: 60000, capabilityTtlMs: 60000, maxLiveRunners: 4 });
     expect(router.takePayload(claim).ok).toBe(true);
-    headers = { 'X-Agent-Token': 'worker-token', 'X-HAFleet-Dispatch-Capability': claim.capability, 'X-HAFleet-Dispatch-Id': claim.dispatchId, 'X-HAFleet-Runner-Id': claim.runnerId, 'X-HAFleet-Fence-Generation': String(claim.fenceGeneration) };
+    headers = { 'X-Agent-Token': 'worker-token', 'X-Hagency-Dispatch-Capability': claim.capability, 'X-Hagency-Dispatch-Id': claim.dispatchId, 'X-Hagency-Runner-Id': claim.runnerId, 'X-Hagency-Fence-Generation': String(claim.fenceGeneration) };
   });
   afterAll(() => { router?.close(); context?.cleanup(); });
   const call = (body, auth = headers) => request(context.app).post('/api/router/task-operations').set(auth).send({ agent: 'worker', task_id: taskId, ...body });
   test('requires capability even on loopback and with the agent token', async () => {
     expect((await call({ action: 'get' }, { 'X-Agent-Token': 'worker-token' })).status).toBe(401);
-    expect((await call({ action: 'get' }, { ...headers, 'X-HAFleet-Dispatch-Capability': 'bad' })).status).toBeGreaterThanOrEqual(400);
+    expect((await call({ action: 'get' }, { ...headers, 'X-Hagency-Dispatch-Capability': 'bad' })).status).toBeGreaterThanOrEqual(400);
     expect((await call({ action: 'get', agent: 'someone-else' })).status).toBeGreaterThanOrEqual(400);
     expect((await call({ action: 'get', task_id: 'another-task' })).status).toBeGreaterThanOrEqual(400);
   });
@@ -62,7 +62,7 @@ describe('runner task endpoint authorization', () => {
 
 describe('thread tasks without an operator token', () => {
   let context;
-  beforeAll(async () => { context = await createBackendTestContext('hafleet-task-no-token-', { env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', API_TOKEN: '' } }); });
+  beforeAll(async () => { context = await createBackendTestContext('hagency-task-no-token-', { env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', API_TOKEN: '' } }); });
   afterAll(() => { context?.internals.routerStoreForTest?.close(); context?.cleanup(); });
   test('global task mutations fail closed when operator credentials are absent', async () => {
     for (const [method, url, body] of [['post', '/api/tasks', { title: 'unauthorized' }], ['patch', '/api/tasks/private', { title: 'changed' }], ['delete', '/api/tasks/private', {}], ['post', '/api/tasks/private/comments', { text: 'injected' }]]) {

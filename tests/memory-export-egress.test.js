@@ -1,7 +1,7 @@
 /*
  * SEC-R20-EGRESS: transcripts do not leave the machine unless someone said they may.
  *
- * PRD R20 (`docs/PRD-hafleet-pdu.md:345`) requires transcript/memory export to default to
+ * PRD R20 (`docs/PRD-hagency-pdu.md:345`) requires transcript/memory export to default to
  * off or to an approved local destination, and its traceability row names this gate. The
  * gate did not exist — zero occurrences outside the PRD — and neither did the control.
  *
@@ -17,7 +17,7 @@
  * and the send path needs a `LETTA_API_KEY` nobody sets. Two absences, not a policy — and
  * an absence can be filled in by anyone dropping a key in `.env`. Meanwhile the
  * subconscious feature itself defaults to ENABLED in two provisioning paths
- * (`bin/hafleet-up:1577`, `scripts/configure-v1-subconscious.js:19`), so the thing being
+ * (`bin/hagency-up:1577`, `scripts/configure-v1-subconscious.js:19`), so the thing being
  * governed is on by default while the governor did not exist.
  */
 
@@ -39,7 +39,7 @@ describe('the default is nowhere', () => {
     // "Export blocked" alone sends an operator to check credentials, when the answer is
     // that they never approved a destination.
     const r = memoryExportPolicyFromEnv({}).allows('https://api.letta.com/v1');
-    expect(r.reason).toMatch(/HAFLEET_MEMORY_EXPORT/);
+    expect(r.reason).toMatch(/HAGENCY_MEMORY_EXPORT/);
   });
 
   test('enabling export without naming a destination still sends nothing', () => {
@@ -48,7 +48,7 @@ describe('the default is nowhere', () => {
      * as saying where transcripts may go, and treating it as such is how a feature flag
      * becomes an egress decision.
      */
-    const p = memoryExportPolicyFromEnv({ HAFLEET_MEMORY_EXPORT: '1' });
+    const p = memoryExportPolicyFromEnv({ HAGENCY_MEMORY_EXPORT: '1' });
     expect(p.enabled).toBe(true);
     expect(p.allows('https://api.letta.com/v1').ok).toBe(false);
     expect(p.policy.empty).toBe(true);
@@ -61,10 +61,10 @@ describe('the default is nowhere', () => {
      * transcripts off the machine must require a yes, not require remembering to say no.
      */
     for (const value of [undefined, '', '0', 'true', 'yes', 'on']) {
-      expect(memoryExportPolicyFromEnv({ HAFLEET_MEMORY_EXPORT: value }).enabled, String(value))
+      expect(memoryExportPolicyFromEnv({ HAGENCY_MEMORY_EXPORT: value }).enabled, String(value))
         .toBe(false);
     }
-    expect(memoryExportPolicyFromEnv({ HAFLEET_MEMORY_EXPORT: '1' }).enabled).toBe(true);
+    expect(memoryExportPolicyFromEnv({ HAGENCY_MEMORY_EXPORT: '1' }).enabled).toBe(true);
   });
 });
 
@@ -72,7 +72,7 @@ describe('an approved local destination is approved', () => {
   test('loopback and .local pass without being listed', () => {
     // PRD R20 allows "off OR an approved local destination". A self-hosted Letta on
     // loopback is the case the requirement exists to permit.
-    const p = memoryExportPolicyFromEnv({ HAFLEET_MEMORY_EXPORT: '1' });
+    const p = memoryExportPolicyFromEnv({ HAGENCY_MEMORY_EXPORT: '1' });
     for (const host of ['http://localhost:8283', 'http://127.0.0.1:8283', 'http://mini1.local:8283']) {
       const r = p.allows(host);
       expect(r.ok, host).toBe(true);
@@ -82,7 +82,7 @@ describe('an approved local destination is approved', () => {
 
   test('local can be switched off for a deployment that wants an explicit list only', () => {
     const p = memoryExportPolicyFromEnv({
-      HAFLEET_MEMORY_EXPORT: '1', HAFLEET_MEMORY_EXPORT_ALLOW_LOCAL: '0',
+      HAGENCY_MEMORY_EXPORT: '1', HAGENCY_MEMORY_EXPORT_ALLOW_LOCAL: '0',
     });
     expect(p.allows('http://127.0.0.1:8283').ok).toBe(false);
   });
@@ -91,8 +91,8 @@ describe('an approved local destination is approved', () => {
 describe('an explicit allowlist', () => {
   test('an approved host passes and an unapproved one does not', () => {
     const p = memoryExportPolicyFromEnv({
-      HAFLEET_MEMORY_EXPORT: '1',
-      HAFLEET_MEMORY_EXPORT_ALLOWED_HOSTS: 'memory.internal.example',
+      HAGENCY_MEMORY_EXPORT: '1',
+      HAGENCY_MEMORY_EXPORT_ALLOWED_HOSTS: 'memory.internal.example',
     });
     expect(p.allows('https://memory.internal.example/v1').ok).toBe(true);
     expect(p.allows('https://api.letta.com/v1').ok).toBe(false);

@@ -10,7 +10,7 @@ import path from 'path';
 
 const dirs = [];
 const tempDir = () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-relpkg-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-relpkg-'));
   dirs.push(dir);
   return dir;
 };
@@ -27,9 +27,9 @@ describe('build-release-package.sh', () => {
     });
 
     const release = JSON.parse(readFileSync('package.json', 'utf-8')).version;
-    const tarball = path.join(out, `hafleet-${release}.tar.gz`);
+    const tarball = path.join(out, `hagency-${release}.tar.gz`);
     const listing = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf-8' }).split('\n');
-    const prefix = `hafleet-${release}/`;
+    const prefix = `hagency-${release}/`;
 
     for (const entry of [
       'install-full.sh',       // the installer itself
@@ -38,11 +38,11 @@ describe('build-release-package.sh', () => {
       'package-lock.json',     // npm install must be reproducible
       'backend-v2.js',
       // server.js is gone: the portal is deleted and its delivery queue lives inside the backend.
-      'bin/hafleet',
+      'bin/hagency',
       'lib/version.js',
-      'services/hafleet-services.mjs',
+      'services/hagency-services.mjs',
       'services/services-local.json',
-      'hafleet-backend.service',
+      'hagency-backend.service',
       '.env.example',          // install-full.sh copies this to .env
       'build-info.json',       // stamped: the unpacked tree has no .git
     ]) {
@@ -56,9 +56,9 @@ describe('build-release-package.sh', () => {
     execFileSync('./scripts/build-release-package.sh', ['--out-dir', out, '--release', '9.9.9'], {
       encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'],
     });
-    execFileSync('tar', ['-xzf', path.join(out, 'hafleet-9.9.9.tar.gz'), '-C', extract]);
+    execFileSync('tar', ['-xzf', path.join(out, 'hagency-9.9.9.tar.gz'), '-C', extract]);
 
-    const stamp = JSON.parse(readFileSync(path.join(extract, 'hafleet-9.9.9', 'build-info.json'), 'utf-8'));
+    const stamp = JSON.parse(readFileSync(path.join(extract, 'hagency-9.9.9', 'build-info.json'), 'utf-8'));
     expect(stamp.release).toBe('9.9.9');
     expect(stamp.channel).toBe('release');
     expect(stamp.revision).toMatch(/^[0-9a-f]{7,}$/);
@@ -70,12 +70,12 @@ describe('build-release-package.sh', () => {
       encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'],
     });
     const release = JSON.parse(readFileSync('package.json', 'utf-8')).version;
-    const listing = execFileSync('tar', ['-tzf', path.join(out, `hafleet-${release}.tar.gz`)], {
+    const listing = execFileSync('tar', ['-tzf', path.join(out, `hagency-${release}.tar.gz`)], {
       encoding: 'utf-8',
     });
-    expect(listing).not.toMatch(new RegExp(`hafleet-${release}/\\.github/`));
+    expect(listing).not.toMatch(new RegExp(`hagency-${release}/\\.github/`));
     // docs/ stays: AGENTS.md and CLAUDE.md are symlinks into it.
-    expect(listing).toMatch(new RegExp(`hafleet-${release}/docs/`));
+    expect(listing).toMatch(new RegExp(`hagency-${release}/docs/`));
   });
 
   test('builds from a git ref, not the working tree', () => {
@@ -105,7 +105,7 @@ describe('bootstrap installer', () => {
 
   test('prefers a release artifact over cloning', () => {
     expect(bootstrap).toContain('fetch_release_tarball');
-    expect(bootstrap).toMatch(/hafleet-\$\{release\}\.tar\.gz/);
+    expect(bootstrap).toMatch(/hagency-\$\{release\}\.tar\.gz/);
   });
 
   test('verifies the checksum and treats a mismatch as fatal', () => {
@@ -127,7 +127,7 @@ describe('bootstrap installer', () => {
 
   test('derives the release URL from the repo URL so forks work', () => {
     expect(bootstrap).toContain('releases/download');
-    expect(bootstrap).toContain('HAFLEET_RELEASE_BASE');
+    expect(bootstrap).toContain('HAGENCY_RELEASE_BASE');
   });
 
   test('reports identity from the stamp when installed without git', () => {

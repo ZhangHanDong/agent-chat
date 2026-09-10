@@ -9,7 +9,7 @@ describe('owner approval API', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-approval-api-', {
+    context = await createBackendTestContext('hagency-approval-api-', {
       agents: {
         wf_coordinator: { name: 'wf_coordinator', type: 'agent', kind: 'agent', online: true },
         unbound: { name: 'unbound', type: 'agent', kind: 'agent', online: true },
@@ -17,8 +17,8 @@ describe('owner approval API', () => {
       agentTokens: { wf_coordinator: AGENT_TOKEN, unbound: 'unbound-token' },
       env: {
         MATRIX_BRIDGE_SECRET: BRIDGE_SECRET,
-        HAFLEET_AGENT_TOKEN_MODE: 'hard',
-        HAFLEET_APPROVAL_TTL_MS: '60000',
+        HAGENCY_AGENT_TOKEN_MODE: 'hard',
+        HAGENCY_APPROVAL_TTL_MS: '60000',
       },
     });
   });
@@ -31,11 +31,11 @@ describe('owner approval API', () => {
      * WITH the bridge secret, quoting the real request id, the real digest, the real agent,
      * the real project room and the real owner DM. Only the sender differs, and the backend
      * returns 403. So a client's structured event — and the bridge relaying it — buys no
-     * authorization; hafleet re-derives the answer from its own binding every time. The 403
+     * authorization; hagency re-derives the answer from its own binding every time. The 403
      * on the unauthenticated PUT above says the same about bindings: the presentation layer
      * cannot install the authority it would then be judged against.
      *
-     * Scope note: this is the hafleet half of the statement. "Robrix2 MUST remain a rendering
+     * Scope note: this is the hagency half of the statement. "Robrix2 MUST remain a rendering
      * and event-emission client" is a property of a client that lives outside this repo and
      * no test here can assert it.
      *

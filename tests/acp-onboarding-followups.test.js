@@ -5,10 +5,10 @@ import { readFileSync } from 'fs';
 import { frameworkIds, getFramework } from '../lib/frameworks/index.js';
 
 // The three remaining items from the onboarding review: readiness was a stopwatch,
-// `hafleet ls` could not distinguish transports, and onboarding was undocumented.
+// `hagency ls` could not distinguish transports, and onboarding was undocumented.
 
 describe('readiness is a signal, not a stopwatch', () => {
-  const source = readFileSync('bin/hafleet-acp-up', 'utf-8');
+  const source = readFileSync('bin/hagency-acp-up', 'utf-8');
 
   test('the fixed sleep is gone', () => {
     // `sleep 6` then a liveness check: an agent needing longer looked broken, and
@@ -20,7 +20,7 @@ describe('readiness is a signal, not a stopwatch', () => {
     const marker = source.match(/READY_MARKER="([^"]+)"/);
     expect(marker, 'no readiness marker declared').toBeTruthy();
     // Derived from the host rather than hardcoded here, so the two cannot drift.
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host, `the host never logs "${marker[1]}"`).toContain(marker[1]);
   });
 
@@ -41,8 +41,8 @@ describe('readiness is a signal, not a stopwatch', () => {
   });
 });
 
-describe('hafleet ls distinguishes the transports', () => {
-  const source = readFileSync('bin/hafleet-ls', 'utf-8');
+describe('hagency ls distinguishes the transports', () => {
+  const source = readFileSync('bin/hagency-ls', 'utf-8');
 
   test('a TRANS column is rendered', () => {
     expect(source).toMatch(/"TRANS"/);
@@ -97,7 +97,7 @@ describe('onboarding is documented', () => {
   const doc = readFileSync('docs/agent-onboarding.md', 'utf-8');
 
   test('it names both launchers and the removal command', () => {
-    for (const command of ['hafleet up', 'hafleet acp-up', 'hafleet acp-down']) {
+    for (const command of ['hagency up', 'hagency acp-up', 'hagency acp-down']) {
       expect(doc, `${command} is not documented`).toContain(command);
     }
   });
@@ -112,7 +112,7 @@ describe('onboarding is documented', () => {
   test('the transport it claims for each framework is the one the registry declares', () => {
     // Parse the transport CELL, not the row. Asserting row.toContain('acp') passed
     // even with the cell changed to tmux, because the same row says
-    // "hafleet acp-up" — a vacuous check that a mutation test exposed.
+    // "hagency acp-up" — a vacuous check that a mutation test exposed.
     for (const id of frameworkIds()) {
       const expected = getFramework(id).transport;
       const row = doc.split('\n').find((line) => line.trim().startsWith(`| \`${id}\``));

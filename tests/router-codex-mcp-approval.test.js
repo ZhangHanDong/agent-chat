@@ -10,7 +10,7 @@ const roots = [];
 const stores = [];
 const executable = fileURLToPath(new URL('./fixtures/fake-codex-mcp-elicitation.mjs', import.meta.url));
 function setup(scenario = {}) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-native-mcp-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-native-mcp-'));
   roots.push(root);
   const router = openRouter({ dbPath: path.join(root, 'router.db') });
   stores.push(router);
@@ -27,7 +27,7 @@ function setup(scenario = {}) {
   const options = { router, claim, cwd: root, executable,
     env: { FAKE_MCP_SCENARIO: scenarioPath, FAKE_MCP_RESPONSES: responsesPath },
     acknowledgementTimeoutMs: 1000, executionTimeoutMs: 400, approvalTimeoutMs: 1000, maxParkedRunners: 4,
-    mcpServer: { name: 'hafleet', command: process.execPath, args: ['/fixture/mcp.js'], envVars: [] },
+    mcpServer: { name: 'hagency', command: process.execPath, args: ['/fixture/mcp.js'], envVars: [] },
     coordinationNeedsOwnerApproval: codexPermissionRequestNeedsOwnerApproval, requestOwnerApproval: owner };
   return { root, router, queued, owner, options, responsesPath };
 }
@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 describe('Codex native MCP approval adapter', () => {
-  test('native HAFleet coordination uses the existing exact predicate and accepts only once', async () => {
+  test('native Hagency coordination uses the existing exact predicate and accepts only once', async () => {
     for (const item of [{ tool: 'get_task' }, { tool: 'send_message', arguments: { to: 'alex', summary: 'done', attachments: [] } }]) {
       const ctx = setup({ item });
       expect(await runCodexDispatch(ctx.options)).toMatchObject({ state: 'completed', text: 'accept' });
@@ -68,7 +68,7 @@ describe('Codex native MCP approval adapter', () => {
       ctx.options.requestOwnerApproval = vi.fn(async (request) => {
         expect(state(ctx)).toBe('parked');
         expect(request).toMatchObject({ kind: 'mcp_tool_call', upstreamItemId: 'mcp-item-1', upstreamRequestId: '0',
-          mcp: { serverName: item.server ?? 'hafleet', toolName: item.tool } });
+          mcp: { serverName: item.server ?? 'hagency', toolName: item.tool } });
         expect(request.operationDigest).toMatch(/^[a-f0-9]{64}$/);
         return { decisionEventId: 'owner-event', decision };
       });
@@ -91,7 +91,7 @@ describe('Codex native MCP approval adapter', () => {
   });
 
   test('rejects missing ambiguous stale wrong-turn and mismatched-argument MCP candidates', async () => {
-    const base = { id: 'item-a', type: 'mcpToolCall', server: 'hafleet', tool: 'get_task', arguments: { id: 'task-fixture' }, status: 'inProgress' };
+    const base = { id: 'item-a', type: 'mcpToolCall', server: 'hagency', tool: 'get_task', arguments: { id: 'task-fixture' }, status: 'inProgress' };
     for (const scenario of [
       { items: [] }, { completedBeforeRequest: true }, { completedBeforeStarted: true }, { itemContext: { turnId: 'old-turn' } },
       { params: { threadId: 'other-thread' } }, { params: { turnId: 'other-turn' } },

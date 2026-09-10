@@ -8,7 +8,7 @@ Use these as the starting point, but verify details against code:
 
 - `README.md`
 - `OPERATIONS.md`
-- `skills/hafleet/SKILL.md`
+- `skills/hagency/SKILL.md`
 - `docs/workspace-agents-md-template.md`
 - `docs/workspace-claude-md-template.md`
 - Actual routes in `backend-v2.js`
@@ -31,7 +31,7 @@ Use these as the starting point, but verify details against code:
 
 Documentation should consistently say:
 
-- hafleet is a stateful-individual chat kernel.
+- hagency is a stateful-individual chat kernel.
 - Backend is the source of truth for kernel state.
 - Task, Supervisor, Matrix, dashboard, and remote relay are edge or adjacent systems.
 - v1 workspace uses flat `docs/` inside each agent home, not `docs/{agent}/`.

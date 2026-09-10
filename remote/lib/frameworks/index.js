@@ -1,9 +1,9 @@
 /**
- * Framework adapters: everything HAFleet needs to know about one coding agent,
+ * Framework adapters: everything Hagency needs to know about one coding agent,
  * declared in a JSON file rather than branched on across the tree.
  *
  * Before this, adding a framework meant editing ~234 hardcoded claude/codex
- * branches spread over bin/hafleet-up, lib/agent-launch-policy.js,
+ * branches spread over bin/hagency-up, lib/agent-launch-policy.js,
  * lib/mcp-server-core.js and lib/push-relay-core.js. This module owns the
  * launch and guard half of that; the pane-scraping signals follow.
  *
@@ -116,11 +116,11 @@ function compile(raw) {
   return Object.freeze({
     id: raw.id,
     displayName: raw.displayName,
-    // How hafleet drives this framework. 'tmux' types into a pane and scrapes the
+    // How hagency drives this framework. 'tmux' types into a pane and scrapes the
     // screen back; 'acp' speaks JSON-RPC to a paneless subprocess. Defaulted so
     // every existing manifest keeps its current behaviour.
     transport: raw.transport === 'acp' ? 'acp' : 'tmux',
-    // Declared but not yet wired into bin/hafleet-up. Kept explicit so the gate can
+    // Declared but not yet wired into bin/hagency-up. Kept explicit so the gate can
     // refuse with a real reason instead of letting a launch fall through.
     launchable: raw.launchable !== false,
     notLaunchableReason: raw.notLaunchableReason || null,
@@ -234,7 +234,7 @@ export function guardViolation(token, nextToken, frameworks) {
   return null;
 }
 
-/** Ids that bin/hafleet-up can actually start today. */
+/** Ids that bin/hagency-up can actually start today. */
 export function launchableFrameworkIds() {
   return REGISTRY.filter((f) => f.launchable).map((f) => f.id);
 }

@@ -22,10 +22,10 @@ The feature requires the accepted thread-session router and remains local
 only:
 
 ```sh
-HAFLEET_ROUTER_TASK_CUTOVER=1
-HAFLEET_THREAD_SESSIONS=1
-HAFLEET_AGENT_OPS_CLIENT=1
-HAFLEET_AGENT_OPS_LOOPBACK_ORIGIN=http://127.0.0.1:8090
+HAGENCY_ROUTER_TASK_CUTOVER=1
+HAGENCY_THREAD_SESSIONS=1
+HAGENCY_AGENT_OPS_CLIENT=1
+HAGENCY_AGENT_OPS_LOOPBACK_ORIGIN=http://127.0.0.1:8090
 ```
 
 The backend creates `data/agent-ops-server-identity.json` with mode `0600`.
@@ -62,7 +62,7 @@ advance the persistent auth fence.
 ## Bootstrap and data plane
 
 Robrix2 sends the dedicated
-`com.hafleet.agent_ops.client_session.request.v1` message in the encrypted
+`com.hagency.agent_ops.client_session.request.v1` message in the encrypted
 owner-DM. The bridge validates the original encrypted envelope, exact room
 membership, current device record and self-signature, then returns a signed
 single-use grant in Matrix. Grant exchange and every loopback request require

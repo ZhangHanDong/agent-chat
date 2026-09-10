@@ -2,7 +2,7 @@
 
 ## Versioning
 
-HAFleet follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Hagency follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Because this is an operator-facing deployment rather than a library, the public
 surface that governs a major bump is:
 
@@ -10,7 +10,7 @@ surface that governs a major bump is:
 |---|---|
 | REST API paths, request/response shapes | Yes |
 | MCP tool names and schemas | Yes |
-| `hafleet` CLI subcommands and flags | Yes |
+| `hagency` CLI subcommands and flags | Yes |
 | `.env` variable names and defaults | Yes |
 | Message `schema.kind` contracts (`task_request`, `task_result`, …) | Yes |
 | systemd unit names | Yes |
@@ -70,10 +70,10 @@ Pushing the tag triggers `.github/workflows/release.yml`, which:
 1. refuses to continue if the tag disagrees with `package.json`;
 2. runs `verify:ci` and `npm test`;
 3. builds **both** artifacts and stamps them `channel=release`:
-   - `hafleet-<version>.tar.gz` — full stack, from `git archive` at the tag so
+   - `hagency-<version>.tar.gz` — full stack, from `git archive` at the tag so
      uncommitted work cannot leak in, with `build-info.json` stamped because the
      unpacked tree has no `.git`
-   - `hafleet-remote-<version>.tar.gz` — remote relay package
+   - `hagency-remote-<version>.tar.gz` — remote relay package
 4. produces reproducible tarballs plus `SHA256SUMS`;
 5. creates the GitHub Release using the matching `CHANGELOG.md` section.
 
@@ -94,7 +94,7 @@ is why release identity landed first.
 
 ## Licensing
 
-Publishing is not blocked. Upstream adopted Apache 2.0 on 2026-07-29, so HAFleet
+Publishing is not blocked. Upstream adopted Apache 2.0 on 2026-07-29, so Hagency
 is distributable under the same license. Retain `LICENSE` and `NOTICE` in
 anything you ship, and mark files you have changed — the release tarballs do this
 automatically because they come from `git archive` of the tracked tree. See

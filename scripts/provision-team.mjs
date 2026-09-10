@@ -43,7 +43,7 @@ function fail(message) {
 }
 
 function resolveHome(home) {
-  return path.resolve(home || process.env.HAFLEET_HOMEDIR || path.join(os.homedir(), '.hafleet'));
+  return path.resolve(home || process.env.HAGENCY_HOMEDIR || path.join(os.homedir(), '.hagency'));
 }
 
 function git(repo, args, opts = {}) {
@@ -141,7 +141,7 @@ export function executeTeamProvision(plan, { dryRun = false, quiet = false } = {
 
   log('');
   log('Next steps (explicit operator actions, not automated here):');
-  log(`  1. Matrix accounts: register ac_${plan.team}_* users (see roadmap/hafleet-demo/register-accounts.mjs)`);
+  log(`  1. Matrix accounts: register ac_${plan.team}_* users (see roadmap/hagency-demo/register-accounts.mjs)`);
   log(`  2. Agent tokens (hard mode): mint tokens for the four agents before backend registration`);
   log(`  3. Register + start via backend API (POST /api/agents, POST /api/agents/<name>/start)`);
   log(`  4. In the member's Robrix room: invite ${plan.team}_coordinator (observer bot follows), then bind the room to group "${plan.team}"`);
@@ -172,7 +172,7 @@ Options:
   --worktree <path>    Worktree target (default: sibling <project>-<team>)
   --type <t>           Runtime for coordinator/implementer/reviewer (default: claude)
   --final-type <t>     Runtime for final_reviewer (default: codex — adversarial diversity)
-  --home <path>        HAFLEET_HOMEDIR override
+  --home <path>        HAGENCY_HOMEDIR override
   --dry-run            Print the plan without creating anything`);
     process.exit(a.team || a.project ? 1 : 0);
   }

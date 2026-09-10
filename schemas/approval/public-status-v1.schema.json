@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hafleet.local/schemas/approval/public-status-v1.schema.json",
+  "$id": "https://hagency.local/schemas/approval/public-status-v1.schema.json",
   "title": "Agent Chat public approval status v1",
   "type": "object",
   "additionalProperties": true,

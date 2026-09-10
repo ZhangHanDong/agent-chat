@@ -4,7 +4,7 @@ import { readFileSync } from 'fs';
 import { buildSummary, SUMMARY_LIMIT } from '../lib/message-summary.js';
 
 // The summary is what the relay types into a tmux agent's pane and what a reader
-// sees first. `hafleet tell` cut it at 72 characters, so a 73-character message
+// sees first. `hagency tell` cut it at 72 characters, so a 73-character message
 // arrived as "CODEX-FINA" and the agent did the wrong thing with no error anywhere.
 //
 // Two places build summaries now — the operator CLI and the ACP host replying on
@@ -60,21 +60,21 @@ describe('the two callers share the rule rather than reimplementing it', () => {
     // behalf; that path is gone now that octos replies for itself via send_message.
     // The rule is still needed for the workspace outbox, where the agent supplies a
     // summary and the same truncation applies.
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).toContain("from '../lib/message-summary.js'");
     expect(host).toMatch(/summary: buildSummary\(/);
   });
 
   test('the ACP host does not carry its own truncation arithmetic', () => {
     // A second copy of the rule is how the two drift apart.
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).not.toMatch(/slice\(0,\s*23[0-9]\)/);
   });
 
   test('the CLI and this module agree on the limit', () => {
-    // bin/hafleet-cli implements the same rule in bash and cannot import it, so
+    // bin/hagency-cli implements the same rule in bash and cannot import it, so
     // the number is asserted here instead of being silently duplicated.
-    const cli = readFileSync('bin/hafleet-cli', 'utf-8');
+    const cli = readFileSync('bin/hagency-cli', 'utf-8');
     expect(cli).toContain(`-le ${SUMMARY_LIMIT} `);
     expect(cli).toContain(`cut -c1-${SUMMARY_LIMIT - 3}`);
   });

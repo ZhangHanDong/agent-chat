@@ -40,18 +40,18 @@ describe('resolveAppserviceSyncConfig', () => {
   });
 
   test('half-configured is refused, not treated as off', () => {
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_URL: HS }).enabled).toBe(false);
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_URL: HS }).reason).toMatch(/SYNC_SIDE/);
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_SIDE: 'side-a' }).enabled).toBe(false);
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_SIDE: 'side-a' }).reason).toMatch(/SYNC_URL/);
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_URL: HS }).enabled).toBe(false);
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_URL: HS }).reason).toMatch(/SYNC_SIDE/);
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_SIDE: 'side-a' }).enabled).toBe(false);
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_SIDE: 'side-a' }).reason).toMatch(/SYNC_URL/);
   });
 
   test('a non-absolute URL is refused', () => {
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_SIDE: 's', HAFLEET_APPSERVICE_SYNC_URL: 'palpo.test' }).enabled).toBe(false);
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_SIDE: 's', HAGENCY_APPSERVICE_SYNC_URL: 'palpo.test' }).enabled).toBe(false);
   });
 
   test('a full config resolves enabled', () => {
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_SIDE: 's', HAFLEET_APPSERVICE_SYNC_URL: `${HS}/` }))
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_SIDE: 's', HAGENCY_APPSERVICE_SYNC_URL: `${HS}/` }))
       .toMatchObject({ enabled: true, side: 's', baseUrl: HS });
   });
 });
@@ -69,16 +69,16 @@ describe('appserviceLogin', () => {
       const body = JSON.parse(init.body);
       expect(body.type).toBe('m.login.application_service');
       expect(body.token).toBe(AS_TOKEN);
-      expect(body.identifier).toEqual({ type: 'm.id.user', user: 'hafleet' });
-      return jsonResponse(200, { access_token: 'sync-token', user_id: '@hafleet:palpo.example' });
+      expect(body.identifier).toEqual({ type: 'm.id.user', user: 'hagency' });
+      return jsonResponse(200, { access_token: 'sync-token', user_id: '@hagency:palpo.example' });
     });
-    const login = await appserviceLogin({ baseUrl: HS, asToken: AS_TOKEN, senderLocalpart: 'hafleet', fetchImpl });
-    expect(login).toEqual({ accessToken: 'sync-token', userId: '@hafleet:palpo.example' });
+    const login = await appserviceLogin({ baseUrl: HS, asToken: AS_TOKEN, senderLocalpart: 'hagency', fetchImpl });
+    expect(login).toEqual({ accessToken: 'sync-token', userId: '@hagency:palpo.example' });
   });
 
   test('a failed login throws with the HTTP status attached', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(403, { errcode: 'M_FORBIDDEN' }));
-    await expect(appserviceLogin({ baseUrl: HS, asToken: AS_TOKEN, senderLocalpart: 'hafleet', fetchImpl }))
+    await expect(appserviceLogin({ baseUrl: HS, asToken: AS_TOKEN, senderLocalpart: 'hagency', fetchImpl }))
       .rejects.toThrow(/HTTP 403/);
   });
 });
@@ -101,14 +101,14 @@ describe('the sync collector loop', () => {
       ] } } } } }),
     ];
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 'sync-token', user_id: '@hafleet:palpo.example' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 'sync-token', user_id: '@hagency:palpo.example' }))
       .mockImplementationOnce(() => Promise.resolve(polls[0]))
       .mockImplementationOnce(() => Promise.resolve(polls[1]))
       .mockImplementation(async () => jsonResponse(200, { next_batch: 'END', rooms: {} }));
     let steps = 0;
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => cursorStore.value,
       writeCursor: async (v) => { cursorStore.value = v; },
       fetchImpl,
@@ -134,11 +134,11 @@ describe('the sync collector loop', () => {
     const cursorStore = { value: 'C0' };
     const sleeps = [];
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't', user_id: '@hafleet:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't', user_id: '@hagency:p' }))
       .mockImplementation(async () => jsonResponse(200, { next_batch: 'C1', rooms: { join: { '!r:p': { timeline: { events: [{ event_id: '$r10', type: 'm.room.message', content: {} }] } } } } }));
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => cursorStore.value,
       writeCursor: async (value) => { cursorStore.value = value; },
       fetchImpl, sleep: async (ms) => { sleeps.push(ms); },
@@ -159,11 +159,11 @@ describe('the sync collector loop', () => {
     }) };
     const sleeps = [];
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't', user_id: '@hafleet:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't', user_id: '@hagency:p' }))
       .mockImplementation(async () => jsonResponse(200, { next_batch: 'C1', rooms: { join: { '!r:p': { timeline: { events: [{ event_id: '$r10-persist', type: 'm.room.message', content: {} }] } } } } }));
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => 'C0', writeCursor: async () => { throw new Error('cursor must remain held'); },
       fetchImpl, sleep: async (ms) => { sleeps.push(ms); },
       shouldContinue: () => attempts < 12 && watchdog() < 40,
@@ -187,7 +187,7 @@ describe('the sync collector loop', () => {
     const HARD_CAP = 10;
     let polls = 0;
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' }))
       .mockImplementation(async () => {
         polls += 1;
         return jsonResponse(200, { next_batch: 'CURSOR-1', rooms: { join: { '!r:p': { timeline: { events: [{ event_id: '$lost', type: 'm.room.message', content: {} }] } } } } });
@@ -196,7 +196,7 @@ describe('the sync collector loop', () => {
     const sleeps = [];
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router: failing,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => cursorStore.value,
       writeCursor: async (v) => { writes.push(v); cursorStore.value = v; },
       fetchImpl,
@@ -216,13 +216,13 @@ describe('the sync collector loop', () => {
   test('B: invite events carry room_id like join events and reach the router', async () => {
     const { router, handled } = makeRouter();
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))
-      .mockResolvedValueOnce(jsonResponse(200, { next_batch: 'I1', rooms: { invite: { '!inv:p': { invite_state: { events: [{ type: 'm.room.member', state_key: '@hafleet:p', content: { membership: 'invite' } }] } } } } }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { next_batch: 'I1', rooms: { invite: { '!inv:p': { invite_state: { events: [{ type: 'm.room.member', state_key: '@hagency:p', content: { membership: 'invite' } }] } } } } }))
       .mockImplementation(async () => jsonResponse(200, { next_batch: 'I2', rooms: {} }));
     const cursorStore = { value: null };
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => cursorStore.value,
       writeCursor: async (v) => { cursorStore.value = v; },
       fetchImpl,
@@ -239,13 +239,13 @@ describe('the sync collector loop', () => {
     const seen = [];
     const fetchImpl = vi.fn(async (url) => {
       seen.push(String(url));
-      if (String(url).endsWith('/login')) return jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' });
+      if (String(url).endsWith('/login')) return jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' });
       return jsonResponse(200, { next_batch: 'F1', rooms: {} });
     });
     const { router } = makeRouter();
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => null, writeCursor: async () => {},
       fetchImpl,
       sleep: async () => {},
@@ -266,16 +266,16 @@ describe('the sync collector loop', () => {
   test('a 401 sync triggers exactly one re-login before backing off', async () => {
     const { router } = makeRouter();
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' }))
       .mockResolvedValueOnce(jsonResponse(401, { errcode: 'M_UNKNOWN_TOKEN' }))
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't2', user_id: '@hafleet:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't2', user_id: '@hagency:p' }))
       .mockResolvedValueOnce(jsonResponse(200, { next_batch: 'C', rooms: {} }))
       .mockImplementation(async () => { throw new Error('no more'); });
     let steps = 0;
     const sleeps = [];
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => 'C0', writeCursor: async () => {},
       fetchImpl,
       sleep: async (ms) => { steps += 1; sleeps.push(ms); },
@@ -288,7 +288,7 @@ describe('the sync collector loop', () => {
   test('a 401 that persists after re-login backs off without hammering', async () => {
     const { router } = makeRouter();
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' }))
       .mockResolvedValueOnce(jsonResponse(401, { errcode: 'M_UNKNOWN_TOKEN' }))
       .mockResolvedValueOnce(jsonResponse(401, { errcode: 'M_UNKNOWN_TOKEN' }))
       .mockResolvedValueOnce(jsonResponse(401, { errcode: 'M_UNKNOWN_TOKEN' }));
@@ -296,7 +296,7 @@ describe('the sync collector loop', () => {
     const sleeps = [];
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => null, writeCursor: async () => {},
       fetchImpl,
       sleep: async (ms) => { steps += 1; sleeps.push(ms); },
@@ -323,24 +323,24 @@ describe('the sync collector loop', () => {
 
 describe('intake wiring rules', () => {
   test('D: listener + sync on any side is refused (the listener has no side dimension)', async () => {
-    process.env.HAFLEET_APPSERVICE_PORT = '8095';
-    process.env.HAFLEET_APPSERVICE_SYNC_SIDE = 'side-a';
-    process.env.HAFLEET_APPSERVICE_SYNC_URL = HS;
+    process.env.HAGENCY_APPSERVICE_PORT = '8095';
+    process.env.HAGENCY_APPSERVICE_SYNC_SIDE = 'side-a';
+    process.env.HAGENCY_APPSERVICE_SYNC_URL = HS;
     try {
       const proto = (await import('../bridge-matrix.js')).MatrixBridge.prototype;
       await expect(proto.startAppserviceIntake.call({ refreshAppserviceSides: async () => {} }))
         .rejects.toThrow(/same side\(s\)/);
     } finally {
-      delete process.env.HAFLEET_APPSERVICE_PORT;
-      delete process.env.HAFLEET_APPSERVICE_SYNC_SIDE;
-      delete process.env.HAFLEET_APPSERVICE_SYNC_URL;
+      delete process.env.HAGENCY_APPSERVICE_PORT;
+      delete process.env.HAGENCY_APPSERVICE_SYNC_SIDE;
+      delete process.env.HAGENCY_APPSERVICE_SYNC_URL;
     }
   });
 
   test('D: edge and sync on the SAME side is refused, on DIFFERENT sides is allowed', async () => {
-    process.env.HAFLEET_EDGE_URL = 'http://127.0.0.1:8095';
-    process.env.HAFLEET_EDGE_LINK_TOKEN = 'link-secret';
-    process.env.HAFLEET_APPSERVICE_SYNC_URL = HS;
+    process.env.HAGENCY_EDGE_URL = 'http://127.0.0.1:8095';
+    process.env.HAGENCY_EDGE_LINK_TOKEN = 'link-secret';
+    process.env.HAGENCY_APPSERVICE_SYNC_URL = HS;
     try {
       const proto = (await import('../bridge-matrix.js')).MatrixBridge.prototype;
       const self = {
@@ -349,18 +349,18 @@ describe('intake wiring rules', () => {
         appserviceSideTokens: new Map(),
       };
       // same side -> refused
-      process.env.HAFLEET_EDGE_SIDE = 'side-a';
-      process.env.HAFLEET_APPSERVICE_SYNC_SIDE = 'side-a';
+      process.env.HAGENCY_EDGE_SIDE = 'side-a';
+      process.env.HAGENCY_APPSERVICE_SYNC_SIDE = 'side-a';
       await expect(proto.startAppserviceIntake.call(self)).rejects.toThrow(/both configured for side side-a/);
       // different sides -> starts (no throw); the collector/puller handles are stubbed by no-ops on self
-      process.env.HAFLEET_APPSERVICE_SYNC_SIDE = 'side-b';
+      process.env.HAGENCY_APPSERVICE_SYNC_SIDE = 'side-b';
       await proto.startAppserviceIntake.call(self);
     } finally {
-      delete process.env.HAFLEET_EDGE_URL;
-      delete process.env.HAFLEET_EDGE_LINK_TOKEN;
-      delete process.env.HAFLEET_EDGE_SIDE;
-      delete process.env.HAFLEET_APPSERVICE_SYNC_SIDE;
-      delete process.env.HAFLEET_APPSERVICE_SYNC_URL;
+      delete process.env.HAGENCY_EDGE_URL;
+      delete process.env.HAGENCY_EDGE_LINK_TOKEN;
+      delete process.env.HAGENCY_EDGE_SIDE;
+      delete process.env.HAGENCY_APPSERVICE_SYNC_SIDE;
+      delete process.env.HAGENCY_APPSERVICE_SYNC_URL;
     }
   });
 
@@ -368,15 +368,15 @@ describe('intake wiring rules', () => {
     const handled = [];
     const router = createAppserviceRouter({ sides: [{ sideId: 'side-a', hsToken: HS_TOKEN, onEvents: async (evs) => { handled.push(evs); } }] });
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))   // login 1
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' }))   // login 1
       .mockResolvedValueOnce(jsonResponse(401, { errcode: 'M_UNKNOWN_TOKEN' }))                   // t1 sync 401 -> relogin allowed
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't2', user_id: '@hafleet:p' }))   // login 2 (fresh)
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't2', user_id: '@hagency:p' }))   // login 2 (fresh)
       .mockImplementation(async () => jsonResponse(401, { errcode: 'M_UNKNOWN_TOKEN' }));          // t2 401 -> BACKOFF, no login 3
     let steps = 0;
     const sleeps = [];
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => null, writeCursor: async () => {},
       fetchImpl,
       sleep: async (ms) => { steps += 1; sleeps.push(ms); },
@@ -397,7 +397,7 @@ describe('5-r2 supplement: retry durability, side normalization, invite idempote
     const loggedWarnings = [];
     const logger = { error: () => {}, warn: (m) => { loggedWarnings.push(m); } };
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' }))
       .mockImplementation(async () => {
         polls += 1;
         return jsonResponse(200, { next_batch: 'POISON', rooms: { join: { '!r:p': { timeline: { events: [{ event_id: '$poison' }] } } } } });
@@ -406,7 +406,7 @@ describe('5-r2 supplement: retry durability, side normalization, invite idempote
     const sleeps = [];
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router: failing,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => cursorStore.value,
       writeCursor: async (v) => { writes.push(v); cursorStore.value = v; },
       logger,
@@ -427,29 +427,29 @@ describe('5-r2 supplement: retry durability, side normalization, invite idempote
 
   test('D-norm: side names are normalized before the mutex (case, trailing slash, URL form)', () => {
     // case-folded: Side-A and side-a are ONE side
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_SIDE: 'Side-A', HAFLEET_APPSERVICE_SYNC_URL: HS }))
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_SIDE: 'Side-A', HAGENCY_APPSERVICE_SYNC_URL: HS }))
       .toMatchObject({ enabled: true, side: 'side-a' });
     // URL-shaped and slash-suffixed side values are refused outright
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_SIDE: 'https://palpo.example', HAFLEET_APPSERVICE_SYNC_URL: HS }).enabled).toBe(false);
-    expect(resolveAppserviceSyncConfig({ HAFLEET_APPSERVICE_SYNC_SIDE: 'side-a/', HAFLEET_APPSERVICE_SYNC_URL: HS }).enabled).toBe(false);
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_SIDE: 'https://palpo.example', HAGENCY_APPSERVICE_SYNC_URL: HS }).enabled).toBe(false);
+    expect(resolveAppserviceSyncConfig({ HAGENCY_APPSERVICE_SYNC_SIDE: 'side-a/', HAGENCY_APPSERVICE_SYNC_URL: HS }).enabled).toBe(false);
   });
 
   test('D-norm: edge Side-A + sync side-a is refused as the SAME side', async () => {
-    process.env.HAFLEET_EDGE_URL = 'http://127.0.0.1:8095';
-    process.env.HAFLEET_EDGE_LINK_TOKEN = 'link-secret';
-    process.env.HAFLEET_EDGE_SIDE = 'Side-A';               // different spelling, same side
-    process.env.HAFLEET_APPSERVICE_SYNC_SIDE = 'side-a';
-    process.env.HAFLEET_APPSERVICE_SYNC_URL = HS;
+    process.env.HAGENCY_EDGE_URL = 'http://127.0.0.1:8095';
+    process.env.HAGENCY_EDGE_LINK_TOKEN = 'link-secret';
+    process.env.HAGENCY_EDGE_SIDE = 'Side-A';               // different spelling, same side
+    process.env.HAGENCY_APPSERVICE_SYNC_SIDE = 'side-a';
+    process.env.HAGENCY_APPSERVICE_SYNC_URL = HS;
     try {
       const proto = (await import('../bridge-matrix.js')).MatrixBridge.prototype;
       await expect(proto.startAppserviceIntake.call({ refreshAppserviceSides: async () => {} }))
         .rejects.toThrow(/both configured for side side-a/);
     } finally {
-      delete process.env.HAFLEET_EDGE_URL;
-      delete process.env.HAFLEET_EDGE_LINK_TOKEN;
-      delete process.env.HAFLEET_EDGE_SIDE;
-      delete process.env.HAFLEET_APPSERVICE_SYNC_SIDE;
-      delete process.env.HAFLEET_APPSERVICE_SYNC_URL;
+      delete process.env.HAGENCY_EDGE_URL;
+      delete process.env.HAGENCY_EDGE_LINK_TOKEN;
+      delete process.env.HAGENCY_EDGE_SIDE;
+      delete process.env.HAGENCY_APPSERVICE_SYNC_SIDE;
+      delete process.env.HAGENCY_APPSERVICE_SYNC_URL;
     }
   });
 
@@ -462,7 +462,7 @@ describe('5-r2 supplement: retry durability, side normalization, invite idempote
      */
     const handled = [];
     const router = createAppserviceRouter({ sides: [{ sideId: 'side-a', hsToken: HS_TOKEN, onEvents: async (evs) => { handled.push(evs); } }] });
-    const inviteSection = { '!inv:p': { invite_state: { events: [{ type: 'm.room.member', state_key: '@hafleet:p', content: { membership: 'invite' } }] } } };
+    const inviteSection = { '!inv:p': { invite_state: { events: [{ type: 'm.room.member', state_key: '@hagency:p', content: { membership: 'invite' } }] } } };
     // Two polls, ADVANCING cursors (the homeserver moved on) but the SAME invite still pending —
     // the redelivery shape a restart or a slow join produces. Same-cursor repeats are absorbed by
     // the txn-key dedup instead; both halves are pinned here.
@@ -472,12 +472,12 @@ describe('5-r2 supplement: retry durability, side normalization, invite idempote
     ];
     let polls = 0;
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' }))
+      .mockResolvedValueOnce(jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' }))
       .mockImplementation(async () => { const b = bodies[Math.min(polls, 1)]; polls += 1; return jsonResponse(200, b); });
     const cursorStore = { value: null };
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => cursorStore.value,
       writeCursor: async (v) => { cursorStore.value = v; },
       fetchImpl,
@@ -492,15 +492,15 @@ describe('5-r2 supplement: retry durability, side normalization, invite idempote
 });
 
 describe('5-r3: real-side-effect invite idempotence (join path)', () => {
-  test('B-real: the same invite delivered twice produces two joins and the second is absorbed by the homeserver, not by HAFleet', async () => {
+  test('B-real: the same invite delivered twice produces two joins and the second is absorbed by the homeserver, not by Hagency', async () => {
     /*
      * REAL SIDE EFFECTS this time (5-r3 B), not just collector-boundary redelivery. The invite
      * travels the full path — collector → router → onEvents → onAppserviceMembership → the
      * homeserver's /join endpoint — twice, with a fake homeserver that COUNTS joins and always
      * answers 200 (an already-joined room joins again fine: Matrix join is idempotent at the
-     * server). What must hold: both deliveries reach /join (HAFleet does NOT dedup invites —
+     * server). What must hold: both deliveries reach /join (Hagency does NOT dedup invites —
      * they carry no event_id), each join succeeds, and no error state accumulates. The
-     * absorbing layer is deliberately the homeserver; claiming HAFleet-side dedup would be
+     * absorbing layer is deliberately the homeserver; claiming Hagency-side dedup would be
      * false, and this test pins that honesty.
      */
     const joins = [];
@@ -513,7 +513,7 @@ describe('5-r3: real-side-effect invite idempotence (join path)', () => {
     const membershipEvents = [];
     const warnings = [];
     const bridge = {
-      actingSideFor: () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as1', senderLocalpart: 'hafleet' } }),
+      actingSideFor: () => ({ side: { apiBaseUrl: 'https://hs.example', serverName: 'palpo.example' }, credential: { kind: 'appservice', asToken: 'as1', senderLocalpart: 'hagency' } }),
       postWarning: async (msg, meta) => { warnings.push({ msg, meta }); },
     };
     // Drive the MEMBERSHIP dispatch twice through the real method shape
@@ -521,22 +521,22 @@ describe('5-r3: real-side-effect invite idempotence (join path)', () => {
     for (let i = 0; i < 2; i += 1) {
       await proto.onAppserviceMembership.call(bridge, 'palpo.example', '!inv:palpo.example', {
         type: 'm.room.member',
-        state_key: '@hafleet:palpo.example',
+        state_key: '@hagency:palpo.example',
         content: { membership: 'invite' },
       });
       expect(watchdog() < 100).toBe(true);
     }
     globalThis.fetch = realFetch;
-    expect(joins).toHaveLength(2);                       // both invites joined — no HAFleet dedup
+    expect(joins).toHaveLength(2);                       // both invites joined — no Hagency dedup
     expect(joins[0]).toBe(joins[1]);                     // identical join request each time
     expect(joins[0]).toContain('/_matrix/client/v3/join/');
-    expect(joins[0]).toContain('user_id=%40hafleet%3Apalpo.example'); // masquerade intact both times
+    expect(joins[0]).toContain('user_id=%40hagency%3Apalpo.example'); // masquerade intact both times
     // and the room-server guard: an invite naming a foreign room must NOT join at all
     const foreignJoins = [];
     const fk = vi.fn(async (u) => { foreignJoins.push(String(u)); return jsonResponse(200, {}); });
     globalThis.fetch = fk;
     await proto.onAppserviceMembership.call(bridge, 'palpo.example', '!room:other.example', {
-      type: 'm.room.member', state_key: '@hafleet:palpo.example', content: { membership: 'invite' },
+      type: 'm.room.member', state_key: '@hagency:palpo.example', content: { membership: 'invite' },
     });
     globalThis.fetch = realFetch;
     expect(foreignJoins).toEqual([]);                    // origin guard held on the repeat path too
@@ -565,7 +565,7 @@ describe('5-r4: backoff routes by THIS error\'s kind, not history', () => {
     let i = 0;
     const fetchImpl = vi.fn(async () => {
       const step = script[Math.min(i, script.length - 1)]; i += 1;
-      if (step.kind === 'login') return jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' });
+      if (step.kind === 'login') return jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' });
       if (step.kind === 'net-fail') throw new TypeError('fetch failed');
       // the first sync runs against a REFUSING router; later syncs (none in this script) would heal
       routerAnswer = script.indexOf(step) === 1 ? { status: 500, body: {} } : { status: 200, body: {} };
@@ -575,7 +575,7 @@ describe('5-r4: backoff routes by THIS error\'s kind, not history', () => {
     const cursorStore = { value: 'C0' };
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => cursorStore.value,
       writeCursor: async (v) => { cursorStore.value = v; },
       fetchImpl,
@@ -611,14 +611,14 @@ describe('5-r5: the 401 breaker survives a successful login (no sleepless hammer
     const HARD_CAP = 40;
     let syncs = 0;
     const fetchImpl = vi.fn(async (url) => {
-      if (String(url).endsWith('/login')) return jsonResponse(200, { access_token: `t-${Date.now()}-${Math.random()}`, user_id: '@hafleet:p' });
+      if (String(url).endsWith('/login')) return jsonResponse(200, { access_token: `t-${Date.now()}-${Math.random()}`, user_id: '@hagency:p' });
       syncs += 1;
       return jsonResponse(401, { errcode: 'M_UNKNOWN_TOKEN' });
     });
     const sleeps = [];
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => null, writeCursor: async () => {},
       fetchImpl,
       sleep: async (ms) => { sleeps.push(ms); await Promise.resolve(); },
@@ -647,14 +647,14 @@ describe('5-r5: the 401 breaker survives a successful login (no sleepless hammer
     let i = 0;
     const fetchImpl = vi.fn(async () => {
       const s = steps[Math.min(i, steps.length - 1)]; i += 1;
-      if (s === 'login') return jsonResponse(200, { access_token: `t${i}`, user_id: '@hafleet:p' });
+      if (s === 'login') return jsonResponse(200, { access_token: `t${i}`, user_id: '@hagency:p' });
       if (s === '401') return jsonResponse(401, { errcode: 'M_UNKNOWN_TOKEN' });
       return jsonResponse(200, { next_batch: 'OK1', rooms: {} });
     });
     const sleeps = [];
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => null, writeCursor: async () => {},
       fetchImpl,
       sleep: async (ms) => { sleeps.push(ms); await Promise.resolve(); },
@@ -688,7 +688,7 @@ describe('5-r6: consecutive-only batchAttempts (reset on every successful advanc
     let p1Refusals = 0;
     const cursor = { value: null };
     const fetchImpl = vi.fn(async (url) => {
-      if (String(url).endsWith('/login')) return jsonResponse(200, { access_token: 't1', user_id: '@hafleet:p' });
+      if (String(url).endsWith('/login')) return jsonResponse(200, { access_token: 't1', user_id: '@hagency:p' });
       if (stage === 'p1') {
         if (p1Refusals < 7) { p1Refusals += 1; refuse = true; return jsonResponse(200, { next_batch: 'P1', rooms: { join: { '!r:p': { timeline: { events: [{ event_id: '$b1' }] } } } } }); }
         refuse = false; stage = 'e1';
@@ -702,7 +702,7 @@ describe('5-r6: consecutive-only batchAttempts (reset on every successful advanc
     const sleeps = [];
     const collector = makeCollector({
       baseUrl: HS, side: 'side-a', router: { handle: (req) => routerHandle(req) },
-      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS_TOKEN, hsToken: HS_TOKEN, senderLocalpart: 'hagency' }),
       readCursor: () => cursor.value,
       writeCursor: async (v) => { cursor.value = v; },
       fetchImpl,

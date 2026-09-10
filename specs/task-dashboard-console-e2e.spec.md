@@ -53,9 +53,9 @@ Scenario: Withheld offers do not claim publication
   Then its explanation distinguishes published from withheld offers
 
 Scenario: Configuration opens real forms
-  Test: opens the existing preset and onboarding forms through real links
+  Test: opens resource configuration and project request review through real links
   Given the live configuration page
-  When the operator chooses to add a preset or an agent
+  When the operator chooses to configure a resource or review project requests
   Then the existing form route opens
 
 Scenario: Lifecycle controls preserve actual authority
@@ -88,11 +88,11 @@ Scenario: Resources use measured consumption
   When its resource row renders
   Then it shows fresh tokens without labeling them unmeasured
 
-Scenario: The probe timestamp is an observation
-  Test: does not invent a scan timestamp when the probe supplied none
-  Given no scan timestamp from the backend
-  When onboarding renders
-  Then it reports the missing timestamp without a fabricated age
+Scenario: Old onboarding links use resource allocation
+  Test: routes legacy onboarding to resource allocation
+  Given a saved local Agent onboarding link
+  When the operator opens it
+  Then it redirects to Resources where approved project requests allocate Agents
 
 ## Out of Scope
 

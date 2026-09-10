@@ -4,7 +4,7 @@ import readline from 'node:readline';
 
 const config = JSON.parse(readFileSync(process.env.FAKE_MCP_SCENARIO, 'utf8'));
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
-const item = { id: 'mcp-item-1', type: 'mcpToolCall', server: 'hafleet', tool: 'get_task',
+const item = { id: 'mcp-item-1', type: 'mcpToolCall', server: 'hagency', tool: 'get_task',
   arguments: { id: 'task-fixture' }, status: 'inProgress', ...config.item };
 const params = { threadId: 'thread-fake', turnId: 'turn-fake', serverName: item.server,
   mode: 'form', _meta: { codex_approval_kind: 'mcp_tool_call', tool_params: item.arguments, persist: ['session', 'always'] },

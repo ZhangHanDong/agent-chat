@@ -310,7 +310,7 @@ describe('PATCH /api/agents/:name — the same hole through the second door', ()
 
   test('identity is still the agent\'s own to set — the gate is four fields, not the route', async () => {
     /*
-     * `bin/hafleet-cli identity` and the bot's `identity` command both patch this field with the
+     * `bin/hagency-cli identity` and the bot's `identity` command both patch this field with the
      * agent's token. A gate that had been written per-request instead of per-field would have taken
      * them with it.
      */

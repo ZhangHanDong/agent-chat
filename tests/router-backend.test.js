@@ -2,21 +2,265 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import request from 'supertest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
+import { createRouterTaskStore } from '../router/dist/index.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
+
+test('explicit cross-agent thread mention creates an independent acknowledged task', async () => {
+  const context = await createBackendTestContext('cross-agent-thread-', {
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'cross-bridge' },
+    agents: Object.fromEntries(['edison', 'xiaobai'].map(name => [name, { name, agentId: `agent_${name}`,
+      type: 'codex', kind: 'agent', online: true, workdir: process.cwd(), workspaceMode: 'shared' }])),
+  });
+  const router = context.internals.routerStoreForTest;
+  context.internals.stopRouterPumpForTest();
+  const send = (agent, event, body, thread = null) => request(context.app).post('/api/messages')
+    .set('X-Bridge-Secret', 'cross-bridge').send({ from: 'alice', to: agent, target_type: 'agent',
+      type: 'human', source: 'matrix', summary: body, full: body, mentions: [agent],
+      source_room: '!shared:test', source_event_id: event, sender_mxid: '@alice:test', thread_root_event_id: thread });
+  const acknowledge = command => request(context.app).post(`/api/router/matrix-outbox/${command.commandId}/delivered`)
+    .set('X-Bridge-Secret', 'cross-bridge').send({ claim_token: command.claimToken, event_id: `$anchor-${command.senderAgentName}` }).expect(200);
+  const take = runnerId => {
+    const claim = router.claimDispatch({ runnerId, leaseMs: 60000, capabilityTtlMs: 60000, maxLiveRunners: 3 });
+    expect(claim?.ok).toBe(true);
+    const payload = router.takePayload(claim); expect(payload.ok).toBe(true);
+    return { claim, payload };
+  };
+  try {
+    await send('edison', '$topic', '@edison first opinion').expect(200);
+    await acknowledge(router.claimMatrixCommand());
+    const first = take('edison-runner');
+    createRouterTaskStore(router).transitionTask(first.payload.taskId, 'done');
+    router.settleAndRelease({ ...first.claim, outcome: 'completed', output: { text: 'first opinion delivered' } });
+
+    const accepted = await send('xiaobai', '$second-agent', '@xiaobai second opinion', '$topic').expect(200);
+    await send('xiaobai', '$second-agent', '@xiaobai second opinion', '$topic').expect(200);
+    await send('xiaobai', '$supplement', '@xiaobai include the evidence', '$topic').expect(200);
+    await send('xiaobai', '$supplement', '@xiaobai include the evidence', '$topic').expect(200);
+    expect(router.snapshot().tasks).toHaveLength(2);
+    expect(router.snapshot().dispatches).toHaveLength(1);
+    expect(router.snapshot().sessions.filter(s => s.agentName === 'xiaobai')).toHaveLength(0);
+    expect(router.db.prepare('SELECT activated_at FROM task_inputs WHERE message_id = ?').get(accepted.body.id).activated_at).toBeNull();
+    const command = router.claimMatrixCommand();
+    expect(command).toMatchObject({ roomId: '!shared:test', threadRootEventId: '$topic', senderAgentName: 'xiaobai' });
+    await acknowledge(command);
+    const second = take('xiaobai-runner');
+    expect(second.payload.taskId).not.toBe(first.payload.taskId);
+    expect(second.payload.sessionId).not.toBe(first.payload.sessionId);
+    expect(router.sessionById(second.payload.sessionId).threadRootEventId).toBe('$topic');
+    expect(second.payload.inbox.map(m => m.body)).toEqual(['@xiaobai second opinion', '@xiaobai include the evidence']);
+    expect(second.payload.context.messages.map(m => m.body)).not.toContain('@edison first opinion');
+    createRouterTaskStore(router).transitionTask(second.payload.taskId, 'done');
+    router.settleAndRelease({ ...second.claim, outcome: 'completed', output: { text: 'second opinion delivered' } });
+    await send('xiaobai', '$second-agent', '@xiaobai second opinion', '$topic').expect(200);
+    await send('xiaobai', '$supplement', '@xiaobai include the evidence', '$topic').expect(200);
+    expect(router.snapshot().tasks).toHaveLength(2);
+    expect(router.snapshot().dispatches).toHaveLength(2);
+    expect(router.claimMatrixCommand()).toBeNull();
+    await send('xiaobai', '$new-followup', '@xiaobai a fresh follow-up', '$topic').expect(200);
+    const third = take('xiaobai-followup');
+    expect(third.payload.taskId).toBe(second.payload.taskId);
+    expect(third.payload.inbox.map(m => m.body)).toEqual(['@xiaobai a fresh follow-up']);
+  } finally { await context.cleanup(); }
+});
+
+test('accepted cross-agent thread input recovers without replacing its source event', async () => {
+  const msg = { id: 'msg_0045', ts: 100, from: 'alice', to: 'xiaobai', group: null, type: 'human',
+    summary: '@xiaobai second opinion', full: '@xiaobai second opinion', mentions: ['xiaobai'],
+    source: 'matrix', sourceRoom: '!shared:test', sourceEventId: '$accepted-source', senderMxid: '@alice:test',
+    matrixContext: { roomId: '!shared:test', eventId: '$accepted-source', threadRootEventId: '$edison-topic' } };
+  const receipt = { eventId: msg.sourceEventId, messageId: msg.id, status: 'accepted', message: msg,
+    dispatch: { senderIsAgent: false, directTargetKind: 'agent' }, response: { ok: true, id: msg.id }, updatedAt: new Date(100).toISOString() };
+  const context = await createBackendTestContext('cross-agent-restart-', {
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'cross-bridge' },
+    agents: { xiaobai: { name: 'xiaobai', agentId: 'agent_xiaobai', type: 'codex', kind: 'agent', online: true, workdir: process.cwd() } },
+    messages: [msg], msgCounter: 45,
+    rawDataFiles: { 'matrix/source-events.jsonl': `${JSON.stringify(receipt)}\n` },
+  });
+  const router = context.internals.routerStoreForTest;
+  context.internals.stopRouterPumpForTest();
+  try {
+    // The old refusal had ingested the input/session before discovering that
+    // this worker lacked a task. Reproduce that partial state as well.
+    router.ingestMessage({ messageId: msg.id, roomId: msg.sourceRoom, matrixEventId: msg.sourceEventId,
+      threadRootEventId: msg.matrixContext.threadRootEventId, senderMxid: msg.senderMxid, senderName: msg.from,
+      recipientAgentId: 'agent_xiaobai', recipientAgentName: 'xiaobai', normalizedBody: msg.full, receivedAt: msg.ts });
+    router.initializeIngestionCursor('messages.json:matrix-thread-router-v1', JSON.stringify({ ts: 0, id: '' }));
+    expect(await context.internals.reconcileThreadSessionSourceMessagesForTest()).toMatchObject({ scanned: 1 });
+    const post = (event, thread) => request(context.app).post('/api/messages').set('X-Bridge-Secret', 'cross-bridge')
+      .send({ from: 'alice', to: 'xiaobai', target_type: 'agent', type: 'human', source: 'matrix',
+        summary: msg.full, mentions: ['xiaobai'], source_room: msg.sourceRoom, source_event_id: event,
+        thread_root_event_id: thread, sender_mxid: msg.senderMxid });
+    const recovered = await post(msg.sourceEventId, msg.matrixContext.threadRootEventId).expect(200);
+    expect(recovered.body.id).toBe(msg.id);
+    await post(msg.sourceEventId, msg.matrixContext.threadRootEventId).expect(200);
+    const journal = readFileSync(path.join(context.internals.runtimeRootForTest, 'data/matrix/source-events.jsonl'), 'utf8')
+      .trim().split('\n').map(line => JSON.parse(line));
+    expect(journal.filter(r => r.eventId === msg.sourceEventId).at(-1)).toMatchObject({ status: 'committed', messageId: msg.id });
+    expect(router.snapshot().tasks).toHaveLength(1);
+    expect(router.snapshot().dispatches).toHaveLength(0);
+    await post('$later-top-level', null).expect(200);
+    expect(router.snapshot().tasks).toHaveLength(2);
+  } finally { await context.cleanup(); }
+});
+
+describe('canonical mentionless thread addressing', () => {
+  test('thread recipient lookup requires one active bound task for the exact room root and requester', async () => {
+    const context = await createBackendTestContext('thread-recipient-', {
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'thread-lookup-bridge' },
+      agents: Object.fromEntries(['worker', 'peer'].map(name => [name, { name, agentId: `agent_${name}`,
+        type: 'codex', kind: 'agent', workdir: process.cwd(), online: true }])),
+    });
+    const router = context.internals.routerStoreForTest;
+    context.internals.stopRouterPumpForTest();
+    const room = '!project:test';
+    const requester = '@borrower:test';
+    const root = '$canonical-root';
+    const lookup = (query = {}) => request(context.app).get('/api/approval-bindings')
+      .set('X-Bridge-Secret', 'thread-lookup-bridge')
+      .query({ project: room, thread_root_event_id: root, requester_mxid: requester, ...query });
+    const makeTask = (agent, activate = true) => {
+      const input = 'canonical-source';
+      router.ingestMessage({ messageId: input, roomId: room, matrixEventId: root,
+        senderMxid: requester, senderName: 'borrower', recipientAgentId: `agent_${agent}`,
+        recipientAgentName: agent, normalizedBody: 'Work in this thread' });
+      const task = router.createTaskIntent({ requestScope: 'test', requestKey: agent, roomId: room,
+        rootMessageId: input, threadRootEventId: root, inputMessageIds: [input],
+        task: { title: 'Scoped work', assigneeAgentId: `agent_${agent}`, assigneeName: agent, createdBy: requester } });
+      expect(task.ok, JSON.stringify(task)).toBe(true);
+      if (activate) {
+        const command = router.claimMatrixCommand();
+        expect(router.recordMatrixDelivery({ commandId: command.commandId, claimToken: command.claimToken, eventId: `$anchor-${agent}` }).ok).toBe(true);
+      }
+      return task;
+    };
+    try {
+      for (const agent of ['worker', 'peer']) await request(context.app).put('/api/approval-bindings')
+        .set('X-Bridge-Secret', 'thread-lookup-bridge').send({ agent, project: room, project_room_id: room,
+          owner_mxid: requester, owner_dm_room_id: `!private-${agent}:test` }).expect(200);
+      const own = makeTask('worker');
+      expect((await lookup()).body.threadLookup).toEqual({ v: 1, roomId: room, threadRootEventId: root,
+        requesterMxid: requester, target: { agent: 'worker', taskId: own.taskId } });
+      for (const query of [{ project: '!foreign:test' }, { thread_root_event_id: '$unknown' },
+        { requester_mxid: '@borrower:foreign.test' }, { requester_mxid: '@different:test' }]) {
+        expect((await lookup(query)).body.threadLookup.target).toBeNull();
+      }
+      await lookup({ requester_mxid: 'borrower' }).expect(400);
+      await request(context.app).get('/api/approval-bindings').query({ project: room, thread_root_event_id: root,
+        requester_mxid: requester }).expect(403);
+      makeTask('peer');
+      expect((await lookup()).body.threadLookup.target).toBeNull();
+      await request(context.app).delete(`/api/approval-bindings/peer/${encodeURIComponent(room)}`)
+        .set('X-Bridge-Secret', 'thread-lookup-bridge').expect(200);
+      expect((await lookup()).body.threadLookup.target).toMatchObject({ agent: 'worker', taskId: own.taskId });
+    } finally { router.close(); await context.cleanup(); }
+  });
+});
+
+describe('Matrix task display titles', () => {
+  async function expectTitle(source, title) {
+    const context = await createBackendTestContext('matrix-title-', {
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'title-bridge', API_TOKEN: 'title-operator' },
+      agents: { worker_native: {
+        name: 'worker_native', agentId: 'agent_worker_native', type: 'codex', role: 'coding',
+        kind: 'agent', workdir: process.cwd(), workspaceMode: 'shared', online: true,
+      } },
+    });
+    try {
+      await request(context.app).post('/api/messages').set('X-Bridge-Secret', 'title-bridge').send({
+        from: 'alice', to: 'worker_native', target_type: 'agent', type: 'human', source: 'matrix',
+        summary: source, full: source, mentions: ['worker_native'],
+        source_room: '!native-title:test', source_event_id: '$native-human-root', sender_mxid: '@alice:test',
+      }).expect(200);
+      const snapshot = context.internals.routerStoreForTest.snapshot();
+      expect(snapshot.tasks).toHaveLength(1);
+      expect(snapshot.tasks[0]).toMatchObject({ title, assignee: 'worker_native', threadRootEventId: '$native-human-root' });
+      const task = await request(context.app).get(`/api/tasks/${snapshot.tasks[0].taskId}`).set('Authorization', 'Bearer title-operator').expect(200);
+      expect(task.body.description).toBe(source);
+      const claimed = await request(context.app).post('/api/router/matrix-outbox/claim')
+        .set('X-Bridge-Secret', 'title-bridge').send({ claim_ms: 30000 }).expect(200);
+      expect(claimed.body.command).toMatchObject({
+        roomId: '!native-title:test', threadRootEventId: '$native-human-root', senderAgentName: 'worker_native',
+        body: `Task created for @worker_native: ${title}`,
+      });
+      expect(snapshot.dispatches).toHaveLength(0);
+    } finally {
+      context.internals.routerStoreForTest.close();
+      await context.cleanup();
+    }
+  }
+
+  test('native Markdown mentions produce readable task titles without changing source input', async () => {
+    const pill = '[@ac\\_worker\\_native](https://matrix.to/#/@ac_worker_native:test)';
+    await expectTitle(`${pill}  /task Build tally(labels).\nKeep this source unchanged.`, 'Build tally(labels).');
+    await expectTitle(`/task ${pill} Build tally(labels).`, 'Build tally(labels).');
+  });
+
+  test('task title normalization preserves interior mentions links email and code', async () => {
+    const title = 'Document @reviewer, dev@example.test, `@scope/pkg` and [profile](https://example.test/@alice).';
+    await expectTitle(`/task @worker_native ${title}`, title);
+  });
+});
+
+test('authenticated Matrix follow-up executes after its prior task completes', async () => {
+  const context = await createBackendTestContext('completed-matrix-followup-', {
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'followup-bridge', API_TOKEN: 'followup-operator' },
+    agents: { worker: { name: 'worker', agentId: 'agent_worker', type: 'codex', role: 'coding',
+      kind: 'agent', workdir: process.cwd(), workspaceMode: 'shared', online: true } },
+  });
+  const router = context.internals.routerStoreForTest;
+  context.internals.stopRouterPumpForTest();
+  const send = (event, body, thread = null) => request(context.app).post('/api/messages')
+    .set('X-Bridge-Secret', 'followup-bridge').send({ from: 'alice', to: 'worker', target_type: 'agent',
+      type: 'human', source: 'matrix', summary: body, full: body, mentions: ['worker'],
+      source_room: '!followup:test', source_event_id: event, sender_mxid: '@alice:test', thread_root_event_id: thread });
+  const take = runnerId => {
+    const claimed = router.claimDispatch({ runnerId, leaseMs: 60000, capabilityTtlMs: 60000, maxLiveRunners: 3 });
+    expect(claimed?.ok).toBe(true);
+    const started = router.takePayload(claimed); expect(started.ok).toBe(true);
+    return { claimed, started };
+  };
+  try {
+    await send('$sum-root', '@worker Write sum.js').expect(200);
+    const command = router.claimMatrixCommand();
+    const activated = router.recordMatrixDelivery({ commandId: command.commandId, claimToken: command.claimToken, eventId: '$sum-anchor' });
+    expect(activated.ok).toBe(true);
+    router.registerWorkspace({ resourceId: 'followup-test-workspace', safeLabel: 'worker', backendPath: process.cwd() });
+    expect(router.enqueueDispatch({ sessionId: activated.sessionId, taskId: activated.taskId, framework: 'codex',
+      localServerId: 'local', workspaceResourceId: 'followup-test-workspace', mayWrite: true, payload: {} }).ok).toBe(true);
+    const first = take('first-runner');
+    expect(createRouterTaskStore(router).getExecutionEpoch(activated.taskId)).toBe(0);
+    createRouterTaskStore(router).transitionTask(activated.taskId, 'done');
+    expect(createRouterTaskStore(router).getExecutionEpoch(activated.taskId)).toBe(1);
+    router.settleAndRelease({ ...first.claimed, outcome: 'completed', output: { text: 'sum.js tests passed' } });
+    await send('$python-followup', '@worker 改写为python版本', '$sum-root').expect(200);
+    expect(router.snapshot().tasks).toHaveLength(1);
+    expect(router.snapshot().dispatches.filter(d => d.state === 'queued')).toHaveLength(1);
+    const second = take('second-runner');
+    expect(second.started).toMatchObject({ taskId: activated.taskId, sessionId: activated.sessionId });
+    expect(second.started.inbox.map(m => m.body)).toEqual(['@worker 改写为python版本']);
+    expect(second.started.context.messages.map(m => m.body)).toContain('sum.js tests passed');
+    expect((await request(context.app).get(`/api/tasks/${activated.taskId}`).set('Authorization', 'Bearer followup-operator').expect(200)).body.status).toBe('in_progress');
+    expect(createRouterTaskStore(router).getExecutionEpoch(activated.taskId)).toBe(1);
+    expect(router.sessionById(activated.sessionId).threadRootEventId).toBe('$sum-root');
+    await send('$python-followup', '@worker 改写为python版本', '$sum-root').expect(200);
+    expect(router.snapshot().dispatches).toHaveLength(2);
+  } finally { router.close(); await context.cleanup(); }
+});
 
 describe('thread-session backend integration', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-router-backend-', {
+    context = await createBackendTestContext('hagency-router-backend-', {
       env: {
-        HAFLEET_THREAD_SESSIONS: '1',
-        HAFLEET_ROUTER_TASK_CUTOVER: '1',
-        HAFLEET_CODEX_RUNNER_BIN: path.join(fixtures, 'fake-codex-app-server.mjs'),
-        HAFLEET_APPROVAL_TTL_MS: '900000',
+        HAGENCY_THREAD_SESSIONS: '1',
+        HAGENCY_ROUTER_TASK_CUTOVER: '1',
+        HAGENCY_CODEX_RUNNER_BIN: path.join(fixtures, 'fake-codex-app-server.mjs'),
+        HAGENCY_APPROVAL_TTL_MS: '900000',
         MATRIX_BRIDGE_SECRET: 'router-bridge-secret',
         API_TOKEN: 'router-api-token',
       },
@@ -86,7 +330,7 @@ describe('thread-session backend integration', () => {
       .set('Authorization', 'Bearer router-api-token')
       .send({
         name: 'config-probe-agent', type: 'codex', workdir: process.cwd(),
-        workspace_mode: 'worktree', worktrees_dir: path.join(process.cwd(), '.hafleet-worktrees'),
+        workspace_mode: 'worktree', worktrees_dir: path.join(process.cwd(), '.hagency-worktrees'),
         worktree_bootstrap: ['/usr/bin/true'],
       });
     expect(created.status).toBe(200);
@@ -139,7 +383,13 @@ describe('thread-session backend integration', () => {
         .post('/api/router/reply-outbox/claim')
         .set('X-Bridge-Secret', 'router-bridge-secret')
         .send({ claim_ms: 30_000 });
-      if (response.status === 200) reply = response.body.command;
+      if (response.status === 200 && response.body.command.activity) {
+        const status = response.body.command;
+        expect(status).toMatchObject({ roomId: '!robrix2:test', threadRootEventId: '$human-root', senderAgentName: 'worker' });
+        await request(context.app).post(`/api/router/reply-outbox/${status.commandId}/delivered`)
+          .set('X-Bridge-Secret', 'router-bridge-secret')
+          .send({ claim_token: status.claimToken, event_id: `$status-${attempt}` });
+      } else if (response.status === 200) reply = response.body.command;
       else await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(reply).toMatchObject({
@@ -254,17 +504,17 @@ describe('thread-session backend integration', () => {
     const partial = await request(context.app)
       .get('/api/inbox/worker')
       .set('X-Agent-Token', 'worker-router-token')
-      .set('X-HAFleet-Dispatch-Id', claim.dispatchId);
+      .set('X-Hagency-Dispatch-Id', claim.dispatchId);
     expect(partial.status).toBe(401);
     expect(partial.body.code).toBe('runner_capability_required');
 
     const scoped = await request(context.app)
       .get('/api/inbox/worker')
       .set('X-Agent-Token', 'worker-router-token')
-      .set('X-HAFleet-Dispatch-Capability', claim.capability)
-      .set('X-HAFleet-Dispatch-Id', claim.dispatchId)
-      .set('X-HAFleet-Runner-Id', claim.runnerId)
-      .set('X-HAFleet-Fence-Generation', String(claim.fenceGeneration));
+      .set('X-Hagency-Dispatch-Capability', claim.capability)
+      .set('X-Hagency-Dispatch-Id', claim.dispatchId)
+      .set('X-Hagency-Runner-Id', claim.runnerId)
+      .set('X-Hagency-Fence-Generation', String(claim.fenceGeneration));
     expect(scoped.status).toBe(200);
     expect(scoped.body.session_scoped).toBe(true);
     expect(scoped.body.dm.map((message) => message.id)).toContain('http-inbox-a');
@@ -331,13 +581,15 @@ describe('thread-session backend integration', () => {
       status: 'pending', project: 'room-a', project_room_id: '!approval-room-a:test',
       owner_mxid: '@owner-a:test', owner_dm_room_id: '!owner-a:test',
     });
+    expect(context.internals.approvalStoreForTest.getRequest(approval.id, { matrix: true }).reusable_scope)
+      .toMatchObject({ task_id: delivered.body.activation.taskId, description: expect.stringContaining('/bin/echo safe') });
     const verdict = await request(context.app)
       .post(`/api/approvals/${approval.id}/verdict`)
       .set('X-Bridge-Secret', 'router-bridge-secret')
       .send({
         sender_mxid: '@owner-a:test', room_id: '!owner-a:test', agent: 'multiroom_worker',
         project: 'room-a', project_room_id: '!approval-room-a:test',
-        input_digest: approval.input_digest, action: 'approve_once', event_id: '$multiroom-verdict',
+        input_digest: approval.input_digest, action: 'approve_always', event_id: '$multiroom-verdict',
       });
     expect(verdict.status).toBe(200);
 
@@ -360,6 +612,31 @@ describe('thread-session backend integration', () => {
     ).get(delivered.body.activation.taskId)).toMatchObject({
       room_id: '!approval-room-a:test', thread_root_event_id: '$multiroom-root', body: 'approved result',
     });
+    const sendFollowup = event => request(context.app).post('/api/messages').set('X-Bridge-Secret', 'router-bridge-secret')
+      .send({ from: 'alice', to: 'multiroom_worker', target_type: 'agent', type: 'human', source: 'matrix',
+        summary: 'repeat protected operation', full: 'repeat protected operation', mentions: ['multiroom_worker'],
+        source_room: '!approval-room-a:test', source_event_id: event, sender_mxid: '@alice:test', thread_root_event_id: '$multiroom-root' });
+    await sendFollowup('$multiroom-followup').expect(200);
+    let reused;
+    for (let attempt = 0; attempt < 150; attempt++) {
+      reused = context.internals.approvalStoreForTest.listRequests().find(r => r.agent === 'multiroom_worker' && r.id !== approval.id);
+      if (reused?.status === 'consumed') break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    expect(reused).toMatchObject({ status: 'consumed', decision: 'allow', authorization_action: 'approve_always' });
+    await request(context.app).delete(`/api/agents/multiroom_worker/execution-grants/${reused.grant_id}`)
+      .set('Authorization', 'Bearer router-api-token').expect(200);
+    await sendFollowup('$multiroom-after-revoke').expect(200);
+    let pending;
+    for (let attempt = 0; attempt < 150; attempt++) {
+      pending = context.internals.approvalStoreForTest.listRequests({ status: 'pending' }).find(r => r.agent === 'multiroom_worker');
+      if (pending) break;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    expect(pending?.id).toBeTruthy();
+    await request(context.app).post(`/api/approvals/${pending.id}/verdict`).set('X-Bridge-Secret', 'router-bridge-secret')
+      .send({ sender_mxid: '@owner-a:test', room_id: '!owner-a:test', agent: 'multiroom_worker', project: 'room-a',
+        project_room_id: '!approval-room-a:test', input_digest: pending.input_digest, action: 'deny', event_id: '$after-revoke-deny' }).expect(200);
   });
 
   test('confirmed task with unavailable workspace stays visible and never becomes a Matrix delivery failure', async () => {
@@ -422,10 +699,10 @@ describe('thread-session backend integration', () => {
     router.takePayload(claim);
     const capabilityHeaders = {
       'X-Agent-Token': 'coordinator-router-token',
-      'X-HAFleet-Dispatch-Capability': claim.capability,
-      'X-HAFleet-Dispatch-Id': claim.dispatchId,
-      'X-HAFleet-Runner-Id': claim.runnerId,
-      'X-HAFleet-Fence-Generation': String(claim.fenceGeneration),
+      'X-Hagency-Dispatch-Capability': claim.capability,
+      'X-Hagency-Dispatch-Id': claim.dispatchId,
+      'X-Hagency-Runner-Id': claim.runnerId,
+      'X-Hagency-Fence-Generation': String(claim.fenceGeneration),
     };
     const binding = {
       agent: 'coordinator', project: 'robrix2', project_room_id: '!approval:test',
@@ -514,10 +791,10 @@ describe('thread-session backend integration', () => {
     expect(router.takePayload(claim)).toMatchObject({ ok: true });
     const capabilityHeaders = {
       'X-Agent-Token': 'multiroom-coordinator-router-token',
-      'X-HAFleet-Dispatch-Capability': claim.capability,
-      'X-HAFleet-Dispatch-Id': claim.dispatchId,
-      'X-HAFleet-Runner-Id': claim.runnerId,
-      'X-HAFleet-Fence-Generation': String(claim.fenceGeneration),
+      'X-Hagency-Dispatch-Capability': claim.capability,
+      'X-Hagency-Dispatch-Id': claim.dispatchId,
+      'X-Hagency-Runner-Id': claim.runnerId,
+      'X-Hagency-Fence-Generation': String(claim.fenceGeneration),
     };
     const parked = await request(context.app)
       .post('/api/router/approvals/claude')
@@ -577,10 +854,10 @@ describe('thread-session backend integration', () => {
     router.takePayload(claim);
     const headers = {
       'X-Agent-Token': 'coordinator-gap-router-token',
-      'X-HAFleet-Dispatch-Capability': claim.capability,
-      'X-HAFleet-Dispatch-Id': claim.dispatchId,
-      'X-HAFleet-Runner-Id': claim.runnerId,
-      'X-HAFleet-Fence-Generation': String(claim.fenceGeneration),
+      'X-Hagency-Dispatch-Capability': claim.capability,
+      'X-Hagency-Dispatch-Id': claim.dispatchId,
+      'X-Hagency-Runner-Id': claim.runnerId,
+      'X-Hagency-Fence-Generation': String(claim.fenceGeneration),
     };
     await request(context.app)
       .put('/api/approval-bindings')

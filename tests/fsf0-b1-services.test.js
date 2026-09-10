@@ -18,7 +18,7 @@ import { loadServiceProfile } from '../src/service-profile.mjs';
 
 const repoRoot = path.resolve('.');
 const execFileAsync = promisify(execFile);
-const cliPath = path.join(repoRoot, 'services', 'hafleet-services.mjs');
+const cliPath = path.join(repoRoot, 'services', 'hagency-services.mjs');
 const supervisors = [];
 const runtimes = [];
 const modulesToStop = [];
@@ -75,7 +75,7 @@ function createBackendRuntime(prefix) {
 }
 
 async function importBackend(runtime) {
-  process.env.HAFLEET_RUNTIME_DIR = runtime;
+  process.env.HAGENCY_RUNTIME_DIR = runtime;
   process.env.SUPERVISOR_ENABLED = 'false';
   process.env.AGENT_SCOPE_MONITOR_ENABLED = 'false';
   process.env.AGENT_JSON_WRITE_BATCH_MS = '0';
@@ -91,7 +91,7 @@ async function importBackend(runtime) {
 async function fixtureSupervisor({ restartDelayMs = 40 } = {}) {
   const backendPort = await freePort();
   const dashboardPort = await freePort();
-  const runtimeRoot = mkdtempSync(path.join(os.tmpdir(), 'hafleet-fsf0-b1-services-'));
+  const runtimeRoot = mkdtempSync(path.join(os.tmpdir(), 'hagency-fsf0-b1-services-'));
   runtimes.push(runtimeRoot);
   const fixture = 'tests/fixtures/service-child.mjs';
   const service = (name, dependsOn, health, env = {}) => ({
@@ -126,9 +126,9 @@ async function fixtureSupervisor({ restartDelayMs = 40 } = {}) {
 }
 
 async function importDashboard(runtime) {
-  process.env.HAFLEET_RUNTIME_DIR = runtime;
-  process.env.HAFLEET_WEB_PORT = '18084';
-  process.env.HAFLEET_BACKEND_PORT = '18090';
+  process.env.HAGENCY_RUNTIME_DIR = runtime;
+  process.env.HAGENCY_WEB_PORT = '18084';
+  process.env.HAGENCY_BACKEND_PORT = '18090';
   const url = pathToFileURL(path.join(repoRoot, 'server.js')).href;
   const mod = await import(`${url}?fsf0-b1-dashboard=${Date.now()}-${Math.random()}`);
   modulesToStop.push(mod);
@@ -164,7 +164,7 @@ test('services_start_all_healthy', async () => {
     profilePath: path.join(repoRoot, 'services', 'services-local.json'),
     repoRoot,
   });
-  const runtimeRoot = createBackendRuntime('hafleet-fsf0-b1-production-services-');
+  const runtimeRoot = createBackendRuntime('hagency-fsf0-b1-production-services-');
   mkdirSync(path.join(runtimeRoot, 'logs'), { recursive: true });
   const backendPort = await freePort();
   const dashboardPort = await freePort();
@@ -178,9 +178,9 @@ test('services_start_all_healthy', async () => {
     runtimeRoot,
     env: {
       ...process.env,
-      HAFLEET_RUNTIME_DIR: runtimeRoot,
-      HAFLEET_BACKEND_PORT: String(backendPort),
-      HAFLEET_WEB_PORT: String(dashboardPort),
+      HAGENCY_RUNTIME_DIR: runtimeRoot,
+      HAGENCY_BACKEND_PORT: String(backendPort),
+      HAGENCY_WEB_PORT: String(dashboardPort),
       API_TOKEN: 'fsf0-b1-production-smoke-token',
       SUPERVISOR_ENABLED: 'false',
       AGENT_SCOPE_MONITOR_ENABLED: 'false',
@@ -209,10 +209,10 @@ test('services_start_all_healthy', async () => {
 
 test('restart_preserves_agent_registry', async () => {
   snapshotEnv([
-    'HAFLEET_RUNTIME_DIR', 'SUPERVISOR_ENABLED', 'AGENT_SCOPE_MONITOR_ENABLED',
+    'HAGENCY_RUNTIME_DIR', 'SUPERVISOR_ENABLED', 'AGENT_SCOPE_MONITOR_ENABLED',
     'AGENT_JSON_WRITE_BATCH_MS', 'API_TOKEN',
   ]);
-  const runtime = createBackendRuntime('hafleet-fsf0-b1-registry-');
+  const runtime = createBackendRuntime('hagency-fsf0-b1-registry-');
   const first = await importBackend(runtime);
   for (const name of ['worker-alpha', 'worker-beta', 'worker-gamma']) {
     await request(first.requestApp).post('/api/agents').send({ name, role: 'coding' }).expect(200);

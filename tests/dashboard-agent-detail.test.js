@@ -100,7 +100,7 @@ describe('Dashboard agent detail evidence', () => {
     const html = await render('Activity', { ...agent, name: 'octos-agent' });
     expect(html).toContain(t('ag.activityUnavailable'));
     expect(html).not.toContain('check_inbox [completed]');
-    expect(html).not.toContain('hafleet acp-up');
+    expect(html).not.toContain('hagency acp-up');
   });
 
   test('labels offline activity samples at their point of use', async () => {

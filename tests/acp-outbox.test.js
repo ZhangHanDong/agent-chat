@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 
 import { OUTBOX_ACTIONS, OUTBOX_PROTOCOL, validateOutboxRequest } from '../lib/acp-outbox.js';
 
-// A tmux agent calls HAFleet's MCP tools directly. octos 2.0.2 has no route to
+// A tmux agent calls Hagency's MCP tools directly. octos 2.0.2 has no route to
 // them at all — it accepts mcpServers on session/new and ignores it, its config
 // has no MCP section, `octos mcp` is OAuth-only for remote servers, and its shell
 // is network-isolated (its own `nc -z 127.0.0.1 8090` returns PORT_CLOSED while
@@ -69,9 +69,9 @@ describe('the protocol told to the agent matches what is accepted', () => {
   });
 
   test('the instructions name the directory the host actually watches', () => {
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
-    expect(OUTBOX_PROTOCOL).toContain('.hafleet/outbox/');
-    expect(host).toMatch(/'\.hafleet', 'outbox'/);
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
+    expect(OUTBOX_PROTOCOL).toContain('.hagency/outbox/');
+    expect(host).toMatch(/'\.hagency', 'outbox'/);
   });
 
   test('the example JSON in the instructions actually validates', () => {
@@ -98,23 +98,23 @@ describe('the protocol told to the agent matches what is accepted', () => {
 describe('the host drains the outbox promptly', () => {
   test('it drains after a turn, not only before the next poll', () => {
     // The agent writes its file mid-turn then immediately checks for it. On mini5
-    // it reported the file "still sitting in .hafleet/outbox/" and speculated the
+    // it reported the file "still sitting in .hagency/outbox/" and speculated the
     // watcher might get to it later — an invitation to give up on the mechanism.
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     const drains = host.match(/await drainOutbox\(\)/g) || [];
     expect(drains.length, 'expected a drain before the inbox poll and one after the turn')
       .toBeGreaterThanOrEqual(2);
   });
 
   test('a rejected file is moved aside rather than retried forever', () => {
-    const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+    const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
     expect(host).toMatch(/'rejected'/);
     expect(host).toMatch(/\.error/);
   });
 });
 
 describe('the outbox is a fallback, not a second advertised channel', () => {
-  const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+  const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
 
   test('the nudge does not advertise it alongside send_message', () => {
     // Telling the agent two ways to reply got both used: msg_0063 and msg_0064,
@@ -136,6 +136,6 @@ describe('the outbox is a fallback, not a second advertised channel', () => {
 
   test('the protocol text still exists for whoever needs to document it', () => {
     // Not deleted, just not injected into every prompt.
-    expect(OUTBOX_PROTOCOL).toContain('.hafleet/outbox/');
+    expect(OUTBOX_PROTOCOL).toContain('.hagency/outbox/');
   });
 });

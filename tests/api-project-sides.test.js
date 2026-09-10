@@ -2,11 +2,11 @@
  * 项目方 over HTTP — the operator's CRUD, and what must never come back through it.
  *
  * ADR-016 decisions 1, 3, 7 and 8. The operator asked for this surface directly: 「增加一个项目方的
- * section，里面可以 CRUD hafleet 加入的项目方」, with the constraint that deleting a project side must
+ * section，里面可以 CRUD hagency 加入的项目方」, with the constraint that deleting a project side must
  * take its agents with it.
  *
  * THE HEAVIEST GROUP IS THE LEAK CHECK, and it is heaviest because of what the credential is: an
- * `as_token` grants a whole namespace on a homeserver HAFleet does not administer. The console
+ * `as_token` grants a whole namespace on a homeserver Hagency does not administer. The console
  * renders whatever an API returns, and this repository has already shipped two cases of API text
  * reaching a UI nobody intended to show it. So every handler is checked, not a sample.
  *
@@ -33,7 +33,7 @@ const asCred = () => ({
   asToken: AS_TOKEN,
   hsToken: HS_TOKEN,
   namespace: '@ac_.*',
-  senderLocalpart: 'hafleet',
+  senderLocalpart: 'hagency',
 });
 
 let context = null;
@@ -215,7 +215,7 @@ describe('verify records a verdict, and which kind of verdict', () => {
     const hs = await fakeHomeserver((path, q) => {
       if (path === '/_matrix/client/v3/account/whoami') {
         // Masqueraded: the AS acts as sender_localpart. The server's answer is authoritative.
-        return [200, { user_id: `@hafleet:${SERVER}`, device_id: 'appservice' }];
+        return [200, { user_id: `@hagency:${SERVER}`, device_id: 'appservice' }];
       }
       return [404, { errcode: 'M_UNRECOGNIZED' }];
     });
@@ -227,10 +227,10 @@ describe('verify records a verdict, and which kind of verdict', () => {
     expect(r.status).toBe(200);
     expect(r.body.side.accessState).toBe('accepted');
     expect(typeof r.body.side.accessCheckedAt).toBe('number');
-    expect(r.body.side.representative.mxid).toBe(`@hafleet:${SERVER}`);
+    expect(r.body.side.representative.mxid).toBe(`@hagency:${SERVER}`);
     // The masquerade is the call being made, not an implementation detail: it proves the namespace
     // claim functions rather than merely that the token is known.
-    expect(hs.calls[0].query.user_id).toBe(`@hafleet:${SERVER}`);
+    expect(hs.calls[0].query.user_id).toBe(`@hagency:${SERVER}`);
   });
 
   test('a REJECTED credential is recorded as rejected, and the side stays active', async () => {
@@ -283,10 +283,10 @@ describe('verify records a verdict, and which kind of verdict', () => {
         registrations += 1;
         const parsed = JSON.parse(body || '{}');
         if (!parsed.auth) return [401, { session: 'uia-1', flows: [{ stages: ['m.login.registration_token'] }] }];
-        return [200, { access_token: 'minted-rep-token', user_id: `@hafleet:${SERVER}` }];
+        return [200, { access_token: 'minted-rep-token', user_id: `@hagency:${SERVER}` }];
       }
       if (path === '/_matrix/client/v3/account/whoami') {
-        return [200, { user_id: `@hafleet:${SERVER}`, device_id: 'D1' }];
+        return [200, { user_id: `@hagency:${SERVER}`, device_id: 'D1' }];
       }
       return [404, { errcode: 'M_UNRECOGNIZED' }];
     });
@@ -315,7 +315,7 @@ describe('verify records a verdict, and which kind of verdict', () => {
      * see both that the credential worked and that the identity it produced was unusable, because
      * those imply different fixes.
      */
-    const hs = await fakeHomeserver(() => [200, { user_id: '@hafleet:someone-else.example', device_id: 'D1' }]);
+    const hs = await fakeHomeserver(() => [200, { user_id: '@hagency:someone-else.example', device_id: 'D1' }]);
     const app = await boot();
     await request(app).post('/api/project-sides')
       .send({ server_name: SERVER, api_base_url: hs.baseUrl, credential: asCred() });
@@ -330,7 +330,7 @@ describe('verify records a verdict, and which kind of verdict', () => {
   });
 
   test('changing the credential invalidates a previous verdict', async () => {
-    const hs = await fakeHomeserver(() => [200, { user_id: `@hafleet:${SERVER}`, device_id: 'D1' }]);
+    const hs = await fakeHomeserver(() => [200, { user_id: `@hagency:${SERVER}`, device_id: 'D1' }]);
     const app = await boot();
     await request(app).post('/api/project-sides')
       .send({ server_name: SERVER, api_base_url: hs.baseUrl, credential: asCred() });
@@ -390,7 +390,7 @@ describe('generating the appservice registration', () => {
     expect(r.body.side.accessState).toBe('unverified');
   });
 
-  test('THE URL IS REQUIRED, because HAFleet cannot know its own address', async () => {
+  test('THE URL IS REQUIRED, because Hagency cannot know its own address', async () => {
     /*
      * A tunnel hostname, a public IP, `host.docker.internal` for a homeserver in a container on the
      * same machine — only the operator knows which. Guessing produces a registration that installs
@@ -446,7 +446,7 @@ describe('generating the appservice registration', () => {
      * storing `hsToken: registration.as_token` survived every other assertion here. The YAML still
      * shows two distinct, correct tokens — so the operator installs a valid registration — while the
      * stored credential has the wrong value in the hs_token field. The homeserver then pushes with the
-     * hs_token from the file, HAFleet compares it against the as_token, and EVERY transaction is 403.
+     * hs_token from the file, Hagency compares it against the as_token, and EVERY transaction is 403.
      * An appservice that is configured, installed, and silent.
      *
      * The credential is write-only, so no API can observe it (ADR-016 decision 8). This reads the
@@ -560,7 +560,9 @@ describe('removal refuses to be the first step of a cascade', () => {
      * the transition IS the release, and there is no figure that can disagree with the state it came
      * from.
      */
+    const hs = await fakeHomeserver(() => [200, {}]);
     const app = await boot({
+      agents: { someone: { name: 'someone', kind: 'agent', type: 'claude', projectSide: SERVER } },
       rawDataFiles: {
         'engagements.json': JSON.stringify({
           version: 1,
@@ -579,13 +581,15 @@ describe('removal refuses to be the first step of a cascade', () => {
       },
     });
     await request(app).post('/api/project-sides')
-      .send({ server_name: SERVER, api_base_url: 'http://127.0.0.1:8008' });
+      .send({ server_name: SERVER, api_base_url: hs.baseUrl });
     await request(app).put(`/api/project-sides/${SERVER}/allocation`).send({ allocated_tokens: 1000000 });
 
     const before = await request(app).get(`/api/project-sides/${SERVER}/budget`);
     expect(before.body.committed).toBe(400000);
 
-    const r = await request(app).delete(`/api/project-sides/${SERVER}?force=true`);
+    await request(app).put(`/api/project-sides/${SERVER}/credential`).send({ credential: asCred() }).expect(200);
+    const r = await request(app).delete(`/api/project-sides/${SERVER}?force=true`).expect(200);
+    expect(hs.calls.some((c) => c.path.endsWith('/leave'))).toBe(true);
     expect(r.body.endedEngagements).toEqual(['live']);
 
     const rows = (await request(app).get('/api/engagements')).body.engagements;
@@ -604,7 +608,9 @@ describe('removal refuses to be the first step of a cascade', () => {
      * claiming the project can reach the agent - `listBindings` already filters `active !== false`, so
      * deactivation removes it from every read without anything learning a new state.
      */
+    const hs = await fakeHomeserver(() => [200, {}]);
     const app = await boot({
+      agents: { ag: { name: 'ag', kind: 'agent', type: 'claude', projectSide: SERVER } },
       env: { MATRIX_BRIDGE_SECRET: 'secret-for-binding-cascade' },
       rawDataFiles: {
         'approvals.json': JSON.stringify({
@@ -626,8 +632,10 @@ describe('removal refuses to be the first step of a cascade', () => {
       },
     });
     await request(app).post('/api/project-sides')
-      .send({ server_name: SERVER, api_base_url: 'http://127.0.0.1:8008' });
-    const r = await request(app).delete(`/api/project-sides/${SERVER}?force=true`);
+      .send({ server_name: SERVER, api_base_url: hs.baseUrl });
+    await request(app).put(`/api/project-sides/${SERVER}/credential`).send({ credential: asCred() }).expect(200);
+    const r = await request(app).delete(`/api/project-sides/${SERVER}?force=true`).expect(200);
+    expect(hs.calls.some((c) => c.path.endsWith('/leave'))).toBe(true);
     expect(r.body.deactivatedBindings).toEqual([`ag@!room:${SERVER}`]);
 
     // The record is still on disk - deactivated, not forgotten.
@@ -929,7 +937,7 @@ describe('the inbound credentials the BRIDGE needs', () => {
     expect(res.status).toBe(200);
     expect(res.body.sides).toHaveLength(1);
     expect(res.body.sides[0]).toMatchObject({
-      sideId: SERVER, serverName: SERVER, hsToken, senderLocalpart: 'hafleet',
+      sideId: SERVER, serverName: SERVER, hsToken, senderLocalpart: 'hagency',
     });
   });
 
@@ -1307,7 +1315,7 @@ describe('the ACTING credential — a second, wider grant', () => {
     const r = await acting(app);
     expect(r.status).toBe(200);
     expect(r.body.sides[0]).toMatchObject({
-      sideId: SERVER, kind: 'appservice', asToken, senderLocalpart: 'hafleet', namespace: '@ac_.*',
+      sideId: SERVER, kind: 'appservice', asToken, senderLocalpart: 'hagency', namespace: '@ac_.*',
     });
   });
 
@@ -1386,15 +1394,15 @@ describe('issuing a second credential does not break the first', () => {
    * WHY THIS EXISTS, in the operator's words: 「为啥生成接单员之后还需要用户去做这些琐事，你应该自动注册」.
    *
    * They were right, and the root was not the chore. Issuing REPLACED the live credential, so clicking
-   * "generate" on a working side broke HAFleet's own outbound auth instantly — before they could possibly have
+   * "generate" on a working side broke Hagency's own outbound auth instantly — before they could possibly have
    * installed the new file. It happened for real: the fleet held one token, the homeserver still had the
    * previous one, `verify` correctly reported `rejected`, and the operator was handed a repair job for a state
-   * HAFleet had created.
+   * Hagency had created.
    *
    * What CANNOT be automated is stated rather than papered over: writing a file onto a customer's filesystem
    * and restarting their Matrix server are the authorities `docs/FOR-PROJECT-SIDES.md` promises never to take.
-   * But HAFleet can notice the moment the install lands and promote without being asked, so the remaining job
-   * is "install it" with no separate "now tell HAFleet" step.
+   * But Hagency can notice the moment the install lands and promote without being asked, so the remaining job
+   * is "install it" with no separate "now tell Hagency" step.
    *
    * Observed through the API and the on-disk record, the way the rest of this file does — the store's
    * internals are not part of the contract these tests are pinning.
@@ -1414,7 +1422,7 @@ describe('issuing a second credential does not break the first', () => {
       .send({
         credential: {
           kind: 'appservice', asToken: 'live-as', hsToken: 'live-hs',
-          namespace: '@ac_.*', senderLocalpart: 'hafleet',
+          namespace: '@ac_.*', senderLocalpart: 'hagency',
         },
       });
   }
@@ -1468,7 +1476,7 @@ describe('issuing a second credential does not break the first', () => {
      * the reset put back in. Verified by mutation: a test that survives the defect it names is not testing it.
      */
     const hs = await fakeHomeserver((pathname) => {
-      if (pathname === '/_matrix/client/v3/account/whoami') return [200, { user_id: `@hafleet:${SIDE}` }];
+      if (pathname === '/_matrix/client/v3/account/whoami') return [200, { user_id: `@hagency:${SIDE}` }];
       return [200, {}];
     });
     fake = hs;
@@ -1598,7 +1606,7 @@ describe('staging protects what works, not merely what exists', () => {
         api_base_url: hs.baseUrl,
         credential: {
           kind: 'appservice', asToken: 'live-as', hsToken: 'live-hs',
-          namespace: '@ac_.*', senderLocalpart: 'hafleet',
+          namespace: '@ac_.*', senderLocalpart: 'hagency',
         },
       });
     await request(app).post(`/api/project-sides/${SIDE}/verify`).set('Authorization', `Bearer ${token}`).send({});
@@ -1625,7 +1633,7 @@ describe('staging protects what works, not merely what exists', () => {
         api_base_url: 'https://matrix.broken-live.test',
         credential: {
           kind: 'appservice', asToken: 'live-as', hsToken: 'live-hs',
-          namespace: '@ac_.*', senderLocalpart: 'hafleet',
+          namespace: '@ac_.*', senderLocalpart: 'hagency',
         },
       });
 
@@ -1732,10 +1740,10 @@ describe('a project with an approved engagement nobody attached', () => {
    * THE TWO TRUE STATEMENTS THAT MADE NO SENSE TOGETHER. On the live fleet, one project read 「还没派人」
    * in its staff column and 「已承诺 50k」 in its budget column. Both were correct: `agents` comes from
    * BINDINGS, and an engagement going active only creates one when an owner can be resolved — without
-   * `HAFLEET_OWNER_MXID` the bind fails and records why on the engagement.
+   * `HAGENCY_OWNER_MXID` the bind fails and records why on the engagement.
    *
    * The reason was already in the data (`bindError: "no owner known for this agent: set
-   * HAFLEET_OWNER_MXID and HAFLEET_OWNER_DM_ROOM…"`) and no page read it, though the approval path's own
+   * HAGENCY_OWNER_MXID and HAGENCY_OWNER_DM_ROOM…"`) and no page read it, though the approval path's own
    * comment says the failure is "shown in the console". So the operator saw a project that looked
    * untouched, with money promised against it, and nothing pointing at the setting that would fix it.
    */

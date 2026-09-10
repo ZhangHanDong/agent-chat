@@ -12,19 +12,19 @@ describe('appservice startup drains thread outboxes without a bot', () => {
   let envSnapshot;
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-botless-router-'));
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-botless-router-'));
     envSnapshot = snapshotEnv([
-      'HAFLEET_RUNTIME_DIR', 'MATRIX_BRIDGE_SECRET', 'HAFLEET_THREAD_SESSIONS',
-      'HAFLEET_APPSERVICE_SYNC_SIDE', 'HAFLEET_APPSERVICE_SYNC_URL',
-      'HAFLEET_ROUTER_OUTBOX_POLL_MS',
+      'HAGENCY_RUNTIME_DIR', 'MATRIX_BRIDGE_SECRET', 'HAGENCY_THREAD_SESSIONS',
+      'HAGENCY_APPSERVICE_SYNC_SIDE', 'HAGENCY_APPSERVICE_SYNC_URL',
+      'HAGENCY_ROUTER_OUTBOX_POLL_MS',
     ]);
     Object.assign(process.env, {
-      HAFLEET_RUNTIME_DIR: runtimeDir,
+      HAGENCY_RUNTIME_DIR: runtimeDir,
       MATRIX_BRIDGE_SECRET: 'test-bridge-secret',
-      HAFLEET_THREAD_SESSIONS: '1',
-      HAFLEET_APPSERVICE_SYNC_SIDE: 'palpo.test',
-      HAFLEET_APPSERVICE_SYNC_URL: 'http://palpo.test',
-      HAFLEET_ROUTER_OUTBOX_POLL_MS: '250',
+      HAGENCY_THREAD_SESSIONS: '1',
+      HAGENCY_APPSERVICE_SYNC_SIDE: 'palpo.test',
+      HAGENCY_APPSERVICE_SYNC_URL: 'http://palpo.test',
+      HAGENCY_ROUTER_OUTBOX_POLL_MS: '250',
     });
     ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?botless-router-start`));
   });
@@ -61,6 +61,8 @@ describe('appservice startup drains thread outboxes without a bot', () => {
     const pending = { matrix: command('task-ack'), reply: null };
     const receipts = [];
     bridge.callBackendApi = async (_method, route, body) => {
+      if (_method === 'GET' && route === '/api/matrix/direct-agents') return { agents: [] };
+      if (_method === 'POST' && route === '/api/matrix-work/claim') return { job: null };
       const claim = /\/(matrix|reply)-outbox\/claim$/.exec(route);
       if (claim) {
         const next = pending[claim[1]];

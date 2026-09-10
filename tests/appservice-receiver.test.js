@@ -219,18 +219,14 @@ describe('what arrives, and what is handed on', () => {
     expect(seenEvents[0].meta.txnId).toBe('t9');
   });
 
-  test('F06: a non-event mode field in the body rides through to meta, outside the events', async () => {
-    /*
-     * 16-impl-r1 ③: the puller and sync collector stamp their intake mode beside the events;
-     * this pins that the receiver passes it through as meta.mode and never merges it into any
-     * event object. A homeserver push (no mode field) arrives with meta.mode undefined.
-     */
+  test('adapter mode travels outside the submitted transaction body', async () => {
     const { rec, seenEvents } = receiver();
     await rec.handle(put({
       path: '/_matrix/app/v1/transactions/t-mode',
       body: { events: [{ type: 'm.room.message', event_id: '$m' }], mode: 'edge' },
+      transport: { mode: 'sync' },
     }));
-    expect(seenEvents[0].meta.mode).toBe('edge');
+    expect(seenEvents[0].meta.mode).toBe('sync');
     expect(seenEvents[0].events).toEqual([{ type: 'm.room.message', event_id: '$m' }]);
     expect(seenEvents[0].events[0]).not.toHaveProperty('mode');
 
@@ -238,7 +234,7 @@ describe('what arrives, and what is handed on', () => {
       path: '/_matrix/app/v1/transactions/t-nomode',
       body: { events: [{ type: 'm.room.message', event_id: '$n' }] },
     }));
-    expect(seenEvents[1].meta.mode).toBeUndefined();
+    expect(seenEvents[1].meta.mode).toBe('push');
   });
 
   test('a body with no events is an empty array, not a crash', async () => {
@@ -311,8 +307,8 @@ describe('the registration we hand to a project side', () => {
      * as_token authorises a whole namespace, so a derived one would make .env compromise permanent
      * control of every lent agent on that side, with no rotation path.
      */
-    const a = generateRegistration({ id: 'hafleet', url: 'https://us.example' });
-    const b = generateRegistration({ id: 'hafleet', url: 'https://us.example' });
+    const a = generateRegistration({ id: 'hagency', url: 'https://us.example' });
+    const b = generateRegistration({ id: 'hagency', url: 'https://us.example' });
     /*
      * The two tokens must DIFFER, and that is a separate requirement from being random. They
      * authorise opposite directions — `as_token` lets us act on the homeserver, `hs_token` lets the
@@ -330,7 +326,7 @@ describe('the registration we hand to a project side', () => {
   });
 
   test('it carries every field a homeserver needs', () => {
-    const reg = generateRegistration({ id: 'hafleet', url: 'https://us.example/' });
+    const reg = generateRegistration({ id: 'hagency', url: 'https://us.example/' });
     expect(Object.keys(reg).sort()).toEqual([
       'as_token', 'hs_token', 'id', 'namespaces', 'rate_limited', 'sender_localpart', 'url',
     ]);
@@ -339,8 +335,8 @@ describe('the registration we hand to a project side', () => {
   });
 
   test('sender_localpart is lowercased, because the spec requires it of localparts', () => {
-    expect(generateRegistration({ id: 'x', url: 'https://u.example', senderLocalpart: 'HAFleet' })
-      .sender_localpart).toBe('hafleet');
+    expect(generateRegistration({ id: 'x', url: 'https://u.example', senderLocalpart: 'Hagency' })
+      .sender_localpart).toBe('hagency');
   });
 
   test('the default namespace matches the existing agent prefix rather than changing it', () => {
@@ -355,13 +351,13 @@ describe('the registration we hand to a project side', () => {
   });
 
   test('the YAML round-trips through the fields a homeserver parses', () => {
-    const reg = generateRegistration({ id: 'hafleet-side-a', url: 'https://us.example' });
+    const reg = generateRegistration({ id: 'hagency-side-a', url: 'https://us.example' });
     const yaml = renderRegistrationYaml(reg);
-    expect(yaml).toContain('id: hafleet-side-a');
+    expect(yaml).toContain('id: hagency-side-a');
     expect(yaml).toContain('url: "https://us.example"');
     expect(yaml).toContain(`as_token: ${reg.as_token}`);
     expect(yaml).toContain(`hs_token: ${reg.hs_token}`);
-    expect(yaml).toContain('sender_localpart: hafleet');
+    expect(yaml).toContain('sender_localpart: hagency');
     expect(yaml).toContain('regex: "@ac_.*"');
     expect(yaml).toContain('aliases: []');
     expect(yaml).toContain('rooms: []');

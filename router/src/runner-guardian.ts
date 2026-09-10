@@ -1,11 +1,17 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { OwnedProcessTree, parseProcessSnapshot, type ProcessIdentity } from './owned-process-tree.js';
 
-const executable = process.env.HAFLEET_GUARDIAN_EXECUTABLE?.trim() ?? '';
+// The initial group establishes ownership; tools may create different groups.
+// Track descendants while ancestry is observable, then retain their birth
+// identities after exit/reparenting instead of confusing group exit with cleanup.
+if (process.platform === 'win32') throw new Error('runner guardian requires POSIX process-group support');
+
+const executable = process.env.HAGENCY_GUARDIAN_EXECUTABLE?.trim() ?? '';
 if (!executable) throw new Error('runner guardian executable is missing');
 
 let parsedArgs: unknown;
 try {
-  parsedArgs = JSON.parse(process.env.HAFLEET_GUARDIAN_ARGS_JSON ?? '[]');
+  parsedArgs = JSON.parse(process.env.HAGENCY_GUARDIAN_ARGS_JSON ?? '[]');
 } catch {
   throw new Error('runner guardian argv is invalid');
 }
@@ -14,53 +20,168 @@ if (!Array.isArray(parsedArgs) || parsedArgs.some((value) => typeof value !== 's
 }
 const args = parsedArgs as string[];
 const childEnv = { ...process.env };
-delete childEnv.HAFLEET_GUARDIAN_EXECUTABLE;
-delete childEnv.HAFLEET_GUARDIAN_ARGS_JSON;
+delete childEnv.HAGENCY_GUARDIAN_EXECUTABLE;
+delete childEnv.HAGENCY_GUARDIAN_ARGS_JSON;
 delete childEnv.NODE_CHANNEL_FD;
 delete childEnv.NODE_CHANNEL_SERIALIZATION_MODE;
 
-const runtime = spawn(executable, args, {
+// Establish and census the owned process before user code can run or exit.
+// exec preserves this PID/birth identity; executable and argv stay positional.
+const runtime = spawn('/bin/sh', ['-c', 'kill -STOP "$$"; exec "$@"', 'hagency-runtime', executable, ...args], {
   cwd: process.cwd(),
   env: childEnv,
   stdio: ['pipe', 'pipe', 'pipe'],
-  detached: process.platform !== 'win32',
+  detached: true,
 });
 
 let terminating = false;
 let killTimer: NodeJS.Timeout | null = null;
-function signalRuntime(signal: NodeJS.Signals): void {
-  if (!runtime.pid || runtime.exitCode !== null || runtime.signalCode !== null) return;
-  if (process.platform !== 'win32') {
-    try {
-      process.kill(-runtime.pid, signal);
-      return;
-    } catch { /* fall through to direct child signaling */ }
+let cleanupPoll: NodeJS.Timeout | null = null;
+let cleanupDeadline: NodeJS.Timeout | null = null;
+let checking = false;
+let runtimeClosed = false;
+let spawnFailed = false;
+let runtimeExitCode = 1;
+let ownership: OwnedProcessTree | null = null;
+let ownershipPoll: NodeJS.Timeout | null = null;
+let inspection: Promise<Map<number, ProcessIdentity> | null> | null = null;
+let inspectionFailed = false;
+let escalating = false;
+let runtimePaused = false;
+const termSent = new Set<string>();
+const killSent = new Set<string>();
+
+function refreshOwnership(): Promise<Map<number, ProcessIdentity> | null> {
+  if (inspection) return inspection;
+  inspection = new Promise<Map<number, ProcessIdentity>>((resolve, reject) => {
+    execFile('/bin/ps', ['-axo', 'pid=,ppid=,pgid=,lstart=,stat='], {
+      encoding: 'utf8', timeout: 1_000, maxBuffer: 4 * 1024 * 1024,
+      env: { ...process.env, LC_ALL: 'C' },
+    }, (error, stdout) => {
+      if (error) return reject(error);
+      try { resolve(parseProcessSnapshot(stdout)); } catch (parseError) { reject(parseError); }
+    });
+  }).then((snapshot) => {
+    ownership?.observe(snapshot);
+    return snapshot;
+  }).catch(() => {
+    // A lost observation can hide a short-lived parent. A later clean process
+    // group is insufficient to repair that missing ownership evidence.
+    inspectionFailed = true;
+    return null;
+  }).finally(() => { inspection = null; });
+  return inspection;
+}
+
+function signalOwned(snapshot: ReadonlyMap<number, ProcessIdentity>, signal: NodeJS.Signals): void {
+  const sent = signal === 'SIGKILL' ? killSent : termSent;
+  for (const member of ownership?.liveMembers(snapshot) ?? []) {
+    const identity = `${member.pid}:${member.started}`;
+    if (sent.has(identity)) continue;
+    try { process.kill(member.pid, signal); sent.add(identity); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+        inspectionFailed = true;
+        process.stderr.write(`runner guardian could not signal an owned process: ${String(error)}\n`);
+      }
+    }
   }
-  runtime.kill(signal);
+  // Before the first observation, only the unreaped direct child is owned.
+  if (!ownership?.rootObserved && runtime.exitCode === null && runtime.signalCode === null) runtime.kill(signal);
+}
+
+async function finishWhenStopped(): Promise<void> {
+  if (checking) return;
+  checking = true;
+  try {
+    // An observation started before Stop is not the post-pause census.
+    if (runtimePaused && inspection) await inspection;
+    const snapshot = await refreshOwnership();
+    if (!snapshot) {
+      // The unreaped ChildProcess remains authoritative even if process-table
+      // inspection failed. Other PIDs cannot be signalled without fresh identity.
+      if (runtime.exitCode === null && runtime.signalCode === null) {
+        runtime.kill(escalating ? 'SIGKILL' : 'SIGTERM');
+        if (runtimePaused) runtime.kill('SIGCONT');
+      }
+      runtimePaused = false;
+      return;
+    }
+    const members = ownership?.liveMembers(snapshot) ?? [];
+    if (members.length) signalOwned(snapshot, escalating ? 'SIGKILL' : 'SIGTERM');
+    if (runtimePaused) { runtime.kill('SIGCONT'); runtimePaused = false; }
+    if (!runtimeClosed || members.length || inspectionFailed || !ownership?.rootObserved && !spawnFailed) return;
+    if (killTimer) clearTimeout(killTimer);
+    if (cleanupPoll) clearInterval(cleanupPoll);
+    if (cleanupDeadline) clearTimeout(cleanupDeadline);
+    if (ownershipPoll) clearInterval(ownershipPoll);
+    const finish = (): void => {
+      if (process.connected) process.disconnect?.();
+      process.exit(runtimeExitCode);
+    };
+    if (process.connected && process.send) process.send({ type: 'cleanup_complete' }, finish);
+    else finish();
+  } finally {
+    checking = false;
+  }
 }
 
 function terminate(): void {
   if (terminating) return;
   terminating = true;
-  signalRuntime('SIGTERM');
-  killTimer = setTimeout(() => signalRuntime('SIGKILL'), 2_000);
-  killTimer.unref?.();
+  // Keep the direct runtime from disappearing during the first Stop census.
+  // This uses its unreaped ChildProcess ownership, never a user-supplied PID.
+  if (runtime.exitCode === null && runtime.signalCode === null) runtimePaused = runtime.kill('SIGSTOP');
+  // Observe before terminating any ancestor, while detached tools still have
+  // an attributable parent. Continue discovering children during shutdown.
+  void finishWhenStopped();
+  killTimer = setTimeout(() => { escalating = true; void finishWhenStopped(); }, 2_000);
+  cleanupPoll = setInterval(() => { void finishWhenStopped(); }, 25);
+  cleanupDeadline = setTimeout(() => {
+    void refreshOwnership().then((snapshot) => {
+      if (snapshot) signalOwned(snapshot, 'SIGKILL');
+      process.stderr.write('runner descendant cleanup could not be confirmed; workspace requires inspection\n');
+      // Reserved guardian status: the parent must quarantine, never release on this exit.
+      process.exit(125);
+    });
+  }, 5_000);
 }
 
 process.stdin.pipe(runtime.stdin);
 runtime.stdout.pipe(process.stdout);
 runtime.stderr.pipe(process.stderr);
 runtime.once('spawn', () => {
-  if (typeof process.send === 'function') process.send({ type: 'runtime_ready', pid: runtime.pid });
+  ownership = new OwnedProcessTree(runtime.pid!, process.pid);
+  ownershipPoll = setInterval(() => { void refreshOwnership(); }, 100);
+  void (async () => {
+    const until = Date.now() + 2_000;
+    while (!terminating && Date.now() < until) {
+      const snapshot = await refreshOwnership();
+      if (!snapshot) { terminate(); return; }
+      if (ownership?.rootObserved && snapshot.get(runtime.pid!)?.state.startsWith('T')) {
+        runtime.kill('SIGCONT');
+        if (typeof process.send === 'function') process.send({ type: 'runtime_ready', pid: runtime.pid });
+        return;
+      }
+      await new Promise<void>(resolve => setTimeout(resolve, 10));
+    }
+    if (!terminating) { inspectionFailed = true; terminate(); }
+  })();
 });
 runtime.once('error', (error) => {
+  spawnFailed = runtime.pid === undefined;
   process.stderr.write(`runner guardian failed to launch runtime: ${error.message}\n`);
 });
+runtime.stdin.on('error', () => { /* The runner's exit determines delivery failure. */ });
+runtime.once('exit', (code) => {
+  runtimeExitCode = code ?? 143;
+  // Use exit, not close: descendants can inherit stdout and keep close pending.
+  terminate();
+});
 runtime.once('close', (code) => {
-  if (killTimer) clearTimeout(killTimer);
-  const exitCode = code ?? (terminating ? 143 : 1);
-  if (process.connected) process.disconnect?.();
-  process.exit(exitCode);
+  runtimeExitCode = code ?? (terminating ? 143 : 1);
+  runtimeClosed = true;
+  terminate();
+  void finishWhenStopped();
 });
 
 process.on('disconnect', terminate);

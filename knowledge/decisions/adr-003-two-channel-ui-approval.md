@@ -19,14 +19,14 @@ Every remote execution approval uses two Matrix surfaces. The public project
 room receives only a redacted, non-actionable status notice. The agent-owner
 encrypted DM receives the full structured request and UI buttons for
 single-use approve or deny actions. Button clicks emit structured Matrix events;
-hafleet alone validates and consumes them. Plain text and generic `!ctl`
+hagency alone validates and consumes them. Plain text and generic `!ctl`
 commands never authorize an execution request.
 
 ### Amendment 2026-08-11 — the encrypted DM has one authorised exception, named here
 
 "The agent-owner **encrypted** DM" above reads as admitting no exception, and the
-implementation has one: with `HAFLEET_APPROVAL_DM_MODE=plaintext-test` **and**
-`HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST=1` **and** `NODE_ENV !== 'production'`
+implementation has one: with `HAGENCY_APPROVAL_DM_MODE=plaintext-test` **and**
+`HAGENCY_ALLOW_PLAINTEXT_APPROVAL_TEST=1` **and** `NODE_ENV !== 'production'`
 (`resolveApprovalDmMode`, `bridge-matrix.js`), the full structured request — input preview
 included — is sent to a deliberately unencrypted diagnostic room.
 
@@ -47,7 +47,7 @@ document that promises encryption.
 Good, because project participants can see progress without receiving private
 details or approval power.
 
-Bad, because the workflow requires coordinated protocol support in hafleet
+Bad, because the workflow requires coordinated protocol support in hagency
 and Robrix2, plus a healthy encrypted DM channel.
 
 ## Alternatives Considered

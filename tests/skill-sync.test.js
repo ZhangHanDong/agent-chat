@@ -8,27 +8,27 @@ let temp;
 let checkout;
 let testHome;
 let fakeBin;
-const source = path.resolve('bin/hafleet-sync-skills');
+const source = path.resolve('bin/hagency-sync-skills');
 const clients = ['.claude', '.codex'];
-const skillAt = (client) => path.join(testHome, client, 'skills', 'hafleet-inner-loop');
+const skillAt = (client) => path.join(testHome, client, 'skills', 'hagency-inner-loop');
 
 beforeEach(() => {
-  temp = realpathSync(mkdtempSync(path.join(tmpdir(), 'hafleet-skill-sync-')));
+  temp = realpathSync(mkdtempSync(path.join(tmpdir(), 'hagency-skill-sync-')));
   checkout = path.join(temp, 'checkout with spaces');
   testHome = path.join(temp, 'test home');
   fakeBin = path.join(temp, 'fake-bin');
-  for (const dir of ['bin', 'skills/hafleet', 'skills/hafleet-inner-loop/scripts']) mkdirSync(path.join(checkout, dir), { recursive: true });
+  for (const dir of ['bin', 'skills/hagency', 'skills/hagency-inner-loop/scripts']) mkdirSync(path.join(checkout, dir), { recursive: true });
   mkdirSync(fakeBin);
-  copyFileSync(source, path.join(checkout, 'bin/hafleet-sync-skills'));
-  writeFileSync(path.join(checkout, 'skills/hafleet/SKILL.md'), 'legacy template');
-  writeFileSync(path.join(checkout, 'skills/hafleet-inner-loop/SKILL.md'), 'node scripts/monitor.mjs');
-  writeFileSync(path.join(checkout, 'skills/hafleet-inner-loop/scripts/monitor.mjs'), 'console.log("resource available")');
+  copyFileSync(source, path.join(checkout, 'bin/hagency-sync-skills'));
+  writeFileSync(path.join(checkout, 'skills/hagency/SKILL.md'), 'legacy template');
+  writeFileSync(path.join(checkout, 'skills/hagency-inner-loop/SKILL.md'), 'node scripts/monitor.mjs');
+  writeFileSync(path.join(checkout, 'skills/hagency-inner-loop/scripts/monitor.mjs'), 'console.log("resource available")');
   writeFileSync(path.join(fakeBin, 'date'), '#!/usr/bin/env bash\necho fixed\n', { mode: 0o755 });
 });
 afterEach(() => rmSync(temp, { recursive: true, force: true }));
 
 function sync(...args) {
-  return execFileSync('bash', [path.join(checkout, 'bin/hafleet-sync-skills'), ...args], {
+  return execFileSync('bash', [path.join(checkout, 'bin/hagency-sync-skills'), ...args], {
     encoding: 'utf8', env: { ...process.env, HOME: testHome, PATH: `${fakeBin}:${process.env.PATH}` },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -41,8 +41,8 @@ describe('skill directory synchronization', () => {
       const skill = skillAt(client);
       expect(existsSync(path.join(skill, 'scripts/monitor.mjs'))).toBe(true);
       expect(readFileSync(path.join(skill, 'SKILL.md'), 'utf8')).toContain('scripts/monitor.mjs');
-      expect(realpathSync(skill)).toBe(path.join(checkout, 'skills/hafleet-inner-loop'));
-      expect(realpathSync(path.join(testHome, client, 'skills/hafleet/SKILL.md'))).toBe(path.join(checkout, 'skills/hafleet/SKILL.md'));
+      expect(realpathSync(skill)).toBe(path.join(checkout, 'skills/hagency-inner-loop'));
+      expect(realpathSync(path.join(testHome, client, 'skills/hagency/SKILL.md'))).toBe(path.join(checkout, 'skills/hagency/SKILL.md'));
       const output = execFileSync(process.execPath, [path.join(skill, 'scripts/monitor.mjs')], { encoding: 'utf8' });
       expect(output.trim()).toBe('resource available');
     }
@@ -67,7 +67,7 @@ describe('skill directory synchronization', () => {
     sync();
     for (const client of clients) {
       const parent = path.dirname(skillAt(client));
-      const backups = readdirSync(parent).filter((name) => name.startsWith('hafleet-inner-loop.bak.'));
+      const backups = readdirSync(parent).filter((name) => name.startsWith('hagency-inner-loop.bak.'));
       expect(backups).toHaveLength(3);
       const contents = backups.map((name) => {
         const file = path.join(parent, name);
@@ -80,20 +80,20 @@ describe('skill directory synchronization', () => {
   test('skill check refuses missing resources and wrong links without mutation', () => {
     // Existing legacy links alone must not pass the expanded check.
     for (const client of clients) {
-      const legacy = path.join(testHome, client, 'skills/hafleet');
+      const legacy = path.join(testHome, client, 'skills/hagency');
       mkdirSync(legacy, { recursive: true });
-      symlinkSync(path.join(checkout, 'skills/hafleet/SKILL.md'), path.join(legacy, 'SKILL.md'));
+      symlinkSync(path.join(checkout, 'skills/hagency/SKILL.md'), path.join(legacy, 'SKILL.md'));
     }
     expect(() => sync('--check')).toThrow();
     for (const client of clients) expect(existsSync(skillAt(client))).toBe(false);
     sync();
     unlinkSync(skillAt('.claude'));
-    symlinkSync(path.join(checkout, 'skills/hafleet'), skillAt('.claude'));
+    symlinkSync(path.join(checkout, 'skills/hagency'), skillAt('.claude'));
     const wrong = readlinkSync(skillAt('.claude'));
     expect(() => sync('--check')).toThrow();
     expect(readlinkSync(skillAt('.claude'))).toBe(wrong);
     sync();
-    rmSync(path.join(checkout, 'skills/hafleet-inner-loop/scripts/monitor.mjs'));
+    rmSync(path.join(checkout, 'skills/hagency-inner-loop/scripts/monitor.mjs'));
     const before = clients.map((client) => lstatSync(skillAt(client)).mtimeMs);
     expect(() => sync('--check')).toThrow();
     expect(clients.map((client) => lstatSync(skillAt(client)).mtimeMs)).toEqual(before);

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-vitest_bin="${HAFLEET_VITEST_BIN:-}"
+vitest_bin="${HAGENCY_VITEST_BIN:-}"
 if [[ -z "$vitest_bin" ]]; then
   if command -v vitest >/dev/null 2>&1; then
     vitest_bin="$(command -v vitest)"
@@ -89,8 +89,8 @@ trap 'trap - EXIT; cleanup_shards TERM; exit 143' TERM
 # backend modules or memory pressure. See docs/TESTING.md. This transport fix
 # does not change the memory budget or concurrency policy.
 # Default 1; an operator can still explicitly choose a different cap:
-#   HAFLEET_KERNEL_MAX_CONCURRENCY=5 npm run test:kernel
-KERNEL_MAX_CONCURRENCY="${HAFLEET_KERNEL_MAX_CONCURRENCY:-1}"
+#   HAGENCY_KERNEL_MAX_CONCURRENCY=5 npm run test:kernel
+KERNEL_MAX_CONCURRENCY="${HAGENCY_KERNEL_MAX_CONCURRENCY:-1}"
 
 # Index of the next shard whose exit status has not yet been collected.
 shard_next_reap=0
@@ -126,7 +126,7 @@ start_shard() {
   shift
   await_shard_slot
   local log_file
-  log_file="$(mktemp "${TMPDIR:-/tmp}/hafleet-kernel-tests.XXXXXX")"
+  log_file="$(mktemp "${TMPDIR:-/tmp}/hagency-kernel-tests.XXXXXX")"
   shard_names+=("$name")
   shard_logs+=("$log_file")
   set -m
@@ -185,9 +185,9 @@ start_shard "contracts and cli" \
   tests/ci-workflow.test.js \
   tests/bot-command-acl.test.js \
   tests/source-of-truth.test.js \
-  tests/cli-hafleet-project.test.js \
-  tests/cli-hafleet-graph.test.js \
-  tests/cli-hafleet-ls.test.js \
+  tests/cli-hagency-project.test.js \
+  tests/cli-hagency-graph.test.js \
+  tests/cli-hagency-ls.test.js \
   tests/cli-agent-status.test.js \
   tests/cli-fleet.test.js \
   tests/cli-resume-id.test.js \
