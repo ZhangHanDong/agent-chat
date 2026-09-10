@@ -1,0 +1,25 @@
+[package]
+name = "hagency-media-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hagency-files = { path = "../hagency-files" }
+hagency-media = { path = "../hagency-media" }
+hagency-store = { path = "../hagency-store" }
+cap-std = "=4.0.3"
+cap-fs-ext = "=4.0.3"
+sha2.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

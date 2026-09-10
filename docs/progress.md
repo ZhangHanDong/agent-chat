@@ -4013,3 +4013,42 @@ provisioning, automatic unknown-SDK recovery, receipt compaction and service cut
 are explicit gates. Parent integration and three-platform CI remain separate from
 these actual local tests. The existing outgoing target was reused to avoid another
 large SDK build tree; no broad workspace build ran in this isolated worktree.
+
+## 2026-09-10 — Bounded native private media staging
+
+ADR066 adds isolated hagency-media-store storage over actual Snapshot/Encrypted/
+CheckedBytes custody. Stable operation IDs bind exact bytes, kind, namespace and
+private descriptors in a finite checksummed journal. Retained directory/file
+capabilities, one file owner, strict private checks and creation-only Windows SID/
+DACL sealing precede private writes. No domain schema, Matrix path or service API
+changed; staging does not grant execution, route or delivery authority.
+
+Real interruption fixtures cover intent, partial payload, descriptor, commit and
+sync/response boundaries. Unknown tails remain quarantined without truncation;
+complete committed frames recover original ciphertext/keys. Actual refused OS
+write with zero persisted bytes demonstrates restart absence, not unsent proof.
+A future domain operation must be persisted before invoking staging. Parent review
+found preflight Media ownership loss; StageFailure now returns unadmitted input
+while post-write failures stay held by the original Store, with exact descriptor
+regressions for conflict, full/quarantined state and failed private-object checks.
+
+Latest affected local tests pass 23/23 (11 files, 4 codec, 7 staging, 1 existing
+private-storage regression). Native and Windows GNU warnings-denied Clippy pass,
+including Windows sealing/ACL fixture compilation. Actual Windows runtime/three-
+platform qualification is delegated to integrated CI. A first compile needed an
+explicit result type; the ownership API refactor briefly left the public signature
+unchanged and failed compilation, then was corrected without changing behavior
+assertions. Initial unused test imports were removed. All earlier failure logs
+remain in the external media-staging-* evidence cache. No full workspace build,
+live service, automatic cleanup, hardware power-loss or native cutover claim.
+
+Final agent-spec 1.4 strict lifecycle passes 7/7: six bound selectors (seven
+actual staging tests) plus the boundary check for all 13 changed paths, with no
+failed, skipped, uncertain or pending-review results. Four nonblocking lint
+heuristics remain: two request absence/API constraint coverage and two do not
+recognize the explicit local-filesystem verification metadata. These are not
+claimed as additional test passes. Added real upstream snapshot-permit assertions
+prove returned and retained failure custody also keeps the original resource
+owner alive. The final replay selector passes 2/2; both Clippy targets, formatting
+and whitespace checks pass after those assertions. All evidence is retained under
+the external media-staging-final-* cache logs.

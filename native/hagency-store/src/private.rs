@@ -60,6 +60,47 @@ fn check(file: &File, path: &Path, sqlite_journal: bool) -> Result<(), Error> {
     Ok(())
 }
 
+/// Validate the actual retained handle, without resolving any ambient path.
+/// This checks current owner permissions, not physical namespace provisioning or
+/// protection against a malicious process sharing the same OS identity.
+pub fn check_handle(file: &File) -> Result<(), Error> {
+    let meta = file.metadata()?;
+    if !(meta.is_file() || meta.is_dir()) || meta.file_type().is_symlink() {
+        return Err(Error::Private);
+    }
+    #[cfg(unix)]
+    if meta.mode() & 0o077 != 0
+        || meta.uid() != rustix::process::geteuid().as_raw()
+        || (meta.is_file() && meta.nlink() != 1)
+    {
+        return Err(Error::Private);
+    }
+    #[cfg(windows)]
+    windows::check_handle(file, false)?;
+    #[cfg(not(any(unix, windows)))]
+    return Err(Error::PlatformUnavailable);
+    #[cfg(any(unix, windows))]
+    Ok(())
+}
+
+/// Creation-only adapter for the retained handle returned by successful
+/// create_new. Call BEFORE any bytes are written, never for an existing object.
+/// Windows assigns the current SID and a protected private DACL, then applies
+/// the same strict checker. The host must prove create_new; length is not proof.
+pub fn seal_created_file_handle(file: &File) -> Result<(), Error> {
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.len() != 0 {
+        return Err(Error::Private);
+    }
+    #[cfg(windows)]
+    windows::seal_created_file_handle(file)?;
+    check_handle(file)?;
+    if file.metadata()?.len() != 0 {
+        return Err(Error::Private);
+    }
+    Ok(())
+}
+
 pub fn open(path: &Path, create: bool) -> Result<File, Error> {
     let mut options = OpenOptions::new();
     options.read(true).write(true);
@@ -130,6 +171,10 @@ mod tests {
         write_new(&token, b"fixture-secret").unwrap();
         fs::set_permissions(&token, fs::Permissions::from_mode(0o644)).unwrap();
         assert!(matches!(read_secret(&token), Err(Error::Private)));
+        assert!(matches!(
+            check_handle(&File::open(&token).unwrap()),
+            Err(Error::Private)
+        ));
         fs::set_permissions(&token, fs::Permissions::from_mode(0o600)).unwrap();
         fs::hard_link(&token, root.join("hard-link")).unwrap();
         assert!(matches!(read_secret(&token), Err(Error::Private)));

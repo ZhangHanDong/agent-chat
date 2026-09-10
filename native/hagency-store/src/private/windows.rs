@@ -144,6 +144,16 @@ pub(super) fn check_with_policy(
     if std::fs::symlink_metadata(path)?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(Error::Private);
     }
+    check_handle(file, sqlite_journal)
+}
+
+pub(super) fn check_handle(file: &File, sqlite_journal: bool) -> Result<(), Error> {
+    let meta = file.metadata()?;
+    if !(meta.is_file() || meta.is_dir())
+        || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    {
+        return Err(Error::Private);
+    }
     let sid = current_sid()?;
     let sid_wide: Vec<_> = sid.encode_utf16().chain(Some(0)).collect();
     // SAFETY: GetSecurityInfo owns the returned descriptor; its SID and ACL pointers
@@ -214,6 +224,77 @@ pub(super) fn check_with_policy(
         }
     }
     Ok(())
+}
+
+pub(super) fn seal_created_file_handle(file: &File) -> Result<(), Error> {
+    fn candidate(file: &File) -> Result<(), Error> {
+        let meta = file.metadata()?;
+        if !meta.is_file()
+            || meta.len() != 0
+            || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        {
+            return Err(Error::Private);
+        }
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: the live borrowed File owns its handle; output is initialized
+        // and used only after Win32 reports success. No raw handle escapes.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        if info.nNumberOfLinks != 1 {
+            return Err(Error::Private);
+        }
+        Ok(())
+    }
+    candidate(file)?;
+    let sid = current_sid()?;
+    let sddl: Vec<u16> = format!("O:{sid}D:P(A;;FA;;;{sid})\0")
+        .encode_utf16()
+        .collect();
+    // SAFETY: the borrowed File remains live and was created with WRITE_OWNER
+    // and WRITE_DAC. The allocated descriptor owns owner/DACL pointers until the
+    // synchronous SetSecurityInfo completes. Nothing is resolved by pathname.
+    unsafe {
+        let mut descriptor = ptr::null_mut();
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            ptr::null_mut(),
+        ) == 0
+        {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let _allocated = Allocation(descriptor);
+        let mut owner = ptr::null_mut();
+        let mut defaulted = 0;
+        let mut present = 0;
+        let mut dacl = ptr::null_mut();
+        if GetSecurityDescriptorOwner(descriptor, &mut owner, &mut defaulted) == 0
+            || GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted) == 0
+            || present == 0
+            || owner.is_null()
+            || dacl.is_null()
+        {
+            return Err(Error::Private);
+        }
+        let result = SetSecurityInfo(
+            file.as_raw_handle(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION
+                | DACL_SECURITY_INFORMATION
+                | PROTECTED_DACL_SECURITY_INFORMATION,
+            owner,
+            ptr::null_mut(),
+            dacl,
+            ptr::null_mut(),
+        );
+        if result != 0 {
+            return Err(std::io::Error::from_raw_os_error(result as i32).into());
+        }
+    }
+    candidate(file)?;
+    check_handle(file, false)
 }
 
 pub(super) fn create_file(path: &Path) -> Result<File, Error> {
@@ -310,6 +391,10 @@ mod tests {
         }
         assert!(matches!(
             crate::private::read_secret(&token),
+            Err(Error::Private)
+        ));
+        assert!(matches!(
+            crate::private::check_handle(&File::open(&token).unwrap()),
             Err(Error::Private)
         ));
         assert!(matches!(

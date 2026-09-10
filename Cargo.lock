@@ -1190,6 +1190,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hagency-media-store"
+version = "0.1.0"
+dependencies = [
+ "cap-fs-ext",
+ "cap-std",
+ "hagency-files",
+ "hagency-media",
+ "hagency-store",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "hagency-metering"
 version = "0.1.0"
 dependencies = [

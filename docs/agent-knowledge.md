@@ -1931,3 +1931,26 @@ The reader currently stops at 64 completed batches or 256 terminal sources, with
 silently evicts dedup history. Native approval_ IDs have 40 hex characters; legacy
 Robrix's parser expects 32. Native card delivery, compatibility changes, runtime
 application, live key lifecycle and continuous-service retention are not enabled.
+
+### Native media staging — ADR066 (2026-09-10)
+
+Staging is a storage capability, separate from dispatch or Matrix authority.
+HostNamespace is only a bounded partition. Preserve original Encrypted bytes and
+private descriptor across retries; restored StagedMedia is copied verified storage,
+not a newly invented Snapshot with original file handles or authenticated sender.
+A preflight StageFailure returns unadmitted Media. Once IO begins, the Store holds
+pending Media and quarantines admission; never overwrite it with a second request.
+
+One retained Dir/file owner uses a fixed relative journal with finite byte/record/
+result limits. Keep incomplete tails and exact operation hashes; no eviction,
+truncation, re-encryption or new-ID recovery. A zero-byte failed intent cannot
+leave a restart tombstone: NotFound is absence of evidence, never unsent proof.
+The future domain adapter must persist the original operation before staging.
+Complete lost responses recover original bytes/keys after frame validation.
+
+File and directory flush acknowledgements are distinct. Windows may return only
+FileSyncedDirectoryUnconfirmed; it is not durable admission or upload permission.
+Creation-only Windows sealing sets current SID on the fresh relative empty handle
+before any bytes, then uses the same strict checker. Existing journals are never
+repaired. Directory handles are actual custody; pathname checks and file flushes
+do not prove physical namespace or hardware power-loss guarantees.
