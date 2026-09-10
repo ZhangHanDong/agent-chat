@@ -1776,3 +1776,11 @@ Rust job. Fixed public fixture keys are never runtime credentials.
 A positive authenticated delivery journal may reconcile Sending with its exact fence
 and immutable observation even if the sender lost the claim secret. NotSent still
 requires Uncertain; receipt loss must never fabricate permission to resend.
+
+Windows cap-primitives4.0.3 intentionally excludes FILE_SHARE_DELETE from directory
+opens (windows/fs/oflags.rs and dir_utils.rs). Qualify actual ERROR_SHARING_VIOLATION32
+before handle release and successful rename afterward; do not require the POSIX
+directory rename scenario to succeed or weaken those sharing flags. 79b036c's
+four other Windows OutcomeUnknown failures occur specifically in domain.shutdown,
+not the previously failing transport activation operations. Keep those causes
+separate until bounded worker/drop/receipt timing identifies the shutdown delay.

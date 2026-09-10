@@ -37,6 +37,19 @@ filesystem. Directory moves into or out of a private tree are physical namespace
 policy, not something path syntax can secure. No production sandbox is enabled by
 this crate alone.
 
+Windows directory handles have a stricter mutation boundary. The pinned
+[oflags implementation](https://docs.rs/crate/cap-primitives/4.0.3/source/src/windows/fs/oflags.rs)
+removes FILE_SHARE_DELETE for directory opens, and
+[directory helpers](https://docs.rs/crate/cap-primitives/4.0.3/source/src/windows/fs/dir_utils.rs)
+do the same. Held directories cannot be renamed through the ordinary filesystem
+API. The initial CI fixture incorrectly required those renames to succeed as on
+POSIX and failed with Win32 ERROR_SHARING_VIOLATION32. Correct qualification must
+attempt the rename, require that exact refusal, verify original bytes, then
+release every retained capability and require the same rename to succeed.
+This is a tested platform custody distinction, not a skipped mutation scenario
+or a permission to weaken the production handle-sharing flags. Leaf-file
+replacement remains a separate real rename case.
+
 ## Paths and reviewed platform behavior
 
 `RelativeFile` accepts UTF-8 normal components separated by `/`: at most 4096 bytes,

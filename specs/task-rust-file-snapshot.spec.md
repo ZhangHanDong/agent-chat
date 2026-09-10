@@ -22,6 +22,7 @@ ADR-027 without adding runtime paths, network delivery or a second domain store.
 - Keep content source paths physical metadata and private identity out of Debug serialization and error projections.
 - Document private provisioning mount hardlink and same-size mutation limitations precisely.
 - Pin inspected dependencies while preserving every existing lockfile package version.
+- Verify Windows retained directory handles deny rename with ERROR_SHARING_VIOLATION and that the same rename succeeds after custody is released.
 
 ### Must Not
 - Do not add arbitrary ambient filesystem access from runtime arguments or external JSON.
@@ -65,10 +66,11 @@ Scenario: Names and links cannot widen file selection
 Scenario: Opened object custody survives path replacement
   Test: native_file_snapshot_custody
   Level: integration
-  Test Double: real files renamed or replaced at controlled lookup and read boundaries
+  Test Double: real POSIX replacements and Windows sharing-denied directory renames before controlled handle release
   Given an opened ancestor or source handle
-  When an ancestor pathname or leaf is replaced and source bytes later change
+  When an adversary attempts to replace an ancestor pathname or leaf and source bytes later change
   Then reading keeps original opened-object custody and an existing snapshot stays unchanged
+  And Windows directory replacement is denied while handles are retained and succeeds after their release
   And observed source mutation is refused without claiming detection of all same-size mutations
 
 Scenario: Snapshot capacity remains finite across concurrent owners

@@ -27,9 +27,23 @@ fn native_file_snapshot_custody_ancestor_and_leaf_replacement_keep_open_objects(
                 if !changed && std::mem::discriminant(&replace) == std::mem::discriminant(&stage) {
                     changed = true;
                     if matches!(replace, Stage::Ancestor) {
-                        fs::rename(root.path().join("nested"), root.path().join("old")).unwrap();
-                        fs::create_dir(root.path().join("nested")).unwrap();
-                        fs::write(root.path().join("nested/file"), b"replacement").unwrap();
+                        // cap-primitives deliberately omits FILE_SHARE_DELETE
+                        // for directory handles on Windows. The adversarial
+                        // rename must be rejected while this capability lives.
+                        #[cfg(windows)]
+                        {
+                            let error =
+                                fs::rename(root.path().join("nested"), root.path().join("old"))
+                                    .unwrap_err();
+                            assert_eq!(error.raw_os_error(), Some(32));
+                        }
+                        #[cfg(not(windows))]
+                        {
+                            fs::rename(root.path().join("nested"), root.path().join("old"))
+                                .unwrap();
+                            fs::create_dir(root.path().join("nested")).unwrap();
+                            fs::write(root.path().join("nested/file"), b"replacement").unwrap();
+                        }
                     } else {
                         fs::rename(root.path().join("nested/file"), root.path().join("old"))
                             .unwrap();
@@ -40,6 +54,20 @@ fn native_file_snapshot_custody_ancestor_and_leaf_replacement_keep_open_objects(
             .unwrap();
         assert!(changed);
         assert_eq!(snapshot.bytes(), b"original");
+        #[cfg(windows)]
+        if matches!(replace, Stage::Ancestor) {
+            assert_eq!(
+                ws.snapshot(&select("nested/file")).unwrap().bytes(),
+                b"original"
+            );
+            assert!(!root.path().join("old").exists());
+            // Prove the denial belonged to retained custody: releasing this
+            // snapshot makes the same rename succeed, with no permission edit.
+            drop(snapshot);
+            fs::rename(root.path().join("nested"), root.path().join("old")).unwrap();
+            fs::create_dir(root.path().join("nested")).unwrap();
+            fs::write(root.path().join("nested/file"), b"replacement").unwrap();
+        }
         assert_eq!(
             ws.snapshot(&select("nested/file")).unwrap().bytes(),
             b"replacement"
@@ -52,14 +80,45 @@ fn native_file_snapshot_custody_root_path_replacement_keeps_retained_capability(
     fs::create_dir(parent.path().join("workspace")).unwrap();
     fs::write(parent.path().join("workspace/file"), b"owned root").unwrap();
     let ws = workspace(&parent.path().join("workspace"), Limits::default());
-    fs::rename(
-        parent.path().join("workspace"),
-        parent.path().join("retained"),
-    )
-    .unwrap();
-    fs::create_dir(parent.path().join("workspace")).unwrap();
-    fs::write(parent.path().join("workspace/file"), b"another root").unwrap();
-    assert_eq!(ws.snapshot(&select("file")).unwrap().bytes(), b"owned root");
+    #[cfg(windows)]
+    {
+        let snapshot = ws.snapshot(&select("file")).unwrap();
+        let rename = || {
+            fs::rename(
+                parent.path().join("workspace"),
+                parent.path().join("retained"),
+            )
+        };
+        assert_eq!(rename().unwrap_err().raw_os_error(), Some(32));
+        assert_eq!(ws.snapshot(&select("file")).unwrap().bytes(), b"owned root");
+        drop(ws);
+        assert_eq!(rename().unwrap_err().raw_os_error(), Some(32));
+        assert_eq!(snapshot.bytes(), b"owned root");
+        drop(snapshot);
+        rename().unwrap();
+        fs::create_dir(parent.path().join("workspace")).unwrap();
+        fs::write(parent.path().join("workspace/file"), b"another root").unwrap();
+        assert_eq!(
+            fs::read(parent.path().join("retained/file")).unwrap(),
+            b"owned root"
+        );
+        let fresh = workspace(&parent.path().join("workspace"), Limits::default());
+        assert_eq!(
+            fresh.snapshot(&select("file")).unwrap().bytes(),
+            b"another root"
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        fs::rename(
+            parent.path().join("workspace"),
+            parent.path().join("retained"),
+        )
+        .unwrap();
+        fs::create_dir(parent.path().join("workspace")).unwrap();
+        fs::write(parent.path().join("workspace/file"), b"another root").unwrap();
+        assert_eq!(ws.snapshot(&select("file")).unwrap().bytes(), b"owned root");
+    }
 }
 #[test]
 fn native_file_snapshot_custody_observed_growth_and_new_hardlink_are_refused() {
