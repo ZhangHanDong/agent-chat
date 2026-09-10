@@ -22,16 +22,19 @@ fn launch(state: &Path, address: SocketAddr) -> Running {
         .env("PATH", "")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     let mut running = Running(child);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        assert!(
-            running.0.try_wait().unwrap().is_none(),
-            "native service exited before health"
-        );
+        if let Some(status) = running.0.try_wait().unwrap() {
+            let mut error = String::new();
+            if let Some(mut stderr) = running.0.stderr.take() {
+                stderr.read_to_string(&mut error).unwrap();
+            }
+            panic!("native service exited before health ({status}): {error}");
+        }
         if let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(100)) {
             stream
                 .set_read_timeout(Some(Duration::from_secs(1)))

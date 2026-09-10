@@ -38,6 +38,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let mut device_keys = serde_json::to_value(own.as_device_keys()).unwrap();
+        drop(own); // Device handles also retain the old store; release before reopening.
         let signatures: Value = serde_json::from_str(signed.get()).unwrap();
         for (id, signature) in signatures["signatures"][user.as_str()].as_object().unwrap() {
             device_keys["signatures"][user.as_str()][id] = signature.clone();

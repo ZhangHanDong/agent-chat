@@ -62,8 +62,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !listen.ip().is_loopback() || listen.port() == 0 {
                 return Err("native development service requires a loopback address".into());
             }
-            let token = private::read_secret(&state_dir.join("operator.token"))?;
-            let store = Store::start(Repository::open(&state_dir)?, queue_capacity)?;
+            let token = private::read_secret(&state_dir.join("operator.token"))
+                .map_err(|e| format!("native credential check failed: {e}"))?;
+            let store = Store::start(
+                Repository::open(&state_dir)
+                    .map_err(|e| format!("native custody startup failed: {e}"))?,
+                queue_capacity,
+            )?;
             let app = hagency::App::new(store.clone(), &token, listen)?;
             let acceptor = TcpListener::new(listen).try_bind().await?;
             let server = Server::new(acceptor).max_connections(64);

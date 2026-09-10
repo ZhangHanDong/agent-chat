@@ -96,6 +96,8 @@ mod tests {
             );
             assert_eq!(digest(value).unwrap(), vector["sha256"].as_str().unwrap());
         }
+        assert_eq!(encode(&serde_json::from_str("1.0").unwrap()).unwrap(), "1");
+        assert_eq!(encode(&serde_json::from_str("-0.0").unwrap()).unwrap(), "0");
         for raw in [
             "9007199254740992",
             "-9007199254740992",
