@@ -3921,3 +3921,29 @@ log is preserved. Final oracle, formatting and whitespace checks pass. Parent
 independent review checked source authority, optional arithmetic, latest flags,
 all six capacity branches and second-period rollback with no remaining blocker.
 No source tests or production deadlines were weakened.
+
+
+## 2026-09-10 — Operator usage observation projection (ADR067)
+
+Added one authenticated native GET for engagement aggregate usage and selected
+UTC day/month observations. One original bounded writer operation reads the
+projection; no source restoration or observation write is exposed. Unknown data
+and absent periods remain null, incomplete/regression history stays explicit,
+and private task/source/workspace/room records never enter the response type.
+The capability describes a development read endpoint only; execution, connected
+transport, browser console and production parity remain disabled.
+
+Three real Salvo/fresh-writer tests pass, exercising authority and forbidden
+headers, absent/partial/regressed/recovered observations, exact public fields,
+malformed/duplicate/oversized/out-of-range queries, missing engagements and
+missing/closed writers. Focused native Clippy with warnings denied passes. Initial
+compile evidence (Salvo generated handler name collided with a pattern binding)
+and fixture failure (task/session arguments swapped) are preserved under the
+external usage-read prefix; both were corrected without changing production
+authority or weakening assertions. Root independently integrated ADR063 schema17
+and its lifecycle passes9/9 with all30 paths; its16 JavaScript vectors also pass.
+
+ADR067 strict lifecycle passes4/4 with all15 changed paths. Independent review
+found no blocker. The final three tests also cover both supported UTC endpoints
+and a percent-encoded duplicate parameter; all pass, with formatting and diff
+checks clean. Existing locked package versions remain unchanged.

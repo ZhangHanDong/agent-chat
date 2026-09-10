@@ -8,7 +8,7 @@ pub use domain::{
     MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES, MAX_SOURCE_USAGE_RECEIPTS,
     MAX_USAGE_PERIODS, MAX_USAGE_RECEIPTS, MAX_USAGE_SOURCES, OwnedCompletion, OwnedDispatchScope,
     OwnedFailure, OwnedObservation, SourceUsage, UsageEvidence, UsagePeriod, UsagePeriodKind,
-    UsageReceipt, UsageSource, UsageSummary,
+    UsageReceipt, UsageReport, UsageSource, UsageSummary,
 };
 pub use domain_worker::DomainStore;
 pub mod outbound;

@@ -107,6 +107,15 @@ pub struct UsageSummary {
     pub regression_observations: u64,
     pub evidence: UsageEvidence,
 }
+/// Aggregate-only operator projection; source records and authority stay private.
+#[derive(Debug, Serialize)]
+pub struct UsageReport {
+    pub engagement_id: String,
+    pub at_ms: u64,
+    pub summary: UsageSummary,
+    pub daily: Option<UsagePeriod>,
+    pub monthly: Option<UsagePeriod>,
+}
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageEvidence {

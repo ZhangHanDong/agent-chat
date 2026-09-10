@@ -1810,6 +1810,22 @@ impl DomainStore {
         })
         .await
     }
+    /// One projection under the original writer queue. Query time only selects
+    /// periods and never becomes observation attribution.
+    pub async fn usage_report(
+        &self,
+        engagement: String,
+        at: Option<u64>,
+    ) -> Result<crate::UsageReport, Error> {
+        self.call(weight(&(&engagement, at))?, move |db| {
+            let at = match at {
+                Some(at) => at,
+                None => writer_time()?,
+            };
+            db.usage_report(&engagement, at)
+        })
+        .await
+    }
     pub async fn usage_period(
         &self,
         engagement: String,

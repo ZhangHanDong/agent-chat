@@ -27,6 +27,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
+hagency-metering = { path = "../hagency-metering" }
 hagency-matrix = { path = "../hagency-matrix" }
 hagency-execution = { path = "../hagency-execution" }
 hagency-runtime = { path = "../hagency-runtime" }

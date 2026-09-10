@@ -38,6 +38,18 @@ pub(super) fn credit_period(
     Ok(())
 }
 impl DomainRepository {
+    pub fn usage_report(&self, engagement: &str, at: u64) -> Result<UsageReport, Error> {
+        identifier(engagement, 128)?;
+        period_keys(at)?;
+        read_engagement(&self.db, engagement)?;
+        Ok(UsageReport {
+            engagement_id: engagement.into(),
+            at_ms: at,
+            summary: self.usage_summary(engagement)?,
+            daily: self.usage_period(engagement, UsagePeriodKind::Daily, at)?,
+            monthly: self.usage_period(engagement, UsagePeriodKind::Monthly, at)?,
+        })
+    }
     pub fn usage_source(&self, source: &UsageSource) -> Result<SourceUsage, Error> {
         source_binding(&self.db, source)?;
         let (runtime,water,latest,observation,history,regressions,count,at):(String,String,String,Option<String>,bool,u64,u64,Option<u64>)=self.db.query_row("SELECT framework,high_water,latest_counts,latest_observation,historical_incomplete,regressions,observations,observed_at FROM usage_sources WHERE id=?1",[&source.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)))?;

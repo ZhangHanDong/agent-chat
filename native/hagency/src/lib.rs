@@ -4,6 +4,7 @@ pub mod mcp;
 mod resources;
 mod runner;
 pub mod task_client;
+mod usage;
 use salvo::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
@@ -59,6 +60,7 @@ impl App {
                     .hoop(authorize)
                     .push(Router::with_path("capabilities").get(capabilities))
                     .push(resources::router())
+                    .push(usage::router())
                     .push(Router::with_path("custody").post(receive)),
             )
     }
@@ -78,7 +80,7 @@ async fn capabilities(depot: &mut Depot, res: &mut Response) {
         .is_ok_and(|app| app.domain.is_some());
     res.render(Json(
         serde_json::json!({"custody":true, "agent_execution":false, "palpo_transport":false,
-        "matrix_crypto":false, "resource_management":management, "runner_task_api":management, "project_request_transport":false, "production_api_parity":false}),
+        "matrix_crypto":false, "resource_management":management, "runner_task_api":management, "usage_observations_read":management, "project_request_transport":false, "production_api_parity":false}),
     ));
 }
 

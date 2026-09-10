@@ -1886,3 +1886,11 @@ count a reappearing source again. Explicit zero differs from absent period. With
 one row left, a new day/month must roll both credits back when the second fails.
 The same source/call/body resolves an unknown writer response without recounting;
 a timeout alone says nothing about commit or rollback.
+
+
+ADR067 exposes only aggregate usage at the existing native operator boundary.
+The selected at_ms query is a read filter, not ledger observation time. One writer
+job preserves internal sequencing; no external-writer snapshot guarantee exists.
+Absent source/period evidence must stay null, and historical lower bounds are
+not quotas. Keep source IDs, digests, task/room/workspace and credentials out of
+this typed report; future console code must preserve its uncertainty indicators.
