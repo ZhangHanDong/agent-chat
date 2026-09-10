@@ -13290,6 +13290,7 @@ app.post('/api/tasks/:id/transition', requireAgentToken(_tokenFromTaskAssignee),
     if (!status) return res.status(400).json({ error: 'status is required' });
     const task = taskStore.transitionTask(req.params.id, status, req.body);
     broadcastSSE('task_updated', task);
+    if (status === 'in_progress') scheduleRouterPump();
     return res.json({ ok: true, task });
   } catch (error) {
     return respondTaskStoreError(res, error, 'failed to transition task');

@@ -33,6 +33,16 @@ if (process.env.FAKE_CLAUDE_CLOSE_STDIN === '1') {
   process.stdin.on('data', (chunk) => { input += chunk; });
   process.stdin.on('end', () => {
     if (process.env.FAKE_CLAUDE_FAIL === '1') process.exit(17);
+    if (process.env.FAKE_CLAUDE_RESULT_ERROR === '1') {
+      process.stderr.write('SessionEnd hook failed: sentinel-hook-detail\n');
+      process.stdout.write(`${JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: true,
+        result: "You've reached your Fable limit. Switch to another model, or manage usage credits at claude.ai/settings/usage?from=cc_cli_limit_message, to continue. sentinel-result-secret",
+      })}\n`);
+      process.exit(Number(process.env.FAKE_CLAUDE_RESULT_ERROR_EXIT ?? '0'));
+    }
     const sensitiveKeys = [
       'API_TOKEN', 'MATRIX_BRIDGE_SECRET', 'HAFLEET_DASHBOARD_TOKEN',
       'HAFLEET_SUBCONSCIOUS_EVENT_TOKEN', 'MATRIX_BOT_PASSWORD',

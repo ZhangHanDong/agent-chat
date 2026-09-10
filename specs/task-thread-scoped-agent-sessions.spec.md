@@ -189,6 +189,7 @@ unmeasured timeout.
 - tests/approval-store.test.js
 - tests/bridge-matrix.test.js
 - tests/mcp-permission-channel.test.js
+- specs/task-thread-scoped-agent-sessions.spec.md
 - docs/THREAD-SESSIONS.md
 
 ### Forbidden
@@ -406,6 +407,14 @@ Scenario: A killed started runner is not automatically redone
   Then the dispatch becomes outcome_unknown
   And a sanitized inspection notice is queued in its thread
   And no second runner launches for that dispatch
+
+Scenario: Claude structured errors retain a safe primary diagnostic
+  Test: Claude structured result errors stay outcome_unknown with a safe primary diagnostic
+  Given Claude emits a result event marked as an error and a secondary hook error
+  When the runner exits with either a success or failure code
+  Then the dispatch becomes outcome_unknown without automatic retry
+  And its terminal reason identifies the classified primary result error
+  And raw result, prompt, and hook text are not persisted in that reason
 
 Scenario: Backend ownership loss terminates the runtime process tree
   Test: runner guardian terminates its runtime when backend ownership disappears

@@ -404,9 +404,26 @@ async function settleUnknown(router: RouterStore, claim: ClaimSuccess, reason: s
   if (!result.ok && result.code !== 'invalid_transition') throw refusalError(result);
 }
 
-function resultTextFromClaudeEvent(event: Readonly<Record<string, unknown>>): string | null {
+interface ClaudeResultEvent {
+  text: string;
+  isError: boolean;
+}
+
+function resultFromClaudeEvent(event: Readonly<Record<string, unknown>>): ClaudeResultEvent | null {
   if (event.type !== 'result') return null;
-  return typeof event.result === 'string' ? event.result : '';
+  return {
+    text: typeof event.result === 'string' ? event.result : '',
+    isError: event.is_error === true,
+  };
+}
+
+function claudeResultErrorReason(text: string, exit: number | NodeJS.Signals | 'unknown'): string {
+  let diagnostic = 'Claude reported an execution error';
+  if (/reached your Fable limit|usage credits/i.test(text)) diagnostic = 'Claude usage limit reached';
+  else if (/rate limit|too many requests/i.test(text)) diagnostic = 'Claude rate limit reached';
+  else if (/authentication|unauthorized|invalid api key/i.test(text)) diagnostic = 'Claude authentication failed';
+  else if (/overloaded|service unavailable/i.test(text)) diagnostic = 'Claude service unavailable';
+  return `claude_result_error:${diagnostic}:exit:${exit}`;
 }
 
 export async function runClaudeDispatch(options: ClaudeRunnerOptions): Promise<RunnerCompletion> {
@@ -425,7 +442,7 @@ export async function runClaudeDispatch(options: ClaudeRunnerOptions): Promise<R
   if (options.signal?.aborted) abortChild();
   options.signal?.addEventListener('abort', abortChild, { once: true });
   let started: StartedPayload | null = null;
-  let finalText: string | null = null;
+  const resultState: { current: ClaudeResultEvent | null } = { current: null };
   const activeTools = new Map<string, ToolKind>();
   const activityTimer = setInterval(() => {
     if (started && child.exitCode === null && !child.killed) options.router.recordRunnerActivity({ ...capabilityInput(options.claim), event: { phase: 'heartbeat' } });
@@ -439,8 +456,8 @@ export async function runClaudeDispatch(options: ClaudeRunnerOptions): Promise<R
       for (const event of claudeActivity(parsed as Readonly<Record<string, unknown>>, activeTools)) {
         options.router.recordRunnerActivity({ ...capabilityInput(options.claim), event });
       }
-      const text = resultTextFromClaudeEvent(parsed as Readonly<Record<string, unknown>>);
-      if (text !== null) finalText = text;
+      const result = resultFromClaudeEvent(parsed as Readonly<Record<string, unknown>>);
+      if (result !== null) resultState.current = result;
     }
   });
   try {
@@ -459,17 +476,27 @@ export async function runClaudeDispatch(options: ClaudeRunnerOptions): Promise<R
     if (!acknowledged.ok) throw refusalError(acknowledged);
     const exit = await withTimeout(exitPromise, executionTimeoutMs, 'Claude dispatch');
     if (options.signal?.aborted) throw new Error('Claude dispatch was cancelled during runtime cleanup');
-    if (exit.code !== 0 || finalText === null || !confirmedCleanups.has(child)) {
-      await settleUnknown(options.router, options.claim, `claude_runner_exit:${exit.code ?? exit.signal ?? 'unknown'}:${stderr.slice(-500)}`);
-      return { dispatchId: options.claim.dispatchId, state: 'outcome_unknown', text: finalText ?? '', exitCode: exit.code };
+    const finalResult = resultState.current;
+    const exitIdentity = exit.code ?? exit.signal ?? 'unknown';
+    if (exit.code !== 0 || finalResult === null || finalResult.isError || !confirmedCleanups.has(child)) {
+      const reason = finalResult?.isError
+        ? claudeResultErrorReason(finalResult.text, exitIdentity)
+        : `claude_runner_exit:${exitIdentity}:${stderr.slice(-500)}`;
+      await settleUnknown(options.router, options.claim, reason);
+      return {
+        dispatchId: options.claim.dispatchId,
+        state: 'outcome_unknown',
+        text: finalResult?.isError ? '' : finalResult?.text ?? '',
+        exitCode: exit.code,
+      };
     }
     const settled = options.router.settleAndRelease({
       ...capabilityInput(options.claim),
       outcome: 'completed',
-      output: { text: finalText },
+      output: { text: finalResult.text },
     });
     if (!settled.ok) throw refusalError(settled);
-    return { dispatchId: options.claim.dispatchId, state: 'completed', text: finalText, exitCode: exit.code };
+    return { dispatchId: options.claim.dispatchId, state: 'completed', text: finalResult.text, exitCode: exit.code };
   } catch (error) {
     await terminateAndWait(child);
     if (started) await settleUnknown(options.router, options.claim, `claude_runner_error:${error instanceof Error ? error.message : String(error)}`);
