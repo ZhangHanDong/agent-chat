@@ -546,6 +546,42 @@ fn native_dispatch_recovery() {
     assert!(fresh.fence > old.fence);
 }
 
+#[test]
+fn native_recovery_payload_identity() {
+    let (root, mut db, _) = setup();
+    let mut original = input("numeric_original", "s1", None, true);
+    original.payload = json!({"instruction":"Inspect code","weight":1});
+    db.enqueue_dispatch(&original).unwrap();
+    let cap = claim(&mut db, 1000);
+    db.start_dispatch(&cap, 1001).unwrap();
+    drop(db);
+    let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
+    let mut replacement = original.clone();
+    replacement.id = "numeric_recovery".into();
+    replacement.payload["weight"] = json!(1.0);
+    assert_ne!(original.payload, replacement.payload); // Rust Value distinguishes the numeric forms.
+    assert!(
+        db.recover_dispatch(
+            &original.id,
+            &replacement,
+            "Inspected stopped process",
+            1002
+        )
+        .is_err()
+    );
+    assert_eq!(count(&sql(&root), "dispatch_recoveries"), 0);
+    replacement.payload["instruction"] = json!("Inspect partial output before proceeding");
+    db.recover_dispatch(
+        &original.id,
+        &replacement,
+        "Inspected stopped process",
+        1003,
+    )
+    .unwrap();
+    let recovery = claim(&mut db, 1004);
+    db.start_dispatch(&recovery, 1005).unwrap();
+}
+
 #[tokio::test]
 async fn native_dispatch_resource_and_coordinator_scope() {
     let (root, mut db, engagement) = setup();

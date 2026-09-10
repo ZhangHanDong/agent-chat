@@ -128,6 +128,365 @@ fn done(db: &mut DomainRepository, cap: &RunnerCapability, task: &IntentResult, 
     .unwrap();
 }
 
+struct CompletedIntent {
+    root: tempfile::TempDir,
+    db: DomainRepository,
+    agents: Vec<String>,
+    task: IntentResult,
+    seq: u64,
+    group: hagency_core::conversations::Conversation,
+    old: RunnerCapability,
+}
+fn completed_intent(peer: bool) -> CompletedIntent {
+    use hagency_core::conversations::ConversationRequest;
+    let (root, mut db, agents, seq) = setup();
+    let task = db
+        .create_task_intent(&intent(&agents[0], seq), 1001)
+        .unwrap();
+    activate(&mut db, 1002);
+    db.enqueue_inbox_dispatch(
+        &input(if peer { "matrix_initial" } else { "original" }, &task),
+        &[seq],
+    )
+    .unwrap();
+    let mut old = claim(&mut db, 1004);
+    db.start_dispatch(&old, 1005).unwrap();
+    let group = db
+        .create_internal_conversation(
+            &old,
+            &ConversationRequest {
+                call_id: "group".into(),
+                label: "Completed task collaboration".into(),
+                participant_engagements: vec![agents[1].clone()],
+            },
+            1006,
+        )
+        .unwrap()
+        .conversation;
+    db.create_coordinator_task(&old, "child", "b", "Independent child task", 1007)
+        .unwrap();
+    let seq = if peer {
+        use hagency_core::peers::*;
+        let receipt = db
+            .send_peer(
+                &old,
+                &PeerSend {
+                    call_id: "continuation".into(),
+                    conversation_id: group.id.clone(),
+                    recipient_session_ids: vec![task.session_id.clone()],
+                    kind: PeerKind::Response,
+                    priority: PeerPriority::Normal,
+                    summary: "Peer result".into(),
+                    body: String::new(),
+                    data: json!({"score":0.5}),
+                },
+                1007,
+            )
+            .unwrap();
+        db.complete_dispatch(&old, &json!({"waiting_for_peer":true}), 1007)
+            .unwrap();
+        db.enqueue_peer_dispatch(&input("original", &task), &[receipt.sequence])
+            .unwrap();
+        old = claim(&mut db, 1007);
+        db.start_dispatch(&old, 1007).unwrap();
+        receipt.sequence
+    } else {
+        seq
+    };
+    done(&mut db, &old, &task, 1008);
+    drop(db);
+    let db = DomainRepository::open(&root.path().join("state")).unwrap();
+    CompletedIntent {
+        root,
+        db,
+        agents,
+        task,
+        seq,
+        group,
+        old,
+    }
+}
+fn report_input(id: &str, task: &IntentResult) -> DispatchInput {
+    let mut value = input(id, task);
+    value.task_id = None;
+    value.payload = json!({"instruction":format!("Report inspected results for {id}")});
+    value
+}
+
+#[test]
+fn native_completed_intent_report() {
+    use hagency_core::{conversations::ConversationRequest, peers::*};
+    let CompletedIntent {
+        root,
+        mut db,
+        agents,
+        task,
+        seq,
+        group,
+        old,
+    } = completed_intent(false);
+    let epoch = db.canonical_task(&task.task_id).unwrap().execution_epoch;
+    let fresh = db
+        .ingest_message(
+            &message("followup", Some("$root"), 1010),
+            &[target(&task.session_id)],
+            1010,
+        )
+        .unwrap()
+        .sequence;
+    db.attach_task_inputs(&task.task_id, "fixture", "fresh", &[fresh])
+        .unwrap();
+    let replacement = report_input("report", &task);
+    assert!(
+        db.recover_dispatch(
+            "original",
+            &input("rerun_done", &task),
+            "Inspected result",
+            1012
+        )
+        .is_err()
+    );
+    let mut wrong = replacement.clone();
+    wrong.session_id = "b".into();
+    assert!(
+        db.recover_dispatch("original", &wrong, "Inspected result", 1012)
+            .is_err()
+    );
+    let inspect = sql(&root);
+    inspect.execute_batch("CREATE TRIGGER fail_report BEFORE INSERT ON dispatch_recovery_reports BEGIN SELECT RAISE(ABORT,'injected grant failure'); END;").unwrap();
+    assert!(
+        db.recover_dispatch(
+            "original",
+            &replacement,
+            "Inspected stopped runner and completed artifact",
+            1012
+        )
+        .is_err()
+    );
+    assert_eq!(count(&inspect, "dispatch_recoveries"), 0);
+    assert_eq!(count(&inspect, "dispatch_recovery_reports"), 0);
+    assert_eq!(count(&inspect, "runner_dispatches"), 1);
+    assert!(
+        inspect
+            .query_row(
+                "SELECT quarantined FROM runner_sessions WHERE id=?1",
+                [&task.session_id],
+                |r| r.get::<_, bool>(0)
+            )
+            .unwrap()
+    );
+    inspect.execute_batch("DROP TRIGGER fail_report").unwrap();
+    db.recover_dispatch(
+        "original",
+        &replacement,
+        "Inspected stopped runner and completed artifact",
+        1013,
+    )
+    .unwrap();
+    let mut forged = report_input("forged", &task);
+    forged.payload["report"] = json!(true);
+    assert!(db.enqueue_dispatch(&forged).is_err());
+    let report = claim(&mut db, 1014);
+    let payload = db.start_dispatch(&report, 1015).unwrap();
+    assert_eq!(payload["recoveryInbox"][0]["message"]["sequence"], seq);
+    assert_eq!(
+        db.runner_task(&report, &task.task_id, 1016).unwrap().status,
+        TaskState::Done
+    );
+    assert!(db.runner_task(&report, "child", 1016).is_err());
+    assert_eq!(db.runner_tasks(&report, "", 100, 1016).unwrap().len(), 1);
+    assert!(
+        db.mutate_task(
+            &report,
+            &task.task_id,
+            "reopen",
+            &TaskMutation::Transition {
+                status: TaskState::InProgress,
+                waiting_reason: None,
+                waiting_until: None,
+            },
+            1016
+        )
+        .is_err()
+    );
+    assert!(
+        db.create_coordinator_task(&report, "new_child", "b", "Forbidden new work", 1016)
+            .is_err()
+    );
+    assert!(
+        db.create_internal_conversation(
+            &report,
+            &ConversationRequest {
+                call_id: "forbidden_group".into(),
+                label: "New group".into(),
+                participant_engagements: vec![agents[1].clone()],
+            },
+            1016
+        )
+        .is_err()
+    );
+    assert!(
+        db.send_peer(
+            &report,
+            &PeerSend {
+                call_id: "forbidden_send".into(),
+                conversation_id: group.id,
+                recipient_session_ids: vec![group.participants[0].id.clone()],
+                kind: PeerKind::Request,
+                priority: PeerPriority::Normal,
+                summary: "New work".into(),
+                body: String::new(),
+                data: json!({}),
+            },
+            1016
+        )
+        .is_err()
+    );
+    assert!(
+        db.delegate_task(
+            &report,
+            &Delegation {
+                call_id: "forbidden_delegate".into(),
+                assignee_engagement: agents[1].clone(),
+                root_sequence: Some(seq),
+                input_sequences: vec![seq],
+                definition: intent(&agents[1], seq).definition,
+            },
+            1016
+        )
+        .is_err()
+    );
+    db.complete_dispatch(&report, &json!({"report":"Inspected completion"}), 1017)
+        .unwrap();
+    assert_eq!(
+        db.canonical_task(&task.task_id).unwrap().execution_epoch,
+        epoch
+    );
+    assert_eq!(
+        db.canonical_task(&task.task_id).unwrap().status,
+        TaskState::Done
+    );
+    let pending = db.inbox(&task.session_id, 0, 100, None).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].message.sequence, fresh);
+    assert!(db.check_runner(&old, 1018).is_err());
+    // Upgrade prior native report rows only using the original attempt's durable
+    // done receipt, not an assertion in the replacement payload.
+    inspect.execute_batch("DROP VIEW current_recovery_reports; DROP TABLE dispatch_recovery_reports; PRAGMA user_version=7;").unwrap();
+    drop(db);
+    let db = DomainRepository::open(&root.path().join("state")).unwrap();
+    assert_eq!(count(&inspect, "dispatch_recovery_reports"), 1);
+    assert_eq!(count(&inspect, "current_recovery_reports"), 1);
+    assert_eq!(
+        db.canonical_task(&task.task_id).unwrap().execution_epoch,
+        epoch
+    );
+}
+
+#[test]
+fn native_report_recovery_epoch() {
+    let CompletedIntent {
+        root,
+        mut db,
+        task,
+        seq,
+        ..
+    } = completed_intent(true);
+    db.recover_dispatch(
+        "original",
+        &report_input("report_one", &task),
+        "Inspected original result",
+        1010,
+    )
+    .unwrap();
+    let first = claim(&mut db, 1011);
+    db.start_dispatch(&first, 1012).unwrap();
+    drop(db);
+    let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
+    assert!(db.check_runner(&first, 1013).is_err());
+    db.recover_dispatch(
+        "report_one",
+        &report_input("report_two", &task),
+        "Inspected interrupted report",
+        1014,
+    )
+    .unwrap();
+    let second = claim(&mut db, 1015);
+    db.start_dispatch(&second, 1016).unwrap();
+    assert_eq!(
+        db.runner_peer_inbox(&second, 0, 100, 1017).unwrap()[0]
+            .message
+            .sequence,
+        seq
+    );
+    drop(db);
+    let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
+    db.recover_dispatch(
+        "report_two",
+        &report_input("report_three", &task),
+        "Inspected interrupted report again",
+        1018,
+    )
+    .unwrap();
+    let third = claim(&mut db, 1019);
+    db.fail_before_start(&third, 1020, 1000).unwrap();
+    // A genuine new human turn may progress while the report's launch is backed off.
+    let fresh = db
+        .ingest_message(
+            &message("new_epoch", Some("$root"), 1021),
+            &[target(&task.session_id)],
+            1021,
+        )
+        .unwrap()
+        .sequence;
+    db.attach_task_inputs(&task.task_id, "fixture", "new_epoch", &[fresh])
+        .unwrap();
+    db.enqueue_inbox_dispatch(&input("new_human", &task), &[fresh])
+        .unwrap();
+    let human = claim(&mut db, 1023);
+    assert_eq!(human.dispatch_id, "new_human");
+    db.start_dispatch(&human, 1024).unwrap();
+    done(&mut db, &human, &task, 1025);
+    db.complete_dispatch(&human, &json!({}), 1026).unwrap();
+    assert!(
+        db.claim_dispatch("runner", 4000, 60_000, 120_000, 8)
+            .unwrap()
+            .is_none()
+    );
+    let inspect = sql(&root);
+    assert_eq!(count(&inspect, "current_recovery_reports"), 0);
+    assert_eq!(count(&inspect, "dispatch_recovery_reports"), 3);
+    assert_eq!(
+        inspect
+            .query_row(
+                "SELECT state FROM runner_dispatches WHERE id='report_three'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "queued"
+    );
+    // A separate report loses all current access as soon as its allocation is revoked.
+    let CompletedIntent {
+        mut db,
+        agents,
+        task,
+        ..
+    } = completed_intent(false);
+    db.recover_dispatch(
+        "original",
+        &report_input("report", &task),
+        "Inspected result",
+        1010,
+    )
+    .unwrap();
+    let report = claim(&mut db, 1011);
+    db.start_dispatch(&report, 1012).unwrap();
+    db.revoke("revoke_report_owner", &agents[0]).unwrap();
+    assert!(db.runner_task(&report, &task.task_id, 1013).is_err());
+    assert!(db.complete_dispatch(&report, &json!({}), 1013).is_err());
+}
+
 #[test]
 fn native_peer_matrix_continuation() {
     use hagency_core::{conversations::ConversationRequest, peers::*};

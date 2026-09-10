@@ -1958,3 +1958,29 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   linkage, final delivery and M4–M9 remain open. An existing completed Matrix task
   cannot yet use a taskless inspected recovery report because the intent binding
   guard refuses it; a durable scoped report exception is the next correction.
+
+## 2026-09-10 — Completed task report recovery
+
+- Peer-mailbox commit 17246a0 passed native Windows/macOS/Linux CI (34474218701).
+  Its Node CI (34474218712) was still running at this checkpoint.
+- Schema 8 closes the completed Matrix intent recovery gap. A host-inspected
+  taskless replacement receives a durable grant for the exact completed task and
+  epoch, committed with recovery history and both input transfers. Grant failure
+  rolls back replacement, quarantine clearing and input assignment together.
+- Runtime authority distinguishes reporting from creating work. A report may read
+  its completed task and frozen input, but cannot reopen it, read unrelated child
+  tasks, delegate, create groups/tasks or send peer requests. Revoked allocations
+  and changed task epochs invalidate report authority at current dispatch gates.
+- Consecutive report interruptions remain recoverable after separate host
+  inspection. Fresh human input remains pending independently; a new human turn
+  invalidates old reports even after that new turn completes. Historical native
+  report migration requires the original attempt's persisted done receipt.
+- Distinct recovery instruction comparison now uses canonical finite-number JSON,
+  preventing 1 versus 1.0 from bypassing the different-payload requirement.
+- All 61 native tests passed, zero failed/ignored. Three report scenarios plus the
+  lifecycle boundary passed without skip/uncertainty; all 56 native selectors
+  resolve. Clippy, rustfmt and diff checks passed. An initial fixture used incorrect
+  attachment argument order; the fixture was corrected and full validation rerun.
+- This grants neither filesystem access nor external delivery authority. Real
+  process stop/ownership proof, group lifecycle, graph/task linkage, final output,
+  transport, console and cutover gates remain open. Live services are unchanged.

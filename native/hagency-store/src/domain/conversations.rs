@@ -62,7 +62,7 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let dispatch = execution::authorize(&tx, cap, now, &["started"])?;
+        let dispatch = execution::authorize_work(&tx, cap, now)?;
         if let Some(id) = &dispatch.task_id
             && execution::task(&tx, id)?.status == TaskState::Done
         {

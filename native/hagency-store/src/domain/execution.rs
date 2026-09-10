@@ -73,6 +73,7 @@ pub(super) fn save_task(tx: &Transaction<'_>, value: &Task, kind: &str) -> Resul
 pub(super) struct Dispatch {
     pub(super) session_id: String,
     pub(super) task_id: Option<String>,
+    pub(super) report_task: Option<String>,
     state: String,
     fence: u64,
     runner: Option<String>,
@@ -83,7 +84,7 @@ pub(super) struct Dispatch {
 }
 fn dispatch(db: &Connection, id: &str) -> Result<Dispatch, Error> {
     db.query_row("SELECT session_id,task_id,state,fence,runner_id,capability_hash,COALESCE(lease_until,0),COALESCE(capability_until,0),input FROM runner_dispatches WHERE id=?1",[id],|r|Ok(Dispatch {
-        session_id:r.get(0)?,task_id:r.get(1)?,state:r.get(2)?,fence:r.get(3)?,runner:r.get(4)?,hash:r.get(5)?,lease:r.get(6)?,expiry:r.get(7)?,input:r.get(8)?,
+        session_id:r.get(0)?,task_id:r.get(1)?,report_task:None,state:r.get(2)?,fence:r.get(3)?,runner:r.get(4)?,hash:r.get(5)?,lease:r.get(6)?,expiry:r.get(7)?,input:r.get(8)?,
     })).optional()?.ok_or(Error::NotFound)
 }
 pub(super) fn matches_secret(hash: &str, secret: &str) -> Result<bool, Error> {
@@ -106,10 +107,45 @@ pub(super) fn authorize(
     now: u64,
     states: &[&str],
 ) -> Result<Dispatch, Error> {
-    let d = authorize_attempt(db, cap, now, states)?;
+    let mut d = authorize_attempt(db, cap, now, states)?;
     session(db, &d.session_id)?;
-    super::task_intents::check_session_task(db, &d.session_id, d.task_id.as_deref())?;
+    d.report_task = report_grant(db, &cap.dispatch_id)?.map(|g| g.task.id);
+    super::task_intents::check_session_task(
+        db,
+        &d.session_id,
+        d.task_id.as_deref().or(d.report_task.as_deref()),
+    )?;
     Ok(d)
+}
+/// Work creation must not inherit a completed-result report's read permission.
+pub(super) fn authorize_work(
+    db: &Connection,
+    cap: &RunnerCapability,
+    now: u64,
+) -> Result<Dispatch, Error> {
+    let d = authorize(db, cap, now, &["started"])?;
+    if d.report_task.is_some() {
+        return Err(Error::RunnerAuthority);
+    }
+    Ok(d)
+}
+// Constructed only from persisted host recovery state or from the inspected
+// completed task inside recover_dispatch. It has no runtime JSON constructor.
+struct ReportGrant {
+    task: Task,
+}
+fn report_grant(db: &Connection, dispatch_id: &str) -> Result<Option<ReportGrant>, Error> {
+    let row: Option<Option<String>> = db.query_row(
+        "SELECT current.task_id FROM dispatch_recovery_reports report LEFT JOIN current_recovery_reports current ON current.dispatch_id=report.dispatch_id WHERE report.dispatch_id=?1",
+        [dispatch_id], |r| r.get(0),
+    ).optional()?;
+    match row {
+        None => Ok(None),
+        Some(None) => Err(Error::RunnerAuthority),
+        Some(Some(id)) => Ok(Some(ReportGrant {
+            task: task(db, &id)?,
+        })),
+    }
 }
 // Host cleanup of an unstarted lease must remain possible after its task or
 // allocation binding changes. No runtime command exposes this cleanup authority.
@@ -237,6 +273,13 @@ pub(super) fn create_task(
     Ok(t)
 }
 pub(super) fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(), Error> {
+    enqueue_scoped(tx, input, None)
+}
+fn enqueue_scoped(
+    tx: &Transaction<'_>,
+    input: &DispatchInput,
+    report: Option<&ReportGrant>,
+) -> Result<(), Error> {
     input.validate()?;
     let encoded = canonical::encode_payload(&serde_json::to_value(input)?)?;
     let digest = hagency_core::project::hash(encoded.as_bytes());
@@ -255,7 +298,17 @@ pub(super) fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(),
         };
     }
     session(tx, &input.session_id)?;
-    super::task_intents::check_session_task(tx, &input.session_id, input.task_id.as_deref())?;
+    if let Some(grant) = report {
+        if input.task_id.is_some()
+            || grant.task.session_id != input.session_id
+            || grant.task.status != TaskState::Done
+        {
+            return Err(Error::RunnerAuthority);
+        }
+        super::task_intents::check_session_task(tx, &input.session_id, Some(&grant.task.id))?;
+    } else {
+        super::task_intents::check_session_task(tx, &input.session_id, input.task_id.as_deref())?;
+    }
     if let Some(id) = &input.task_id {
         let t = task(tx, id)?;
         if t.session_id != input.session_id {
@@ -285,6 +338,9 @@ pub(super) fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(),
     Ok(())
 }
 fn visible(t: &Task, d: &Dispatch) -> bool {
+    if let Some(id) = &d.report_task {
+        return &t.id == id;
+    }
     d.task_id.as_deref() == Some(&t.id) || t.creator_session_id.as_deref() == Some(&d.session_id)
 }
 impl DomainRepository {
@@ -359,7 +415,7 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let creator = authorize(&tx, cap, now, &["started"])?;
+        let creator = authorize_work(&tx, cap, now)?;
         let a = session(&tx, &creator.session_id)?;
         let b = session(&tx, target_session)?;
         let same_project: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM engagements a JOIN engagements b ON a.fleet_id=b.fleet_id AND a.project_id=b.project_id WHERE a.id=?1 AND b.id=?2)",params![a.engagement_id(),b.engagement_id()],|r|r.get(0))?;
@@ -415,7 +471,7 @@ impl DomainRepository {
             tx.commit()?;
             return Ok(None);
         }
-        let id:Option<String>=tx.query_row("SELECT d.id FROM runner_dispatches d JOIN runner_sessions s ON s.id=d.session_id JOIN engagements e ON e.id=s.engagement_id JOIN registrations g ON g.fleet_id=e.fleet_id WHERE d.state='queued' AND d.not_before<=?1 AND (d.task_id IS NULL OR EXISTS(SELECT 1 FROM canonical_tasks t WHERE t.id=d.task_id AND (json_extract(t.config,'$.status')<>'done' OR EXISTS(SELECT 1 FROM task_followup_ready followup WHERE followup.dispatch_id=d.id AND followup.task_id=t.id)) AND NOT EXISTS(SELECT 1 FROM task_intents ti WHERE ti.task_id=t.id AND (ti.state<>'active' OR NOT EXISTS(SELECT 1 FROM task_dispatch_input_ready ready WHERE ready.dispatch_id=d.id AND ready.task_id=t.id))))) AND NOT EXISTS(SELECT 1 FROM task_intents current_task WHERE current_task.session_id=d.session_id AND (current_task.state<>'active' OR current_task.task_id IS NOT d.task_id)) AND (json_extract(s.binding,'$.kind') IS NULL OR (json_extract(s.binding,'$.kind')='internal' AND EXISTS(SELECT 1 FROM internal_participants ip JOIN internal_conversations ic ON ic.id=ip.conversation_id WHERE ip.session_id=s.id AND ip.engagement_id=e.id AND ip.conversation_id=json_extract(s.binding,'$.conversation_id') AND ic.state='active' AND ic.fleet_id=e.fleet_id AND ic.project_id=e.project_id AND ic.generation=e.generation))) AND NOT EXISTS(SELECT 1 FROM peer_dispatch_inputs pi WHERE pi.dispatch_id=d.id AND NOT EXISTS(SELECT 1 FROM live_peer_inputs li WHERE li.session_id=d.session_id AND li.message_sequence=pi.message_sequence)) AND s.quarantined=0 AND e.state='active' AND e.generation=g.generation AND NOT EXISTS(SELECT 1 FROM runner_dispatches live WHERE live.session_id=d.session_id AND live.state IN ('leased','started','parked')) AND NOT EXISTS(SELECT 1 FROM dispatch_resources dr JOIN workspace_resources w ON w.id=dr.resource_id WHERE dr.dispatch_id=d.id AND (w.dirty=1 OR EXISTS(SELECT 1 FROM resource_leases l WHERE l.resource_id=dr.resource_id AND (l.exclusive=1 OR dr.exclusive=1)))) ORDER BY d.rowid LIMIT 1",[now],|r|r.get(0)).optional()?;
+        let id:Option<String>=tx.query_row("SELECT d.id FROM runner_dispatches d JOIN runner_sessions s ON s.id=d.session_id JOIN engagements e ON e.id=s.engagement_id JOIN registrations g ON g.fleet_id=e.fleet_id WHERE d.state='queued' AND d.not_before<=?1 AND (d.task_id IS NULL OR EXISTS(SELECT 1 FROM canonical_tasks t WHERE t.id=d.task_id AND (json_extract(t.config,'$.status')<>'done' OR EXISTS(SELECT 1 FROM task_followup_ready followup WHERE followup.dispatch_id=d.id AND followup.task_id=t.id)) AND NOT EXISTS(SELECT 1 FROM task_intents ti WHERE ti.task_id=t.id AND (ti.state<>'active' OR NOT EXISTS(SELECT 1 FROM task_dispatch_input_ready ready WHERE ready.dispatch_id=d.id AND ready.task_id=t.id))))) AND NOT EXISTS(SELECT 1 FROM task_intents current_task WHERE current_task.session_id=d.session_id AND (current_task.state<>'active' OR (current_task.task_id IS NOT d.task_id AND NOT EXISTS(SELECT 1 FROM current_recovery_reports cr WHERE cr.dispatch_id=d.id AND cr.task_id=current_task.task_id)))) AND (json_extract(s.binding,'$.kind') IS NULL OR (json_extract(s.binding,'$.kind')='internal' AND EXISTS(SELECT 1 FROM internal_participants ip JOIN internal_conversations ic ON ic.id=ip.conversation_id WHERE ip.session_id=s.id AND ip.engagement_id=e.id AND ip.conversation_id=json_extract(s.binding,'$.conversation_id') AND ic.state='active' AND ic.fleet_id=e.fleet_id AND ic.project_id=e.project_id AND ic.generation=e.generation))) AND NOT EXISTS(SELECT 1 FROM peer_dispatch_inputs pi WHERE pi.dispatch_id=d.id AND NOT EXISTS(SELECT 1 FROM live_peer_inputs li WHERE li.session_id=d.session_id AND li.message_sequence=pi.message_sequence)) AND NOT EXISTS(SELECT 1 FROM dispatch_recovery_reports rr WHERE rr.dispatch_id=d.id AND NOT EXISTS(SELECT 1 FROM current_recovery_reports cr WHERE cr.dispatch_id=d.id)) AND s.quarantined=0 AND e.state='active' AND e.generation=g.generation AND NOT EXISTS(SELECT 1 FROM runner_dispatches live WHERE live.session_id=d.session_id AND live.state IN ('leased','started','parked')) AND NOT EXISTS(SELECT 1 FROM dispatch_resources dr JOIN workspace_resources w ON w.id=dr.resource_id WHERE dr.dispatch_id=d.id AND (w.dirty=1 OR EXISTS(SELECT 1 FROM resource_leases l WHERE l.resource_id=dr.resource_id AND (l.exclusive=1 OR dr.exclusive=1)))) ORDER BY d.rowid LIMIT 1",[now],|r|r.get(0)).optional()?;
         let Some(id) = id else {
             tx.commit()?;
             return Ok(None);
@@ -448,7 +504,6 @@ impl DomainRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let d = authorize(&tx, cap, now, &["leased"])?;
         super::peers::validate_dispatch(&tx, &cap.dispatch_id, &d.session_id)?;
-        super::task_intents::check_session_task(&tx, &d.session_id, d.task_id.as_deref())?;
         if let Some(id) = &d.task_id {
             let mut t = task(&tx, id)?;
             if t.session_id != d.session_id {
@@ -641,18 +696,18 @@ impl DomainRepository {
         {
             return Err(Error::State);
         }
-        if d.task_id != replacement.task_id {
-            // A task explicitly completed before the process died stays complete.
-            // Its recovery dispatch may report the inspected result without reopening it.
-            let completed = d
-                .task_id
-                .as_deref()
-                .map(|id| task(&tx, id))
-                .transpose()?
-                .is_some_and(|t| t.status == TaskState::Done);
-            if replacement.task_id.is_some() || !completed {
-                return Err(Error::State);
-            }
+        let report = if let Some(id) = &d.task_id {
+            let original_task = task(&tx, id)?;
+            (original_task.status == TaskState::Done).then_some(ReportGrant {
+                task: original_task,
+            })
+        } else {
+            report_grant(&tx, original)?
+        };
+        if (report.is_some() && replacement.task_id.is_some())
+            || (report.is_none() && d.task_id != replacement.task_id)
+        {
+            return Err(Error::State);
         }
         if tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM runner_dispatches WHERE id=?1)",
@@ -670,7 +725,8 @@ impl DomainRepository {
         }
         let old: DispatchInput = serde_json::from_str(&d.input)?;
         if serialize(&old.resources)? != serialize(&replacement.resources)?
-            || old.payload == replacement.payload
+            || canonical::encode_payload(&old.payload)?
+                == canonical::encode_payload(&replacement.payload)?
         {
             return Err(Error::State);
         }
@@ -688,10 +744,14 @@ impl DomainRepository {
         tx.execute("UPDATE runner_dispatches SET state='superseded' WHERE session_id=?1 AND state='queued'",[&d.session_id])?;
         let replacement = super::messages::recovery_input(&tx, original, replacement)?;
         let replacement = super::peers::recovery_input(&tx, original, &replacement)?;
-        enqueue(&tx, &replacement)?;
+        enqueue_scoped(&tx, &replacement, report.as_ref())?;
         super::messages::transfer_inputs(&tx, original, &replacement.id)?;
         super::peers::transfer_inputs(&tx, original, &replacement.id)?;
         tx.execute("INSERT INTO dispatch_recoveries(original_id,replacement_id,evidence,created_at) VALUES(?1,?2,?3,?4)",params![original,replacement.id,evidence,now])?;
+        if let Some(grant) = report {
+            tx.execute("INSERT INTO dispatch_recovery_reports(dispatch_id,task_id,execution_epoch) VALUES(?1,?2,?3)",params![replacement.id,grant.task.id,grant.task.execution_epoch])?;
+            report_grant(&tx, &replacement.id)?.ok_or(Error::RunnerAuthority)?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -716,6 +776,13 @@ impl DomainRepository {
         let d = authorize(&self.db, cap, now, &["started"])?;
         if !(1..=100).contains(&limit) {
             return Err(hagency_core::InvalidInput("task page must be 1..100").into());
+        }
+        if let Some(id) = &d.report_task {
+            return Ok(if id.as_str() > after {
+                vec![task(&self.db, id)?]
+            } else {
+                vec![]
+            });
         }
         self.db.prepare("SELECT config FROM canonical_tasks WHERE id>?1 AND (id=?2 OR creator_session_id=?3) ORDER BY id LIMIT ?4")?.query_map(params![after,d.task_id,d.session_id,limit],|r|r.get::<_,String>(0))?.map(|row|Ok(serde_json::from_str(&row?)?)).collect()
     }

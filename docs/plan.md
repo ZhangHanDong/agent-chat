@@ -25,8 +25,9 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    JavaScript-derived vectors. Schema 6 now provides explicit internal routes and atomic scoped conversation
    admission. Schema 7 now adds durable peer messages, exact-session recipients,
    dispatch-owned input and inspected recovery. Continue group lifecycle and atomic
-   graph/task linkage before graph execution. Verify completed-task recovery report
-   authority against Matrix task intents before adding final reply delivery.
+   graph/task linkage before graph execution. Schema 8 now binds inspected-result
+   reporting to the completed task epoch, separately from work creation authority.
+   Actual final reply delivery remains to implement.
    Real runner adapters still need the early platform ownership and sandbox proofs.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

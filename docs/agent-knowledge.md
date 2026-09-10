@@ -1044,6 +1044,17 @@ batch. Enqueue/complete/recovery preserve each recipient's input ownership. Peer
 input may resume active incomplete tasks, never initialize or reopen Matrix tasks.
 New task bindings invalidate existing runtime authority; host cleanup of an
 unstarted lease separately validates the attempt so cleanup remains possible.
-Graph linkage/group lifecycle, real runners and transport remain open. Also verify
-the taskless inspected-result recovery path for completed Matrix intent tasks:
-its binding guard currently rejects that path and needs a durable scoped exception.
+Graph linkage/group lifecycle, real runners and transport remain open. The taskless
+inspected-result binding issue found here is closed by schema 8 below.
+
+Native recovery reports (2026-09-10): schema 8 atomically binds a taskless inspected
+replacement to its completed task and execution epoch. Runtime authorize accepts
+only current grants; authorize_work additionally refuses report-only attempts.
+Keep that work guard on new-task, delegation, conversation and peer-send surfaces.
+Report task reads are limited to the exact completed task; mutations stay denied.
+Repeated inspected recovery transfers both input types and retains the epoch grant.
+Fresh human follow-up changes the epoch, making queued old reports ineligible even
+after the task completes again. Historical native report migration requires the
+original dispatch's durable done receipt for that same epoch; task state or payload
+text alone is insufficient. A report grant is not filesystem write permission or
+proof that an external result has been delivered; M4/M5 must enforce those gates.
