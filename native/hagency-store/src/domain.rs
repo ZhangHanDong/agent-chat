@@ -1,4 +1,4 @@
-//! M2 allocation and the future canonical router share this one database owner.
+//! Allocation and canonical task/dispatch state share this one database owner.
 use crate::{Error, database};
 use hagency_core::{
     InvalidInput, JSON_SAFE_MAX,
@@ -15,6 +15,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{fs::File, path::Path};
+mod execution;
 
 pub struct DomainRepository {
     db: Connection,
@@ -288,10 +289,13 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 2,
-                migrations: &[(2, include_str!("migrations/002-role-publication.sql"))],
+                version: 3,
+                migrations: &[
+                    (2, include_str!("migrations/002-role-publication.sql")),
+                    (3, include_str!("migrations/003-task-dispatch.sql")),
+                ],
                 sql: include_str!("domain.sql"),
-                verify: "SELECT e.id,e.context,e.evidence,e.projection,f.payload,p.owner_mxid,r.config,s.config,d.result,g.config,rp.role FROM engagements e LEFT JOIN effects f ON f.engagement_id=e.id CROSS JOIN projects p CROSS JOIN resources r CROSS JOIN seats s CROSS JOIN decisions d CROSS JOIN registrations g CROSS JOIN role_publications rp LIMIT 0",
+                verify: "SELECT e.id,e.context,e.evidence,e.projection,f.payload,p.owner_mxid,r.config,s.config,d.result,g.config,rp.role,rt.config,rd.capability_hash,ro.task FROM engagements e LEFT JOIN effects f ON f.engagement_id=e.id CROSS JOIN projects p CROSS JOIN resources r CROSS JOIN seats s CROSS JOIN decisions d CROSS JOIN registrations g CROSS JOIN role_publications rp CROSS JOIN canonical_tasks rt CROSS JOIN runner_dispatches rd CROSS JOIN task_outbox ro LIMIT 0",
             },
         )?;
         // A previous owner died after an intent became externally executable. Inspection,
@@ -304,6 +308,7 @@ impl DomainRepository {
             "UPDATE effects SET state='uncertain' WHERE state='started'",
             [],
         )?;
+        execution::recover_all(&tx)?;
         tx.commit()?;
         Ok(Self {
             db: database.connection,

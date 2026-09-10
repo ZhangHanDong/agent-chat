@@ -1760,3 +1760,27 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   (4,281 passed, one platform skip). That CI result does not validate this
   checkpoint until its own committed head runs. Full M0–M9 migration remains
   active; task/dispatch authority and recovery are the next bounded implementation.
+
+## 2026-09-10 — Native canonical task and dispatch kernel
+
+- Committed qualification checkpoint f7a2c89 passed native Linux/macOS/Windows
+  CI (run 34459254680) and existing Node CI (run 34459254681).
+- Added domain schema 3 for tasks, sessions, dispatch attempts, resource leases,
+  content-bound mutation receipts and task events. Current started capabilities
+  are required for task writes; coordinator reads remain scoped to its session.
+  Comments use the host-owned Agent name, heartbeat uses the host clock, and
+  explicit completion advances the task authorization epoch. Missing wait patches
+  retain metadata; explicit null clears it. Runtime completion cannot finish tasks.
+- Dispatch payloads freeze before launch. Parked work retains resources. Expired
+  or restarted unstarted work can requeue; started work becomes unknown, with
+  session/workspace quarantine and authenticated rejected-output audit. Inspected
+  recovery creates a distinct dispatch and supersedes old queued instructions.
+- Local validation: all 30 native tests passed; subsequent final test-only expiry
+  additions passed their bound lifecycle scenario. The task lifecycle passed all
+  5 scenarios plus its boundary check, with zero failures/skips/uncertainty.
+  Clippy, rustfmt and the JS transition golden/ESLint checks passed. Shared vectors
+  cover every 25-pair canonical task transition; 25 native spec selectors resolve.
+- No real runner, Matrix ingress or live deployment was changed. Host-only session
+  admission/inspection still requires the M4/M5 adapters. Next: mailbox and group
+  ordering/deduplication, graph/delegation, follow-up and durable reply delivery.
+  Full migration goal remains active; the draft PR is not a cutover candidate.

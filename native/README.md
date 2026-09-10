@@ -105,3 +105,26 @@ adds role publication through an atomic migration; older role caches grant nothi
 Framework detection, legacy role-only allocations, safe generation-rotation
 reconciliation and continuous retention remain open implementation work. See the
 [checkpoint review](../docs/reviews/2026-09-10-native-domain-checkpoint.md).
+
+The M3 kernel adds canonical tasks, sessions, dispatches, resource leases, mutation
+receipts and task event outbox to the same database through schema migration 3.
+Private runner capabilities use OS randomness and stored hashes, are fenced per
+attempt, and require a current active allocation. Task mutations require a started
+runner bound to that exact task. Coordinator reads include its own session's
+creations, without authority to mutate another assignee. Task completion is explicit
+and advances its authorization epoch; runtime output never marks a task done.
+
+Dispatch input is frozen before launch. Parked dispatches retain their resource
+leases. On restart or expiry, unstarted attempts may requeue; started work becomes
+unknown, quarantines its session and marks writable resources dirty. Only a host
+inspection command can create a distinct recovery instruction. Earlier queued
+instructions are superseded, and late output is retained as rejected audit input.
+An already completed task remains complete if only its result needs recovery.
+
+Five new native tests cover all 25 JavaScript transition-policy pairs, capability
+scope, transactional rollback/replay, restart/expiry and concurrent resource claims.
+These are kernel tests using fixture allocations. Host session binding, inspection
+and process ownership still require the real transport/runtime adapters; no HTTP
+route exposes fixture authority or recovery. Mailbox/graph/delegation and reply
+outbox delivery are still open M3 work. A task event outbox is not proof of Matrix
+delivery. No native runner is launched by this checkpoint.

@@ -126,3 +126,26 @@ must still name only the service SID, and reparse/hardlink checks remain enforce
 Credentials, database and ownership-lock files retain exact owner-SID validation.
 Administrator/root privileges are outside protection against ordinary local users.
 The private-file regression also rejects public-read ACLs for journal files.
+
+## Native canonical task and dispatch checkpoint
+
+Domain schema 3 adds tasks, session bindings, dispatch attempts, resource leases,
+mutation receipts and an internal task event outbox. Starting a leased dispatch
+atomically activates its task and acquires the already frozen payload once.
+OS-random capabilities are stored as hashes and checked with runner, dispatch,
+fence, deadline, current allocation and exact session/task binding. A coordinator
+can read tasks created by its own session; it cannot mutate another assignee.
+Task completion advances the authorization epoch. Runner final output cannot
+complete a canonical task. Task comments, updates, receipts and events commit
+or roll back together, without cloning the lifetime store.
+
+The single bounded writer serializes competing resource claims. Parked work
+retains leases. Startup and expiry requeue only unstarted attempts; started or
+parked attempts become unknown and quarantine their session and writable resources.
+An inspected host recovery creates a distinct instruction, supersedes stale queued
+instructions, and preserves the original attempt and rejected late output. If the
+canonical task already completed, recovery may report its inspected result without
+reopening that task. Room admission and process inspection are still host adapter
+responsibilities; no native HTTP endpoint accepts these fixture authority commands.
+Mailbox ordering, task dependencies, delegation, follow-up reopening and actual
+reply delivery remain subsequent M3 work. This checkpoint does not satisfy M4–M9.

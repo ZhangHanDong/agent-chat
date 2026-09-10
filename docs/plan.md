@@ -12,7 +12,11 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 4. M2 selected-resource domain checkpoint now implements verified-observation
    admission, one-transaction reservations/outbox and uncertain-effect recovery.
    Model qualification, derived catalogs and scoped cross-family checks now use
-   the shared policy. Complete legacy/project-side/rotation integration; next port the
-   M3 canonical task and dispatch kernel into the same domain database.
+   the shared policy. Complete legacy/project-side/rotation integration.
+   The M3 task/dispatch kernel now shares the domain database: current capabilities,
+   atomic mutation receipts, frozen payloads, resource leases and conservative
+   restart recovery. Continue mailbox ordering/deduplication, task dependencies,
+   delegation, thread follow-up and durable reply delivery; real runner adapters
+   still need the early platform ownership and sandbox proofs.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

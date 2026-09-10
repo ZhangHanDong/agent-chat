@@ -12,6 +12,10 @@ pub use worker::Store;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("runner capability is missing, stale or outside the task scope")]
+    RunnerAuthority,
+    #[error("session or resource requires inspected recovery")]
+    Quarantined,
     #[error("invalid input: {0}")]
     Invalid(#[from] hagency_core::InvalidInput),
     #[error("request identifier was reused with different content")]

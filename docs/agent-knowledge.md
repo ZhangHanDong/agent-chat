@@ -968,3 +968,12 @@ See docs/reviews/2026-09-09-open-pr-integration.md for evidence.
   Explicit role withdrawal is schema2 state. Only active same-registration model
   families satisfy cross-family review; resource configurations alone do not.
   Shared native schema upgrades are ordered and atomic; custody remains version1.
+
+Native migration M3 kernel (2026-09-10): task/dispatch state is in domain.sqlite3
+schema 3, not a separate router owner. Capability-scoped task mutations commit
+with receipt/outbox; explicit done advances the task epoch, runtime output does
+not. Unknown started attempts quarantine their session and writable resources;
+only inspected host recovery supersedes old queued work. Host session admission
+and process inspection are internal adapter contracts, not HTTP authority input.
+The four store scenario tests plus exhaustive 25-pair JS transition vectors cover
+this kernel; mailbox/dependencies/delegation/replies and real processes remain open.

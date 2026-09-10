@@ -3,6 +3,10 @@ use hagency_core::{
     allocation::Budget,
     authority::{Registration, VerifiedRequest},
     project::{CatalogResource, ConfiguredResource, Engagement, Resource, Seat},
+    tasks::{
+        DispatchInput, MutationResult, RunnerCapability, SessionBinding, Task, TaskComment,
+        TaskEvent, TaskMutation,
+    },
 };
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
@@ -29,6 +33,184 @@ fn weight(value: &impl Serialize) -> Result<u32, Error> {
     Ok(len.max(1) as u32)
 }
 impl DomainStore {
+    pub async fn register_session(&self, binding: SessionBinding) -> Result<(), Error> {
+        self.call(weight(&binding)?, move |db| db.register_session(&binding))
+            .await
+    }
+    pub async fn register_workspace(&self, id: String) -> Result<(), Error> {
+        self.call(weight(&id)?, move |db| db.register_workspace(&id))
+            .await
+    }
+    pub async fn create_canonical_task(
+        &self,
+        id: String,
+        session: String,
+        title: String,
+        now: u64,
+    ) -> Result<Task, Error> {
+        self.call(weight(&(&id, &session, &title))?, move |db| {
+            db.create_canonical_task(&id, &session, &title, now)
+        })
+        .await
+    }
+    pub async fn create_coordinator_task(
+        &self,
+        cap: RunnerCapability,
+        id: String,
+        session: String,
+        title: String,
+        now: u64,
+    ) -> Result<Task, Error> {
+        self.call(weight(&(&cap, &id, &session, &title))?, move |db| {
+            db.create_coordinator_task(&cap, &id, &session, &title, now)
+        })
+        .await
+    }
+    pub async fn enqueue_dispatch(&self, input: DispatchInput) -> Result<(), Error> {
+        input.validate()?;
+        self.call(weight(&input)?, move |db| db.enqueue_dispatch(&input))
+            .await
+    }
+    pub async fn claim_dispatch(
+        &self,
+        runner: String,
+        now: u64,
+        lease_ms: u64,
+        capability_ms: u64,
+        max_live: u32,
+    ) -> Result<Option<RunnerCapability>, Error> {
+        self.call(weight(&runner)?, move |db| {
+            db.claim_dispatch(&runner, now, lease_ms, capability_ms, max_live)
+        })
+        .await
+    }
+    pub async fn start_dispatch(
+        &self,
+        cap: RunnerCapability,
+        now: u64,
+    ) -> Result<serde_json::Value, Error> {
+        self.call(weight(&cap)?, move |db| db.start_dispatch(&cap, now))
+            .await
+    }
+    pub async fn park_dispatch(
+        &self,
+        cap: RunnerCapability,
+        parked: bool,
+        now: u64,
+    ) -> Result<(), Error> {
+        self.call(weight(&cap)?, move |db| db.park_dispatch(&cap, parked, now))
+            .await
+    }
+    pub async fn renew_dispatch(
+        &self,
+        cap: RunnerCapability,
+        now: u64,
+        lease_ms: u64,
+    ) -> Result<(), Error> {
+        self.call(weight(&cap)?, move |db| {
+            db.renew_dispatch(&cap, now, lease_ms)
+        })
+        .await
+    }
+    pub async fn fail_before_start(
+        &self,
+        cap: RunnerCapability,
+        now: u64,
+        retry_ms: u64,
+    ) -> Result<(), Error> {
+        self.call(weight(&cap)?, move |db| {
+            db.fail_before_start(&cap, now, retry_ms)
+        })
+        .await
+    }
+    pub async fn complete_dispatch(
+        &self,
+        cap: RunnerCapability,
+        output: serde_json::Value,
+        now: u64,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&cap, &output))?, move |db| {
+            db.complete_dispatch(&cap, &output, now)
+        })
+        .await
+    }
+    pub async fn record_late_output(
+        &self,
+        cap: RunnerCapability,
+        output: serde_json::Value,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&cap, &output))?, move |db| {
+            db.record_late_output(&cap, &output)
+        })
+        .await
+    }
+    pub async fn reconcile_dispatches(&self, now: u64) -> Result<(), Error> {
+        self.call(1, move |db| db.reconcile_dispatches(now)).await
+    }
+    pub async fn recover_dispatch(
+        &self,
+        original: String,
+        replacement: DispatchInput,
+        evidence: String,
+        now: u64,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&original, &replacement, &evidence))?, move |db| {
+            db.recover_dispatch(&original, &replacement, &evidence, now)
+        })
+        .await
+    }
+    pub async fn runner_task(
+        &self,
+        cap: RunnerCapability,
+        id: String,
+        now: u64,
+    ) -> Result<Task, Error> {
+        self.call(weight(&(&cap, &id))?, move |db| {
+            db.runner_task(&cap, &id, now)
+        })
+        .await
+    }
+    pub async fn runner_tasks(
+        &self,
+        cap: RunnerCapability,
+        after: String,
+        limit: usize,
+        now: u64,
+    ) -> Result<Vec<Task>, Error> {
+        self.call(weight(&(&cap, &after))?, move |db| {
+            db.runner_tasks(&cap, &after, limit, now)
+        })
+        .await
+    }
+    pub async fn mutate_task(
+        &self,
+        cap: RunnerCapability,
+        id: String,
+        call_id: String,
+        mutation: TaskMutation,
+        now: u64,
+    ) -> Result<MutationResult, Error> {
+        self.call(weight(&(&cap, &id, &call_id, &mutation))?, move |db| {
+            db.mutate_task(&cap, &id, &call_id, &mutation, now)
+        })
+        .await
+    }
+    pub async fn runner_comments(
+        &self,
+        cap: RunnerCapability,
+        id: String,
+        after: u64,
+        limit: usize,
+        now: u64,
+    ) -> Result<Vec<TaskComment>, Error> {
+        self.call(weight(&(&cap, &id))?, move |db| {
+            db.runner_comments(&cap, &id, after, limit, now)
+        })
+        .await
+    }
+    pub async fn task_events(&self, after: u64, limit: usize) -> Result<Vec<TaskEvent>, Error> {
+        self.call(1, move |db| db.task_events(after, limit)).await
+    }
     pub fn start(mut repository: DomainRepository, capacity: usize) -> Result<Self, Error> {
         if !(1..=128).contains(&capacity) {
             return Err(hagency_core::InvalidInput("queue capacity must be 1..128").into());
