@@ -38,39 +38,39 @@ Drain canonical approval request projections after startup, SSE wakes, reconnect
 ## Acceptance Criteria
 
 Scenario: Startup and missed events converge
-  Test: startup timer SSE and reconnect worker harness
+  Test: approval events and reconnect only wake the canonical worker
   Given canonical due request projections
   When startup or a redacted wake occurs or an SSE event is missed
   Then one owned nonoverlapping worker eventually reads the due page.
 
 Scenario: Drain work is bounded and fair
-  Test: opaque cursor concurrency and unavailable-row regression
+  Test: a full page progresses behind two persistently unavailable requests with concurrency two
   Given more than one request and one unavailable publisher
   When one drain pass completes
   Then at most two distinct requests run concurrently
   And cursor progress permits later requests to run.
 
 Scenario: Stop preserves uncertain sends
-  Test: timer and in-flight stop regression
+  Test: timer convergence is nonoverlapping and stop prevents new work
   Given a drain has started
   When the worker stops
   Then no new pass begins and its timer is cleared
   And the started operation is not relabeled as unsent.
 
 Scenario: Raw Matrix requests cannot occupy both slots forever
-  Test: real stalled final PUT response regression
+  Test: final PUT aborts a stalled response body within the owned deadline
   Given a representative or public-agent request returns headers without a complete body
   When the owned whole-response deadline expires
   Then the socket is aborted and the durable attempt remains retryable.
 
 Scenario: Legacy event path only wakes canonical work
-  Test: approval requested handler regression
+  Test: approval_requested only wakes canonical durable publication
   Given an approval requested event
   When the bridge handles it
   Then it queues the canonical worker without direct Matrix delivery or delivery-failed denial.
 
 Scenario: Public notice follows durable private delivery
-  Test: actual store private-failure ordering regression
+  Test: failed private publication keeps public notice ineligible and decision pending
   Given the private request has no durable Matrix receipt
   When due projection pages are read again after retry backoff
   Then the public notice remains ineligible and the canonical decision remains unchanged.

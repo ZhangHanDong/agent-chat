@@ -38,7 +38,7 @@ Project every canonical approval state durably and idempotently to Matrix while 
 ## Acceptance Criteria
 
 Scenario: Persistence failure respects the atomic rename commit point
-  Test: approval projection store persistence failure respects the atomic rename commit point
+  Test: pre-rename rolls back and post-rename degradation blocks later writes until reload
 Given a request and outbox at revision N
 When create, verdict, expiry, denial, consumption, plan, receipt, retry, or migration persistence fails before atomic rename
 Then disk and every affected in-memory record, index, row, counter, receipt, and cursor remain at revision N, no SSE is emitted, and a retry from revision N is allowed
@@ -46,14 +46,14 @@ When rename succeeds but directory fsync, defensive chmod, or a later health ste
 Then disk and memory both retain revision N+1, the result is explicitly committed with degraded durability health, and no caller retries or duplicates the transition.
 
 Scenario: Every accepted canonical transition has one projection revision
-  Test: approval projection store every accepted canonical transition has one projection revision
+  Test: creation and transitions enqueue increasing canonical revisions privately
 Given a native request or later accepted state transition
 When its single store transaction commits
 Then the canonical record and required outbox rows are durable together with one increasing revision
 And rejected/replayed transitions add no revision or row.
 
 Scenario: Send plan preparation and begin-send are durable CAS operations
-  Test: approval projection store send plan preparation and begin-send are durable cas operations
+  Test: full prepared-plan identity is required and immutable
 Given an unprepared canonical projection row and two concurrent bridge preparations
 When both propose publisher context and encrypted bytes
 Then target room and channel come from the row, the backend bounds payload bytes, derives the stable safe transaction ID, and atomically stores one immutable winning plan
@@ -62,21 +62,21 @@ When exact `begin-send` succeeds or its response is lost
 Then durable state is attempted/uncertain before Matrix I/O and retry is allowed only with the identical publisher, credential generation, event type, payload, and transaction ID.
 
 Scenario: Receipt is exact compare-and-set bookkeeping
-  Test: approval projection store receipt is exact compare-and-set bookkeeping
+  Test: uncertain retry observes deadline and becomes receiptable with the same plan
 Given attempted work pinned to a request, revision, channel, room, publisher, credential generation, prepared payload, and transaction ID
 When a stale or mismatched receipt arrives
 Then it is rejected without dropping or redirecting work
 And an exact receipt records only its Matrix event ID without changing approval state.
 
 Scenario: v1 migration emits zero actionable reposts
-  Test: approval projection store v1 migration emits zero actionable reposts
+  Test: legacy migration is bounded, resumable, and emits no actionable or null-target work
 Given pending, terminal, and consumed v1 records under positive, absent, undecryptable, or multiple history evidence
 When migration runs twice and after restart
 Then it preserves authorization/digest/decision fields and emits zero new actionable request or public notice events
 And only bounded, resumable, read-only current-state work is eligible.
 
 Scenario: Startup work is bounded
-  Test: approval projection store startup work is bounded
+  Test: migration offset rolls back on pre-rename failure and resumes after reload
 Given more legacy records than one migration/drain batch
 When the process starts
 Then it does not scan, enqueue, or publish the entire history synchronously

@@ -1,9 +1,6 @@
-spec: task
-name: "Document owner approval room preconditions"
-inherits: project
-tags: [documentation, matrix, approval, e2e]
-satisfies: [ADR-003, ADR-016]
----
+# Owner approval room manual review checklist
+
+These checks require review of the runbook and separately recorded live evidence. They are not automated test selectors or a claim of GUI acceptance.
 
 ## Intent
 
@@ -29,7 +26,7 @@ Make the macOS E2E runbook require the actual membership, narrow Matrix state pe
 ## Acceptance Criteria
 
 Scenario: Owner room preparation preserves unrelated authority
-  Test: Manual documentation review of E2E-RUNBOOK-macos.md section 2.5
+  Review: E2E-RUNBOOK-macos.md section 2.5
   Given an owner room whose default member level is zero and default state level is fifty
   When the operator prepares the current representative for marker publication
   Then the runbook requires fresh membership and power-level reads
@@ -37,7 +34,7 @@ Scenario: Owner room preparation preserves unrelated authority
   And it requires a readback without lowering the global state default
 
 Scenario: Missing GUI approval controls fail acceptance
-  Test: Manual documentation review of E2E-RUNBOOK-macos.md sections 4 and 7
+  Review: E2E-RUNBOOK-macos.md sections 4 and 7
   Given engagement resources have been allocated and an actual agent task triggers a protected native tool call
   When the operator uses the owner approval card
   Then Approve once and Deny are checked against their exact request and digest
@@ -47,7 +44,7 @@ Scenario: Missing GUI approval controls fail acceptance
   And an API verdict is described only as a separate backend diagnostic
 
 Scenario: Rate-limit observations stay qualified
-  Test: Manual documentation review of E2E-RUNBOOK-macos.md section 7
+  Review: E2E-RUNBOOK-macos.md section 7
   Given marker publication returns HTTP 403 and later traffic reaches a global HTTP 429 burst limit
   When the operator records the result
   Then the runbook distinguishes the two signals

@@ -201,9 +201,11 @@ tmux ls   # 期望看到 e2e-claude
 - **robrix 自动恢复旧会话**登到线上服务器 → 隔离数据目录(§4.1)。
 - **Makepad 无 Tab 焦点、Enter 换行** → 必须点击;发送按钮在右下角。
 - **批准后 agent 不说话** → 再发点名消息。
-- **owner 审批房没有审批卡** → 只能 API 批(G5)。
+- **owner 审批房没有审批卡或按钮** → GUI 验收为 failed。API verdict 仅可单列为后端诊断，不能替代 owner 原生按钮；先按 §2.5 核对当前成员、binding、marker 权限与消息投递证据。
 - **同名房让组名歧义** → 回复被 `group-route` 拒投(r11 修;修前把同名测试房改名)。
 - **代表仅被邀请的房间** → r9 前把 create 事件判可重试 → 毒批 8×500 → collector 熔断、cursor 卡死 → 需重启 bridge;r9 后应一次通过。
+- **approval marker HTTP 403** → 核对当前代表已 join 及两个 marker 的 power level；保留原始失败，按 §2.5 做窄范围修正并回读。不要把它当成限流。
+- **Matrix HTTP 429** → 按真实请求时间和 retry_after_ms 核对共享限流与退避；两个并发任务槽不能证明 HTTP 请求有间隔。审批适配器的显式 HTTP 使用共享 pacer，SDK 内部请求不能据此宣称全部覆盖。
 - **成员读取限流 M_LIMIT_EXCEEDED** → r10 前永久熔断;r10 后指数退避自动恢复。
 - **registration 只在 palpo 启动时装载**;**别用 admin API 注册**(进 DB 不进文件表,masquerade 必挂)。
 - **bridge 有 owner 锁**:重启要精确找 pid(`ps -eo pid,args | awk '$2=="node" && $3 ~ /bridge-matrix\.js$/'`),别用 pgrep 文本匹配。
@@ -212,6 +214,8 @@ tmux ls   # 期望看到 e2e-claude
 
 ---
 ## 8. 交付格式
+
+Owner 审批房的人工审阅清单见 [owner-approval-room-preconditions.md](verification/owner-approval-room-preconditions.md)；CI 测试通过不替代其中的 GUI 验收。
 - 每层一个 `RESULT.md`(清单表:项 / 结论 / 证据路径 / 复现步骤),证据文件编号。
 - ACK 写到 Hagency 仓 `.octos/OUTER_LOOP_REVIEW.md`:`ACK(E2E-<n> done|blocked)` + 表;bug 修复:分支 `fix/<slug>` 基 master,先红后绿逐字,`npm run verify:ci`,只 commit 不 push,ACK 附 `git show --stat`。
 - R2 诚实分级:verified / partially-verified / unverified,不把测试缝、静态证据或"选择器命中"冒充真机行为。

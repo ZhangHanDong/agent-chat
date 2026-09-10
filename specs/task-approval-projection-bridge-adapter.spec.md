@@ -35,7 +35,7 @@ Connect canonical approval projection rows to the existing bridge actor, securit
 ## Acceptance Criteria
 
 Scenario: Local encrypted projection follows the durable protocol
-  Test: real Express and approval store with a captured Matrix boundary
+  Test: real store/API prepares encrypted bytes once, begins before exact raw PUT, and receipts
   Given a canonical due private request and verified local bot context
   When the adapter prepares and publishes it
   Then security and encryption run before durable prepare
@@ -43,26 +43,26 @@ Scenario: Local encrypted projection follows the durable protocol
   And receipt records the returned event without re-encrypting.
 
 Scenario: Existing prepared work reuses winning bytes
-  Test: immutable retry regression
+  Test: an uncertain durable plan replays stored ciphertext without preparing content again
   Given an uncertain projection with stored encrypted content
   When the adapter retries it
   Then it skips fresh encryption and sends the exact stored payload and transaction identity.
 
 Scenario: Current identity gates transport
-  Test: captured and authoritative credential rotation regressions
+  Test: rechecks the actual actor after every preparation await and immediately before network
   Given a pinned projection actor
   When the captured or current credential generation differs
   Then no later Matrix request uses that context.
 
 Scenario: Status keeps original publisher and selected state
-  Test: protected due provenance and canonical content regression
+  Test: saved bot fields alone are not publisher readiness and selected status state wins
   Given a terminal status whose approval record has since changed
   When the adapter resolves and prepares that selected row
   Then it uses the original private request publisher
   And the wire version remains 1 with the selected revision state decision migration and full binding tuple.
 
 Scenario: Side security observation has one complete response deadline
-  Test: real loopback delayed and fragmented HTTP response regressions
+  Test: side security bounds the complete response:
   Given an authorized current side publisher checks room encryption state
   When headers arrive before a delayed or continuously partial response body
   Then the original deadline aborts the connection before accepting plaintext
