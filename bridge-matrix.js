@@ -4580,9 +4580,9 @@ export class MatrixBridge {
       }
       console.error(`[bridge] the bot could not be brought up: ${this.botUnavailable}`);
       console.error(
-        '[bridge] CONTINUING WITHOUT IT because this deployment has an appservice path. What is lost: talking '
-        + 'to the operator from Hagency\'s own homeserver, E2EE anywhere, approval DM rooms, and room/avatar '
-        + 'scanning. What still works: appservice intake and project-side representative sends. '
+        '[bridge] CONTINUING WITHOUT IT because this deployment has an appservice path. What is lost: '
+        + 'the local bot\'s operator messaging, E2EE and approval DM rooms, plus room/avatar scanning. '
+        + 'What still works: appservice intake and project-side representative sends. '
         + 'Project-side plaintext owner approvals require current authenticated publisher, binding, membership '
         + 'and room-security checks to pass; representative delivery does not support encrypted approvals. '
         + 'Fix the bot credential to restore its capabilities.',
@@ -11062,6 +11062,15 @@ export class MatrixBridge {
     const doSend = async () => {
       await validateProjectionSendContext();
       if (state.trustedManagedRooms?.[roomId]?.directChat) {
+        // Ordinary direct-chat delivery may discover another device and encrypt
+        // again. It cannot preserve a canonical projection's prepared bytes,
+        // publisher context and deadline; do not silently downgrade to raw send.
+        if (delivery?.expectedPublisherMxid !== undefined
+          || delivery?.expectedCredentialGeneration !== undefined
+          || delivery?.preparedEventType !== undefined
+          || typeof delivery?.validateSendContext === 'function') {
+          throw new Error('approval_projection_direct_chat_unsupported');
+        }
         const senderName = sender.agentName || Object.keys(state.agentTokens || {}).find(name => this.getAgentToken(name) === token);
         const eventId = await this.directChats.send(roomId, content, txnId, senderName, { sourceCreatedAt: delivery?.sourceCreatedAt });
         this.rememberMatrixEvent(eventId, sourceMsgId);

@@ -83,6 +83,13 @@ Scenario: Marker identity mismatch and invalid input fail closed
   When marker write is requested
   Then no fetch occurs
 
+Scenario: Prepared projections cannot use ordinary direct-chat encryption
+  Test: canonical projection refuses ordinary direct-chat re-encryption without changing normal sends
+  Given a managed direct-chat destination and a canonical durable projection plan
+  When sendAsAgentContent reaches the direct-chat transport boundary
+  Then it reports approval_projection_direct_chat_unsupported before sending or encrypting
+  And ordinary non-projection direct messages still use their existing transport
+
 ## Out of Scope
 
 - Local-bot encryption and bridge orchestration

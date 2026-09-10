@@ -21,6 +21,7 @@ import { restoreEnv, snapshotEnv } from './helpers/env.js';
 
 describe('sending as an agent that has no token of its own', () => {
   let MatrixBridge;
+  let bridgeStateForTest;
   let runtimeDir;
   let envSnapshot;
 
@@ -35,7 +36,7 @@ describe('sending as an agent that has no token of its own', () => {
     envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
     process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
-    ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?as-send`));
+    ({ MatrixBridge, bridgeStateForTest } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?as-send`));
   });
 
   afterAll(() => {
@@ -132,6 +133,33 @@ describe('sending as an agent that has no token of its own', () => {
       expectedPublisherMxid: '@ac_someone-else:side.test', expectedCredentialGeneration: 'generation-1', throwOnFailure: true,
     })).rejects.toThrow(/publisher/);
     expect(calls).toHaveLength(1);
+  });
+
+  test('canonical projection refuses ordinary direct-chat re-encryption without changing normal sends', async () => {
+    const calls = captureFetch();
+    const bridge = bridgeStub();
+    const sender = appserviceSender();
+    sender.credential.outboundGeneration = 'generation-1';
+    bridge.actingSideFor = () => ({ side: sender.side, credential: sender.credential });
+    bridge.directChats = { send: vi.fn(async () => '$ordinary-direct') };
+    const state = bridgeStateForTest();
+    const previous = state.trustedManagedRooms[ROOM];
+    state.trustedManagedRooms[ROOM] = { directChat: true };
+    try {
+      await expect(bridge.sendAsAgentContent(sender, ROOM, { ciphertext: 'durable' }, null, {
+        transactionId: 'fixed-projection', preparedEventType: 'm.room.encrypted',
+        expectedPublisherMxid: AGENT_MXID, expectedCredentialGeneration: 'generation-1', throwOnFailure: true,
+      })).rejects.toThrow('approval_projection_direct_chat_unsupported');
+      expect(calls).toHaveLength(0);
+      expect(bridge.directChats.send).not.toHaveBeenCalled();
+      expect(await bridge.sendAsAgentContent(sender, ROOM, { body: 'ordinary direct message' }))
+        .toBe('$ordinary-direct');
+      expect(bridge.directChats.send).toHaveBeenCalledTimes(1);
+      expect(calls).toHaveLength(0);
+    } finally {
+      if (previous === undefined) delete state.trustedManagedRooms[ROOM];
+      else state.trustedManagedRooms[ROOM] = previous;
+    }
   });
 
   test('projection delivery rejects incomplete publisher context before Matrix I/O', async () => {
@@ -287,6 +315,7 @@ describe('sending as an agent that has no token of its own', () => {
  */
 describe('a DM room for an agent with no token of its own', () => {
   let MatrixBridge;
+  let bridgeStateForTest;
   let runtimeDir;
   let envSnapshot;
   let mod;
@@ -480,6 +509,7 @@ describe('a DM room for an agent with no token of its own', () => {
  */
 describe('a room on a project side is acted in by the side, not by us', () => {
   let MatrixBridge;
+  let bridgeStateForTest;
   let runtimeDir;
   let envSnapshot;
 
@@ -493,7 +523,7 @@ describe('a room on a project side is acted in by the side, not by us', () => {
     process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     process.env.MATRIX_SERVER_NAME = 'matrix.example.test';
-    ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?room-actor`));
+    ({ MatrixBridge, bridgeStateForTest } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?room-actor`));
   });
 
   afterAll(() => {
@@ -603,6 +633,7 @@ describe('a room on a project side is acted in by the side, not by us', () => {
  */
 describe('which credential speaks is decided by the room, not by what the agent holds', () => {
   let MatrixBridge;
+  let bridgeStateForTest;
   let runtimeDir;
   let envSnapshot;
 
@@ -615,7 +646,7 @@ describe('which credential speaks is decided by the room, not by what the agent 
     process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     process.env.MATRIX_SERVER_NAME = OURS;
-    ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?room-decides`));
+    ({ MatrixBridge, bridgeStateForTest } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?room-decides`));
   });
 
   afterAll(() => {
