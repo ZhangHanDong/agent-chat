@@ -229,6 +229,9 @@ export function Runtime({ agent }) {
             <dt>{t('ag.runnerAvailability')}</dt><dd>{runnerAvailabilityLabel(agent.runner, t)}</dd>
             <dt>{t('ag.runnerActivity')}</dt><dd>{runnerActivityLabel(agent.runner, t)}</dd>
           </>}
+          {!onDemand && agent.dispatchActivity?.source === 'router-ledger' && <>
+            <dt>{t('ag.runnerActivity')}</dt><dd>{runnerActivityLabel(agent.dispatchActivity, t)}</dd>
+          </>}
           <dt>{t('ag.declaredModel')}</dt><dd>{modelText}</dd>
           <dt>{t('ag.workspace')}</dt><dd className={agent.workdir ? '' : 'dim'}>{agent.workdir || t('ag.workdirUnknown')}</dd>
         </dl>

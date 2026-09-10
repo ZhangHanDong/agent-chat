@@ -10,8 +10,8 @@ const agent = {
   offlineReason: 'tmux-missing:auto', state: 'offline',
   runner: { mode: 'on-demand', availability: 'ready', activity: 'idle', framework: 'codex' },
 };
-function data() {
-  const values = { ...fixture, agents: [agent], presets: [], engagements: [], seats: [], contributions: [], usageLive: [] };
+function data(current = agent) {
+  const values = { ...fixture, agents: [current], presets: [], engagements: [], seats: [], contributions: [], usageLive: [] };
   return { ...values, ...makeDerive(values), provenance: { agents: 'live', presets: 'live', contributions: 'live', engagements: 'live' }, refresh: async () => {} };
 }
 describe('Dashboard on-demand roster', () => {
@@ -30,6 +30,33 @@ describe('Dashboard on-demand roster', () => {
     expect(html).not.toContain('tmux-missing:auto');
     expect(html).not.toContain('>offline<');
   });
+});
+
+test('carries only public hybrid dispatch activity through the API adapter', async () => {
+  const dispatchActivity = { source: 'router-ledger', activity: 'running', activeDispatchCount: 1,
+    queuedDispatchCount: 0, parkedDispatchCount: 0 };
+  vi.stubGlobal('fetch', async (url) => ({ ok: true, text: async () => JSON.stringify(
+    url === '/api/hafleet/agents' ? [{ name: 'hybrid', type: 'claude', transport: 'tmux', tmux: 'hybrid:0.0',
+      runner: null, dispatchActivity: { ...dispatchActivity, privatePayload: 'do-not-project' } }]
+      : url === '/api/hafleet/framework-presets' || url === '/api/hafleet/frameworks' ? [] : {},
+  ) }));
+  const result = await fetchLive();
+  expect(result.data.agents[0]).toMatchObject({ runner: null, transport: 'tmux', tmux: 'hybrid:0.0', dispatchActivity });
+  expect(JSON.stringify(result.data.agents[0])).not.toContain('do-not-project');
+});
+
+test.each(['resources', 'workforce', 'config'])('renders hybrid dispatch activity without hiding the terminal: %s', async (route) => {
+  for (const [activity, label] of [['running', 'Active dispatch'], ['parked', 'Awaiting approval'],
+    ['queued', 'Queued'], ['unknown', 'Dispatch activity unknown']]) {
+    const hybrid = { ...agent, name: 'hybrid', framework: 'claude', runner: null, online: true,
+      alive: true, healthy: true, state: 'online', tmux: 'hybrid:0.0', transport: 'tmux', idleDurationSec: 119745,
+      dispatchActivity: { source: 'router-ledger', activity } };
+    const html = await renderDashboard(`mockup/app/${route}/page.jsx`, { data: data(hybrid) });
+    expect(html).toContain(label);
+    expect(html).toContain('TMUX · hybrid:0.0');
+    expect(html).not.toContain('IDLE 1d9h');
+    expect(html).not.toContain('Ready on demand');
+  }
 });
 
 afterEach(() => vi.unstubAllGlobals());

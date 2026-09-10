@@ -1934,7 +1934,29 @@ function isOnDemandThreadSessionAgent(agent) {
     && threadSessionAgentEligibility(agent).ok === true;
 }
 
-function serializeThreadSessionRunner(agent) {
+// Thread routing also serves agents with a legacy terminal. Ledger activity is
+// independent of that terminal's liveness and of permission to start a runner.
+function serializeThreadSessionDispatchActivity(agent) {
+  if (!THREAD_SESSIONS_ENABLED || !isAgentRecord(agent)
+      || !normalizeAgentId(agent.agentId) || !threadSessionAgentEligibility(agent).ok) return null;
+  try {
+    const counts = routerStore.agentDispatchActivity(agent.agentId);
+    return {
+      source: 'router-ledger',
+      activity: counts.parkedDispatchCount > 0 ? 'parked'
+        : counts.activeDispatchCount > 0 ? 'running'
+          : counts.queuedDispatchCount > 0 ? 'queued' : 'idle',
+      activeDispatchCount: counts.activeDispatchCount,
+      queuedDispatchCount: counts.queuedDispatchCount,
+      parkedDispatchCount: counts.parkedDispatchCount,
+    };
+  } catch {
+    return { source: 'router-ledger', activity: 'unknown', activeDispatchCount: null,
+      queuedDispatchCount: null, parkedDispatchCount: null };
+  }
+}
+
+function serializeThreadSessionRunner(agent, dispatchActivity) {
   if (!isOnDemandThreadSessionAgent(agent)) return null;
   const model = agent.runtimeProfile?.primary?.model || null;
   const result = {
@@ -1956,21 +1978,13 @@ function serializeThreadSessionRunner(agent) {
     } catch { reason = 'workspace-unavailable'; }
   }
   if (reason) { result.availability = 'unavailable'; result.reason = reason; }
-  try {
-    const counts = routerStore.agentDispatchActivity(agent.agentId);
-    result.activeDispatchCount = counts.activeDispatchCount;
-    result.queuedDispatchCount = counts.queuedDispatchCount;
-    result.parkedDispatchCount = counts.parkedDispatchCount;
-    // Counts describe durable dispatches, not independently probed OS processes.
-    result.activity = counts.parkedDispatchCount > 0 ? 'parked'
-      : counts.activeDispatchCount > 0 ? 'running'
-        : counts.queuedDispatchCount > 0 ? 'queued' : 'idle';
-  } catch {
-    if (!reason) { result.availability = 'unknown'; result.reason = 'dispatch-state-unavailable'; }
-    result.activity = 'unknown';
-    result.activeDispatchCount = null;
-    result.queuedDispatchCount = null;
-    result.parkedDispatchCount = null;
+  // Counts describe durable dispatches, not independently probed OS processes.
+  result.activity = dispatchActivity.activity;
+  result.activeDispatchCount = dispatchActivity.activeDispatchCount;
+  result.queuedDispatchCount = dispatchActivity.queuedDispatchCount;
+  result.parkedDispatchCount = dispatchActivity.parkedDispatchCount;
+  if (dispatchActivity.activity === 'unknown' && !reason) {
+    result.availability = 'unknown'; result.reason = 'dispatch-state-unavailable';
   }
   return result;
 }
@@ -6643,7 +6657,8 @@ function serializeAgent(agent) {
   const deliveryState = getAgentDeliveryState(agent.name);
   const runtime = ensureAgentRuntimeRecord(agent.name);
   const machine = getAgentMachine(agent.name);
-  const runner = serializeThreadSessionRunner(agent);
+  const dispatchActivity = serializeThreadSessionDispatchActivity(agent);
+  const runner = serializeThreadSessionRunner(agent, dispatchActivity);
   return {
     ...agent,
     server: normalizeServer(agent.server),
@@ -6656,6 +6671,7 @@ function serializeAgent(agent) {
     serverLastSeen: deliveryState.serverLastSeen,
     offlineReason: runner && deliveryState.offlineReason === 'tmux-missing:auto' ? null : deliveryState.offlineReason,
     runner,
+    dispatchActivity,
     manualDown: agent.manualDown === true,
     blocked: runtime?.blocked === true,
     blockedReason: runtime?.blockedReason || null,
