@@ -16,7 +16,9 @@ fn native_cgroup_unprovisioned_refusal() {
         procs.into(),
         kill.into(),
     );
-    assert!(matches!(outcome, Err(e) if e.kind() == io::ErrorKind::PermissionDenied));
+    assert!(
+        matches!(outcome, Err(e) if matches!(e.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported))
+    );
     let output = Command::new(env!("CARGO_BIN_EXE_hagency-cgroup-probe"))
         .arg("guardian-death")
         .arg(root.path())

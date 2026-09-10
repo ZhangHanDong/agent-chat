@@ -35,6 +35,52 @@ Up to 64 ancestors and their `cgroup.procs`/`cgroup.threads` files must be root
 owned with no group/other write bits. Workspace-created child groups remain
 within that protected boundary.
 
+### Initial namespace qualification
+
+The mount root string `/` is insufficient by itself: Linux renders it relative
+to the caller's cgroup namespace. UID 0 in file metadata is also relative to the
+caller's user namespace. Admission therefore opens the **current executing
+thread's** namespace entries itself. It requires procfs source symlinks and
+parents on the same verified proc mount, then verifies nsfs filesystem magic,
+`NS_GET_NSTYPE`, and the initial namespace inode together. It does not accept a
+caller-supplied namespace descriptor, compare against `/proc/1`, or treat
+`NS_GET_PARENT` returning EPERM as an initial-namespace proof.
+
+The supported kernel release families are explicitly restricted to 6.8, 6.12 and
+6.14. Other releases return Unsupported; changed namespace identities do too.
+These are source-inspected implementation constants, **not a portable Linux
+ABI**: user `0xEFFFFFFD`, cgroup `0xEFFFFFFB`, nsfs `0x6e736673`, and namespace
+types `CLONE_NEWUSER`/`CLONE_NEWCGROUP`. Initial constants agree in
+[v6.8 proc_ns.h](https://github.com/torvalds/linux/blob/v6.8/include/linux/proc_ns.h#L37),
+[v6.12 proc_ns.h](https://github.com/torvalds/linux/blob/v6.12/include/linux/proc_ns.h#L37),
+and [v6.14 proc_ns.h](https://github.com/torvalds/linux/blob/v6.14/include/linux/proc_ns.h#L37).
+Dynamic namespace inodes start at `0xF0000000`, excluding those reserved values
+([v6.12 generic.c, lines 181–198](https://github.com/torvalds/linux/blob/v6.12/fs/proc/generic.c#L181)).
+The initial cgroup is owned by the initial user namespace; cgroup mount paths
+are relative to current cgroup namespace
+([v6.12 cgroup.c, lines 193–200 and 1774–1797](https://github.com/torvalds/linux/blob/v6.12/kernel/cgroup/cgroup.c#L193)).
+
+`NS_GET_USERNS` on the opened initial cgroup namespace supplies an additional
+kernel check: `ns_get_owner` must find the **calling** thread's user namespace
+while walking the owner and its ancestors. The initial user namespace has no
+parent, so a nested caller cannot substitute an accessible initial namespace
+descriptor ([v6.12 user_namespace.c, lines 1291–1305](https://github.com/torvalds/linux/blob/v6.12/kernel/user_namespace.c#L1291)).
+The returned CLOEXEC namespace descriptor is adopted once and checked against
+the same nsfs/type/inode triplet; both original namespace descriptors must share
+its global nsfs mount identity, excluding bind-mounted source substitutions
+([v6.12 nsfs.c, lines 89–108 and 158–173](https://github.com/torvalds/linux/blob/v6.12/fs/nsfs.c#L89)).
+Proc namespace entries resolve the actual proc task through `proc_ns_get_link`
+([v6.12 namespaces.c, lines 39–64](https://github.com/torvalds/linux/blob/v6.12/fs/proc/namespaces.c#L39)).
+The proc `ns` directory has mode 0511, so directory traversal uses O_PATH after
+nondumpability rather than requiring directory-read permission
+([v6.12 base.c, lines 3118–3122](https://github.com/torvalds/linux/blob/v6.12/fs/proc/base.c#L3118)).
+Checks repeat at host admission, before attachment, and in the guardian after
+exec and dumpability reset, before any workspace launch. The provisioner must
+exclude concurrent privileged namespace/mount replacement and use a kernel
+whose source implements the inspected contracts. A version string alone does
+not prove a vendor kernel's implementation; real execution qualification on its
+exact kernel release is also required.
+
 The calling host must already have equal nonzero real/effective/saved/fs UIDs,
 zero effective/permitted/inheritable/bounding/ambient capabilities, NNP=1 and
 dumpability disabled. `/proc/thread-self/status` is bounded and required fields
@@ -105,7 +151,8 @@ guarantee refusal. Linux cross-compilation is not execution. The Linux refusal
 test rejects ordinary files/unprovisioned hosts and makes no containment claim.
 
 The separate `hagency-cgroup-probe` executable has no ignored-test or missing-host
-success branch. A qualified host must supply inherited descriptors 3/4/5 and the
+success branch. A qualified host must supply exactly three distinct inherited
+descriptors (directory/procs/kill, numeric CLI arguments after mode/directory) and the
 required identity/capability/NNP conditions, plus a fresh user-owned mode-0700 test
 directory. The disposable fixture seals those descriptors before spawning and
 sets its own nondumpability after exec. Run each mode with a fresh reserved group:
@@ -117,3 +164,57 @@ requests must leave no workspace execution. Admission/refusal exits 78 and never
 prints the fixture's qualification result. No privileged fixture has been run in
 this macOS environment. Provisioned Linux execution and adversarial reassignment/
 ptrace checks remain required before advertising recovery availability.
+
+### Disposable hosted CI provisioner
+
+`native/scripts/qualify-linux-cgroup.py` is a CI-only external custodian. It
+requires Linux X64, root and GitHub-hosted runner markers, initial user/cgroup
+namespaces and an existing writable full cgroup2 mount. Those environment
+markers prevent accidental execution; they are not authentication against a
+malicious root operator. It creates one exclusive random `hagency-ci-*` subtree,
+then fixed per-case child groups. Only its created directories/control files
+are chmodded. No mount, ancestor permission change, delegation, remount or local
+deployment action occurs. Unavailable kernel/delegation/unshare or cleanup
+failure is a nonzero **qualification failure**, never success or an ignored test.
+
+The helper retains exact root directory/kill/events capabilities. For ordinary
+positive cases it executes only `/usr/bin/setpriv` and the built offline probe,
+with the runner's nonzero UID/GID, no supplementary groups, NNP and emptied
+bounding/inheritable/ambient sets. The probe sets nondumpability after exec and
+verifies all five capability sets and all four UIDs before launch. Exactly three
+cgroup descriptors are passed and immediately sealed CLOEXEC by the disposable
+probe. stdout/stderr are independently capped at 64 KiB and drained by one
+selector; a monotonic 20-second fixture deadline applies even during output.
+The helper is retained by pidfd for bounded identity-safe failure cleanup.
+
+Four actual process cases cover guardian death with detached descendants,
+explicit stop, failed executable, and the unchanged full-guarantee refusal.
+Two real `/usr/bin/unshare` cases create nested user and cgroup namespaces and
+must observe the exact namespace admission refusal before a workspace starts.
+Failure to create those namespaces is a failed qualification, not a substitute
+for the refusal result. A separate `custodians-abort` injection kills the
+guardian and exits the host without Drop while a descendant still runs; the
+**external root helper** must observe that live population and stop it through
+its own retained cgroup capability. That case proves the test custodian's
+cleanup, not simultaneous-custodian-loss recovery inside the runtime.
+
+Every fixture outcome invokes root `cgroup.kill` and observes recursive
+`populated=0` for at most five seconds. A hung helper is signalled only through
+its retained pidfd and waited for at most five seconds. Finally, the provisioner
+again attempts independent cleanup and removes only its known children and
+root whose device/inode still match the retained identities; unknown descendants
+or changed identities refuse removal. The at most eight groups bound final
+cleanup observations to forty seconds (kernel syscall stalls remain outside a
+hard real-time guarantee). Root-helper death itself is outside this test cleanup
+guarantee. No success message is printed before observed cleanup and removal.
+
+The workflow runs these cases only on the hosted Ubuntu job. Python gate,
+event-parser and replacement-refusal tests manipulate ordinary temporary files.
+An actual local subprocess tests collector timeout/output bounds; a Linux-only
+ordinary-subprocess case drives the real pidfd finally cleanup on both errors,
+using an explicitly labeled stop-invocation test double. Those are bounded helper
+IO/cleanup checks and do not prove cgroup containment. Local source/compile checks in this change
+do not count as the still-pending real positive and nested-namespace CI results.
+The optional library path is not wired to a service or OwnedSession; production
+availability, hostile ptrace/reassignment qualification and complete POSIX crash
+containment remain closed gates.

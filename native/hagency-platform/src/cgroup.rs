@@ -1,7 +1,10 @@
 //! Optional Linux recovery capability. This is not a kill-on-close resource.
 use crate::{
     StopReport,
-    cgroup_checks::{full_mount, host_status, populated, refuse},
+    cgroup_checks::{
+        NamespaceKind, full_mount, host_status, kernel_release, namespace_identity,
+        namespace_refused, populated, refuse,
+    },
 };
 use rustix::{
     fs::{
@@ -13,7 +16,10 @@ use rustix::{
 use std::{
     fs::File,
     io::{self, Read, Write},
-    os::{fd::OwnedFd, unix::fs::FileExt},
+    os::{
+        fd::{AsRawFd, FromRawFd, OwnedFd},
+        unix::fs::FileExt,
+    },
     process::Child,
     time::{Duration, Instant},
 };
@@ -51,6 +57,7 @@ impl CgroupRecovery {
         procs_write: OwnedFd,
         kill_write: OwnedFd,
     ) -> io::Result<Self> {
+        validate_namespaces()?;
         let directory_stat = protected(&directory, true)?;
         validate_control(&directory, &procs_write, "cgroup.procs", &directory_stat)?;
         validate_control(&directory, &kill_write, "cgroup.kill", &directory_stat)?;
@@ -280,6 +287,7 @@ fn validate_ancestors(directory: &OwnedFd) -> io::Result<()> {
 }
 
 pub(crate) fn validate_host() -> io::Result<()> {
+    validate_namespaces()?;
     host_status(&proc_read("/proc/thread-self/status", 64 * 1024)?)?;
     if dumpable_behavior()? != DumpableBehavior::NotDumpable {
         return Err(refuse());
@@ -305,4 +313,104 @@ pub(crate) fn prepare_guardian() -> io::Result<()> {
     // before Prepare is acknowledged and before any workspace process exists.
     set_dumpable_behavior(DumpableBehavior::NotDumpable)?;
     validate_host()
+}
+
+fn namespace_metadata(fd: &OwnedFd, kind: NamespaceKind) -> io::Result<()> {
+    // SAFETY: NS_GET_NSTYPE takes no pointer and returns the kernel namespace
+    // type of this internally opened descriptor, never a model-supplied handle.
+    let ty = unsafe { libc::ioctl(fd.as_raw_fd(), libc::NS_GET_NSTYPE) };
+    if ty < 0 {
+        return Err(namespace_refused());
+    }
+    namespace_identity(kind, fstatfs(fd)?.f_type as u64, fstat(fd)?.st_ino, ty)
+}
+
+fn validate_namespaces() -> io::Result<()> {
+    // SAFETY: uname initializes the supplied correctly aligned utsname; inspect
+    // only its fixed release array after success and require an in-array NUL.
+    let mut name = std::mem::MaybeUninit::<libc::utsname>::uninit();
+    if unsafe { libc::uname(name.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let name = unsafe { name.assume_init() };
+    let end = name
+        .release
+        .iter()
+        .position(|v| *v == 0)
+        .ok_or_else(namespace_refused)?;
+    let release: Vec<u8> = name.release[..end].iter().map(|v| *v as u8).collect();
+    kernel_release(&release)?;
+    // O_PATH needs no directory read permission after nondumpability. Anchor
+    // source entries to actual current-thread procfs, not supplied namespace FDs
+    // or /proc/1 (PID 1 may itself be inside a namespace).
+    let proc_root = openat(
+        rustix::fs::CWD,
+        "/proc",
+        OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )?;
+    if fstatfs(&proc_root)?.f_type as i64 != PROC {
+        return Err(namespace_refused());
+    }
+    let proc_mount = fd_mount(&proc_root)?;
+    let thread = openat(
+        &proc_root,
+        "thread-self",
+        OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    let namespaces = openat(
+        &thread,
+        "ns",
+        OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )?;
+    for fd in [&thread, &namespaces] {
+        if fstatfs(fd)?.f_type as i64 != PROC || fd_mount(fd)? != proc_mount {
+            return Err(namespace_refused());
+        }
+    }
+    let mut descriptors = Vec::with_capacity(2);
+    for (name, kind) in [
+        ("user", NamespaceKind::User),
+        ("cgroup", NamespaceKind::Cgroup),
+    ] {
+        let source = openat(
+            &namespaces,
+            name,
+            OFlags::PATH | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::empty(),
+        )?;
+        if fstatfs(&source)?.f_type as i64 != PROC
+            || fd_mount(&source)? != proc_mount
+            || fstat(&source)?.st_mode & libc::S_IFMT != libc::S_IFLNK
+        {
+            return Err(namespace_refused());
+        }
+        let fd = openat(
+            &namespaces,
+            name,
+            OFlags::RDONLY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        namespace_metadata(&fd, kind)?;
+        descriptors.push(fd);
+    }
+    // ns_get_owner only returns the initial cgroup's user owner when the calling
+    // thread is itself in initial user namespace. A nested caller cannot pass an
+    // accessible initial namespace descriptor in place of its actual context.
+    // SAFETY: No pointer. A nonnegative result is a fresh CLOEXEC FD from kernel.
+    let owner = unsafe { libc::ioctl(descriptors[1].as_raw_fd(), libc::NS_GET_USERNS) };
+    if owner < 0 {
+        return Err(namespace_refused());
+    }
+    // SAFETY: Adopt the newly returned descriptor exactly once; RAII closes it.
+    let owner = unsafe { OwnedFd::from_raw_fd(owner) };
+    namespace_metadata(&owner, NamespaceKind::User)?;
+    for fd in &descriptors {
+        if fd_mount(fd)? != fd_mount(&owner)? {
+            return Err(namespace_refused());
+        }
+    }
+    Ok(())
 }

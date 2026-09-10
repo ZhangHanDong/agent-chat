@@ -19,9 +19,13 @@ launcher without advertising complete POSIX crash containment.
 - Preserve uncertain cleanup and keep complete crash containment unsupported.
 - Require privileged host provisioning and separate real Linux fixture qualification.
 - Label local parser and refusal tests as admission evidence only.
+- Require verified current initial user and cgroup namespaces on source-inspected kernel families, including after guardian exec.
+- Qualify actual guardian loss and nested namespace refusal only through a disposable GitHub-hosted Linux CI provisioner.
+- Retain independent root cleanup for exactly the provisioner's newly created subtree on every helper outcome.
 
 ### Must Not
-- Do not mount, create or change permissions on system cgroups.
+- Do not mount or change existing system cgroups; the CI-only provisioner may create and remove exactly one fresh private subtree and change only its own control files.
+- Do not execute privileged cgroup qualification on local machines, Mini1 or self-hosted runners.
 - Do not infer signal authority from a PID or add a second workspace launcher.
 - Do not settle canonical tasks or resource leases from process observations.
 - Do not treat absent delegation, skipped fixtures or cross-compilation as containment proof.
@@ -30,6 +34,9 @@ launcher without advertising complete POSIX crash containment.
 
 ### Allowed Changes
 - native/hagency-platform/**
+- native/scripts/qualify-linux-cgroup.py
+- native/scripts/test-qualify-linux-cgroup.py
+- .github/workflows/rust.yml
 - knowledge/decisions/adr-048-native-linux-crash-custody.md
 - specs/task-rust-linux-crash-custody.spec.md
 - docs/**
@@ -51,6 +58,13 @@ Scenario: Existing POSIX launch keeps its crash guarantee refusal
   When a launch requires complete crash containment
   Then POSIX refuses before workspace code starts
 
+Scenario: Relative namespace roots cannot hide migration authority
+  Test: native_cgroup_namespace_vectors
+  Test Double: namespace filesystem type inode and kernel release vectors
+  Given a root-looking mount inside a nested user or cgroup namespace
+  When current namespace admission is evaluated
+  Then noninitial unknown and mismatched identities are refused without claiming real namespace qualification
+
 ## Decisions
 
 Real Linux cgroup execution is a separate opt-in fixture with mandatory host
@@ -58,5 +72,5 @@ provisioning. Missing provisioning is a refusal, not a passing containment test.
 
 ## Out of Scope
 
-Simultaneous backend and guardian death, host privilege provisioning, live models,
+Simultaneous backend and guardian death recovery by the runtime, production host privilege provisioning, live models,
 actual sandbox qualification, server enablement, macOS containment and full M4.

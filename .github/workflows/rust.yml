@@ -42,6 +42,13 @@ jobs:
       - run: node native/scripts/execution-vectors.mjs --check
       - run: node native/scripts/check-rust-spec-bindings.mjs
       - run: cargo test --workspace --all-targets --locked --no-fail-fast
+      - name: Qualify Linux cgroup recovery on a disposable hosted VM
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python3 -B native/scripts/test-qualify-linux-cgroup.py
+          cargo build --locked -p hagency-platform --bins
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,RUNNER_ARCH /usr/bin/python3 -B native/scripts/qualify-linux-cgroup.py --probe "$PWD/target/debug/hagency-cgroup-probe" --uid "$(id -u)" --gid "$(id -g)"
       - run: cargo build --release --locked -p hagency
       - uses: actions/upload-artifact@v4
         with:

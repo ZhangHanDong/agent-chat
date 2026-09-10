@@ -3113,3 +3113,33 @@ Final source review replaced fdinfo reads with descriptor statx mount identity:
 nondumpability can restrict proc fdinfo access and must not be relaxed to work
 around it. Known guardian signal failures remain recorded after independent
 empty-subtree proof. No push, merge or deployment was performed.
+
+### 2026-09-10 — namespace and disposable CI cgroup qualification follow-up
+
+Continued initial cgroup commit `33751df` in its own isolated worktree. Review
+identified that mount root `/` and stat UID0 are namespace-relative. Admission
+now verifies current-thread proc source entries, nsfs/type/reserved initial inode,
+initial cgroup owner relation and matching nsfs mount identities. Checks repeat
+after guardian exec and nondumpability reset. Source-inspected kernel release
+families are 6.8/6.12/6.14; unknown versions/identities refuse. ADR-048 records
+exact pinned implementation sources and privileged provisioning assumptions.
+
+Added a GitHub-hosted Linux-only root qualifier that creates one exclusive random
+cgroup subtree, passes exactly three controls to a nonroot NNP/cap-empty probe,
+and retains independent bounded kill/empty observation and identity-checked
+removal. Actual cases include guardian death/descendants, stop, failed spawn, full
+guarantee refusal, real nested user/cgroup rejection and external cleanup after
+both test custodians abort. Helpers have bounded output/deadlines and retained
+pidfd cleanup. No cgroups were created or modified locally or on Mini1.
+
+Local checks passed 21 platform tests, four Python admission/collector tests,
+and all-target Clippy on macOS plus Linux/Windows GNU cross-targets. The Linux-only
+ordinary-subprocess test covers pidfd finally cleanup on timeout/output overflow;
+it and all privileged cgroup qualification remain pending real hosted Linux CI.
+Production runner enablement, adversarial ptrace/reassignment qualification and
+simultaneous-custodian-loss containment remain open. Lifecycle is recorded below.
+Agent-spec 1.4 passed all three explicitly limited scenarios plus the 12-file
+boundary (4/4, quality 98%, no fail/skip/uncertain). The 110 native spec bindings
+were found without missing tests. Lifecycle and run logs are in the operator
+cache under `codex-protocol/cgroup-qualification-*`. These results do not include
+privileged Linux execution; the coordinator will integrate and run hosted CI.

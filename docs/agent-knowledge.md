@@ -1568,3 +1568,16 @@ qualification with the newly integrated Matrix collector until its own run ends.
   `node native/scripts/matrix-format-vectors.mjs --check`; CI installs locked dependencies
   for the pure JS oracle with all install scripts disabled. Native capacity errors and
   malformed edit rejection are intentional; formatting is not Matrix delivery.
+
+Linux cgroup namespace qualification (2026-09-10): a mountinfo root `/` is relative
+to current cgroup namespace and UID0 is relative to user namespace. ADR-048 now
+requires internally opened current-thread proc entries, nsfs/type/initial inode
+and initial-owner ioctl checks, repeated after exec. Initial inode constants are
+source-bound to Linux 6.8/6.12/6.14, not a portable ABI; unknown families refuse.
+The separate root CI qualifier must run only on a disposable GitHub-hosted VM.
+It creates one unique subtree, never changes existing cgroup permissions, and
+retains exact descriptors for independent kill/empty proof and bounded removal.
+Real namespace creation failure or absent writable delegation fails qualification;
+ordinary parser/cross-compile tests cannot stand in for it. Root fixture cleanup
+after host/guardian abort does not upgrade the runtime's still-Unsupported full
+POSIX crash guarantee or enable a native production runner.

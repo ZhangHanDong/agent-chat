@@ -1,6 +1,6 @@
 //! Opt-in Linux qualification executable, not an automatic passing/ignored test.
 //! Requires a host-provisioned private test directory and inherited descriptors
-//! 3=full cgroup directory, 4=cgroup.procs WRONLY, 5=cgroup.kill WRONLY. A trusted
+//! passed as three distinct numeric arguments: directory, procs WRONLY, kill WRONLY. A trusted
 //! provisioner must empty capability sets/bounding set, set NNP and drop root
 //! before exec. No cgroup mount, creation, chmod, setuid or cap change occurs here.
 #[cfg(not(target_os = "linux"))]
@@ -67,20 +67,43 @@ mod linux {
         if args.first().is_some_and(|v| v == "guardian") {
             return hagency_platform::run_guardian();
         }
-        if args.len() != 2
+        if args.len() != 5
             || ![
                 "guardian-death",
                 "stop",
                 "failed-spawn",
                 "guarantee-refused",
+                "custodians-abort",
             ]
             .iter()
             .any(|v| args[0] == *v)
         {
             return Err(io::Error::other(
-                "qualification mode and private absolute test directory required",
+                "qualification mode, private absolute test directory and exactly three inherited FDs required",
             ));
         }
+        let mut numbers = Vec::with_capacity(3);
+        for value in &args[2..] {
+            let number = value
+                .to_str()
+                .and_then(|v| v.parse::<i32>().ok())
+                .filter(|v| *v >= 3 && !numbers.contains(v))
+                .ok_or_else(|| io::Error::other("three distinct inherited FDs >=3 required"))?;
+            numbers.push(number);
+        }
+        let directory = inherited(numbers[0])?;
+        let procs = inherited(numbers[1])?;
+        let kill = inherited(numbers[2])?;
+        rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable)?;
+        let events = File::from(rustix::fs::openat(
+            &directory,
+            "cgroup.events",
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC | rustix::fs::OFlags::NOFOLLOW,
+            rustix::fs::Mode::empty(),
+        )?);
+        let recovery = CgroupRecovery::from_host_files(directory, procs, kill)?;
+        // Admission runs first so namespace fault fixtures cannot be confused
+        // with a mapped UID's inability to own this ordinary work directory.
         let root = Path::new(&args[1]);
         let meta = fs::symlink_metadata(root)?;
         if !root.is_absolute()
@@ -90,17 +113,6 @@ mod linux {
         {
             return Err(io::Error::other("private test directory required"));
         }
-        let directory = inherited(3)?;
-        let procs = inherited(4)?;
-        let kill = inherited(5)?;
-        rustix::process::set_dumpable_behavior(rustix::process::DumpableBehavior::NotDumpable)?;
-        let events = File::from(rustix::fs::openat(
-            &directory,
-            "cgroup.events",
-            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC | rustix::fs::OFlags::NOFOLLOW,
-            rustix::fs::Mode::empty(),
-        )?);
-        let recovery = CgroupRecovery::from_host_files(directory, procs, kill)?;
         let marker = root.join("custody");
         if marker.with_extension("pulse").exists() || marker.with_extension("kill").exists() {
             return Err(io::Error::other("fresh test directory required"));
@@ -108,7 +120,7 @@ mod linux {
         let mut launch = Launch {
             executable: std::env::current_exe()?.with_file_name("hagency-platform-probe"),
             arguments: vec![
-                if args[0] == "guardian-death" {
+                if args[0] == "guardian-death" || args[0] == "custodians-abort" {
                     "detached-kill-guardian".into()
                 } else {
                     "detached-root".into()
@@ -145,6 +157,20 @@ mod linux {
         fresh_pulse(&marker)?;
         drop(pipes); // Closing IO is deliberately not the process stop authority.
         fresh_pulse(&marker)?;
+        if args[0] == "custodians-abort" {
+            fs::write(marker.with_extension("kill"), b"kill guardian")?;
+            let until = Instant::now() + Duration::from_secs(2);
+            while !marker.with_extension("guardian-killed").exists() {
+                if Instant::now() >= until {
+                    return Err(io::Error::other("guardian fault not injected"));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            fresh_pulse(&marker)?;
+            // Intentional abrupt host loss: do not run owner/Recovery Drop.
+            // The CI provisioner's retained subtree capability must clean up.
+            std::process::exit(87);
+        }
         let report = if args[0] == "guardian-death" {
             fs::write(marker.with_extension("kill"), b"kill guardian")?;
             let report = owner
