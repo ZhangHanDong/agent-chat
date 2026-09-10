@@ -920,3 +920,16 @@ selector: keep offline bindings real and record npm run audit:baseline separatel
 See docs/reviews/2026-09-09-pr157-integration.md for the integration evidence and
 remaining PR conflicts. The current GitHub account has READ permission on
 palpo-im/palpo; local source edits do not imply upstream PR merge authority.
+
+
+## 2026-09-09 — Open PR integration invariants
+
+When integrating PRs 154/155/156/158, keep the awaited loopback fixture as the
+sole listener owner. Claude result classification must coexist with tool
+activity and confirmed guardian cleanup. Dashboard ledger projection uses
+forProjection eligibility: a manual stop denies execution but must not hide
+observed dispatches. Hybrid terminal telemetry stays separate from on-demand
+runtime fields. Approval router origin and reusable execution authorization
+share the trusted backend options object; neither replaces the other. Canonical
+side lookup must retain the representative needed by outbound Matrix handling.
+See docs/reviews/2026-09-09-open-pr-integration.md for evidence.

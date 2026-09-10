@@ -1648,3 +1648,21 @@ The current account has only READ permission on palpo-im/palpo, so its upstream
 PRs cannot be merged here. No live deployment changed. Website coordination
 edits remain outside the integration. Full details and evidence locations:
 docs/reviews/2026-09-09-pr157-integration.md.
+
+## 2026-09-09 — Resolve four open HAFleet PR conflicts
+
+Integrated PRs 154/155/156/158 into an isolated branch from 212de5f. Preserved
+loopback custody, runner activity and cleanup proof, private execution policy,
+legacy terminal observation, reusable approval authority and representative
+identity. PR 156 integration regressions were reproduced before repair. All
+focused batches pass: 88, 34, 97 and 191 tests (overlapping coverage). Final
+suite: 4,268 pass, one platform skip in 290 passing files. CI passes with 508
+kernel/CLI tests and 523 specification bindings. Console production build and
+English/Chinese Playwright permissions and hybrid runtime checks pass. Native
+Node lifecycle skips remain non-passing; actual Vitest results are separate.
+
+All four PRs merged on GitHub; master is 0ab52fe and there are no open HAFleet
+PRs. Their merge receipts joined the local integration at f8c82c4 without
+changing the verified tree. Local review/workflow history and conflict fixes
+remain unpublished. Website coordination edits are preserved separately;
+no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md.
