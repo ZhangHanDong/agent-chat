@@ -34,6 +34,7 @@ or domain/Matrix authorization is introduced by these transport tests.
 ### Allowed Changes
 - ./Cargo.toml
 - ./Cargo.lock
+- .github/workflows/rust.yml
 - native/hagency-palpo/**
 - native/hagency-store/src/outbound.rs
 - native/hagency-store/src/outbound/repository.rs

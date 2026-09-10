@@ -146,3 +146,16 @@ domain request/probe admission, runtime execution, continuous storage retention,
 secure host configuration persistence, Agent retirement HTTP endpoint parity,
 or live end-to-end UX. Those M5-M9 gates stay open. CI must still exercise this
 slice on every supported platform before native production cutover.
+
+## Windows CI diagnostic after ae284b9
+
+The Windows full-suite run reports OutcomeUnknown during transport attachment
+and domain observations; several subsequent scripts therefore receive no HTTP
+request. This is a failure, not evidence of a rolled-back activation. Earlier
+platform passes do not invalidate it, and the log does not establish its cause.
+The native workflow now runs the same Matrix/Palpo transport targets with
+`--test-threads=1 --nocapture` only after that platform's full suite fails, with
+an eight-minute outer bound. The original verdict remains failed regardless of
+the diagnostic result. Assertions, worker/HTTP deadlines and production
+concurrency remain unchanged. The comparison supplies additional evidence about
+concurrent fixture load; a serial pass alone does not establish a root cause.

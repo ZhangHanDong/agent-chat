@@ -3490,3 +3490,37 @@ advance the same host clock as claims/settlement, without inventing a tool event
 or policy receipt. Backdated new claims and settlements cannot bypass a later
 quiet event; exact historical settlement replay remains idempotent. The added
 actual-stream regression passes with the complete affected66-test suite.
+
+## 2026-09-10 — Integrate authenticated intake and native progress attachment
+
+Integrated Matrix63cbbae as9deb056 and progress7d828b5 as7cdeba6, retaining both
+branches' coordination history, all Cargo members and every prior dependency
+version. Matrix/verified-ingress44 and progress/runtime66 affected tests pass.
+Matrix lifecycle passes7/7 with all14 paths; progress attachment passes6/6 with
+all21 paths. Workspace Clippy, formatting,275+20 progress oracle cases and all
+201 selector bindings pass. Full integrated native regression passes309 unique
+tests plus the isolated proxy child (310 printed), zero failed or ignored.
+Evidence is retained in integrated-matrix-intake-*, integrated-progress-attachment-*,
+integrated-intake-progress-bindings.* and combined-intake-progress-tests.log.
+
+The completed ae284b9 CI is not green. Node34529853146 and native macOS pass.
+Linux's whole workspace passes and actual cgroup cases guardian-death, stop,
+failed-spawn and guarantee-refused qualify on6.17.0-1022-azure. Nested-user then
+fails exec126 with Permission denied before native admission. No later case is
+counted as run. The strict namespace result remains required; a separate agent
+is implementing a fixture staging correction without changing runtime checks.
+
+Windows job103047645091 fails six Matrix and twelve Palpo transport tests, plus
+the nested proxy child. Explicit OutcomeUnknown appears at writer responses and
+several scripts then wait for a request that never arrives. Logs do not establish
+the cause or distinguish disk pressure from another worker problem. The pipeline
+now runs the unchanged two transport targets with one test thread only after a
+Windows full-suite failure. This bounded eight-minute diagnostic preserves the
+original failed verdict; it changes no deadlines, correctness assertions or
+production concurrency. Its actual Windows outcome is pending the next CI run.
+Logs ci-ae284b9-linux.log and ci-ae284b9-windows.log retain both failures.
+
+MCP launch and native file snapshots remain in independent worktrees. In particular,
+a successful canonical Done can invalidate the current owned execution epoch
+before a final answer is emitted. The unchanged fence remains; read-only reporting
+after completion needs its own integration. No production service is enabled.

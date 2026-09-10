@@ -1709,3 +1709,10 @@ and retains the original runtime/process owner, retires projection and preserves
 pending local submission uncertainty. No host execution/domain/Matrix integration
 or canonical Done/delivery inference exists; same-run reconstruction after state
 loss is forbidden until a persistent host lifecycle exists.
+
+- **Native transport CI diagnosis, 2026-09-10:** ae284b9's Windows failures
+  include explicit custody/domain OutcomeUnknown before scripted HTTP work.
+  Do not replace them with longer fixture waits or infer rollback. A failure-only
+  serial transport diagnostic preserves the original CI failure and production
+  deadlines. Linux's four successful cgroup cases do not qualify the remaining
+  three after nested-user exec permission refusal. Both complete logs are retained.
