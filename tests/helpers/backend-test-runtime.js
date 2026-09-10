@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { createLoopbackTestServer } from './loopback-test-server.js';
 
 /** Serialises the env-set/import window. See createBackendTestContext. */
 let importLock = Promise.resolve();
@@ -198,50 +199,25 @@ export async function createBackendTestContext(prefix, seed = {}) {
 
   const { app } = backendModule;
   const servers = new Set();
-
-  async function listenApp(host) {
-    const server = await new Promise((resolve, reject) => {
-      const instance = app.listen(0, host, () => resolve(instance));
-      instance.on('error', reject);
-    });
-    if (typeof server.unref === 'function') server.unref();
-    servers.add(server);
-    return server;
+  async function listen(host = '127.0.0.1') {
+    const listener = await createLoopbackTestServer(app, { host });
+    servers.add(listener);
+    return listener;
   }
-
-  // Supertest wraps an Express function in listen(0), which may bind IPv6 ::
-  // while its client always dials IPv4 127.0.0.1. On macOS that port can already
-  // belong to an unrelated IPv4 listener: the request then reaches that process.
-  // Bind the exact address the client uses once per context, and pass the live
-  // server to Supertest. backendModule.app remains the original Express handler.
-  const requestServer = await listenApp('127.0.0.1');
+  const requestListener = await listen();
+  let cleanupPromise;
 
   return {
-    app: requestServer,
+    // Existing callers pass app to Supertest. Keep the Express function
+    // separately for callers that need middleware or direct lifecycle access.
+    app: requestListener.server,
+    expressApp: app,
     backendModule,
     internals: backendModule.__backendV2TestInternals || {},
     runtimeDir,
-    async listen(host = '127.0.0.1') {
-      const server = await listenApp(host);
-      const address = server.address();
-      return {
-        server,
-        baseUrl: `http://${host}:${address.port}`,
-        close() {
-          return new Promise((resolve, reject) => {
-            if (typeof server.closeAllConnections === 'function') {
-              server.closeAllConnections();
-            }
-            server.close((error) => {
-              servers.delete(server);
-              if (error) reject(error);
-              else resolve();
-            });
-          });
-        },
-      };
-    },
+    listen,
     cleanup() {
+      if (cleanupPromise) return cleanupPromise;
       // Stop the module's background loops before the runtime dir is deleted
       // underneath them.
       //
@@ -267,19 +243,17 @@ export async function createBackendTestContext(prefix, seed = {}) {
         // A context that failed mid-import may have no stopServer; nothing to stop.
       }
 
-      for (const server of servers) {
-        try {
-          server.close();
-        } catch {
-          // ignore close errors in test cleanup
-        }
-      }
+      // close() stops accepting synchronously, preserving existing synchronous
+      // afterEach callers; awaiting cleanup also observes all close callbacks.
+      const closingServers = [...servers].map((listener) => listener.close());
       servers.clear();
       rmSync(runtimeDir, { recursive: true, force: true });
       for (const [key, value] of savedEnv.entries()) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
+      cleanupPromise = Promise.all(closingServers).then(() => undefined);
+      return cleanupPromise;
     },
   };
 }
