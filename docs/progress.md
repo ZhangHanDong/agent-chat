@@ -3046,3 +3046,28 @@ Three parallel agents remain active: MCP coordination/delegation/task graphs,
 Matrix formatting with JS vectors, and namespace-qualified Linux cgroup cleanup
 fixtures. Production execution, Matrix event admission/sends, retained migration
 phases and controlled cutover are still open; original/live state is unchanged.
+
+### 2026-09-10 — M6 native Matrix content formatting proof (ADR050)
+
+- Added the isolated `hagency-matrix-format` crate with a bounded serializable
+  content DTO. It preserves plaintext, thread/reply/edit relations and existing
+  caller-trusted formatted content. Generated Markdown uses the retained Matrix
+  tag/attribute/scheme allowlist, with raw HTML parsing disabled and no transport
+  or routing authority. No live JavaScript or Matrix path was changed.
+- Captured 63 byte-exact JavaScript vectors from pinned markdown-it15.0.1,
+  sanitize-html2.17.7 and linkify-it6.1.0, with source/Node-lock hashes and a
+  reproducible check mode. Native CI installs locked production dependencies
+  with all scripts disabled before executing this pure oracle. A clean external
+  cache installation reproduced the check successfully.
+- Rejected a candidate parser after reproducing its emphasis source-map panic;
+  the pinned selected markdown1.0.0 parser passes that fixture. Adaptations cover
+  reference rejection, line breaks, tables, images, safe URL schemes, raw
+  punycode, Unicode punctuation and nested-link prevention. Intentional capacity
+  and malformed-edit refusals are explicit; broader syntax and actual encrypted
+  client-delivery parity remain M6 integration gates.
+- Six Rust test groups pass, including 128 deterministic hostile syntax cases;
+  the original bound Vitest test, Clippy, rustfmt and diff checks pass. No prior
+  Cargo package version was removed or upgraded. Detailed logs are the external
+  cache's `matrix-format-*` files. Task lifecycle passes all four scenarios
+  plus the explicit boundary, with zero skips or uncertainty. Selector inventory
+  resolves every native test binding on this isolated baseline.

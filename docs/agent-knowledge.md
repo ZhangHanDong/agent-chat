@@ -1548,3 +1548,12 @@ proxy isolation child (242 printed passes), 159 bound selectors, and 8/8 Matrix
 lifecycle checks. The preceding 911f1f5 Native CI passed Linux/macOS/Windows
 (run34522180950) and Node CI passed (34522180924). Do not confuse that CI
 qualification with the newly integrated Matrix collector until its own run ends.
+
+- **Native Matrix formatting, 2026-09-10:** ADR050's pure content DTO preserves
+  body and relation bytes and caller-trusted preformatted HTML; it does not grant
+  room/device/send authority. Markdown parsing has raw HTML constructs disabled,
+  followed by the retained Matrix tag/attribute/scheme allowlist. The JavaScript
+  oracle checks exact dependency/source/lock identity. Run
+  `node native/scripts/matrix-format-vectors.mjs --check`; CI installs locked dependencies
+  for the pure JS oracle with all install scripts disabled. Native capacity errors and
+  malformed edit rejection are intentional; formatting is not Matrix delivery.

@@ -28,6 +28,10 @@ jobs:
           node-version: '22.22.0'
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The Markdown oracle imports pinned pure JS dependencies; skip every
+      # installation script and native addon build in this Rust-only job.
+      - run: npm ci --ignore-scripts --omit=dev
+      - run: node native/scripts/matrix-format-vectors.mjs --check
       - run: node native/scripts/canonical-vectors.mjs --check
       - run: node native/scripts/allocation-vectors.mjs --check
       - run: node native/scripts/project-vectors.mjs --check
