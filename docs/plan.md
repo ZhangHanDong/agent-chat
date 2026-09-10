@@ -28,6 +28,10 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    graph/task linkage before graph execution. Schema 8 now binds inspected-result
    reporting to the completed task epoch, separately from work creation authority.
    Actual final reply delivery remains to implement.
+   Schema 9 now adds creator-scoped group member changes/closure, fresh rejoin
+   sessions and durable host stop intents. Retired started work retains resource
+   custody until inspected settlement; canonical tasks and input history remain.
+   Continue durable graph/task linkage and actual runner stop observation.
    The initial hagency-platform proof now launches explicit native probes: Windows
    atomic Job Object assignment and POSIX unreaped-leader group cancellation.
    Continue native Windows CI validation, POSIX guardian/detached-child ownership,

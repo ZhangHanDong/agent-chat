@@ -1129,3 +1129,22 @@ children without SIGCHLD are counted. Empty/truncated census or observation erro
 must not become full stop. Guardian-death recovery and macOS complete custody
 remain open; requested full POSIX crash containment still refuses. New macOS
 descendant tests prove refusal, not execution of detached cleanup.
+
+Native conversation retirement (2026-09-10): schema 9 keeps retired internal
+bindings while internal_participants owns current conversation/engagement
+uniqueness. Rejoin derives a fresh SID from the committed revision; never recycle
+the original SID or its input/task/capability scope. Creator mutations require
+the exact live creator session, expected revision and a content-bound operation
+receipt. Member order is normalized. Closed groups cannot reopen; retired creator
+sessions close their child groups through a bounded iterative traversal.
+Queued/unstarted work is superseded. Started/parked/unknown work receives a durable
+dispatch_stops row and retains leases until host inspection. Pending stops count
+against max_live even though the dispatch is outcome_unknown. Settlement must
+exclude other unresolved attempts when clearing dirty/quarantine state; neither
+group closure nor inspection marks tasks done. Frozen peer batches from a closing
+group are fenced as a whole, including the external creator session's batch.
+After inspection, release assignments without acknowledging input; live unrelated
+input remains schedulable. The evidence string records a host result, not proof
+of process termination. No runtime API exposes host settlement. Internally tagged
+Serde unit variants ignore extra fields even with enum deny_unknown_fields;
+use an empty struct variant Close {} to make the strict close shape effective.

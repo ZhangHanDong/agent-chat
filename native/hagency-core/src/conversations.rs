@@ -93,9 +93,47 @@ pub struct Conversation {
     pub creator_session_id: String,
     pub participants: Vec<InternalSessionBinding>,
     pub state: String,
+    #[serde(default)]
+    pub revision: u64,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationResult {
     pub conversation: Conversation,
     pub replayed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConversationChange {
+    pub call_id: String,
+    pub expected_revision: u64,
+    pub action: ConversationAction,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ConversationAction {
+    Members {
+        participant_engagements: Vec<String>,
+    },
+    Close {},
+}
+impl ConversationChange {
+    pub fn validate(&self) -> Result<(), InvalidInput> {
+        identifier(&self.call_id, 512)?;
+        if self.expected_revision >= crate::JSON_SAFE_MAX {
+            return Err(InvalidInput("conversation revision is out of range"));
+        }
+        if let ConversationAction::Members {
+            participant_engagements,
+        } = &self.action
+        {
+            ConversationRequest {
+                call_id: self.call_id.clone(),
+                label: "members".into(),
+                participant_engagements: participant_engagements.clone(),
+            }
+            .validate()?;
+        }
+        Ok(())
+    }
 }

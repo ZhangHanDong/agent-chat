@@ -164,6 +164,90 @@ async fn operation(f: &Fixture, call: &str, operation: Value) -> (StatusCode, Va
 }
 
 #[tokio::test]
+async fn native_runner_http_conversation_lifecycle() {
+    let f = Fixture::new(true).await;
+    let mut response = auth(
+        TestClient::post(format!("{BASE}/runner/conversations")),
+        &f.cap,
+    )
+    .json(
+        &json!({"call_id":"group","label":"coordination","participant_engagements":[f.engagement]}),
+    )
+    .send(&f.service)
+    .await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    let result: Value = response.take_json().await.unwrap();
+    let id = result["conversation"]["id"].as_str().unwrap();
+    let send = |body: Value| {
+        auth(
+            TestClient::post(format!("{BASE}/runner/conversations/{id}/operations")),
+            &f.cap,
+        )
+        .json(&body)
+    };
+    let members = json!({"call_id":"members","expected_revision":0,"action":{"kind":"members","participant_engagements":[f.engagement]}});
+    for key in ["creator_session_id", "owner", "fence", "stop_evidence"] {
+        let mut forged = members.clone();
+        forged[key] = json!("forged");
+        assert_eq!(
+            send(forged).send(&f.service).await.status_code,
+            Some(StatusCode::BAD_REQUEST)
+        );
+    }
+    let mut foreign = members.clone();
+    foreign["action"]["participant_engagements"] = json!(["foreign"]);
+    assert_eq!(
+        send(foreign).send(&f.service).await.status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    let mut response = send(members.clone()).send(&f.service).await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    assert_eq!(
+        response.take_json::<Value>().await.unwrap()["conversation"]["revision"],
+        1
+    );
+    let mut response = send(members).send(&f.service).await;
+    assert!(
+        response.take_json::<Value>().await.unwrap()["replayed"]
+            .as_bool()
+            .unwrap()
+    );
+    let closing = json!({"call_id":"close","expected_revision":1,"action":{"kind":"close"}});
+    let mut forged = closing.clone();
+    forged["action"]["participant_engagements"] = json!([]);
+    assert_eq!(
+        send(forged).send(&f.service).await.status_code,
+        Some(StatusCode::BAD_REQUEST)
+    );
+    let mut response = send(closing.clone()).send(&f.service).await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    assert_eq!(
+        response.take_json::<Value>().await.unwrap()["conversation"]["state"],
+        "closed"
+    );
+    assert_eq!(
+        send(closing).send(&f.service).await.status_code,
+        Some(StatusCode::OK)
+    );
+    assert_eq!(
+        send(json!({"call_id":"again","expected_revision":2,"action":{"kind":"close"}}))
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::CONFLICT)
+    );
+    let host = auth(
+        TestClient::post(format!("{BASE}/runner/conversation-stops/dispatch/settle")),
+        &f.cap,
+    )
+    .json(&json!({"evidence":"pretend stopped"}))
+    .send(&f.service)
+    .await;
+    assert_eq!(host.status_code, Some(StatusCode::NOT_FOUND));
+    f.close().await;
+}
+
+#[tokio::test]
 async fn native_runner_http_conversations() {
     let f = Fixture::new(true).await;
     let body = json!({"call_id":"conversation","label":"内部协作","participant_engagements":[f.engagement]});

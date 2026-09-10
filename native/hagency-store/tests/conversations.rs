@@ -1,4 +1,6 @@
 mod common;
+#[path = "conversation_lifecycle/mod.rs"]
+mod lifecycle;
 use common::*;
 use hagency_core::{conversations::*, messages::*, tasks::*};
 use hagency_store::{DomainRepository, EffectOutcome, Error};
@@ -325,7 +327,7 @@ fn native_internal_matrix_separation() {
         sql(&root)
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        8
+        9
     );
     db.enqueue_dispatch(&dispatch("closed", &internal.id, None))
         .unwrap();

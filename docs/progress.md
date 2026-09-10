@@ -2126,3 +2126,36 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   are still open. Full requested POSIX crash containment continues to refuse;
   observed successful cleanup is distinct from a promise that every cleanup will
   succeed. No deployed service, credential or live model was touched.
+
+## 2026-09-10 — Native internal conversation lifecycle
+
+- Previous head a737b83 passed Native Rust CI 34483826435 on all three operating
+  systems and Node CI 34483826386. This includes real Linux/Windows detached
+  descendants and the corrected macOS liveness observation; earlier failed runs
+  remain recorded as failures.
+- Implemented schema 9: creator-scoped member replacement and closure with
+  expected revisions and content-bound replay receipts. Same-project/current
+  allocation checks remain required, and rejoining creates a new internal SID.
+  Retired sessions, tasks and immutable messages remain available for inspection.
+- Closure fences affected dispatches and recursively closes child conversations
+  created by retired sessions. Queued/unstarted work is superseded; started,
+  parked and unknown work retains resource custody and durable host stop intents.
+  Stop intents survive restart and count against the scheduler's concurrency cap.
+- Host inspection settlement is fenced, idempotent and transactional. It cannot
+  clear another unresolved attempt's custody or mark canonical tasks done. Input
+  assignments are released without delivery acknowledgements. Closing a group
+  fences creator batches containing its peer input, while unrelated live input
+  becomes separately schedulable after inspection.
+- Added the private runner operation endpoint with strict typed bodies. The new
+  HTTP test caught Serde ignoring extra fields on a unit enum variant; Close now
+  uses an empty struct variant and the original refusal assertion passes.
+- All 80 native tests passed locally, zero failed or ignored. Coverage includes
+  mutation/settlement rollback, stale/foreign/member authority, fresh rejoin,
+  queued/leased/started/parked retirement, nested closure, restart, two shared
+  readers retaining custody until both are inspected, and frozen input recovery.
+  Workspace Clippy/rustfmt and diff checks passed. All 74 native spec selectors
+  resolve; four scenarios plus boundary passed under agent-spec 1.4.0.
+- Actual process stop observation, Matrix room membership, graph/task execution,
+  final delivery and M4–M9 integration remain open. Fixture inspection records
+  do not prove live process termination. Corrected native CI remains a gate for
+  this commit. Original dirty checkout and deployed services remain unchanged.

@@ -372,7 +372,7 @@ fn native_completed_intent_report() {
     assert!(db.check_runner(&old, 1018).is_err());
     // Upgrade prior native report rows only using the original attempt's durable
     // done receipt, not an assertion in the replacement payload.
-    inspect.execute_batch("DROP VIEW current_recovery_reports; DROP TABLE dispatch_recovery_reports; PRAGMA user_version=7;").unwrap();
+    inspect.execute_batch("DROP VIEW unresolved_dispatches; DROP TABLE dispatch_stops; DROP TABLE conversation_operations; ALTER TABLE internal_conversations DROP COLUMN revision; DROP VIEW current_recovery_reports; DROP TABLE dispatch_recovery_reports; PRAGMA user_version=7;").unwrap();
     drop(db);
     let db = DomainRepository::open(&root.path().join("state")).unwrap();
     assert_eq!(count(&inspect, "dispatch_recovery_reports"), 1);

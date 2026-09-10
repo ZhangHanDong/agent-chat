@@ -9,10 +9,10 @@ use hagency_core::{
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::json;
 
-fn project(db: &Connection, engagement: &str) -> Result<(String, String, u64), Error> {
+pub(super) fn project(db: &Connection, engagement: &str) -> Result<(String, String, u64), Error> {
     db.query_row("SELECT e.fleet_id,e.project_id,e.generation FROM engagements e JOIN registrations r ON r.fleet_id=e.fleet_id WHERE e.id=?1 AND e.state='active' AND e.generation=r.generation",[engagement],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(Error::RunnerAuthority)
 }
-fn read(db: &Connection, id: &str) -> Result<Conversation, Error> {
+pub(super) fn read(db: &Connection, id: &str) -> Result<Conversation, Error> {
     let value: String = db
         .query_row(
             "SELECT config FROM internal_conversations WHERE id=?1",
@@ -125,6 +125,7 @@ impl DomainRepository {
             creator_session_id: dispatch.session_id.clone(),
             participants: bindings,
             state: "active".into(),
+            revision: 0,
         };
         tx.execute("INSERT INTO internal_conversations(id,fleet_id,project_id,generation,creator_session_id,request_scope,request_key,digest,config,state) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'active')",params![id,fleet,project_id,generation,dispatch.session_id,scope,input.call_id,digest,serialize(&value)?])?;
         for binding in &value.participants {

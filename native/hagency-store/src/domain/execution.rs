@@ -463,7 +463,7 @@ impl DomainRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         expire(&tx, now)?;
         let live: u32 = tx.query_row(
-            "SELECT COUNT(*) FROM runner_dispatches WHERE state IN ('leased','started','parked')",
+            "SELECT COUNT(*) FROM runner_dispatches d WHERE state IN ('leased','started','parked') OR EXISTS(SELECT 1 FROM dispatch_stops s WHERE s.dispatch_id=d.id AND s.settled_at IS NULL)",
             [],
             |r| r.get(0),
         )?;
@@ -696,6 +696,13 @@ impl DomainRepository {
         {
             return Err(Error::State);
         }
+        if tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM dispatch_stops WHERE dispatch_id=?1)",
+            [original],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(Error::State);
+        }
         let report = if let Some(id) = &d.task_id {
             let original_task = task(&tx, id)?;
             (original_task.status == TaskState::Done).then_some(ReportGrant {
@@ -731,7 +738,7 @@ impl DomainRepository {
             return Err(Error::State);
         }
         // Another unknown writer must be inspected separately before clearing shared state.
-        let another:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runner_dispatches d WHERE d.state='outcome_unknown' AND d.id<>?1 AND NOT EXISTS(SELECT 1 FROM dispatch_recoveries r WHERE r.original_id=d.id) AND (d.session_id=?2 OR EXISTS(SELECT 1 FROM dispatch_resources a JOIN dispatch_resources b ON a.resource_id=b.resource_id WHERE a.dispatch_id=d.id AND b.dispatch_id=?1 AND a.exclusive=1)))",params![original,d.session_id],|r|r.get(0))?;
+        let another:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM unresolved_dispatches d WHERE d.id<>?1 AND (d.session_id=?2 OR EXISTS(SELECT 1 FROM dispatch_resources a JOIN dispatch_resources b ON a.resource_id=b.resource_id WHERE a.dispatch_id=d.id AND b.dispatch_id=?1 AND a.exclusive=1)))",params![original,d.session_id],|r|r.get(0))?;
         if another {
             return Err(Error::Quarantined);
         }

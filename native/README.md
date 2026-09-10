@@ -161,6 +161,9 @@ resource management. Responses use `Cache-Control: no-store`.
 | `POST /delegations` | Create a scoped task intent for a project Agent |
 | `POST /conversations` | Create an internal conversation with current project participants |
 | `GET /conversations/{id}` | Read a conversation from its exact creator/participant session |
+| `POST /conversations/{id}/operations` | Change members or close an internal group as its current exact creator |
+| `POST /peer-messages` | Send a scoped peer message to current internal recipients |
+| `GET /peer-inbox` | Read the current dispatch's frozen peer input |
 | `GET /inbox` | Page only the current dispatch's frozen input |
 
 A mutation body is `{"call_id":"heartbeat-1","operation":{"action":"execution","heartbeat":true}}`.
@@ -242,4 +245,23 @@ transaction. Access is limited to the exact creator session or the internal sess
 bound to that conversation; another Matrix session for the same Agent is refused.
 Completed tasks cannot create conversations. Revocation invalidates the affected
 participant's existing execution capability. Conversation creation does not deliver
-messages: durable peer mailbox, group lifecycle and graph-task linkage remain open.
+messages. Schema 7 supplies durable peer delivery and exact-session input receipts;
+schema 8 scopes inspected completed-result reports to the original task epoch.
+
+Schema 9 adds internal group membership and closure. Submit a body such as
+`{"call_id":"members-1","expected_revision":0,"action":{"kind":"members","participant_engagements":["engagement_id"]}}`
+or `{"call_id":"close-1","expected_revision":1,"action":{"kind":"close"}}`.
+Membership is the complete desired set plus the creator's engagement. Mutations
+require a current started creator capability; stale revisions and changed retry
+payloads fail. Receipts return the original operation response, while reads obtain
+the current active group. Closed groups cannot be reopened.
+
+Removed participants retain history and get fresh sessions if added again. Closure
+also closes groups created by the retired sessions. Obsolete dispatches lose their
+capabilities; started work retains leases and a durable host stop intent until the
+host has inspected actual process termination and workspace effects. Settlement
+never marks tasks done or acknowledges input. Pending stops count against runner
+capacity and survive restart. The host methods are deliberately absent from the
+runtime API. See [ADR-030](../knowledge/decisions/adr-030-native-conversation-retirement.md).
+These transactions do not implement Matrix room membership or actual process
+termination; native runner adapters, graph-task linkage and final delivery remain.

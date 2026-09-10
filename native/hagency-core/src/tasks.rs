@@ -192,6 +192,10 @@ pub enum RunnerCommand {
         limit: usize,
     },
     OpenConversation(crate::conversations::ConversationRequest),
+    ChangeConversation {
+        id: String,
+        change: crate::conversations::ConversationChange,
+    },
     Conversation {
         id: String,
     },

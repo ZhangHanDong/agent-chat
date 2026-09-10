@@ -1,7 +1,7 @@
 //! Private runner task surface. Host dispatch/process and operator APIs are separate.
 use crate::{local_authority, refusal, resources};
 use hagency_core::{
-    conversations::ConversationRequest,
+    conversations::{ConversationChange, ConversationRequest},
     peers::PeerSend,
     project::identifier,
     task_intents::Delegation,
@@ -22,12 +22,38 @@ pub(super) fn router() -> Router {
         .push(Router::with_path("delegations").post(delegate))
         .push(Router::with_path("conversations").post(open_conversation))
         .push(Router::with_path("conversations/{id}").get(conversation))
+        .push(Router::with_path("conversations/{id}/operations").post(change_conversation))
         .push(Router::with_path("tasks/{id}").get(get_task))
         .push(Router::with_path("tasks/{id}/comments").get(comments))
         .push(Router::with_path("tasks/{id}/operations").post(mutate))
         .push(Router::with_path("inbox").get(inbox))
         .push(Router::with_path("peer-messages").post(send_peer))
         .push(Router::with_path("peer-inbox").get(peer_inbox))
+}
+#[handler]
+async fn change_conversation(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let Some(c) = context(depot, res) else {
+        return;
+    };
+    let Some(change) = resources::body::<ConversationChange>(req, depot, res).await else {
+        return;
+    };
+    let result = async {
+        c.store
+            .runner_command(
+                c.cap,
+                RunnerCommand::ChangeConversation {
+                    id: task_id(req)?,
+                    change,
+                },
+            )
+            .await
+    }
+    .await;
+    match result {
+        Ok(value) => res.render(Json(value)),
+        Err(error) => failure(res, error),
+    }
 }
 #[handler]
 async fn send_peer(req: &mut Request, depot: &mut Depot, res: &mut Response) {

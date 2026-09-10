@@ -137,6 +137,29 @@ fn writer_time() -> Result<u64, Error> {
         .ok_or(Error::Unavailable)
 }
 impl DomainStore {
+    /// Host cancellation adapter only; deliberately absent from RunnerCommand.
+    pub async fn pending_conversation_stops(
+        &self,
+        after: String,
+        limit: usize,
+    ) -> Result<Vec<(String, u64)>, Error> {
+        self.call(weight(&after)?, move |db| {
+            db.pending_conversation_stops(&after, limit)
+        })
+        .await
+    }
+    /// The host supplies an already inspected result, never a runner assertion.
+    pub async fn settle_conversation_stop(
+        &self,
+        id: String,
+        fence: u64,
+        evidence: String,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&id, &evidence))?, move |db| {
+            db.settle_conversation_stop(&id, fence, &evidence, writer_time()?)
+        })
+        .await
+    }
     pub async fn create_task_intent(&self, input: TaskIntent) -> Result<IntentResult, Error> {
         input.definition.validate()?;
         self.call(weight(&input)?, move |db| {
@@ -208,6 +231,9 @@ impl DomainStore {
                 }
                 RunnerCommand::OpenConversation(input) => {
                     serde_json::to_value(db.create_internal_conversation(&cap, &input, now)?)?
+                }
+                RunnerCommand::ChangeConversation { id, change } => {
+                    serde_json::to_value(db.change_internal_conversation(&cap, &id, &change, now)?)?
                 }
                 RunnerCommand::Conversation { id } => {
                     serde_json::to_value(db.runner_conversation(&cap, &id, now)?)?
