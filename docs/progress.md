@@ -3143,3 +3143,32 @@ boundary (4/4, quality 98%, no fail/skip/uncertain). The 110 native spec binding
 were found without missing tests. Lifecycle and run logs are in the operator
 cache under `codex-protocol/cgroup-qualification-*`. These results do not include
 privileged Linux execution; the coordinator will integrate and run hosted CI.
+
+
+### 2026-09-10 — Integrated native formatting and qualified-cgroup test path
+
+Integrated formatter e1a7969 as 0e09783 and Linux cgroup preparation/namespace
+qualification 33751df +9201ded as 73c8499 +727fdb4. Workspace members, all prior
+locked package versions, existing Windows/Matrix/approval changes and concurrent
+document history are preserved. An initial local conflict-resolution script
+malformed Cargo files; Cargo rejected them before running tests. Reconstructed
+all affected files from the parent/incoming Git snapshots, checked the complete
+prior package/document sets, and amended the unpushed commit before validation.
+The failure log is retained; it is not counted as passing validation.
+
+Combined 727fdb4 passes 249 unique native tests plus one proxy-isolation child
+(250 printed passes), with zero failures or ignored tests. Workspace Clippy with
+warnings denied, fmt/diff and 166 native selector bindings pass. Formatter
+passes 63 actual JS vectors and integrated lifecycle5/5 (16 changed paths).
+Cgroup lifecycle4/4 covers the combined15 changed paths; four ordinary Python
+refusal/collector tests pass on macOS. These are not privileged containment
+proofs. Evidence is retained under `combined-format-cgroup-*`,
+`integrated-format-*` and `integrated-cgroup-*` in the migration cache.
+
+The next native CI push installs locked JS oracle dependencies with scripts
+disabled and runs the isolated root provisioner only on a disposable hosted
+Linux VM. Seven actual fault/refusal cases and retained independent subtree
+cleanup must pass there. Kernel/user/cgroup namespace and delegation absence
+fail qualification rather than becoming skipped proof. Root fixture cleanup
+after simultaneous host/guardian loss does not upgrade the runtime's explicit
+Unsupported full POSIX crash-containment guarantee. Live services remain unchanged.

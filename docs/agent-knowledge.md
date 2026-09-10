@@ -1581,3 +1581,11 @@ Real namespace creation failure or absent writable delegation fails qualificatio
 ordinary parser/cross-compile tests cannot stand in for it. Root fixture cleanup
 after host/guardian abort does not upgrade the runtime's still-Unsupported full
 POSIX crash guarantee or enable a native production runner.
+
+
+At integrated727fdb4,249 unique native tests plus the proxy child pass, and166
+selectors resolve. Formatting has63 JS oracle vectors and lifecycle5/5. Combined
+cgroup lifecycle4/4 and macOS Python4 tests do not prove privileged Linux execution.
+The hosted qualifier is CI-only; absent namespaces, supported kernel family or
+protected writable delegation must fail visibly. Existing package versions and
+append-only coordination history were explicitly retained during integration.

@@ -409,3 +409,21 @@ host-pinned rooms and 64 completed sync receipts, with finite HTTP/storage/queue
 budgets. Capacity exhaustion is visible. Room-set rotation, pending-sync recovery,
 continuous retention, event provenance, key publication and encrypted sends remain
 separate gates. No live device or service is connected by this checkpoint.
+
+
+The [native formatter](../knowledge/decisions/adr-050-native-matrix-formatting.md)
+preserves Matrix text bodies, relations, mentions and edits while producing
+allowlisted HTML. Sixty-three vectors run against the retained JavaScript
+implementation. Supplied truthy formatted HTML is caller-trusted passthrough,
+not sanitized input. Syntax, JSON and output limits fail visibly; this pure
+content library does not authenticate, route or send an event.
+
+[Linux cgroup recovery](../knowledge/decisions/adr-048-native-linux-crash-custody.md)
+is an optional host-provisioned capability. It requires protected, exclusively
+reserved cgroup descriptors, initial user/cgroup namespaces, source-qualified
+kernel families and a restricted host. The CI-only root provisioner creates
+one disposable subtree and independently cleans it after real fault fixtures.
+No runtime provisioner or service enablement is supplied. Closing descriptors
+does not itself kill processes; simultaneous host/guardian crash containment
+remains Unsupported, and a partial cleanup observation never releases a domain
+lease or completes a canonical task.
