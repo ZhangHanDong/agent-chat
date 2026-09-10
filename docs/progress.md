@@ -3803,3 +3803,29 @@ persisted completion deadline is later. Three completion worker tests and five
 actual helper/MCP tests pass, as does native all-target Clippy. Documentation now
 distinguishes decoded body32KiB, native MCP/client encoded32KiB, and direct private
 HTTP encoded64KiB limits; no handler or permission limit was relaxed.
+
+## 2026-09-10 — Offline authenticated Matrix to owned native completion
+
+ADR062 adds one test-only integration harness over real local TLS, the owned SDK
+collector, canonical DomainStore, normal notice activation/inbox dispatch, actual
+owned native app-server pipes, generated native MCP helper and final sender. The
+original human event/thread, exact body and separate notice acceptance are checked
+throughout. Native Done and upstream unknown output remain distinct; final
+publication uses only retained actual owner cleanup and the existing writer fence.
+
+First local run passed all three tests in1.82s. On macOS the positive process flow
+commits Done but correctly requires CleanupUnknown, a retained lease and no final
+HTTP. Real notice403/lost responses prevent activation and execution; forged
+plaintext verification in an encrypted DM is refused before task creation and
+currently retires the entire transport. Per-event refusal without disabling
+unrelated chat is a separate production follow-up. The Linux/Windows branches require actual final HTTPS, formatted body/original root
+and idempotent accepted receipt, pending actual platform CI. No production source,
+schema, permission, service availability or live deployment change was made.
+
+Final ADR062 focused validation: three integration tests pass, including exact
+HTTP room/transaction paths. Native and Windows GNU cross-target Clippy for the
+new integration target pass with warnings denied; fmt/diff checks pass. The
+agent-spec1.4 package lifecycle passes4/4 (three scenarios plus all eight explicit
+changed paths), quality100%, zero fail/skip/uncertain. Evidence is retained under
+the external cache's matrix-owned prefix. Windows cross-compilation is not actual
+Windows execution; Linux/Windows final delivery remains for integrated native CI.

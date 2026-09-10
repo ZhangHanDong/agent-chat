@@ -1832,3 +1832,15 @@ service cutover remain gates.
 - Owned completion publication carries the original operation's monotonic deadline
   through the writer queue/DB lock. The persisted finish/cap deadline cannot extend
   it; expiry before writer eligibility preserves held content and leases.
+
+
+ADR062 joins only public native APIs in an offline Matrix/owned-MCP workflow.
+The human $question is the reply thread root; the accepted $notice is a separate
+activation receipt. Actual notice HTTP acceptance projects task inputs before
+normal inbox dispatch. Explicit native helper finish commits Done independently
+of runtime terminal output; the retained actual owner must qualify cleanup before
+final admission. macOS still proves refusal with a retained lease/no final send,
+not positive complete delivery. Encrypted-DM plaintext rejection currently retires the whole
+transport, not just the bad event; distinguishing event refusal from transport
+uncertainty remains open. Full crypto-plus-helper integration and native service cutover
+remain open. All new SQL is read-only fixture assertions.
