@@ -126,6 +126,7 @@ async fn native_mcp_coordination_catalog() {
             "transition_task",
             "comment_task",
             "update_task_execution",
+            "complete_task_with_reply",
             "delegate_task",
             "open_conversation",
             "get_conversation",
