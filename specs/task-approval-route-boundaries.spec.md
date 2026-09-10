@@ -47,4 +47,3 @@ Scenario: Projection metadata remains protected
   Given the canonical projection API is installed
   When unauthenticated or agent-authenticated callers request Matrix projection details
   Then those callers cannot read bridge-only metadata.
-
