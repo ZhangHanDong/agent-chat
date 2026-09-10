@@ -4079,3 +4079,38 @@ limit: all eight coordinator tests, native and Windows GNU Clippy, and strict
 lifecycle3/3 over all five explicit paths pass. The coordinator verified those
 retained logs and source diff, then completed the commit. Actual Windows rerun
 remains required; cross-compilation and local success do not replace it.
+
+
+## 2026-09-10 — Combined usage, approval intake and media verification
+
+Integrated ADR063 usage/schema17, ADR067 operator aggregate reads, ADR065
+terminal event refusals, ADR064 private owner verdict intake, ADR066 retained
+media staging and the Windows approval fixture correction at revision 37a0010.
+The locked workspace all-target suite passes 416 unique tests plus one
+proxy-environment child (417 printed), 81 suite summaries, with zero failures or
+ignored tests. All 272 Rust specification selectors resolve. Workspace all-target
+Clippy with warnings denied, rustfmt and whitespace checks pass. Full logs remain
+in the external combined-usage-approval-media evidence cache.
+
+The previous pushed c0afefc native run 34539380960 passed Linux and macOS. Its
+original Windows job passed all three owned Matrix workflow tests, but failed one
+approval cancellation assertion; later transport diagnostics do not replace that
+failed result. The correction now synchronizes on actual write entry without
+changing production behavior. A fresh Windows run is still required, including
+creation-only media journal ACL sealing. Node run 34539380958 passed 4,288 tests
+with one existing skip and eight actual native-addon media oracle vectors. Those
+remote results qualify c0afefc only.
+
+Native approvals now have authenticated owner intake, while proof of runtime
+application remains open. Media staging retains bytes and descriptors but has no
+network transfer or file tools. Usage reports preserve uncertainty and do not
+enforce quotas. Browser/service wiring, retention, runtime/sandbox qualification
+and all inventory parity gates remain open. This is a development checkpoint,
+not a completed migration or authorization to change the live installation.
+
+Integrated strict lifecycle checks also pass: usage ledger 9/9 across 30 paths;
+usage reads 4/4 across 15; per-event refusal 6/6 across 14 and amended workflow
+4/4 across five; approval intake 6/6 across 20; media staging 7/7 across 13;
+Windows fixture 3/3 across five. The documentation checkpoint runs the owned
+dispatch lifecycle at workspace scope, with all four changed documents explicit.
+No fail, skip, uncertain or pending-review verdict was counted as passing.

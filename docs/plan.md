@@ -4,17 +4,18 @@ This is coordination, not canonical runtime task state. There is no provisioned
 `task-writer` in this source checkout. User instruction: execute the Rust migration
 in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
-Current integration priorities (2026-09-10): atomic task completion with held
-final-answer custody (ADR060), actual Matrix notice/final sending (ADR059),
-bounded attachment crypto (ADR061) and Windows shutdown diagnostics are integrated.
-Cross-review identified and corrected a queued-publication deadline gap; the
-combined local suite and Clippy pass. The offline Matrix/owned-runner workflow
-(ADR062) is now integrated; actual Linux/Windows final delivery awaits CI. Three
-agents are working on durable metering (ADR063), authenticated Matrix approval
-intake (ADR064) and per-event intake refusal (ADR065). Keep canonical
-Done, process cleanup and actual message acceptance separate. Full service wiring,
-provisioning and release parity still require further work; no milestone is
-complete by this checkpoint.
+Current integration priorities (2026-09-10): schema17 usage observations (ADR063),
+operator aggregate reads (ADR067), authenticated private approval intake (ADR064),
+terminal per-event refusals (ADR065) and private media staging (ADR066) are now
+integrated. The prior c0afefc CI passed Linux/macOS and Node, and its original
+Windows run passed the Matrix-to-owned-completion workflow. Windows had one
+approval-cancellation fixture failure; the corrected phase synchronization is
+integrated and awaits a fresh actual Windows run. The combined workspace passes
+416 unique tests, 272 bound selectors, warnings-denied Clippy and formatting.
+Keep canonical Done, process cleanup, owner decision, runtime application and
+actual message acceptance separate. Runtime approval application, media transfer,
+browser/service wiring, provisioning and release parity remain open. No milestone
+or the overall migration is complete by this checkpoint.
 
 1. M0/M1 first checkpoint: native Salvo process, protected fresh state, custody,
    recovery, bounded work, shared protocol vectors and offline encrypted SDK proof.

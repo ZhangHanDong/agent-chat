@@ -1963,3 +1963,13 @@ the original log does not prove its exact scheduling interleaving. Gate the
 blocked-write case on WireGate's real durable Applying check, then use the same
 30 ms cancellation and retain restart uncertainty/no replay. Do not change
 production deadlines or count later transport diagnostics as approval evidence.
+
+
+Combined native verification at 37a0010: 416 unique tests (417 printed with
+one proxy child), 81 suite summaries, 272 Rust-bound selectors, all-target
+warnings-denied Clippy and formatting pass. Cargo identities retain the previous
+426 packages and add only local hagency-media-store 0.1.0. Approval collector and
+Agent collector have independent SDK purposes and cursors. Schema17 usage does
+not authenticate provider billing, and storage namespace does not grant Matrix
+route authority. The failed c0afefc Windows approval assertion remains a failed
+CI result until the corrected revision passes actual Windows execution.

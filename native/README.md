@@ -6,7 +6,7 @@ run in the existing JS/TS implementation. Native capability responses distinguis
 development resource/task APIs from unavailable Agent execution, connected Palpo/
 Matrix transport and production API parity.
 
-The current developer checkpoint includes domain schema 16: scoped tasks,
+The current developer checkpoint includes domain schema 17: scoped tasks,
 internal groups, durable graphs, verified-input task activation, owner approvals
 and notice/final-reply send custody, with exact negative Matrix transport fencing. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
@@ -20,7 +20,11 @@ then admits bounded verified sync events into existing sessions through encrypte
 SDK and pending-sync custody. Offline encrypted DM fixtures exercise actual SDK
 verification. The host-only sender now performs actual authenticated notice and
 final-answer HTTPS writes, including verified encrypted DM/group fixtures, with
-durable acceptance custody. Live key lifecycle, history and service wiring remain gates.
+durable acceptance custody. A separate approval-bot collector now admits verified
+private owner verdicts without sharing Agent identity/cursor state. Complete SDK
+event refusals retain terminal records while later eligible chat continues;
+unknown processing and negative identity/room evidence retain their fences.
+Live key lifecycle, approval cards, history and service wiring remain gates.
 The owned runner can now configure and launch the native task MCP helper against
 the same canonical writer. Explicit `complete_task_with_reply` atomically commits
 Done and holds final content while revoking the old execution epoch. The same
@@ -28,11 +32,18 @@ retained process owner must establish cleanup before the writer admits a final
 reply. Plain task-only Done still provides no final content. Actual delivery is
 separate from both transitions. An offline group/thread integration test now
 joins intake, notice activation, real native MCP completion and the final sender;
-local macOS proves cleanup refusal, while positive Linux/Windows delivery needs CI.
+local macOS proves cleanup refusal. Actual Linux and Windows CI at c0afefc passed
+this final-delivery workflow; the Windows run failed a separate approval fixture,
+so it was not an overall passing native run.
 The hagency-files library copies bounded immutable bytes through retained workspace
 directory/file capabilities. The hagency-media codec adds bounded attachment
-encryption and fully checked decryption using the pinned Matrix SDK; durable
-media staging, uploads/downloads and native file tools remain to implement.
+encryption and fully checked decryption using the pinned Matrix SDK. The new
+hagency-media-store retains bounded bytes and original encryption descriptors
+through interrupted writes/restart under private directory/file handles. Missing
+or incomplete storage remains explicit; Windows unconfirmed directory sync is
+distinct from durable admission. Uploads/downloads and native file tools remain
+to implement. Schema17 also stores host-attributed token observations and exposes
+aggregate operator reads while preserving unknown and incomplete evidence.
 Service Agent execution and actual Matrix delivery remain disabled.
 The sections below record the successive checkpoints.
 
@@ -68,6 +79,7 @@ Operator-only development resource endpoints under `/api/native/v1`:
 | `GET resource-configurations` | Paged operator configuration, including withdrawn resources |
 | `GET resources` | Paged catalog projection; omits internal preset and seat IDs |
 | `GET resources/{id}/budget` | Selected pool/shared-seat commitments; unknown quota remains null |
+| `GET engagements/{id}/usage` | Aggregate untrusted observations plus optional UTC day/month; `at_ms` selects a period, omission uses writer time |
 | `GET/POST seats` | Paged quota declarations or save a declaration; no credentials are exposed |
 | `GET engagements` | Paged request/allocation projection without private owner-room evidence |
 | `GET roles` | Derived eligibility with explicit publication choices and cross-family requirements |
@@ -469,14 +481,24 @@ parser; separate correction fixtures reject coerced/unsafe numbers, duplicate
 keys and conflicting message identities. This library does not read transcript
 files, authenticate usage, attribute it to an Agent/project, or enforce a quota.
 
+[Schema17 usage custody](../knowledge/decisions/adr-063-native-usage-ledger.md)
+adds exact host dispatch attribution, per-source high-water observations and
+atomic observed UTC periods. It retains incomplete evidence and content-bound
+receipts without pruning/recounting old identities. Finite capacity refusal is
+explicit. [Operator aggregate reads](../knowledge/decisions/adr-067-native-usage-read-api.md)
+preserve nulls and historical lower-bound labels and expose no transcript/source,
+task, private room or workspace records. Secure transcript capture, provider
+measurement, quota enforcement and the browser console are still separate work.
+
 [Native progress policy](../knowledge/decisions/adr-052-native-progress-policy.md)
 binds bounded event receipts and throttled redacted summaries to one immutable
 host run. Tool titles, arguments and errors never enter outgoing text. ACP calls
 with no terminal result remain explicitly pending or unresolved; a claimed
 pending snapshot cannot hide a later completion. Unknown submission outcomes
 block retries until host inspection. This is an in-memory projection, with 275
-unchanged JS vectors and 20 documented corrections; runtime attachment, durable
-status delivery and actual Matrix edits remain separate integration work.
+unchanged JS vectors and 20 documented corrections. ADR056 supplies an exact
+native-driver attachment; domain-worker binding, durable status delivery and
+actual Matrix edits remain separate integration work.
 
 [Owned dispatch execution](../knowledge/decisions/adr-053-native-owned-dispatch.md)
 connects an exact claimed capability and frozen writer scope to real native
