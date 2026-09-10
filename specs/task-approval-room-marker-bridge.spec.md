@@ -62,6 +62,12 @@ Scenario: Full Matrix response remains inside one deadline
   When the helper consumes the response body
   Then the request aborts or fails closed without recording a receipt.
 
+Scenario: Local SDK state response is bounded
+  Test: local SDK marker timeout bounds a stalled real HTTP response body
+  Given a loopback homeserver accepts the PUT but stalls before completing its response body
+  When the initialized Matrix SDK client sends marker state with the adapter timeout
+  Then the SDK rejects within that bound and the adapter records no successful receipt.
+
 Scenario: Lost legacy response is reconciled from observed state
   Test: authenticated nonempty v1 observation queues exact room reconciliation
   Given accepted v2 history and a completed prior retirement

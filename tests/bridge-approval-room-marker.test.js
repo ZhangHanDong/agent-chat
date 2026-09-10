@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
+import { createServer } from 'node:http';
+import { MatrixClient } from 'matrix-bot-sdk';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
@@ -315,6 +317,65 @@ describe('approval room marker production adapter', () => {
     }, actor, row)).rejects.toThrow(/state send failed|changed during side response|event_id/);
   });
 
+  test('local SDK marker timeout bounds a stalled real HTTP response body', async () => {
+    const requests = [];
+    const server = createServer((req, res) => {
+      const chunks = [];
+      req.on('data', chunk => chunks.push(chunk));
+      req.on('end', () => requests.push({
+        method: req.method,
+        url: req.url,
+        body: Buffer.concat(chunks).toString('utf8'),
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{"event_id":"$late"}');
+      const finish = setTimeout(() => res.end(), 200);
+      res.on('close', () => clearTimeout(finish));
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const client = new MatrixClient(`http://127.0.0.1:${address.port}`, 'test-local-token');
+    client.crypto = {};
+    const bridge = Object.create(bridgeModule.MatrixBridge.prototype);
+    bridge.callBackendApi = api;
+    bridge.approvalMarkerMatrixTimeoutMs = 10;
+    bridge.actingSideFor = () => null;
+    const state = bridgeModule.bridgeStateForTest();
+    state.botCredentialGeneration = 'bot-g1';
+    bridge.botClient = client;
+    bridge.botUserId = '@bot:test';
+    bridge.approvalBotPublisherReady = {
+      client,
+      mxid: '@bot:test',
+      credentialGeneration: 'bot-g1',
+    };
+    const row = {
+      approval_room_id: '!bounded:test',
+      publisher_scope: 'local_bot',
+      publisher_mxid: '@bot:test',
+      credential_kind: 'local_bot',
+      credential_generation: 'bot-g1',
+    };
+    const actor = await bridgeModule.approvalMarkerIoForTest(bridge).resolveActor(row);
+    const started = Date.now();
+    try {
+      await expect(bridgeModule.approvalMarkerIoForTest(bridge).send({
+        prepared_event_type: 'com.agentchat.approval.room.v2',
+        state_key: '',
+        prepared_payload: { version: 2 },
+        publisher_mxid: '@bot:test',
+      }, actor, row)).rejects.toThrow();
+      expect(Date.now() - started).toBeLessThan(150);
+      expect(requests).toContainEqual({
+        method: 'PUT',
+        url: '/_matrix/client/v3/rooms/!bounded%3Atest/state/com.agentchat.approval.room.v2/',
+        body: '{"version":2}',
+      });
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
   test('authenticated nonempty v1 observation queues exact room reconciliation', async () => {
     const calls = [];
     const bridge = concreteBridge(vi.fn(async (method, endpoint, query, content, timeout) => {
@@ -322,7 +383,7 @@ describe('approval room marker production adapter', () => {
       if (method === 'GET') return {
         version: 1,
         binding_generation: 1,
-        publisher_mxid: '@bot:test',
+        publisher_mxid: '@retired-bot:test',
         owner_mxid: '@owner:test',
         agent: 'claude',
         project_room_associations: [{ project_room_id: '!p1:test', active: true }],
