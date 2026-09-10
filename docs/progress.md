@@ -2701,3 +2701,8 @@ the repository. No changes were pushed, merged or deployed from this worktree.
   decision wiring, application inspection adapters, Matrix cards/verdict crypto,
   operator YOLO policy, general owner rebinding and M6/M9 operational gates remain
   open. Task-notice sending retains its separate custody gate from ADR-038.
+
+- Windows follow-up: the schema reconstruction fixture sliced at a literal blank
+  line before CREATE TABLE, which failed under CRLF checkout. It now locates SQL
+  statement text independently of line endings. An in-memory fixture reconstructs
+  and prepares the route view under both LF and CRLF; focused test and Clippy pass.
