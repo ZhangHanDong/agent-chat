@@ -2956,3 +2956,31 @@ This local result is not a rerun of the failed GitHub macOS job.
   and accepted original resolution. Focused approval tests, runtime Clippy,
   rustfmt and task lifecycle pass (four scenarios plus boundary, no skips).
   Evidence: `codex-approval-one-response{,-clippy,-lifecycle}.log` in the external cache.
+
+## 2026-09-10 — Integrated MCP, approval and child-observation checkpoint
+
+Integrated native MCP as 363db02, the macOS fixture correction as 795ae94 and
+Codex approval coordination as e5b4239. Full workspace verification passed 220
+unique tests, zero failed or ignored, plus the isolated proxy-environment child
+check (221 printed passes). Workspace Clippy with warnings denied, formatting
+and diff checks passed; all 152 native spec selectors resolve. Integrated
+approval and child-identity lifecycles each passed 5/5 with explicit boundaries
+and zero fail/skip/uncertain.
+
+Review found a connection-level duplicate response path: generic rejection could
+follow a typed approval while correlation was retained. ec80da5 fences that
+path without dropping pending resolution identity. Its three focused approval
+tests passed; the writer/coordinator cannot resend a consumed approval.
+
+Previous 68af16c passed Windows and Linux Native CI 34519683281, including actual
+Windows owned-pipe cancellation/handle and child fixtures. macOS failed the old
+80 ms heartbeat-only observation; the corrected fixture is now integrated and
+new CI remains required. Node CI 34519683353 passed. The complete earlier
+47b6a51 native three-OS and Node runs were green.
+
+The parallel Matrix collector review identified shared negative snapshot loss,
+lost positive-observation response fencing, SDK shutdown errors and plaintext
+custom SDK values; fixes are still in its isolated worktree. Linux cgroup and
+Matrix formatting also remain separate. This is a development checkpoint, not
+completion of a migration phase. Original checkout and deployed processes are
+unchanged.

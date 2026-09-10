@@ -1504,3 +1504,10 @@ canonical/value failures use isError. SDK remains a test-only dependency.
   invokes schema13 request/consume/observation commands. Runtime remains database
   independent; default OwnedSession still rejects approvals. Host workspace ID
   plus session cwd/read-only settings are checked against an actual current lease.
+
+Codex connection one-response rule applies to both typed approval and generic
+rejection. A responded callback remains pending only for exact upstream
+resolution; neither a second typed response nor a generic rejection may follow.
+At 68af16c actual Windows owned IO and Linux CI passed; macOS had a short-sample
+child observation failure now covered by controlled heartbeat pause/actual exit
+fixtures. Do not describe that failed run as green on all three OSes.
