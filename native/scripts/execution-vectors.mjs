@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-const source = readFileSync(new URL('../../lib/execution-authorization.js', import.meta.url), 'utf8');
+// Git may check the legacy source out with CRLF on Windows. Hash the canonical
+// source text; execution and the fixture bytes remain identical on every OS.
+const source = readFileSync(new URL('../../lib/execution-authorization.js', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const expectedImport = "import path from 'node:path';";
 if (!source.includes(expectedImport)) throw new Error('Review changed execution path import');
 const vectors = [];

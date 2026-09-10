@@ -2564,3 +2564,17 @@ input acknowledgement, sandbox, host authority and durable-domain gates close.
 - No model, live Matrix service, credential or deployment changed. Real sync/crypto
   and transport, generalized invitation/DM policy, taskless/front-desk output,
   automatic unread discussion-window selection and migration cutover remain open.
+
+## 2026-09-10 — Windows execution-vector reproducibility
+
+- Head 8ba0590 passed Node CI 34513475238 but failed the Windows native vector
+  check in 34513475271. The legacy source is checked out with CRLF there; its raw
+  source hash differed while the permission vectors were unchanged. The generator
+  now hashes canonical LF source text. Native JSON fixture bytes remain LF.
+- Both ordinary input and an in-memory simulated CRLF checkout reproduce all 64
+  vectors locally; ESLint and diff checks pass. The next Windows CI run must
+  verify the fix; this local simulation is not substituted for that run.
+- Outbound custody is integrated as ffaad85 and verified ingress as 7eabc42.
+  Only append-only coordination records conflicted; both histories were retained.
+  Their combined full-workspace verification is still in progress alongside the
+  native task-client integration. Deployed services remain unchanged.
