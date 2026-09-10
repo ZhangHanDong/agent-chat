@@ -1201,3 +1201,17 @@ Interrupt ACK, turn notification, child cleanup and canonical completion remain
 separate. The future adapter must supply ordered bounded IO, real stdin ACK,
 current thread/turn/item authority, applied owner decisions and guardian custody.
 A clean protocol EOF is not a clean dispatch outcome. Native execution stays off.
+
+
+Native Codex transport (2026-09-10): ADR-034 adds an async driver owning host-
+supplied stdin/stdout/stderr streams. It creates no tasks/channels/processes.
+`TransportWrite` means complete write plus flush only, not child-input or domain
+ACK. Operation Drop, IO/protocol failure, deadline or EOF closes all streams and
+retains an unresolved termination record with accepted/total write bytes and
+pending RPC counts. It never stops a guardian or releases a lease. Instant-based
+request, partial-frame, operation and lifetime deadlines survive traffic. Events
+are capped by count and complete payload/metadata bytes; stdout overflow fails
+visibly. Stderr is only a private 16 KiB tail plus total byte count. Pump stdout
+and stderr while writing, and do not turn transport EOF into clean dispatch
+completion. Actual child/guardian handoff, authority, approval and sandbox gates
+remain open; native Agent execution is still disabled.

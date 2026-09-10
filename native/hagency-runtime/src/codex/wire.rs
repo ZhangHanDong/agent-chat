@@ -186,6 +186,11 @@ pub struct Decoder {
 }
 
 impl Decoder {
+    pub(super) fn deadline_ms(&self) -> Option<u64> {
+        self.since
+            .map(|since| since.saturating_add(PARTIAL_FRAME_MS))
+    }
+
     pub fn buffered_bytes(&self) -> usize {
         self.bytes.len()
     }

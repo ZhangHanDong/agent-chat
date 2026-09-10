@@ -2279,3 +2279,38 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   confer no dispatch, approval, task-completion or process-custody authority.
   Actual bounded transport and final-reply privacy/outbox work are proceeding in
   separate worktrees, along with the remaining source inventory classification.
+
+## 2026-09-10 — Bound asynchronous native Codex transport
+
+- Added the next independent M4 slice in the runner worktree: an async driver
+  around the existing protocol, taking three host-owned read/write streams. It
+  creates no process, channel, background task or public endpoint. Existing
+  deployed services and the original dirty checkout remain unchanged.
+- The driver pumps stdout/stderr while a complete stdin frame and flush are
+  pending. Its write receipt is separate from RPC responses and domain ACK.
+  Dropped operation futures synchronously close streams and poison the connection;
+  partial/failed output cannot replay. Termination retains unresolved byte/RPC
+  progress, including counts cleared internally by a failed protocol operation.
+- Added Instant-derived absolute deadlines, cooperative yields under ready IO,
+  fixed read buffers, count plus complete-byte event caps and a bounded private
+  stderr tail with total bytes. Overflowing actionable events close visibly.
+  These byte caps do not claim an equivalent process RSS budget.
+- All 17 focused runtime tests pass: nine protocol tests and eight new transport
+  tests, zero failed or ignored. Real bounded duplex fixtures cover early RPC
+  responses, partial/blocked writes, stalled flush, IO loss, partial/idle EOF,
+  future cancellation, absolute deadlines, slow input, event pressure and stderr
+  truncation. Most timing uses a deterministic clock; real timer tests also
+  verify silence and continuously ready stdout without a producer sleep.
+- Focused all-target Clippy, workspace rustfmt and diff checks pass. Initial
+  compilation caught overlapping mutable write/flush borrows; the driver now
+  polls one output operation per iteration. The initial Clippy run caught a
+  constant assertion, which now runs at compile time without a suppressed lint.
+- The scoped contract parses and lints at 100% quality. agent-spec 1.4.0 lifecycle
+  runs the four selectors against the runtime crate (1 + 2 + 3 + 2 actual tests)
+  plus the explicit boundary check, all five passing. ADR-034 records the exact
+  guarantees and open integration work.
+- Stream closure remains an unresolved execution outcome, requiring future host
+  fencing and guardian inspection. It proves no process stop, released resource
+  lease, canonical completion or Matrix delivery. The existing guardian's inactive
+  stdio launch, actual runtime qualification and permission/sandbox integration
+  are unchanged and remain gates before enabling native Agent execution.

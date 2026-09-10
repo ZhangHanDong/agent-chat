@@ -107,6 +107,15 @@ impl Default for Connection {
 }
 
 impl Connection {
+    pub(super) fn deadline_ms(&self) -> Option<u64> {
+        self.pending
+            .values()
+            .map(|p| p.deadline)
+            .chain(self.server_pending.values().map(|p| p.deadline))
+            .chain(self.decoder.deadline_ms())
+            .min()
+    }
+
     pub fn phase(&self) -> Phase {
         self.phase
     }
