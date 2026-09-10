@@ -22,8 +22,11 @@ Fresh native state is the default. No old router, JSON or SDK store is imported.
 | Settle dispatch and send result (M3/M6) | Domain service | Authorized canonical task transition, usage observation, reply outbox | dispatch + delivery destination + result ID | Matrix retry uses stable transaction ID; runtime exit is not task completion |
 | Rotate private credential or crypto device (M5/M6) | Credential/crypto adapter plus domain rotation saga | Each owner commits its own generation/intent; never a cross-DB pseudo-transaction | rotation ID + old/new generation | Remain unavailable until both acknowledgements reconcile; never rewind crypto ratchets |
 
-Only the first row is implemented in the foundation. Core business state and
-canonical router/task state will share **one authoritative domain database**
+The foundation implements transport custody. The M2 domain checkpoint additionally
+implements project-defined request admission, reservation/decision/outbox commits
+and explicit effect reconciliation using fixture-verified observations. Actual
+Matrix transport and provisioning adapters remain absent. Core business state and
+canonical router/task state share **one authoritative domain database**
 with one transactional writer. Separate repositories are module boundaries,
 not a license to split atomic invariants across independent SQLite files.
 Transport custody and Matrix SDK crypto remain independently owned stores.
@@ -33,6 +36,22 @@ The native development API accepts operator-provided fixture envelopes. It does
 not claim those envelopes are authenticated Matrix observations, and therefore
 cannot approve, provision or execute Agents. M5 supplies and validates real
 registration-bound provenance before crossing into domain admission.
+
+`domain.sqlite3` uses a distinct application ID, `domain.lock`, WAL/FULL commits
+and the same private file policy. Its dedicated worker has 16 queued commands by
+default, a 64 KiB input limit, 8 MiB byte budget and two-second response deadline.
+Queries page at 100 records. New identities are bounded to 1,024 registrations,
+2,048 resources/seats and 10,000 requests; capacity never deletes pending work.
+Decision/effect rows are indexed and updated individually, without lifetime-store
+cloning. Completed audit retention/compaction remains an M8 release gate; this
+checkpoint is not a continuous-operation retention claim.
+
+Native project bindings pin the full owner, private room and project room to a
+registration generation. Rotation fences old admission, approval and effect claims;
+it does not erase allocations. Rebinding/rotation reconciliation remains closed
+until the authenticated transport/credential saga exists. Local explicit revocation
+can still persist its fence and pending cleanup. An old-generation cleanup must
+not be reported completed merely because the registration changed.
 
 ## Latency and storage
 

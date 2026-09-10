@@ -951,3 +951,13 @@ See docs/reviews/2026-09-09-open-pr-integration.md for evidence.
   Rust spec selectors are checked against the real Cargo catalog in Native Rust
   CI; Node CI keeps checking the Vitest catalog. Neither catalog counts the other
   runtime's deferred contracts as verified. Generic fleet identifiers remain.
+
+- **Native M2 domain:** `domain.sqlite3` owns project bindings, request evidence,
+  reservations and effect intents. Never run external work merely because custody
+  was acknowledged. `VerifiedRequest` is produced from trusted adapter observations,
+  not HTTP JSON. A started effect recovered after restart is uncertain, keeps its
+  reservation and cannot be automatically claimed again. Revocation fences its
+  provision effect before creating retirement intent; cleanup status is separate.
+  Resource edits that omit publication preserve explicit withdrawal. Public catalog
+  IDs and Unicode runtime naming remain bound to the existing JS golden vectors.
+  Native M2 does not yet contain live Matrix IO, full qualification or legacy intake.

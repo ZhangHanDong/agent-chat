@@ -1,5 +1,6 @@
 use hagency_core::custody::{Delivery, MAX_DELIVERY_BYTES};
-use hagency_store::{Error, Store};
+use hagency_store::{DomainStore, Error, Store};
+mod resources;
 use salvo::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
@@ -13,6 +14,7 @@ use tokio::sync::Semaphore;
 #[derive(Clone)]
 pub struct App {
     store: Store,
+    domain: Option<DomainStore>,
     token_hash: [u8; 32],
     authority: String,
     requests: Arc<Semaphore>,
@@ -32,10 +34,16 @@ impl App {
         }
         Ok(Self {
             store,
+            domain: None,
             token_hash: Sha256::digest(token).into(),
             authority: address.to_string(),
             requests: Arc::new(Semaphore::new(8)),
         })
+    }
+
+    pub fn with_domain(mut self, domain: DomainStore) -> Self {
+        self.domain = Some(domain);
+        self
     }
 
     pub fn router(self) -> Router {
@@ -46,6 +54,7 @@ impl App {
                 Router::with_path("api/native/v1")
                     .hoop(authorize)
                     .push(Router::with_path("capabilities").get(capabilities))
+                    .push(resources::router())
                     .push(Router::with_path("custody").post(receive)),
             )
     }
@@ -59,10 +68,13 @@ async fn health(res: &mut Response) {
 }
 
 #[handler]
-async fn capabilities(res: &mut Response) {
+async fn capabilities(depot: &mut Depot, res: &mut Response) {
+    let management = depot
+        .get_typed::<App>()
+        .is_ok_and(|app| app.domain.is_some());
     res.render(Json(
         serde_json::json!({"custody":true, "agent_execution":false, "palpo_transport":false,
-        "matrix_crypto":false, "production_api_parity":false}),
+        "matrix_crypto":false, "resource_management":management, "project_request_transport":false, "production_api_parity":false}),
     ));
 }
 

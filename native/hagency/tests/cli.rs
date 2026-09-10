@@ -74,6 +74,26 @@ fn submit(address: SocketAddr, token: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body).expect("native JSON response");
     body.to_owned()
 }
+fn resource_call(address: SocketAddr, token: &str, create: bool) -> serde_json::Value {
+    let mut stream = TcpStream::connect(address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let body = if create {
+        r#"{"presetId":"restart_pool","seatId":"fixture_seat","framework":"codex","model":"fixture","roles":["coding"],"ceiling":{"tokens":100}}"#
+    } else {
+        ""
+    };
+    let method = if create { "POST" } else { "GET" };
+    write!(stream,"{method} /api/native/v1/resources HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(
+        response.starts_with("HTTP/1.1 200"),
+        "native domain resource request failed"
+    );
+    serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap()
+}
 #[test]
 fn native_binary_survives_crash_without_node() {
     let directory = tempfile::tempdir().unwrap();
@@ -107,7 +127,12 @@ fn native_binary_survives_crash_without_node() {
     drop(listener);
     let running = launch(&state, address);
     let receipt = submit(address, &token);
+    let resource = resource_call(address, &token, true);
     drop(running); // Unclean process loss, not an in-memory reopen.
     let _restarted = launch(&state, address);
     assert_eq!(submit(address, &token), receipt);
+    assert_eq!(
+        resource_call(address, &token, false),
+        serde_json::json!([resource])
+    );
 }

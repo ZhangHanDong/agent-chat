@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use hagency_store::{Repository, Store, private};
+use hagency_store::{DomainRepository, DomainStore, Repository, Store, private};
 use salvo::prelude::*;
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
             private::write_new(&state_dir.join("operator.token"), token.as_bytes())?;
             drop(Repository::open(&state_dir)?);
+            drop(DomainRepository::open(&state_dir)?);
             println!(
                 "Initialized native state. Operator token is in operator.token; keep it private."
             );
@@ -69,7 +70,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map_err(|e| format!("native custody startup failed: {e}"))?,
                 queue_capacity,
             )?;
-            let app = hagency::App::new(store.clone(), &token, listen)?;
+            let domain = DomainStore::start(
+                DomainRepository::open(&state_dir)
+                    .map_err(|e| format!("native domain startup failed: {e}"))?,
+                queue_capacity,
+            )?;
+            let app = hagency::App::new(store.clone(), &token, listen)?.with_domain(domain.clone());
             let acceptor = TcpListener::new(listen).try_bind().await?;
             let server = Server::new(acceptor).max_connections(64);
             let handle = server.handle();
@@ -88,6 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!(%listen, "native foundation listening; Agent execution and Matrix transport are unavailable");
             server.try_serve(app.router()).await?;
             store.shutdown().await?;
+            domain.shutdown().await?;
         }
     }
     Ok(())

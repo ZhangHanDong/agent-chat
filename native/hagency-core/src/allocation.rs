@@ -51,7 +51,8 @@ pub struct Preset {
     pub ceiling: Option<Ceiling>,
 }
 /// Undefined and explicit null compare differently in the current JS period guard.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
 pub struct Period(Option<Option<String>>);
 impl<'de> Deserialize<'de> for Period {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -59,22 +60,25 @@ impl<'de> Deserialize<'de> for Period {
     }
 }
 impl Period {
+    fn is_missing(&self) -> bool {
+        self.0.is_none()
+    }
     fn value(self) -> Option<String> {
         self.0.flatten()
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ceiling {
     pub tokens: Option<Tokens>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Period::is_missing")]
     pub period: Period,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Declaration {
     pub quota_tokens: Option<Tokens>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Period::is_missing")]
     pub period: Period,
 }
 #[derive(Debug, Deserialize)]

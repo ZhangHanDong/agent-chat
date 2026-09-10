@@ -9,8 +9,9 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 2. Verify native CI on Windows, macOS and Linux, plus existing build-tool coverage.
 3. Continue M0's complete dynamic endpoint/helper classification, supported runtime
    versions and measured device budgets. Run early process-tree/sandbox proofs.
-4. Next implementation contract: M2 selected-resource/shared-seat budgets, project
-   authority, content-bound admission, transactional reservation and fulfillment
-   outbox in the single domain database defined by ADR-028.
+4. M2 selected-resource domain checkpoint now implements verified-observation
+   admission, one-transaction reservations/outbox and uncertain-effect recovery.
+   Complete qualification/legacy/project-side/rotation integration; next port the
+   M3 canonical task and dispatch kernel into the same domain database.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

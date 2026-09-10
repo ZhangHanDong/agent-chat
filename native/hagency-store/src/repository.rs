@@ -1,10 +1,10 @@
-use crate::{Error, private};
+use crate::Error;
 use hagency_core::{
     JSON_SAFE_MAX,
     custody::{CustodyState, Delivery, Receipt},
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use std::{fs::File, path::Path, time::Duration};
+use std::{fs::File, path::Path};
 
 const APPLICATION_ID: i32 = 0x48414731; // HAG1; never accept a JS router or crypto database.
 const VERSION: i32 = 1;
@@ -18,72 +18,22 @@ pub struct Repository {
 
 impl Repository {
     pub fn open(directory: &Path) -> Result<Self, Error> {
-        private::directory(directory)?;
-        let lock_path = directory.join("owner.lock");
-        let lock = match private::open(&lock_path, true) {
-            Ok(lock) => lock,
-            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                private::open(&lock_path, false)?
-            }
-            Err(e) => return Err(e),
-        };
-        lock.try_lock().map_err(|_| Error::Locked)?;
-        let path = directory.join("custody.sqlite3");
-        let new = match private::open(&path, true) {
-            Ok(_) => true,
-            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                private::open(&path, false)?;
-                false
-            }
-            Err(e) => return Err(e),
-        };
-        for suffix in [
-            "custody.sqlite3-wal",
-            "custody.sqlite3-shm",
-            "custody.sqlite3-journal",
-        ] {
-            if directory.join(suffix).symlink_metadata().is_ok() {
-                private::open_journal(&directory.join(suffix))?;
-            }
-        }
-        let mut db =
-            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        db.busy_timeout(Duration::from_millis(100))?;
-        if new {
-            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            tx.execute_batch(include_str!("schema.sql"))?;
-            tx.pragma_update(None, "application_id", APPLICATION_ID)?;
-            tx.pragma_update(None, "user_version", VERSION)?;
-            tx.commit()?;
-        } else {
-            let id: i32 = db
-                .pragma_query_value(None, "application_id", |r| r.get(0))
-                .map_err(|_| Error::Schema)?;
-            let version: i32 = db
-                .pragma_query_value(None, "user_version", |r| r.get(0))
-                .map_err(|_| Error::Schema)?;
-            if id != APPLICATION_ID || version != VERSION {
-                return Err(Error::Schema);
-            }
-            let check: String = db
-                .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
-                .map_err(|_| Error::Schema)?;
-            if check != "ok" {
-                return Err(Error::Schema);
-            }
-            db.prepare(
-                "SELECT id,lane,binding,generation,digest,payload,receipt FROM inbox LIMIT 0",
-            )
-            .map_err(|_| Error::Schema)?;
-        }
-        db.pragma_update(None, "journal_mode", "WAL")?;
-        db.pragma_update(None, "synchronous", "FULL")?;
-        db.pragma_update(None, "foreign_keys", "ON")?;
+        let database = crate::database::open(
+            directory,
+            crate::database::Schema {
+                name: "custody.sqlite3",
+                lock: "owner.lock",
+                application_id: APPLICATION_ID,
+                version: VERSION,
+                sql: include_str!("schema.sql"),
+                verify: "SELECT id,lane,binding,generation,digest,payload,receipt FROM inbox LIMIT 0",
+            },
+        )?;
         Ok(Self {
-            db,
+            db: database.connection,
             max_records: 1024,
             max_payload_bytes: 16 * 1024 * 1024,
-            _ownership: lock,
+            _ownership: database.ownership,
         })
     }
 

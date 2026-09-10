@@ -1714,3 +1714,29 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   lifecycle passes2 scenarios plus its boundary check. Native CI for080cf90 passed
   on Linux and macOS; Windows stopped at CRLF-converted golden JSON. Added explicit
   LF attributes for those byte fixtures before rerunning native Windows checks.
+
+## 2026-09-10 — Native selected-resource domain checkpoint
+
+- Continued the full migration goal in `feat/rust-migration`; preserved the
+  original checkout and live services. Prior checkpoint47d217a passed native
+  Windows/Linux/macOS CI and existing Node CI (4,280 passed, one platform skip).
+- Added one domain SQLite writer for project binding/evidence, immutable intake,
+  selected-pool/shared-seat reservation, decision replay and effect intents. Native
+  admission verifies full source/room/owner observations and cannot deserialize
+  HTTP-provided approval flags. Runtime and Matrix adapters remain unimplemented.
+- Added38 JS-produced Unicode/public/runtime identity vectors. Added concurrent
+  reservation and injected-commit-failure coverage, uncertain effect recovery,
+  generation/project remapping fences and explicit retirement retry. Resource
+  configuration/publication APIs now preserve withdrawal on ordinary edits and
+  retain operator access to withdrawn configurations.
+- Local checks:22 Cargo tests passed, rustfmt/Clippy and three golden vector
+  generators passed. Native bindings have17 selectors and zero missing tests;
+  the new agent-spec lifecycle passed all6 scenarios plus its boundary check.
+  Windows GNU cross-Clippy passed earlier in this checkpoint; native OS CI must
+  still validate the final committed changes. See the checkpoint review for
+  remaining M2 scope and M3–M9 gates. Full migration remains active.
+- The existing documentation scan initially consumed extensionless Cargo binaries
+  under `target/` and failed at Node's maximum string length. Added Cargo output
+  exclusion plus a fixture proving ordinary extensionless scripts remain scanned.
+  The documentation and Node spec-binding checks now pass all9 tests. No runtime
+  behavior or assertion was bypassed to hide this migration/build interaction.

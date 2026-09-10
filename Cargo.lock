@@ -947,10 +947,13 @@ dependencies = [
 name = "hagency-core"
 version = "0.1.0"
 dependencies = [
+ "regex",
+ "ruma-common",
  "serde",
  "serde_json",
  "sha2",
  "thiserror",
+ "unicode-normalization",
 ]
 
 [[package]]

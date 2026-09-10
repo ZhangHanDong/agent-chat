@@ -1,5 +1,10 @@
 //! A single SQLite owner on a dedicated bounded worker; no IO in async handlers.
+mod database;
+mod domain;
+mod domain_worker;
 pub mod private;
+pub use domain::{DomainRepository, Effect, EffectOutcome, EffectState};
+pub use domain_worker::DomainStore;
 mod repository;
 mod worker;
 pub use repository::Repository;
@@ -13,6 +18,14 @@ pub enum Error {
     Conflict,
     #[error("registration generation differs from its durable binding")]
     Generation,
+    #[error("domain object does not exist")]
+    NotFound,
+    #[error("selected resource is withdrawn or does not qualify")]
+    Unqualified,
+    #[error("selected resource or declared shared seat has insufficient capacity")]
+    InsufficientCapacity,
+    #[error("domain operation is not valid in its current state")]
+    State,
     #[error("state is owned by another process")]
     Locked,
     #[error("state format is corrupt or newer than this binary")]
@@ -21,13 +34,13 @@ pub enum Error {
     Private,
     #[error("private state on this platform has not passed the native permission gate")]
     PlatformUnavailable,
-    #[error("custody capacity is exhausted; no unprocessed delivery was discarded")]
+    #[error("durable store capacity is exhausted; pending records were retained")]
     Capacity,
     #[error("worker queue is full; retry the same request identifier")]
     Busy,
     #[error("worker stopped; inspect or retry the same request identifier")]
     Unavailable,
-    #[error("processing outcome is unknown; retry only the identical custody command")]
+    #[error("processing outcome is unknown; reconcile the original command before retrying")]
     OutcomeUnknown,
     #[error("storage error")]
     Sqlite(#[from] rusqlite::Error),
