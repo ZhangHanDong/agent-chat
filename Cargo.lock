@@ -975,6 +975,7 @@ dependencies = [
 name = "hagency-platform"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rustix",
  "serde",
  "serde_json",

@@ -21,6 +21,7 @@ its existing kernel Job Object containment without an extra guardian process.
 - Report the observed guarantee accurately: POSIX group cleanup does not prove detached descendant cleanup.
 - Keep native Agent execution disabled until descendant discovery sandbox and runner protocol gates are met.
 - Verify owner exit without destructors and unrelated process survival with real fixtures.
+- Prevent unrelated inherited host descriptors and guardian reply endpoints from reaching work.
 
 ### Must Not
 - Do not use shell startup inherited application environments public sockets or numeric-PID commands.

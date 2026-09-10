@@ -2072,3 +2072,25 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - Complete detached-descendant discovery, guardian-loss recovery, bounded runner
   IO, effective sandbox/approval adapters and M3/M5–M9 parity remain open. Agent
   execution remains disabled; this checkpoint does not complete the migration.
+
+## 2026-09-10 — Close the guardian CI descriptor leak
+
+- Guardian commit 5678697 passed Ubuntu and Windows native CI but failed macOS
+  native CI (34481110874). The existing zero-inherited-sockets assertion found
+  two extra descriptors from the embedding CI host. This failure was not waived.
+- Added a controlled parent socket pair with CLOEXEC explicitly cleared. It
+  reproduced the same two-socket failure locally before the fix. Both guardian
+  and work startup now seal every descriptor above stderr in the post-fork child.
+  The original strict assertion passes, and parent descriptor flags stay intact.
+- Linux uses direct close_range(CLOEXEC), requiring kernel 5.11+. macOS uses its
+  actual post-fork descriptor table and fcntl with fixed stack storage, refusing
+  truncated observations before exec. Only direct syscalls run in the callback.
+  The existing locked libc supplies its ABI; no dependency version changed.
+- Descriptors are marked CLOEXEC rather than closed immediately, so Rust can
+  still deliver exec failures through its internal pipe. Existing missing-binary
+  and invalid-startup tests continue to pass. Windows handle inheritance remains
+  disabled by its native CreateProcess path.
+- All 73 native tests passed locally with the reproducer enabled, zero failed or
+  ignored; workspace Clippy and rustfmt passed. Linux and Windows all-target
+  Clippy cross-compilation passed. Four guardian scenarios plus boundary passed
+  again. The corrected OS CI remains a gate; no deployed service changed.

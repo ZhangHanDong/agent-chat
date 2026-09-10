@@ -57,6 +57,15 @@ fn wait(child: &mut Child) {
 }
 #[test]
 fn native_guardian_start_stop() {
+    #[cfg(unix)]
+    let _inherited = {
+        let pair = std::os::unix::net::UnixStream::pair().unwrap();
+        // Model an embedding host/CI runner with unrelated inheritable handles.
+        for fd in [&pair.0, &pair.1] {
+            rustix::io::fcntl_setfd(fd, rustix::io::FdFlags::empty()).unwrap();
+        }
+        pair
+    };
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().join("监管 工作区");
     fs::create_dir(&directory).unwrap();
@@ -99,6 +108,13 @@ fn native_guardian_start_stop() {
     assert!(report.scope.leader_exited);
     assert_eq!(report.scope.whole_tree_stopped, cfg!(windows));
     assert_eq!(owned.stop(Duration::from_secs(1)).unwrap(), report);
+    #[cfg(unix)]
+    for fd in [&_inherited.0, &_inherited.1] {
+        assert!(
+            rustix::io::fcntl_getfd(fd).unwrap().is_empty(),
+            "sealing must not change the host descriptor table"
+        );
+    }
     stopped(&marker);
     let before = length(&other);
     std::thread::sleep(Duration::from_millis(80));

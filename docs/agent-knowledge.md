@@ -1105,3 +1105,13 @@ with /usr/bin/true and traced to the XNU group zombie filter. Attempt the retain
 child signal and reap even when group signalling fails; retain signals_accepted
 false and never infer group emptiness from that error. The real CLI entry test
 exposed this case after the simpler parent-plus-grandchild fixtures passed.
+
+Guardian CI follow-up: inheritable descriptors can originate in the embedding
+host, not only in our own channel. macOS CI found two extra sockets; clearing
+CLOEXEC on a controlled parent socket pair reproduced the exact failure locally.
+The child now seals every descriptor above stderr at both guardian/work exec.
+Use CLOEXEC, not closefrom: closing Rust's internal exec-error pipe early can
+misreport failed exec as successful spawn. Linux uses close_range(CLOEXEC), kernel
+5.11+ required. macOS uses post-fork PROC_PIDLISTFDS with 4096 fixed stack entries,
+rejects a full/partial table, then fcntl marks entries CLOEXEC. The callback must
+never allocate or lock. The parent's own descriptor flags remain unchanged.

@@ -82,3 +82,18 @@ still attempt the owned child and reap it. `signals_accepted` preserves a failed
 signal in the report; an error is not proof that a group is empty. Whole-tree stop
 remains false for POSIX. Detached-descendant discovery, guardian-loss recovery and
 effective sandbox enforcement remain mandatory before advertising real runners.
+
+Guardian CI exposed additional inheritable sockets supplied by its embedding host.
+Marking only our socket CLOEXEC is insufficient: every extra host descriptor must
+be sealed in the child after fork, both at guardian startup and at work startup.
+The callback keeps descriptors 0–2 and marks the rest CLOEXEC rather than closing
+them immediately, preserving Rust's internal exec-error reporting pipe.
+
+Linux uses the direct [close_range CLOEXEC syscall](https://man7.org/linux/man-pages/man2/close_range.2.html),
+requiring kernel 5.11 or newer for this launch path; unsupported kernels refuse
+launch. macOS queries its own post-fork descriptor table through PROC_PIDLISTFDS
+into fixed stack storage, checks completeness, then applies fcntl FD_CLOEXEC. The
+libproc wrapper is a direct syscall, with no allocator or lock in the callback.
+A table reaching the 4096-record bound refuses before exec. This avoids a racy
+parent census and avoids guessing that the current soft FD limit bounds existing
+descriptors. The already locked libc dependency supplies the platform ABI.

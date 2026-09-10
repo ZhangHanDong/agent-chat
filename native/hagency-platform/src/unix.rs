@@ -21,7 +21,8 @@ impl Process {
                 "POSIX guardian crash containment is not implemented",
             ));
         }
-        let mut child = Command::new(&launch.executable)
+        let mut command = Command::new(&launch.executable);
+        command
             .args(&launch.arguments)
             .current_dir(&launch.directory)
             .env_clear()
@@ -29,8 +30,9 @@ impl Process {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .process_group(0)
-            .spawn()?;
+            .process_group(0);
+        crate::unix_spawn::seal(&mut command);
+        let mut child = command.spawn()?;
         // Never permit kill(-1) semantics, even if an exotic namespace starts
         // with an unexpected PID. Only this unreaped child establishes authority.
         let Some(pid) = i32::try_from(child.id())

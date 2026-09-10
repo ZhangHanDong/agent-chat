@@ -107,15 +107,17 @@ impl Supervisor {
         let input: OwnedFd = worker.into();
         // The socket is unnamed and only inherited as stdin by this guardian.
         // Work receives null stdin and cannot retain the owner endpoint.
-        let child = Command::new(guardian)
+        let mut command = Command::new(guardian);
+        command
             .arg("guardian")
             .env_clear()
             .env("PATH", "")
             .current_dir(&launch.directory)
             .stdin(Stdio::from(input))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
+            .stderr(Stdio::null());
+        crate::unix_spawn::seal(&mut command);
+        let child = command.spawn()?;
         let mut result = Self {
             child,
             pipe: Pipe::new(owner),

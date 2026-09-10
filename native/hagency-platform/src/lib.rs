@@ -11,6 +11,9 @@ pub use supervisor::{StopCause, SupervisedProcess, SupervisedReport};
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
+#[allow(unsafe_code)]
+mod unix_spawn;
+#[cfg(unix)]
 use unix::Process;
 #[cfg(windows)]
 #[allow(unsafe_code)]
