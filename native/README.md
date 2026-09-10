@@ -1,11 +1,12 @@
 # Native Hagency migration
 
 This worktree contains native foundation and selected-resource domain checkpoints. It is **not a
-replacement for the deployed Hagency application**. Resource allocation, Agents,
-Palpo transport, the console API and Matrix chat still run in the existing JS/TS
-implementation. Native capability responses explicitly mark these unavailable.
+replacement for the deployed Hagency application**. The deployed workflows still
+run in the existing JS/TS implementation. Native capability responses distinguish
+development resource/task APIs from unavailable Agent execution, connected Palpo/
+Matrix transport and production API parity.
 
-The current developer checkpoint includes domain schema 15: scoped tasks,
+The current developer checkpoint includes domain schema 16: scoped tasks,
 internal groups, durable graphs, verified-input task activation, owner approvals
 and notice/final-reply send custody, with exact negative Matrix transport fencing. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
@@ -17,12 +18,21 @@ exact typed Codex response; upstream application remains explicitly unproven.
 The hagency-matrix library collects authenticated account and full room state,
 then admits bounded verified sync events into existing sessions through encrypted
 SDK and pending-sync custody. Offline encrypted DM fixtures exercise actual SDK
-verification. Live key lifecycle, history, sends and service wiring remain gates.
+verification. The host-only sender now performs actual authenticated notice and
+final-answer HTTPS writes, including verified encrypted DM/group fixtures, with
+durable acceptance custody. Live key lifecycle, history and service wiring remain gates.
 The owned runner can now configure and launch the native task MCP helper against
-the same canonical writer. Explicit Done revokes its old epoch; that test preserves
-the final-answer handoff gap rather than treating task completion as delivery.
+the same canonical writer. Explicit `complete_task_with_reply` atomically commits
+Done and holds final content while revoking the old execution epoch. The same
+retained process owner must establish cleanup before the writer admits a final
+reply. Plain task-only Done still provides no final content. Actual delivery is
+separate from both transitions. An offline group/thread integration test now
+joins intake, notice activation, real native MCP completion and the final sender;
+local macOS proves cleanup refusal, while positive Linux/Windows delivery needs CI.
 The hagency-files library copies bounded immutable bytes through retained workspace
-directory/file capabilities; it does not yet provide durable media or file tools.
+directory/file capabilities. The hagency-media codec adds bounded attachment
+encryption and fully checked decryption using the pinned Matrix SDK; durable
+media staging, uploads/downloads and native file tools remain to implement.
 Service Agent execution and actual Matrix delivery remain disabled.
 The sections below record the successive checkpoints.
 
@@ -383,8 +393,8 @@ See [ADR-032](../knowledge/decisions/adr-032-native-codex-protocol.md) and
 
 ## Native MCP task maintenance and coordination
 
-`hagency mcp` serves nineteen tools over stdio. Its five task tools are get_task, accept_task,
-transition_task, comment_task and update_task_execution. The host must supply
+`hagency mcp` serves twenty tools over stdio. Its six task tools are get_task, accept_task,
+transition_task, comment_task, update_task_execution and complete_task_with_reply. The host must supply
 the same inherited HAGENCY_RUNNER_API_ADDR, HAGENCY_RUNNER_CAPABILITY and
 HAGENCY_TASK_ID context as the native task CLI. Each call names that assigned
 task; mutations additionally require a stable call_id, preserved for an exact
@@ -402,13 +412,20 @@ and canonical task graphs through the same scoped API. Conversation participants
 and graph assignees use exact internal session IDs; delegation uses active
 engagement IDs. Mutations preserve caller-supplied stable call IDs for exact
 content-bound replay. Graph completion still requires the canonical Done epoch.
-Pages default to eight items with a maximum of 32; task requests are capped at
-16 KiB, coordination requests at 32 KiB, and HTTP responses at 64 KiB. Unknown
+Pages default to eight items with a maximum of 32; ordinary task-maintenance
+client requests are capped at 16 KiB, completion/coordination client requests at
+32 KiB, and HTTP responses at 64 KiB. The completion handler separately limits
+its decoded final body to 32 KiB. Unknown
 mutation outcomes remain unknown. See
 [ADR-051](../knowledge/decisions/adr-051-native-mcp-coordination.md).
 
-Discovery, files, Matrix history, approvals, generated runner configuration and
-live rollout remain separate work; deployed MCP configuration is unchanged.
+The host-generated owned-runner configuration enables four fixed task tools:
+get_task, update_task_execution, transition_task and complete_task_with_reply.
+It keeps on-request approvals, workspace-write and the default disabled network
+policy. See [ADR-060](../knowledge/decisions/adr-060-native-owned-completion.md)
+for completion receipt replay and retained-owner cleanup. Discovery, files,
+Matrix history, approval tools and live rollout remain separate work; deployed
+MCP configuration is unchanged.
 
 
 Schema 15 and [ADR-047](../knowledge/decisions/adr-047-native-matrix-transport.md)
@@ -468,5 +485,17 @@ receipt never launches work. Cancellation retains the worker and process owner,
 and incomplete cleanup keeps resource leases quarantined. Upstream completion,
 canonical Done, process cleanup and dispatch settlement remain separate results.
 The host-only library is disabled in the service: physical workspace protection,
-effective sandbox qualification, native MCP configuration and approval application
-are still required before operational use.
+effective sandbox qualification and approval application are still required
+before operational use.
+
+[Actual Matrix sending](../knowledge/decisions/adr-059-native-matrix-outgoing.md)
+uses the existing frozen notice/final claims and performs account, full-room and
+recipient-key checks. Domain send custody and encrypted SDK journal records
+precede writes; accepted responses persist before domain acknowledgement. A
+retained accepted result can settle after restart without resending. A possible
+write without an accepted response remains uncertain. Current bounds include
+one outgoing attempt and 64 retained receipts per collector; automatic retention
+and unknown-write recovery are unfinished. Private rooms require encryption and
+the complete current verified device set; missing trust or Olm sessions refuses
+the send. Fixtures exercise real SDK ciphertext and local HTTPS, not live account
+provisioning or autonomous service operation.

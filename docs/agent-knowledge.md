@@ -1844,3 +1844,20 @@ not positive complete delivery. Encrypted-DM plaintext rejection currently retir
 transport, not just the bad event; distinguishing event refusal from transport
 uncertainty remains open. Full crypto-plus-helper integration and native service cutover
 remain open. All new SQL is read-only fixture assertions.
+
+
+The integrated native catalog now has twenty exact MCP tools, including explicit
+complete_task_with_reply. Catalog membership tests must stay exact; adding this
+name does not loosen tool schema, generated-helper allowlists or authority checks.
+
+Agent-spec scopes matter: task-rust-progress-attachment binds tests in both
+hagency-progress-runtime and hagency-progress. Run its lifecycle with the workspace
+code root, not only the runtime package. The narrow invocation produced a real
+skip for the other package; keep that evidence and use the corrected workspace
+invocation rather than reporting the skip as passing. ADR056 references the actual
+SessionDriver/OwnedSession decisions (036/040) and progress bounds (032/036).
+
+Cross-platform evidence is revision-specific. All three native platforms and Node
+are green at 75f47f1; the integrated Matrix-to-owned-completion checkpoint adds new
+platform paths. Local macOS final-send refusal cannot stand in for Linux/Windows
+positive delivery or for complete migration parity.

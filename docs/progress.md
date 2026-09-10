@@ -3829,3 +3829,49 @@ agent-spec1.4 package lifecycle passes4/4 (three scenarios plus all eight explic
 changed paths), quality100%, zero fail/skip/uncertain. Evidence is retained under
 the external cache's matrix-owned prefix. Windows cross-compilation is not actual
 Windows execution; Linux/Windows final delivery remains for integrated native CI.
+
+
+## 2026-09-10 — Integrated completion and Matrix delivery checkpoint
+
+Integrated ADR059 authenticated outgoing custody, ADR060 explicit held completion
+and its queued-publication deadline correction, shutdown phase diagnostics, and
+ADR062 actual local TLS/owned native MCP workflow. The original operation deadline
+is checked after the publication writer queue and SQLite lock, so a persisted
+completion deadline cannot extend the operation's authority.
+
+The first combined suite found one strict MCP catalog regression: the expected
+catalog lacked the newly implemented complete_task_with_reply tool. The expected
+catalog now contains all twenty names; schema and negative authority assertions
+remain intact. The original failure log is retained as
+combined-completion-matrix-tests.log in the external migration evidence cache.
+The focused catalog lifecycle passes 7/7 including its explicit changed path.
+
+After that correction, the entire locked native workspace passes 367 unique tests
+(368 printed results because the environment-proxy test also runs its child),
+78 suites and zero failures or ignored tests. All 243 specification selectors
+resolve to actual tests. Workspace all-target Clippy with warnings denied,
+rustfmt and diff checks pass. Evidence uses the
+combined-completion-matrix-workflow-tests and integrated-completion-matrix-workflow
+prefixes. Integrated scoped lifecycles pass for the completion store (9/9),
+completion integration (4/4), shutdown diagnostics (5/5), Matrix outgoing (7/7),
+queued-deadline store correction (10/10) and MCP correction (4/4), each with all
+explicit paths checked and no failed, skipped or uncertain verdicts.
+
+The previous pushed revision 75f47f1 passed actual Linux, macOS and Windows native
+CI (34535368811), including Windows retained-root/ancestor handles and media
+fixtures. Its Node CI (34535368595) passed 4,288 tests with one existing skip,
+including eight native-addon media oracle vectors. Those results qualify that
+revision only. New ADR059/060/062 Linux and Windows execution remains a CI gate;
+local macOS deliberately retains unknown cleanup and sends no final reply.
+Historical Windows shutdown failures still have no established cause.
+
+Three isolated agents continue the usage ledger, private Matrix approval intake
+and durable per-event intake refusal. No live services, accounts, credentials,
+model execution, release availability or production cutover were changed. This
+checkpoint does not complete any migration milestone or the overall migration.
+
+Final checkpoint lifecycle checks pass: ADR062 integration4/4 with all eight
+changed paths, ADR056 reference correction6/6 using the workspace code root, and
+the coordination/readme checkpoint10/10 with all four explicit paths. The earlier
+package-only ADR056 invocation remains recorded as5pass/1skip; it is not counted
+as passing. No production code changed after the combined native suite.
