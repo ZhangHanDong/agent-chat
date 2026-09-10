@@ -2331,3 +2331,46 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   effective sandbox permissions or process cleanup. The parallel agent continues
   with typed thread/turn handling while final-reply custody and source inventory
   work remain under independent review. Deployed services remain unchanged.
+
+## 2026-09-10 — Source-derived native migration entrypoint inventory
+
+- Isolated `feat/rust-inventory` worktree starts at `a41ab10`. The behavioral
+  baseline remains `5dbef22`; source evidence pins the expanded snapshot to
+  `a41ab10` and hashes every inspected JavaScript source and helper candidate.
+  Original dirty checkout, deployed services, credentials and runtime data were
+  not changed.
+- Replaced regex candidates with deterministic Espree syntax inspection: 199
+  Express routes and 3 middleware registrations; 12 custom branches through two
+  raw listeners; 32 CLI declarations; 32 root/remote MCP registrations representing
+  16 names; and 61 Next proxy rules across four method exports. Dynamic SSE
+  installation, delivery delegation and inbound/outbound fleet protocol call
+  sites retain exact source locations. Parsing imports no application module.
+- Explicitly classified 138 helpers by role, owner, phase, disposition and gate.
+  Installed autodeploy watchers and runtime team provisioning are not build-only;
+  audit/CD helpers have a dual-use role. The checker refuses unresolved recognized
+  registrations, unclassified listeners/helpers, stale module links and snapshot
+  drift. Reflection, arbitrary aliases, generated code, external SDK internals
+  and a complete shell call graph remain declared detection limits in ADR-035.
+- Espree 11.2.0 is a direct pinned devDependency. Only root package/lock metadata
+  changed; an isolated `npm ci --offline --ignore-scripts` completed successfully
+  with 432 packages. This verifies the lock, not native-addon or production
+  installation. Existing root/console development dependencies were linked into
+  this worktree for checks; no install wrote through either shared link.
+- Exact `tests/native-migration-inventory.test.js`: 3 passed, zero failed/skipped.
+  Inventory reproduction, ESLint and diff checks passed. All 533 Node selectors
+  resolve. The first binding scan failed due to absent Next dependencies in this
+  worktree; after adding the existing console dependency link the full scan passed.
+- Agent-spec 1.4.0 parse/lint passed, quality 100%, with advisory warnings.
+  Lifecycle invoked with `--layers lint,boundary` still attempted Cargo test
+  selectors and returned `passed:false`, `failed:0`, `passed:0`, `skipped:3`,
+  `uncertain:0` (exit 1). These are Node/Vitest selectors; this lifecycle remains
+  non-passing and is not counted as test evidence. Full output is retained in the
+  local migration validation cache as `inventory-lifecycle.json`; actual Vitest
+  evidence is `inventory-tests-final.log` and Node bindings are
+  `inventory-bindings-final.log` in the 2026-09-10 cache directory.
+- Source classification does not finish M0 or establish native parity. Every row
+  remains `parity-unverified`. Complete event/schema/feature traceability, exact
+  supported runtime versions, qualified hardware/libc and measured budgets,
+  terminal/sandbox/guardian behavior, live transport/browser integration,
+  packaging, soak and controlled cutover gates remain open. No model or homeserver
+  was contacted by this slice.

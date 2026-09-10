@@ -75,10 +75,13 @@ SDK's own encoder.
 
 [State boundaries and remaining gates](../knowledge/decisions/adr-028-native-state-ownership.md)
 explain the transaction model, bounded work, platform requirements and recovery.
-[Source inventory](fixtures/legacy-inventory.json) records 112 entry/helper candidates
-and 201 literal routes from the pinned baseline; dynamic registration and helper
-classification remain open M0 work. No inventory row is marked ported merely
-because the native HTTP server starts.
+[Source inventory](fixtures/legacy-inventory.json) now records 138 explicitly classified
+helpers, 199 Express routes plus 3 middleware registrations, 12 custom dispatcher
+branches, CLI/MCP declarations and the Next proxy surface. Run
+`node native/scripts/inventory.mjs --check` with development dependencies installed.
+The [inventory review](../docs/reviews/2026-09-10-native-migration-inventory.md) records
+source links, detector limits and remaining M0 gates. Every row remains
+`parity-unverified`; source classification does not prove native implementation.
 
 M2 now includes a single `domain.sqlite3` owner for project bindings, immutable
 request identities, resource reservations, decisions and provisioning/retirement
