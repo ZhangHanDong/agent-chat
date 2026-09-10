@@ -10,8 +10,10 @@ pub use domain::{
 pub use domain_worker::DomainStore;
 pub mod outbound;
 mod repository;
+mod shutdown;
 mod worker;
 pub use repository::Repository;
+pub use shutdown::{ShutdownOutcome, ShutdownSnapshot};
 pub use worker::Store;
 
 #[derive(Debug, thiserror::Error)]

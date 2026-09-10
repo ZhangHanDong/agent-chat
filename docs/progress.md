@@ -3743,3 +3743,21 @@ Native and Windows GNU cross-target all-target Clippy pass with warnings denied;
 fmt/diff checks pass. Agent-spec 1.4 package-scoped lifecycles pass all 8 store
 scenarios and 3 native integration scenarios plus both boundaries, quality 100%,
 with zero fail/skip/uncertain. Cross-compilation is not Windows runtime evidence.
+## 2026-09-10 — Bounded shutdown phase diagnostics
+
+- Preserved the original Windows 79b036c MCP/runner teardown failures. Source
+  inspection cannot assign them to queueing, SQLite destruction or scheduling.
+  Added optional per-job fixed atomic timestamps and an original-verdict snapshot;
+  no deadline, retry, Drop-before-ack, ordinary shutdown or authority change.
+- Four focused selectors passed: actual normal ownership release, enqueue versus
+  queued reply timeout, controlled Drop/ack phase pauses, and independently
+  published bounded snapshots. The initial private tests ran in 4.22 seconds and
+  actual repository success fixture in 0.13 seconds. Added explicit zero-time and
+  partial-order checks; root review corrected a test race where a second shutdown
+  can observe either enqueue-closed or reply-closed after the first acknowledgement.
+- MCP/runner fixture shutdown still fails on the original error and prints only
+  that error plus the static snapshot. Success remains silent. Focused Store
+  Clippy and scoped agent-spec lifecycle pass; the lifecycle includes four bound
+  behaviors plus boundary with no failures, skips or uncertainty. Validation logs
+  are external under the shutdown prefix. No full workspace rebuild was run;
+  affected MCP/runner suites and Windows qualification belong to integration.

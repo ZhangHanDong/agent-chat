@@ -1,4 +1,7 @@
-use crate::{DomainRepository, Effect, EffectOutcome, Error};
+use crate::{
+    DomainRepository, Effect, EffectOutcome, Error, ShutdownOutcome, ShutdownSnapshot,
+    shutdown::{Phase, Probe, mark},
+};
 use hagency_core::{
     allocation::Budget,
     authority::{Registration, VerifiedRequest},
@@ -25,7 +28,116 @@ enum Job {
         operation: Operation,
         _bytes: OwnedSemaphorePermit,
     },
-    Shutdown(oneshot::Sender<()>),
+    Shutdown {
+        reply: oneshot::Sender<()>,
+        probe: Option<Arc<Probe>>,
+    },
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+
+    async fn closed(store: &DomainStore) {
+        tokio::time::timeout(Duration::from_secs(2), store.tx.closed())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_domain_shutdown_queue() {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let store = DomainStore::start(DomainRepository::open(&state).unwrap(), 1).unwrap();
+        let (entered, reached) = oneshot::channel();
+        let (resume, paused) = std::sync::mpsc::channel();
+        store
+            .tx
+            .try_send(Job::Run {
+                operation: Box::new(move |_| {
+                    let _ = entered.send(());
+                    let _ = paused.recv_timeout(Duration::from_secs(6));
+                }),
+                _bytes: store.bytes.clone().try_acquire_owned().unwrap(),
+            })
+            .unwrap_or_else(|_| panic!("test operation was not admitted"));
+        tokio::time::timeout(Duration::from_secs(2), reached)
+            .await
+            .unwrap()
+            .unwrap();
+        let (result, snapshot) = store.shutdown_observed().await;
+        assert!(matches!(result, Err(Error::OutcomeUnknown)));
+        assert_eq!(snapshot.outcome, ShutdownOutcome::ReplyTimedOut);
+        assert!(snapshot.enqueue_observed_us.is_some());
+        assert!(snapshot.caller_finished_us.is_some());
+        assert_eq!(snapshot.worker_picked_up_us, None);
+        assert_eq!(snapshot.drop_started_us, None);
+        assert!(matches!(DomainRepository::open(&state), Err(Error::Locked)));
+        resume.send(()).unwrap();
+        // Observe cleanup of the ORIGINAL queued job, never retry shutdown to
+        // turn its unknown verdict into success.
+        closed(&store).await;
+        DomainRepository::open(&state).unwrap();
+
+        // A queue with no receiving worker exercises the unchanged enqueue
+        // deadline separately, without attributing any repository outcome.
+        let (tx, rx) = mpsc::channel(1);
+        let full = DomainStore {
+            tx,
+            bytes: Arc::new(Semaphore::new(1)),
+        };
+        let (reply, _) = oneshot::channel();
+        full.tx
+            .try_send(Job::Shutdown { reply, probe: None })
+            .unwrap_or_else(|_| panic!("test queue was not filled"));
+        let (result, snapshot) = full.shutdown_observed().await;
+        assert!(matches!(result, Err(Error::OutcomeUnknown)));
+        assert_eq!(snapshot.outcome, ShutdownOutcome::EnqueueTimedOut);
+        assert_eq!(snapshot.enqueue_observed_us, None);
+        assert_eq!(snapshot.worker_picked_up_us, None);
+        drop(rx);
+    }
+
+    #[tokio::test]
+    async fn native_domain_shutdown_phases() {
+        for phase in [Phase::DropStarted, Phase::AcknowledgementStarted] {
+            let root = tempfile::tempdir().unwrap();
+            let state = root.path().join("state");
+            let store = DomainStore::start(DomainRepository::open(&state).unwrap(), 1).unwrap();
+            let (probe, reached, resume) = Probe::paused(phase);
+            let attempt = {
+                let store = store.clone();
+                let probe = probe.clone();
+                tokio::spawn(async move { store.shutdown_tracked(Some(probe)).await })
+            };
+            tokio::time::timeout(Duration::from_secs(2), reached)
+                .await
+                .unwrap()
+                .unwrap();
+            let (result, outcome) = attempt.await.unwrap();
+            let snapshot = probe.snapshot(outcome);
+            assert!(matches!(result, Err(Error::OutcomeUnknown)));
+            assert_eq!(outcome, ShutdownOutcome::ReplyTimedOut);
+            assert!(snapshot.worker_picked_up_us.is_some());
+            assert!(snapshot.drop_started_us.is_some());
+            assert_eq!(snapshot.acknowledgement_sent_us, None);
+            if phase == Phase::DropStarted {
+                assert_eq!(snapshot.drop_finished_us, None);
+                assert_eq!(snapshot.acknowledgement_started_us, None);
+                assert!(matches!(DomainRepository::open(&state), Err(Error::Locked)));
+            } else {
+                assert!(snapshot.drop_finished_us.is_some());
+                assert!(snapshot.acknowledgement_started_us.is_some());
+            }
+            resume.send(()).unwrap();
+            closed(&store).await;
+            DomainRepository::open(&state).unwrap();
+            // The original caller timed out: sending to its dropped receiver
+            // cannot become an observed successful acknowledgement afterward.
+            assert_eq!(probe.snapshot(outcome).acknowledgement_sent_us, None);
+            assert_eq!(snapshot.outcome, ShutdownOutcome::ReplyTimedOut);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1282,9 +1394,15 @@ impl DomainStore {
                 while let Some(job) = rx.blocking_recv() {
                     match job {
                         Job::Run { operation, _bytes } => operation(&mut repository),
-                        Job::Shutdown(reply) => {
+                        Job::Shutdown { reply, probe } => {
+                            mark(&probe, Phase::WorkerPickedUp);
+                            mark(&probe, Phase::DropStarted);
                             drop(repository);
-                            let _ = reply.send(());
+                            mark(&probe, Phase::DropFinished);
+                            mark(&probe, Phase::AcknowledgementStarted);
+                            if reply.send(()).is_ok() {
+                                mark(&probe, Phase::AcknowledgementSent);
+                            }
                             return;
                         }
                     }
@@ -1326,15 +1444,45 @@ impl DomainStore {
             .map_err(|_| Error::Unavailable)?
     }
     pub async fn shutdown(&self) -> Result<(), Error> {
+        self.shutdown_tracked(None).await.0
+    }
+
+    /// Diagnose one host shutdown attempt without changing its queue or waits.
+    /// The snapshot is not proof of rollback, OS-thread exit or retry safety.
+    pub async fn shutdown_observed(&self) -> (Result<(), Error>, ShutdownSnapshot) {
+        let probe = Arc::new(Probe::new());
+        let (result, outcome) = self.shutdown_tracked(Some(probe.clone())).await;
+        (result, probe.snapshot(outcome))
+    }
+
+    async fn shutdown_tracked(
+        &self,
+        probe: Option<Arc<Probe>>,
+    ) -> (Result<(), Error>, ShutdownOutcome) {
         let (reply, rx) = oneshot::channel();
-        tokio::time::timeout(Duration::from_secs(2), self.tx.send(Job::Shutdown(reply)))
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Unavailable)?;
-        tokio::time::timeout(Duration::from_secs(2), rx)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Unavailable)
+        mark(&probe, Phase::EnqueueStarted);
+        let queued = tokio::time::timeout(
+            Duration::from_secs(2),
+            self.tx.send(Job::Shutdown {
+                reply,
+                probe: probe.clone(),
+            }),
+        )
+        .await;
+        let verdict = match queued {
+            Err(_) => (Err(Error::OutcomeUnknown), ShutdownOutcome::EnqueueTimedOut),
+            Ok(Err(_)) => (Err(Error::Unavailable), ShutdownOutcome::EnqueueClosed),
+            Ok(Ok(())) => {
+                mark(&probe, Phase::EnqueueObserved);
+                match tokio::time::timeout(Duration::from_secs(2), rx).await {
+                    Err(_) => (Err(Error::OutcomeUnknown), ShutdownOutcome::ReplyTimedOut),
+                    Ok(Err(_)) => (Err(Error::Unavailable), ShutdownOutcome::ReplyClosed),
+                    Ok(Ok(())) => (Ok(()), ShutdownOutcome::Complete),
+                }
+            }
+        };
+        mark(&probe, Phase::CallerFinished);
+        verdict
     }
     pub async fn put_resource(&self, resource: Resource) -> Result<CatalogResource, Error> {
         resource.validate()?;

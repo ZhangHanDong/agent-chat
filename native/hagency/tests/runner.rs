@@ -180,7 +180,10 @@ impl Fixture {
         }
     }
     async fn close(self) {
-        self.domain.shutdown().await.unwrap();
+        let (result, snapshot) = self.domain.shutdown_observed().await;
+        if let Err(error) = result {
+            panic!("domain shutdown failed: {error:?}; {snapshot:?}");
+        }
         self.custody.shutdown().await.unwrap();
     }
 }

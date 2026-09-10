@@ -213,7 +213,10 @@ impl Fixture {
     pub async fn close(self) {
         self.handle.stop_graceful(Some(Duration::from_secs(1)));
         self.server.await.unwrap();
-        self.domain.shutdown().await.unwrap();
+        let (result, snapshot) = self.domain.shutdown_observed().await;
+        if let Err(error) = result {
+            panic!("domain shutdown failed: {error:?}; {snapshot:?}");
+        }
         self.custody.shutdown().await.unwrap();
     }
     pub fn count(&self, table: &str) -> u64 {

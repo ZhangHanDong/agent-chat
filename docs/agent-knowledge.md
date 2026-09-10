@@ -1,5 +1,14 @@
 # Repository audit knowledge
 
+- **Native shutdown diagnostics, 2026-09-10:** Windows 79b036c failed four
+  fixture teardowns with OutcomeUnknown; queue, SQLite destruction and reply
+  scheduling remain unproven causes. Optional per-job static phase timestamps
+  now distinguish those observations while preserving both two-second waits,
+  Drop-before-ack and original error verdicts. Caller and worker observations
+  have a partial order; missing phases are not rollback or closure. MCP/runner
+  fixtures print the bounded snapshot only on failure. See
+  [the evidence and contract](../knowledge/context/native-shutdown-diagnostics.md).
+
 - **Local supervisor fixture ports, 2026-09-10:** the old helper released one
   ephemeral listener before choosing the next and could select duplicate ports.
   A real controlled same-port run reported healthy while dashboard crashed with
