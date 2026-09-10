@@ -1148,3 +1148,16 @@ input remains schedulable. The evidence string records a host result, not proof
 of process termination. No runtime API exposes host settlement. Internally tagged
 Serde unit variants ignore extra fields even with enum deny_unknown_fields;
 use an empty struct variant Close {} to make the strict close shape effective.
+
+Guardian terminal-report race (2026-09-10): macOS setsockopt SO_RCVTIMEO returns
+EINVAL after a Unix socket peer closes, even when complete report bytes remain
+buffered. Native CI 34487513248 exposed this in early leader exit. A socketpair
+fixture that writes two complete frames and closes the peer before receive
+reproduced it deterministically; repeating the old timing-dependent process test
+100 times did not. Pipe now uses nonblocking read/write plus bounded poll ticks,
+retaining absolute operation and partial-frame deadlines. Initialize the host
+pipe before spawning its guardian, so failed channel setup cannot orphan a child.
+Drain buffered reports before treating EOF as missing output; never reinterpret
+EINVAL as successful cleanup. The Unix unit test name shares the existing
+native_guardian_early_exit selector, which also runs real Windows Job Object
+early-exit coverage without inventing a Windows Unix-socket test.

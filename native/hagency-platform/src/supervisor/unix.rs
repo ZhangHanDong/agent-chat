@@ -105,6 +105,7 @@ impl Supervisor {
         }
         let configuration = Configuration::from_launch(launch);
         let (owner, worker) = UnixStream::pair()?;
+        let pipe = Pipe::new(owner)?;
         let input: OwnedFd = worker.into();
         // The socket is unnamed and only inherited as stdin by this guardian.
         // Work receives null stdin and cannot retain the owner endpoint.
@@ -121,7 +122,7 @@ impl Supervisor {
         let child = command.spawn()?;
         let mut result = Self {
             child,
-            pipe: Pipe::new(owner),
+            pipe,
             pid: 0,
             stop_requested: false,
             report: None,
@@ -239,7 +240,7 @@ pub fn run_guardian() -> io::Result<()> {
     // impersonate guardian replies to its host. stdin itself is replaced with
     // /dev/null during the scoped child spawn.
     let input = rustix::io::fcntl_dupfd_cloexec(std::io::stdin(), 3)?;
-    let mut pipe = Pipe::new(UnixStream::from(input));
+    let mut pipe = Pipe::new(UnixStream::from(input))?;
     let until = Instant::now() + Duration::from_secs(5);
     let Request::Prepare { version: 1, launch } = pipe.required::<Request>(until, FRAME_LIMIT)?
     else {

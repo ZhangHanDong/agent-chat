@@ -1,4 +1,5 @@
 //! Single-owner, length-prefixed socket IO with bounded partial-frame lifetime.
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
     io::{self, Read, Write},
@@ -16,15 +17,19 @@ pub(super) struct Pipe {
     started: Option<Instant>,
 }
 impl Pipe {
-    pub(super) fn new(stream: UnixStream) -> Self {
-        Self {
+    pub(super) fn new(stream: UnixStream) -> io::Result<Self> {
+        // macOS rejects SO_RCVTIMEO after peer close even when a terminal report
+        // is still buffered. Nonblocking IO plus poll drains those bytes without
+        // mutating socket options after disconnect, and retains absolute bounds.
+        stream.set_nonblocking(true)?;
+        Ok(Self {
             stream,
             header: [0; 4],
             header_read: 0,
             body: Vec::new(),
             body_read: 0,
             started: None,
-        }
+        })
     }
     pub(super) fn send<T: Serialize>(&mut self, value: &T, until: Instant) -> io::Result<()> {
         let bytes = serde_json::to_vec(value).map_err(|_| invalid())?;
@@ -38,7 +43,9 @@ impl Pipe {
                     .checked_duration_since(Instant::now())
                     .filter(|v| !v.is_zero())
                     .ok_or_else(timed_out)?;
-                self.stream.set_write_timeout(Some(timeout))?;
+                if !ready(&self.stream, PollFlags::OUT, timeout)? {
+                    continue;
+                }
                 match self.stream.write(remaining) {
                     Ok(0) => {
                         return Err(io::Error::new(
@@ -47,7 +54,14 @@ impl Pipe {
                         ));
                     }
                     Ok(count) => remaining = &remaining[count..],
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+                        ) =>
+                    {
+                        continue;
+                    }
                     Err(error) => return Err(error),
                 }
             }
@@ -72,8 +86,9 @@ impl Pipe {
             let Some(timeout) = until.checked_duration_since(now).filter(|v| !v.is_zero()) else {
                 return Ok(None);
             };
-            self.stream
-                .set_read_timeout(Some(timeout.min(Duration::from_millis(25))))?;
+            if !ready(&self.stream, PollFlags::IN, timeout)? {
+                continue;
+            }
             let buffer = if self.header_read < 4 {
                 &mut self.header[self.header_read..]
             } else {
@@ -132,9 +147,54 @@ impl Pipe {
         self.receive(until, limit)?.ok_or_else(timed_out)
     }
 }
+fn ready(stream: &UnixStream, flags: PollFlags, remaining: Duration) -> io::Result<bool> {
+    let tick = remaining.min(Duration::from_millis(25));
+    let timeout = Timespec {
+        tv_sec: 0,
+        tv_nsec: i64::from(tick.subsec_nanos()),
+    };
+    let mut fds = [PollFd::new(stream, flags)];
+    match poll(&mut fds, Some(&timeout)) {
+        Ok(count) => Ok(count > 0),
+        Err(rustix::io::Errno::INTR) => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
 fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid guardian frame")
 }
 fn timed_out() -> io::Error {
     io::Error::new(io::ErrorKind::TimedOut, "guardian channel timed out")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_guardian_early_exit_buffered_eof() {
+        let (owner, mut peer) = UnixStream::pair().unwrap();
+        let mut pipe = Pipe::new(owner).unwrap();
+        let value = serde_json::json!({"kind":"stopped","leader_exited":true});
+        let bytes = serde_json::to_vec(&value).unwrap();
+        // A real guardian can send its terminal report and exit before the host
+        // next runs. Both complete frames must be drained before reporting EOF.
+        for _ in 0..2 {
+            peer.write_all(&(bytes.len() as u32).to_be_bytes()).unwrap();
+            peer.write_all(&bytes).unwrap();
+        }
+        drop(peer);
+        for _ in 0..2 {
+            assert_eq!(
+                pipe.required::<serde_json::Value>(Instant::now() + Duration::from_secs(1), 1024)
+                    .unwrap(),
+                value
+            );
+        }
+        assert_eq!(
+            pipe.required::<serde_json::Value>(Instant::now() + Duration::from_secs(1), 1024)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+    }
 }

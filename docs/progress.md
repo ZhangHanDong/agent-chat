@@ -2159,3 +2159,26 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   final delivery and M4–M9 integration remain open. Fixture inspection records
   do not prove live process termination. Corrected native CI remains a gate for
   this commit. Original dirty checkout and deployed services remain unchanged.
+
+## 2026-09-10 — Drain guardian reports after peer exit
+
+- Conversation lifecycle commit 403833c passed native Ubuntu/Windows CI. macOS
+  failed native_guardian_early_exit with OS EINVAL while receiving the terminal
+  report; Native Rust run 34487513248 remains a failed run. The new business
+  lifecycle and HTTP tests passed on macOS too.
+- A deterministic Unix socket fixture reproduced the cause: after the peer sends
+  complete frames and closes, macOS rejects setting SO_RCVTIMEO before reading
+  the still-buffered bytes. The original early-exit timing test passed 100 local
+  repetitions, confirming that repetition alone did not cover this ordering.
+- Replaced per-read/write socket timeout mutation with nonblocking IO and bounded
+  poll readiness. Absolute deadlines, partial-frame age, EOF errors and size caps
+  remain enforced. Channel configuration precedes host guardian spawn. A new
+  fixture drains two terminal frames after peer exit and then requires EOF.
+- The new fixture failed with EINVAL before the fix and passed after it. All 81
+  native tests passed locally, zero failed or ignored, plus workspace Clippy and
+  rustfmt. All 74 native selectors resolve, and the guardian lifecycle's four
+  scenarios plus boundary passed. The extra Unix regression runs under the
+  existing early-exit selector; Windows continues its real Job Object scenario.
+- This fixes observation of an existing cleanup report. It does not establish
+  guardian-death recovery, complete macOS descendant custody or actual native
+  Agent execution. Corrected CI is still required; no live service was changed.
