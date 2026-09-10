@@ -1743,3 +1743,12 @@ explicitly not namespace qualification. Actual nested cases must still return
 native78/exact initial-namespace diagnostic. Never accept126, skip a missing
 namespace capability, chmod checkout ancestors or run privileged qualification
 locally. Only the hosted disposable VM may establish the final kernel result.
+
+Integrated MCP/file checkpoint (2026-09-10): b42ff9b passes324 unique native tests
+plus the proxy child and resolves210 native selectors. Scope lifecycle can run
+against one native package while retaining root-relative explicit change paths;
+cross-package selectors still require the workspace root. Earlier interrupted
+disk-full runs are not successful validation. The88534b0 Windows default suite
+passes with unchanged Palpo transport code, but its serial diagnostic is skipped;
+this does not identify the prior OutcomeUnknown cause. Node's exact-four-child-
+events timeout likewise lacks enough evidence to justify relaxing its assertion.

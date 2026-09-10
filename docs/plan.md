@@ -4,6 +4,15 @@ This is coordination, not canonical runtime task state. There is no provisioned
 `task-writer` in this source checkout. User instruction: execute the Rust migration
 in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
+Current integration priorities (2026-09-10): native MCP launch, bounded workspace
+file snapshots and hosted namespace-fixture staging are integrated. Three agents
+are independently implementing atomic task completion with held final-answer
+custody (ADR060), actual Matrix notice/final sending (ADR059), and investigating
+the legacy service-supervisor CI failure. Keep completed task truth, owned process
+cleanup and actual message acceptance separate. Full service wiring, provisioning
+and release parity still require further work; no milestone is complete by this
+integration checkpoint.
+
 1. M0/M1 first checkpoint: native Salvo process, protected fresh state, custody,
    recovery, bounded work, shared protocol vectors and offline encrypted SDK proof.
 2. Verify native CI on Windows, macOS and Linux, plus existing build-tool coverage.

@@ -14,10 +14,16 @@ Codex one-turn session connected to guardian-owned Unix pipes and Windows
 overlapped pipes under atomic Job Object custody for offline fixtures. The native CLI and MCP helper maintain an assigned task through the scoped API.
 The opt-in permissions coordinator consumes durable owner authority before an
 exact typed Codex response; upstream application remains explicitly unproven.
-The new hagency-matrix library collects authenticated account and full room state
-with encrypted SDK custody. Event admission, key publication and sends remain
-gated; the service does not yet construct this adapter. Service Agent execution
-and actual Matrix delivery remain disabled.
+The hagency-matrix library collects authenticated account and full room state,
+then admits bounded verified sync events into existing sessions through encrypted
+SDK and pending-sync custody. Offline encrypted DM fixtures exercise actual SDK
+verification. Live key lifecycle, history, sends and service wiring remain gates.
+The owned runner can now configure and launch the native task MCP helper against
+the same canonical writer. Explicit Done revokes its old epoch; that test preserves
+the final-answer handoff gap rather than treating task completion as delivery.
+The hagency-files library copies bounded immutable bytes through retained workspace
+directory/file capabilities; it does not yet provide durable media or file tools.
+Service Agent execution and actual Matrix delivery remain disabled.
 The sections below record the successive checkpoints.
 
 Build and run from this worktree, using a new state directory:

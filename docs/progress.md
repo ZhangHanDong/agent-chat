@@ -3590,3 +3590,42 @@ The first lifecycle attempt exited during local disk exhaustion with no usable
 result; only generated targets from completed worktrees were cleaned, and the
 successful rerun is separately recorded. No source/log deletion, full binding
 inventory, local privileged invocation or deployment/push was performed.
+
+## 2026-09-10 — MCP, file snapshot and hosted fixture integration
+
+Integrated ADR057 as949b5d9, ADR058 as213342b and hosted binary staging asb42ff9b.
+Every prior locked dependency identity remains present. Only generated Cargo
+targets from completed isolated worktrees were cleaned after disk exhaustion;
+source trees, commits and failure evidence remain intact.
+
+At b42ff9b, the complete native workspace passes324 unique tests plus the isolated
+proxy-environment child (325 printed), with zero failed or ignored. All210 native
+selector bindings resolve. Focused file11, owned-MCP3 and runtime/execution/
+progress-runtime61 tests pass, as do Python staging11, workspace Clippy with
+warnings denied, formatting and diff checks. Integrated lifecycle results are
+files6/6 with11 changed paths, MCP5/5 with12 paths and CI staging4/4 with6 paths;
+no fail/skip/uncertain result is counted as passing. Broader requirement-trace
+diagnostics remain distinct from these bounded contracts. Evidence is retained
+under integrated-files-*, integrated-owned-mcp-*, integrated-mcp-progress-*,
+integrated-ci-staging-*, combined-files-mcp-staging-tests.log and
+integrated-files-mcp-bindings.* in the local migration cache.
+
+The preceding88534b0 native run34531716943 is complete: Windows and macOS pass;
+Linux passes the whole workspace but fails hosted nested-user execution with
+exit126/Permission denied before native admission. Its newly integrated staging
+correction still requires a new hosted run. Windows's default full test step
+passes in187 seconds, so the failure-only serial diagnostic is correctly skipped.
+This is not a serial/default comparison or proof of the earlier timeout cause.
+Both Palpo code and transport tests are unchanged between those failing/passing
+runs; Matrix intake code changed. Local writer/custody response timing remains
+the first measurement target if failures recur, without widening deadlines.
+
+Node run34531716948 fails one existing service-supervisor test: its healthy-state
+assertions pass, then waiting for exactly four child event rows times out after
+3000ms. The other4283 tests pass and one is skipped. No root cause is established
+from that log; a separate clean worktree is investigating the actual fixture and
+supervisor evidence. The failed log is retained and no assertion is relaxed.
+
+ADR059 actual Matrix sender and ADR060 atomic completion with held reply custody
+are being implemented in separate worktrees. The current native service still
+does not launch Agents, send Matrix messages or replace the deployed application.
