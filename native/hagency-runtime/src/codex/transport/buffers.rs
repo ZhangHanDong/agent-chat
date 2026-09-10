@@ -60,7 +60,7 @@ fn id_bytes(id: &RequestId) -> usize {
         RequestId::String(id) => id.len(),
     }
 }
-fn charge(event: &Event) -> Result<usize, Error> {
+pub(super) fn charge(event: &Event) -> Result<usize, Error> {
     let data = match event {
         Event::Initialized { result } => json_bytes(result)?,
         Event::Response { id, method, result } => {

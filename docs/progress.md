@@ -2431,3 +2431,28 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   Codex one-turn session handling and durable outbound custody. Machine-token
   rotation is separate from AS registration replacement; already received work
   must survive the former. No migration phase is declared complete by this check.
+## 2026-09-10 — M4 typed Codex session slice (ADR-036)
+
+Added a one-turn host-owned SessionDriver over the bounded protocol/transport.
+Fixed workspace-write/on-request/user settings (optional read-only), bounded
+absolute cwd/model/effort, exact resumed-thread/returned-turn correlation and
+item tombstones now gate lifecycle observations. Early notifications are bounded
+and scoped before activity is applied. Text and final separators count toward
+explicit limits; server requests return unsupported errors. Cancellation, EOF
+and timeout remain unknown execution, without task, lease or process transitions.
+
+Root review identified inconsistent terminal-suffix handling. The wrapper now
+validates received deferred/transport data consistently and finishes an already-
+started trailing frame under an absolute bound. Every byte split of a normal
+completed-plus-idle stream and completion/idle before interrupt ACK are covered;
+wrong-scope, unsupported and unfinished suffixes fail visibly.
+
+Focused verification in the isolated runner-protocol worktree: all 34 runtime
+tests passed (9 protocol, 8 transport, 17 session), runtime all-target Clippy with
+warnings denied passed, workspace formatting and diff checks passed. The fixture
+uses the existing local Codex 0.153.4 schema export and records source hashes;
+no model or service was started. Agent-spec 1.4 lifecycle passed all 4 scenarios
+plus the explicit 13-file boundary check (5/5, quality 100%, zero fail/skip/uncertain);
+its selectors ran 3 settings, 4 identity, 4 item and 6 outcome tests. Native execution
+stays disabled until actual guardian/stdio,
+input acknowledgement, sandbox, host authority and durable-domain gates close.

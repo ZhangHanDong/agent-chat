@@ -107,6 +107,9 @@ impl Default for Connection {
 }
 
 impl Connection {
+    pub(super) fn partial_frame_bytes(&self) -> usize {
+        self.decoder.buffered_bytes()
+    }
     pub(super) fn deadline_ms(&self) -> Option<u64> {
         self.pending
             .values()

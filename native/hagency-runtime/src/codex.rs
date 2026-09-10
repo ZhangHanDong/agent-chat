@@ -1,6 +1,7 @@
 //! Codex 0.153.4 App Server JSONL. Protocol observations are untrusted data.
 mod connection;
 mod json;
+pub mod session;
 pub mod transport;
 mod wire;
 

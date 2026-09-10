@@ -15,6 +15,10 @@ pub const STDERR_BYTES: usize = 16 * 1024;
 pub const MAX_EVENTS: usize = 16;
 pub const MAX_EVENT_BYTES: usize = 2 * 1024 * 1024;
 
+pub(super) fn event_bytes(event: &Event) -> Result<usize, Error> {
+    buffers::charge(event)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     #[error("invalid native runner transport limits")]
@@ -159,6 +163,57 @@ pub struct Driver<R, W, E> {
 }
 
 impl<R, W, E> Driver<R, W, E> {
+    pub(super) fn pending_server_requests(&self) -> usize {
+        self.connection.pending_server_count()
+    }
+    pub(super) fn ensure_live(&mut self) -> Result<(), Error> {
+        let result = self.check(self.lifetime);
+        if let Err(error) = result {
+            self.stop(error);
+        }
+        result
+    }
+    pub(super) fn has_partial_frame(&self) -> bool {
+        self.connection.partial_frame_bytes() != 0
+    }
+
+    /// Drain the transport's received snapshot without reading any more IO.
+    /// The session checks partial bytes separately before closing this snapshot.
+    pub(super) fn buffered_event(&mut self) -> Result<Option<Event>, Error> {
+        self.ensure_live()?;
+        if let Some(event) = self.events.pop() {
+            return Ok(Some(event));
+        }
+        while self.input_start < self.input_end {
+            let result = self.parse_input();
+            if let Err(error) = result {
+                self.stop(error);
+                return Err(error);
+            }
+            self.ensure_live()?;
+            if let Some(event) = self.events.pop() {
+                return Ok(Some(event));
+            }
+        }
+        Ok(None)
+    }
+
+    fn parse_input(&mut self) -> Result<(), Error> {
+        self.pending_before_call = (
+            self.connection.pending_count(),
+            self.connection.pending_server_count(),
+        );
+        let (consumed, event) = self
+            .connection
+            .receive(&self.input[self.input_start..self.input_end], self.now_ms())
+            .map_err(Error::from)?;
+        self.input_start += consumed;
+        if let Some(event) = event {
+            self.events.push(event)?;
+        }
+        Ok(())
+    }
+
     pub fn new(stdout: R, stdin: W, stderr: E, limits: Limits) -> Result<Self, Error> {
         limits.validate()?;
         let origin = Instant::now();
@@ -392,20 +447,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> Driver<R
     async fn step(&mut self, operation_deadline: Instant) -> Result<(), Error> {
         self.check(operation_deadline)?;
         if self.input_start < self.input_end {
-            self.pending_before_call = (
-                self.connection.pending_count(),
-                self.connection.pending_server_count(),
-            );
-            let (consumed, event) = self
-                .connection
-                .receive(&self.input[self.input_start..self.input_end], self.now_ms())
-                .map_err(Error::from)?;
-            self.input_start += consumed;
-            // Account complete payload and metadata, including host-side method
-            // and scope fields absent from a compact RPC response frame.
-            if let Some(event) = event {
-                self.events.push(event)?;
-            }
+            self.parse_input()?;
             self.check(operation_deadline)?;
             return Ok(());
         }

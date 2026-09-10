@@ -1263,3 +1263,16 @@ scopes with matrix_generation>0, so current host ingestion/task-intent intake
 cannot target verified fresh sessions. Reply tests manually create/finish tasks.
 Add verified-route-aware intake and scheduling before claiming end-to-end Matrix
 behavior; do not remove that fence by silently routing old context into new IDs.
+
+Native Codex typed session (2026-09-10): ADR-036 wraps host-owned streams for one
+upstream turn only. Settings fix on-request/user review and workspace-write (or
+host-selected read-only), with explicit bounded cwd/model/effort and no arbitrary
+config or permission overrides. Resume requires the exact host-recorded thread;
+turn and item observations stay scoped and bounded. Early notifications cannot
+apply activity before the matching response. Server requests receive unsupported
+errors; model text and peer policy echoes never become approval or canonical
+completion. A terminal event checks already-received suffixes, finishing a partial
+trailing frame under an absolute bound so normal completed-plus-idle packets are
+independent of stream splits. Cancellation/EOF/timeout is unresolved execution,
+not child termination or lease release. Actual process, sandbox and authority
+integration remains open, and native Agent execution remains disabled.
