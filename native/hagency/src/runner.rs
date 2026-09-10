@@ -2,6 +2,7 @@
 use crate::{local_authority, refusal, resources};
 use hagency_core::{
     project::identifier,
+    task_intents::Delegation,
     tasks::{RunnerCapability, RunnerCommand, TaskMutation},
 };
 use hagency_store::{DomainStore, Error};
@@ -16,6 +17,7 @@ pub(super) fn router() -> Router {
     Router::with_path("api/native/v1/runner")
         .hoop(authenticate)
         .push(Router::with_path("tasks").get(list_tasks))
+        .push(Router::with_path("delegations").post(delegate))
         .push(Router::with_path("tasks/{id}").get(get_task))
         .push(Router::with_path("tasks/{id}/comments").get(comments))
         .push(Router::with_path("tasks/{id}/operations").post(mutate))
@@ -26,6 +28,23 @@ fn single_header<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
         return None;
     }
     req.headers().get(name)?.to_str().ok()
+}
+#[handler]
+async fn delegate(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let Some(c) = context(depot, res) else {
+        return;
+    };
+    let Some(input) = resources::body::<Delegation>(req, depot, res).await else {
+        return;
+    };
+    match c
+        .store
+        .runner_command(c.cap, RunnerCommand::Delegate(input))
+        .await
+    {
+        Ok(value) => res.render(Json(value)),
+        Err(error) => failure(res, error),
+    }
 }
 fn credential(req: &Request) -> Option<RunnerCapability> {
     if [

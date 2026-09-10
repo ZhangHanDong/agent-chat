@@ -26,9 +26,13 @@ struct Fixture {
     custody: Store,
     cap: RunnerCapability,
     engagement: String,
+    source_sequence: u64,
 }
 impl Fixture {
     async fn new(start: bool) -> Self {
+        Self::with_thread(start, Some("$thread")).await
+    }
+    async fn with_thread(start: bool, thread: Option<&str>) -> Self {
         let root = tempfile::tempdir().unwrap();
         let state = root.path().join("state");
         let custody = Store::start(Repository::open(&state).unwrap(), 16).unwrap();
@@ -52,7 +56,7 @@ impl Fixture {
             id: "session".into(),
             engagement_id: e.id.clone(),
             room_id: "!project:example.test".into(),
-            thread_root: Some("$thread".into()),
+            thread_root: thread.map(str::to_owned),
         })
         .unwrap();
         let current = now();
@@ -70,7 +74,7 @@ impl Fixture {
             room_id: "!project:example.test".into(),
             event_id: "$source".into(),
             sender_mxid: "@owner:example.test".into(),
-            thread_root: Some("$thread".into()),
+            thread_root: thread.map(str::to_owned),
             body: "Please verify the code".into(),
             kind: "m.text".into(),
             origin_ts: current,
@@ -121,6 +125,7 @@ impl Fixture {
             custody,
             cap,
             engagement: e.id,
+            source_sequence: receipt.sequence,
         }
     }
     async fn close(self) {
@@ -156,6 +161,71 @@ async fn operation(f: &Fixture, call: &str, operation: Value) -> (StatusCode, Va
     .await;
     let code = response.status_code.unwrap();
     (code, response.take_json().await.unwrap())
+}
+
+#[tokio::test]
+async fn native_runner_http_delegation() {
+    let f = Fixture::with_thread(true, None).await;
+    let body = json!({"call_id":"delegate","assignee_engagement":f.engagement,"root_sequence":f.source_sequence,"definition":{"title":"编写测试","parent_id":"task"}});
+    let send = |value: Value| {
+        auth(
+            TestClient::post(format!("{BASE}/runner/delegations")),
+            &f.cap,
+        )
+        .json(&value)
+    };
+    for field in ["owner_mxid", "sender", "delivery", "activation"] {
+        let mut forged = body.clone();
+        forged[field] = json!("forged");
+        let res = send(forged).send(&f.service).await;
+        assert_eq!(res.status_code, Some(StatusCode::BAD_REQUEST), "{field}");
+    }
+    let mut foreign = body.clone();
+    foreign["assignee_engagement"] = json!("missing");
+    assert_eq!(
+        send(foreign).send(&f.service).await.status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    let mut res = send(body.clone()).send(&f.service).await;
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let task: Value = res.take_json().await.unwrap();
+    assert_eq!(task["activation"], "pending");
+    assert_eq!(task["replayed"], false);
+    let mut res = send(body.clone()).send(&f.service).await;
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    assert_eq!(res.take_json::<Value>().await.unwrap()["replayed"], true);
+    let mut changed = body.clone();
+    changed["definition"]["title"] = json!("different");
+    assert_eq!(
+        send(changed).send(&f.service).await.status_code,
+        Some(StatusCode::CONFLICT)
+    );
+    let mut res = get(
+        &format!("tasks/{}", task["task_id"].as_str().unwrap()),
+        &f.cap,
+    )
+    .send(&f.service)
+    .await;
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let child: Value = res.take_json().await.unwrap();
+    assert_eq!(child["title"], "编写测试");
+    assert_eq!(child["creator_session_id"], "session");
+    assert!(
+        f.domain
+            .inbox(task["session_id"].as_str().unwrap().into(), 0, 100, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    f.domain
+        .park_dispatch(f.cap.clone(), true, now())
+        .await
+        .unwrap();
+    assert_eq!(
+        send(body).send(&f.service).await.status_code,
+        Some(StatusCode::UNAUTHORIZED)
+    );
+    f.close().await;
 }
 
 #[tokio::test]

@@ -158,6 +158,7 @@ resource management. Responses use `Cache-Control: no-store`.
 | `GET /tasks/{id}` | Read a visible task |
 | `GET /tasks/{id}/comments` | Page comments for a visible task |
 | `POST /tasks/{id}/operations` | Submit a call ID and typed task mutation |
+| `POST /delegations` | Create a scoped task intent for a project Agent |
 | `GET /inbox` | Page only the current dispatch's frozen input |
 
 A mutation body is `{"call_id":"heartbeat-1","operation":{"action":"execution","heartbeat":true}}`.
@@ -166,3 +167,30 @@ rechecks current authority. There is no runtime-supplied clock, author or arbitr
 endpoint command. Claim/start/recovery, session admission and configuration remain
 host operations. The `runner_task_api` capability describes this interface;
 `agent_execution` remains false until real native runner adapters are available.
+
+Schema 5 connects task metadata, admitted source inputs, canonical conversation
+binding and an acknowledgement outbox in one transaction. Tasks remain pending
+until an exact current transport claim receives its content-bound room/server/
+transaction receipt. The acknowledgement event is an activation anchor; the
+conversation still uses the original source event as its thread root. Stable
+Matrix transaction IDs survive retry/restart. Permanent failures require an
+explicit host retry; inactive allocations cancel their unsent notices.
+
+Delegation uses the started creator capability, same project allocation and
+creator-owned source inputs. Runtime JSON cannot supply a transport receipt or
+owner assertion. Child tasks retain independent input processing and do not
+complete their parent. Taskless dispatches cannot bypass a pending task binding.
+
+A completed task stays done while fresh human follow-up is queued or leased. At
+start, the shared readiness predicate requires an attached, unprocessed wake
+input from the original sender and thread, with receipt and origin timestamps
+after completion. Other senders, non-message peer events and old input cannot
+reopen it. Start atomically advances the task epoch and queues one continuation
+notice. Previous capabilities remain fenced by dispatch ownership.
+
+These are task orchestration and private API tests using fixture Matrix data.
+The real M5 adapter must authenticate source identities, classify agent traffic,
+verify current membership and apply DM/promotion privacy before constructing host
+commands or delivering notices. This step does not claim transport delivery,
+model execution, filesystem write authority or full M3 parity. Graph scheduling,
+final replies and internal group/MCP surfaces remain subsequent migration work.

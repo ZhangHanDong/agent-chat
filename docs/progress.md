@@ -1830,3 +1830,30 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - Next: task metadata/input activation, graph/delegation, authenticated follow-up,
   durable reply delivery and real runtime/platform ownership. Full migration remains
   active. Native execution is still unavailable and production services are intact.
+
+## 2026-09-10 — Native task activation, delegation and human follow-up
+
+- Previous runner API commit 99aaac6 passed native three-OS CI (34464031294)
+  and Node CI (34464031312). Continued the full migration in the isolated worktree.
+- Added schema 5: task metadata, task/source binding, idempotent attachment receipts
+  and a fenced notice outbox share domain.sqlite3. Failed notice or input writes
+  roll back the complete intent/activation transaction. Receipts bind exact server,
+  room and stable Matrix transaction ID; restart preserves claims until expiration.
+  Revoked allocations cannot activate, and permanent send failure requires retry.
+- Runner POST /delegations goes through the bounded writer and its execution-time
+  clock. Only the current started creator can delegate admitted source input within
+  the project; an explicit parent must be its bound task. Child progress and input
+  acknowledgement remain independent from the parent. Forged owner/delivery fields
+  are rejected by the actual Salvo endpoint.
+- Human follow-up keeps the original task done during enqueue and claim. Actual
+  start rechecks attached, unprocessed original-sender thread input, new receipt/
+  origin time and current dispatch authority, then changes the epoch and commits
+  a continuation notice. Non-message peer traffic, another sender and stale input
+  do not reopen tasks. Taskless dispatches cannot bypass an intent's activation.
+- Validation: all 43 native tests passed, zero failed/ignored. Five specification
+  scenarios plus the lifecycle boundary passed without skip/uncertainty; all 38
+  native spec selectors resolve. Clippy, rustfmt and diff checks passed. Coverage
+  includes rollback, restart/retry, delegation, follow-up and private HTTP authority.
+- This is an internal task orchestration implementation, not a live transport or
+  runner claim. Graph scheduling, final replies, group/MCP interfaces, real Matrix
+  provenance/privacy and M4–M9 remain open. No live deployment was changed.

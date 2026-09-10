@@ -17,8 +17,9 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    atomic mutation receipts, frozen payloads, resource leases and conservative
    restart recovery. Canonical session resolution, per-session message projections
    and atomic dispatch input claims are now implemented in schema 4. Continue the
-   internal group/MCP surfaces, task dependencies, delegation, thread follow-up
-   and durable reply delivery. The scoped runner HTTP API now exposes task reads,
+   internal group/MCP surfaces, task dependencies and durable final replies.
+   Schema 5 now provides canonical task metadata, input activation through a
+   fenced notice outbox, scoped delegation and start-time human follow-up. The scoped runner HTTP API now exposes task reads,
    comments, mutations and frozen inbox through the bounded writer, using its
    execution-time clock. Real runner adapters
    still need the early platform ownership and sandbox proofs.

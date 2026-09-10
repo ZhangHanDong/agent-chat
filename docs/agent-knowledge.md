@@ -993,3 +993,13 @@ use exact loopback Host, no browser/proxy or URL credentials. RunnerCommand gets
 its clock inside the domain writer, after queueing. Keep future M4/M6 adapters on
 this service API rather than direct repository writes. Real agent_execution stays
 false; task graph/delegation, reply delivery and MCP transport remain unfinished.
+
+Native task intents (2026-09-10): schema 5 adds metadata, source bindings, pending
+activation and stable-transaction acknowledgement notices. Host delivery commands
+are non-deserializable and have no HTTP constructor. Use runner POST /delegations
+for current-capability, same-project delegation; its creator/input/parent scope
+is validated in the writer. Activation receipts and input projection commit in one
+transaction. Child completion is independent. A completed task reopens only at
+start for attached fresh original-sender input, with a new epoch and continuation
+notice. Existing logical workspace leases still do not grant filesystem writes.
+Native transport, graph, final-reply and group/MCP integrations remain unfinished.

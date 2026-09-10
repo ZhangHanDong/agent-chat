@@ -34,7 +34,7 @@ pub(super) fn session(db: &Connection, id: &str) -> Result<SessionBinding, Error
 pub(super) fn admission_session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
     load_session(db, id, true)
 }
-fn task(db: &Connection, id: &str) -> Result<Task, Error> {
+pub(super) fn task(db: &Connection, id: &str) -> Result<Task, Error> {
     let value: String = db
         .query_row(
             "SELECT config FROM canonical_tasks WHERE id=?1",
@@ -45,7 +45,7 @@ fn task(db: &Connection, id: &str) -> Result<Task, Error> {
         .ok_or(Error::NotFound)?;
     Ok(serde_json::from_str(&value)?)
 }
-fn save_task(tx: &Transaction<'_>, value: &Task, kind: &str) -> Result<(), Error> {
+pub(super) fn save_task(tx: &Transaction<'_>, value: &Task, kind: &str) -> Result<(), Error> {
     let value_json = serialize(value)?;
     tx.execute(
         "UPDATE canonical_tasks SET config=?2 WHERE id=?1",
@@ -59,7 +59,7 @@ fn save_task(tx: &Transaction<'_>, value: &Task, kind: &str) -> Result<(), Error
 }
 pub(super) struct Dispatch {
     pub(super) session_id: String,
-    task_id: Option<String>,
+    pub(super) task_id: Option<String>,
     state: String,
     fence: u64,
     runner: Option<String>,
@@ -73,7 +73,7 @@ fn dispatch(db: &Connection, id: &str) -> Result<Dispatch, Error> {
         session_id:r.get(0)?,task_id:r.get(1)?,state:r.get(2)?,fence:r.get(3)?,runner:r.get(4)?,hash:r.get(5)?,lease:r.get(6)?,expiry:r.get(7)?,input:r.get(8)?,
     })).optional()?.ok_or(Error::NotFound)
 }
-fn matches_secret(hash: &str, secret: &str) -> Result<bool, Error> {
+pub(super) fn matches_secret(hash: &str, secret: &str) -> Result<bool, Error> {
     if secret.len() != 64 || !secret.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Ok(false);
     }
@@ -157,7 +157,7 @@ fn expire(tx: &Transaction<'_>, now: u64) -> Result<(), Error> {
     }
     Ok(())
 }
-fn create_task(
+pub(super) fn create_task(
     tx: &Transaction<'_>,
     id: &str,
     session_id: &str,
@@ -189,6 +189,11 @@ fn create_task(
         session_id: session_id.into(),
         creator_session_id: creator.map(str::to_owned),
         title: title.into(),
+        description: String::new(),
+        priority: Default::default(),
+        granularity: Default::default(),
+        labels: Vec::new(),
+        parent_id: None,
         status: TaskState::Created,
         execution_epoch: 0,
         created_at: now,
@@ -224,11 +229,13 @@ pub(super) fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(),
         };
     }
     session(tx, &input.session_id)?;
+    super::task_intents::check_session_task(tx, &input.session_id, input.task_id.as_deref())?;
     if let Some(id) = &input.task_id {
         let t = task(tx, id)?;
-        if t.session_id != input.session_id || t.status == TaskState::Done {
+        if t.session_id != input.session_id {
             return Err(Error::RunnerAuthority);
         }
+        super::task_intents::check_enqueue(tx, &t)?;
     }
     bounded_row(tx, "runner_dispatches", "id", &input.id, 30_000)?;
     tx.execute("INSERT INTO runner_dispatches(id,session_id,task_id,input,digest,state) VALUES(?1,?2,?3,?4,?5,'queued')",params![input.id,input.session_id,input.task_id,serialize(input)?,digest])?;
@@ -382,7 +389,7 @@ impl DomainRepository {
             tx.commit()?;
             return Ok(None);
         }
-        let id:Option<String>=tx.query_row("SELECT d.id FROM runner_dispatches d JOIN runner_sessions s ON s.id=d.session_id JOIN engagements e ON e.id=s.engagement_id JOIN registrations g ON g.fleet_id=e.fleet_id WHERE d.state='queued' AND d.not_before<=?1 AND (d.task_id IS NULL OR EXISTS(SELECT 1 FROM canonical_tasks t WHERE t.id=d.task_id AND json_extract(t.config,'$.status')<>'done')) AND s.quarantined=0 AND e.state='active' AND e.generation=g.generation AND NOT EXISTS(SELECT 1 FROM runner_dispatches live WHERE live.session_id=d.session_id AND live.state IN ('leased','started','parked')) AND NOT EXISTS(SELECT 1 FROM dispatch_resources dr JOIN workspace_resources w ON w.id=dr.resource_id WHERE dr.dispatch_id=d.id AND (w.dirty=1 OR EXISTS(SELECT 1 FROM resource_leases l WHERE l.resource_id=dr.resource_id AND (l.exclusive=1 OR dr.exclusive=1)))) ORDER BY d.rowid LIMIT 1",[now],|r|r.get(0)).optional()?;
+        let id:Option<String>=tx.query_row("SELECT d.id FROM runner_dispatches d JOIN runner_sessions s ON s.id=d.session_id JOIN engagements e ON e.id=s.engagement_id JOIN registrations g ON g.fleet_id=e.fleet_id WHERE d.state='queued' AND d.not_before<=?1 AND (d.task_id IS NULL OR EXISTS(SELECT 1 FROM canonical_tasks t WHERE t.id=d.task_id AND (json_extract(t.config,'$.status')<>'done' OR EXISTS(SELECT 1 FROM task_followup_ready followup WHERE followup.dispatch_id=d.id AND followup.task_id=t.id)) AND NOT EXISTS(SELECT 1 FROM task_intents ti WHERE ti.task_id=t.id AND (ti.state<>'active' OR NOT EXISTS(SELECT 1 FROM dispatch_inputs di JOIN task_inputs tin ON tin.message_sequence=di.message_sequence WHERE di.dispatch_id=d.id AND tin.task_id=t.id))))) AND NOT EXISTS(SELECT 1 FROM task_intents current_task WHERE current_task.session_id=d.session_id AND (current_task.state<>'active' OR current_task.task_id IS NOT d.task_id)) AND s.quarantined=0 AND e.state='active' AND e.generation=g.generation AND NOT EXISTS(SELECT 1 FROM runner_dispatches live WHERE live.session_id=d.session_id AND live.state IN ('leased','started','parked')) AND NOT EXISTS(SELECT 1 FROM dispatch_resources dr JOIN workspace_resources w ON w.id=dr.resource_id WHERE dr.dispatch_id=d.id AND (w.dirty=1 OR EXISTS(SELECT 1 FROM resource_leases l WHERE l.resource_id=dr.resource_id AND (l.exclusive=1 OR dr.exclusive=1)))) ORDER BY d.rowid LIMIT 1",[now],|r|r.get(0)).optional()?;
         let Some(id) = id else {
             tx.commit()?;
             return Ok(None);
@@ -414,11 +421,13 @@ impl DomainRepository {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let d = authorize(&tx, cap, now, &["leased"])?;
+        super::task_intents::check_session_task(&tx, &d.session_id, d.task_id.as_deref())?;
         if let Some(id) = &d.task_id {
             let mut t = task(&tx, id)?;
-            if t.session_id != d.session_id || t.status == TaskState::Done {
+            if t.session_id != d.session_id {
                 return Err(Error::RunnerAuthority);
             }
+            super::task_intents::start_task(&tx, &mut t, &cap.dispatch_id, now)?;
             if matches!(t.status, TaskState::Created | TaskState::Accepted) {
                 t.status = TaskState::InProgress;
                 t.updated_at = now;

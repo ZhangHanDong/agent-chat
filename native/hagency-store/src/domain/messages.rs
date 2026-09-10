@@ -10,7 +10,7 @@ pub(super) fn find_session(
 ) -> Result<Option<String>, Error> {
     Ok(db.query_row("SELECT id FROM runner_sessions WHERE engagement_id=?1 AND json_extract(binding,'$.room_id')=?2 AND COALESCE(json_extract(binding,'$.thread_root'),'')=COALESCE(?3,'')",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0)).optional()?)
 }
-fn read_message(db: &Connection, sequence: u64) -> Result<Message, Error> {
+pub(super) fn read_message(db: &Connection, sequence: u64) -> Result<Message, Error> {
     let encoded: String = db
         .query_row(
             "SELECT config FROM admitted_messages WHERE sequence=?1",
@@ -267,6 +267,7 @@ impl DomainRepository {
             .insert("inbox".into(), serde_json::to_value(&items)?);
         execution::enqueue(&tx, &frozen)?;
         for item in &items {
+            super::task_intents::check_input(&tx, input.task_id.as_deref(), item.message.sequence)?;
             tx.execute(
                 "INSERT OR IGNORE INTO dispatch_inputs(dispatch_id,message_sequence) VALUES(?1,?2)",
                 params![input.id, item.message.sequence],

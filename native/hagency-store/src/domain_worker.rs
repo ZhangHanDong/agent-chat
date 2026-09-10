@@ -4,6 +4,7 @@ use hagency_core::{
     authority::{Registration, VerifiedRequest},
     messages::{InboundMessage, InboxItem, MessageReceipt, MessageTarget},
     project::{CatalogResource, ConfiguredResource, Engagement, Resource, Seat},
+    task_intents::{IntentResult, NoticeClaim, NoticeDelivery, TaskIntent},
     tasks::{
         DispatchInput, MutationResult, RunnerCapability, RunnerCommand, SessionBinding, Task,
         TaskComment, TaskEvent, TaskMutation,
@@ -128,7 +129,67 @@ fn weight(value: &impl Serialize) -> Result<u32, Error> {
     }
     Ok(len.max(1) as u32)
 }
+fn writer_time() -> Result<u64, Error> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| u64::try_from(d.as_millis()).ok())
+        .ok_or(Error::Unavailable)
+}
 impl DomainStore {
+    pub async fn create_task_intent(&self, input: TaskIntent) -> Result<IntentResult, Error> {
+        input.definition.validate()?;
+        self.call(weight(&input)?, move |db| {
+            db.create_task_intent(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn attach_task_inputs(
+        &self,
+        task: String,
+        scope: String,
+        key: String,
+        sequences: Vec<u64>,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&task, &scope, &key, &sequences))?, move |db| {
+            db.attach_task_inputs(&task, &scope, &key, &sequences)
+        })
+        .await
+    }
+    pub async fn claim_task_notice(&self, lease_ms: u64) -> Result<Option<NoticeClaim>, Error> {
+        self.call(1, move |db| db.claim_task_notice(writer_time()?, lease_ms))
+            .await
+    }
+    pub async fn deliver_task_notice(
+        &self,
+        id: String,
+        token: String,
+        receipt: NoticeDelivery,
+    ) -> Result<IntentResult, Error> {
+        receipt.validate()?;
+        self.call(weight(&(&id, &token, &receipt))?, move |db| {
+            db.deliver_task_notice(&id, &token, &receipt, writer_time()?)
+        })
+        .await
+    }
+    pub async fn fail_task_notice(
+        &self,
+        id: String,
+        token: String,
+        code: String,
+        permanent: bool,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&id, &token, &code))?, move |db| {
+            db.fail_task_notice(&id, &token, &code, permanent, writer_time()?)
+        })
+        .await
+    }
+    pub async fn retry_task_notice(&self, id: String) -> Result<(), Error> {
+        self.call(weight(&id)?, move |db| {
+            db.retry_task_notice(&id, writer_time()?)
+        })
+        .await
+    }
     /// Obtain wall time inside the writer, after queueing; callers cannot freeze
     /// authorization at request arrival or supply a historical clock.
     pub async fn runner_command(
@@ -137,12 +198,11 @@ impl DomainStore {
         command: RunnerCommand,
     ) -> Result<serde_json::Value, Error> {
         self.call(weight(&(&cap, &command))?, move |db| {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .ok()
-                .and_then(|d| u64::try_from(d.as_millis()).ok())
-                .ok_or(Error::Unavailable)?;
+            let now = writer_time()?;
             Ok(match command {
+                RunnerCommand::Delegate(input) => {
+                    serde_json::to_value(db.delegate_task(&cap, &input, now)?)?
+                }
                 RunnerCommand::Check => {
                     db.check_runner(&cap, now)?;
                     serde_json::Value::Null

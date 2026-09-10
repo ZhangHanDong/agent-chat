@@ -29,6 +29,16 @@ pub struct Task {
     pub session_id: String,
     pub creator_session_id: Option<String>,
     pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub priority: crate::task_intents::Priority,
+    #[serde(default)]
+    pub granularity: crate::task_intents::Granularity,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
     pub status: TaskState,
     pub execution_epoch: u64,
     pub created_at: u64,
@@ -176,6 +186,7 @@ pub struct MutationResult {
 /// Runtime commands have no operator, session-admission or process-control variant.
 #[derive(Debug, Clone, Serialize)]
 pub enum RunnerCommand {
+    Delegate(crate::task_intents::Delegation),
     Check,
     Task {
         id: String,
