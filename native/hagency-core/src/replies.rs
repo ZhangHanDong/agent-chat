@@ -11,13 +11,33 @@ pub enum RoomPrivacy {
     Direct { human_mxid: String },
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct MatrixTransportObservation {
     pub engagement_id: String,
     pub registration_generation: u64,
     pub generation: u64,
     pub sender_mxid: String,
     pub device_id: String,
+}
+
+/// Host-only captured identity. No external endpoint can submit negative
+/// transport evidence or choose which newer incarnation it should retire.
+#[derive(Clone, Serialize)]
+pub struct MatrixTransportInvalidation {
+    pub expected: MatrixTransportObservation,
+    pub reason: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct MatrixTransportState {
+    pub observation: MatrixTransportObservation,
+    pub available: bool,
+}
+
+#[derive(Clone, Serialize)]
+pub struct MatrixRoomState {
+    pub generation: u64,
+    pub available: bool,
 }
 
 #[derive(Clone, Serialize)]

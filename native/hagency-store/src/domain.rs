@@ -300,7 +300,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 14,
+                version: 15,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -315,9 +315,11 @@ impl DomainRepository {
                     (12, include_str!("migrations/012-verified-ingress.sql")),
                     (13, include_str!("migrations/013-owner-approvals.sql")),
                     (14, include_str!("migrations/014-notice-custody.sql")),
+                    (15, include_str!("migrations/015-matrix-transport.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT available,invalidation FROM matrix_transports LIMIT 0",
                     "SELECT n.send_fence,n.cancel_requested,n.task_epoch,n.source_event_id,i.digest,i.observation FROM task_notices n CROSS JOIN notice_send_inspections i LIMIT 0",
                     "SELECT r.available,r.config,b.incarnation,c.digest,a.state,g.context_key,v.digest FROM approval_rooms r CROSS JOIN approval_bindings b CROSS JOIN approval_contexts c CROSS JOIN owner_approvals a CROSS JOIN approval_grants g CROSS JOIN approval_verdict_receipts v LIMIT 0",
                     "SELECT engagement_id FROM current_approval_bindings LIMIT 0",
@@ -335,6 +337,10 @@ impl DomainRepository {
                 ],
             },
         )?;
+        let transport_trigger: bool = database.connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='matrix_transport_retire_approvals' AND tbl_name='matrix_transports')", [], |r|r.get(0)).map_err(|_|Error::Schema)?;
+        if !transport_trigger {
+            return Err(Error::Schema);
+        }
         // A previous owner died after an intent became externally executable. Inspection,
         // not automatically repeating that effect, is the only safe default.
         let tx = database

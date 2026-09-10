@@ -2984,3 +2984,42 @@ custom SDK values; fixes are still in its isolated worktree. Linux cgroup and
 Matrix formatting also remain separate. This is a development checkpoint, not
 completion of a migration phase. Original checkout and deployed processes are
 unchanged.
+
+
+### 2026-09-10 — Native Matrix account/device observations and global negative fencing
+
+- Isolated branch `feat/rust-matrix-transport` starts at schema14 commit
+  `47b6a51`. Task contract `task-rust-matrix-transport` and accepted ADR-047 govern
+  this slice; no original checkout, deployed service, live account or key changed.
+- Added `hagency-matrix`: actual pinned HTTPS whoami, bounded sync and authenticated
+  full-room state feed the existing host domain observations. It uses protected
+  encrypted SDK state/crypto stores and one owned worker; there is no message send,
+  approval application or event admission. Exact account/device/registration,
+  TLS origin and host room/generation intents remain separate from Palpo tokens.
+- Domain schema15 persists exact transport unavailability, atomically retires old
+  routes/own grants and retains possible final/notice sends as uncertain. Fresh
+  generation is required after failure; stale negative evidence cannot revoke a
+  newer incarnation. Migration fixtures preserve schema14 and reject partial or
+  missing structure. Shared room failure also retires other Agents' old routes.
+- Tests found and closed SDK custom-value plaintext storage and a fixture teardown
+  race. Journal encryption is explicit; the pending fixture now writes through
+  the owned worker. Interrupted sync retains its full encrypted original response
+  and cannot automatically replay. Bounds reject capacity rather than pruning
+  received work or dedup receipts. Database rollback and queued timeout tests
+  preserve original receipts, keys and exclusive ownership.
+- Parent review found three additional boundaries, all closed with regressions:
+  shared unsafe snapshots must reach shared-room invalidation, a lost positive
+  response must fence the attempted incarnation too, and SDK close errors must
+  never report successful shutdown. The close acknowledgement follows runtime
+  termination and filesystem lock release.
+- Local validation: 225 workspace tests in 45 binaries pass, zero failed/ignored;
+  146 native selectors all bind; workspace Clippy `-D warnings`, fmt and diff
+  checks pass. Agent-spec 1.4 lifecycle is 8/8 with explicit changed boundaries,
+  zero skipped/uncertain. Evidence is under the 2026-09-10 migration cache with
+  `matrix-*` prefixes. Existing offline cross-signed crypto fixture also passes.
+- Remaining gates are explicit: no live provisioning/key publication/cross-signing,
+  Matrix event provenance or sends, pending-SDK inspection recovery, continuous
+  retention beyond 64 sync receipts, changing the pinned room set, deployment UX
+  or production cutover. If negative persistence itself is unavailable/unknown,
+  a future live host must stop using that incarnation; a failed database cannot
+  promise immediate retirement. This bounded slice does not complete M5.

@@ -139,10 +139,24 @@ pub fn reply_route_view(routes: &str) -> &str {
 
 /// Rebuild the actual schema13 notice shape; a pre-custody sender could hold a claim.
 pub fn remove_notice_schema(db: &rusqlite::Connection) {
+    remove_matrix_transport_schema(db);
     db.execute_batch("DROP TABLE notice_send_inspections; DROP INDEX task_notice_ready; ALTER TABLE task_notices RENAME TO task_notices_newer;").unwrap();
     let schema = include_str!("../../src/migrations/005-task-intents.sql");
     let start = schema.find("CREATE TABLE task_notices").unwrap();
     let end = schema.find("-- One predicate").unwrap();
     db.execute_batch(&schema[start..end]).unwrap();
     db.execute_batch("ALTER TABLE task_notices ADD COLUMN verified_route TEXT CHECK(verified_route IS NULL OR json_valid(verified_route)); ALTER TABLE task_notices ADD COLUMN content_digest TEXT; INSERT INTO task_notices(id,task_id,config,state,claim_hash,claim_until,delivery,error_code,not_before,verified_route,content_digest) SELECT id,task_id,config,CASE WHEN state IN ('sending','uncertain') THEN 'claimed' ELSE state END,claim_hash,claim_until,delivery,error_code,not_before,verified_route,content_digest FROM task_notices_newer; DROP TABLE task_notices_newer;").unwrap();
+}
+
+/// Restore schema14 without weakening its notice-send custody.
+pub fn remove_matrix_transport_schema(db: &rusqlite::Connection) {
+    db.execute_batch(
+        "DROP TRIGGER matrix_transport_retire_approvals; DROP VIEW current_matrix_routes;",
+    )
+    .unwrap();
+    let schema = include_str!("../../src/migrations/012-verified-ingress.sql");
+    let start = schema.find("CREATE VIEW current_matrix_routes AS").unwrap();
+    let end = schema.find("DROP VIEW task_followup_ready;").unwrap();
+    db.execute_batch(&schema[start..end]).unwrap();
+    db.execute_batch("ALTER TABLE matrix_transports DROP COLUMN available; ALTER TABLE matrix_transports DROP COLUMN invalidation;").unwrap();
 }

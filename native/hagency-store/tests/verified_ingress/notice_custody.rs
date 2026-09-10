@@ -291,7 +291,7 @@ fn native_notice_custody_migration() {
         assert_eq!(
             sql.pragma_query_value(None, "user_version", |r| r.get::<_, u64>(0))
                 .unwrap(),
-            14
+            15
         );
         assert!(
             f.db.claim_verified_task_notice(1014, 1000)
@@ -319,5 +319,48 @@ fn native_notice_custody_migration() {
             assert_eq!(state(&f, &task.command_id), "delivered");
         }
         assert_eq!(active(&f, &task), "pending");
+    }
+}
+
+#[test]
+fn native_matrix_transport_negative_preserves_notice_custody() {
+    for sending in [false, true] {
+        let mut f = Fixture::new(true);
+        let (_, _, task) = setup_task(&mut f);
+        let claim =
+            f.db.claim_verified_task_notice(1013, 1000)
+                .unwrap()
+                .unwrap();
+        if sending {
+            f.db.begin_verified_task_notice_send(&claim.claim.notice.id, &claim.claim.token, 1014)
+                .unwrap();
+        }
+        let expected =
+            f.db.matrix_transport_state(&f.agents[0])
+                .unwrap()
+                .unwrap()
+                .observation;
+        f.db.invalidate_matrix_transport(
+            &hagency_core::replies::MatrixTransportInvalidation {
+                expected,
+                reason: "account failed".into(),
+            },
+            1015,
+        )
+        .unwrap();
+        assert_eq!(
+            state(&f, &claim.claim.notice.id),
+            if sending { "uncertain" } else { "cancelled" }
+        );
+        assert_eq!(active(&f, &task), "pending");
+        assert!(
+            f.db.deliver_verified_task_notice(
+                &claim.claim.notice.id,
+                &claim.claim.token,
+                &notice_delivery(&claim),
+                1016
+            )
+            .is_err()
+        );
     }
 }

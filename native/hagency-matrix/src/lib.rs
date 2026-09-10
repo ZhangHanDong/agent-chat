@@ -1,0 +1,66 @@
+//! Authenticated bounded account/room observation collector. This is not an
+//! event-admission authority or a connected encrypted sender.
+mod collector;
+mod config;
+mod http;
+mod sdk;
+mod wire;
+pub use collector::{Collector, ObservationSummary};
+pub use config::{HostConfig, HostIdentity, HostRoom, Limits};
+pub use tokio_util::sync::CancellationToken;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum Error {
+    #[error("invalid host Matrix configuration")]
+    Config,
+    #[error("Matrix collector or SDK owner is busy")]
+    Busy,
+    #[error("Matrix operation cancelled")]
+    Cancelled,
+    #[error("Matrix operation timed out")]
+    Timeout,
+    #[error("Matrix transport request failed")]
+    Transport,
+    #[error("Matrix redirect refused")]
+    Redirect,
+    #[error("Matrix headers exceed bounds or use unsupported framing")]
+    Headers,
+    #[error("Matrix body exceeds its byte limit")]
+    BodyTooLarge,
+    #[error("Matrix response is not one bounded unambiguous JSON document")]
+    InvalidJson,
+    #[error("Matrix response does not satisfy the observation contract")]
+    Wire,
+    #[error("Matrix authenticated account or device differs from host binding")]
+    Identity,
+    #[error("Matrix generation is stale or unavailable")]
+    Generation,
+    #[error("Matrix authentication refused")]
+    Unauthorized,
+    #[error("Matrix service returned HTTP {0}")]
+    Remote(u16),
+    #[error("protected SDK state is unavailable; no keys were reset")]
+    Storage,
+    #[error("SDK outcome is unknown; retained state requires host inspection")]
+    OutcomeUnknown,
+    #[error("Matrix durable or observation capacity is exhausted")]
+    Capacity,
+    #[error("Matrix receipt identity was replayed with different content")]
+    Conflict,
+    #[error("domain authority rejected the observation")]
+    Domain,
+}
+impl From<hagency_store::Error> for Error {
+    fn from(e: hagency_store::Error) -> Self {
+        match e {
+            hagency_store::Error::Generation => Self::Generation,
+            hagency_store::Error::OutcomeUnknown => Self::OutcomeUnknown,
+            hagency_store::Error::Capacity => Self::Capacity,
+            hagency_store::Error::Busy => Self::Busy,
+            hagency_store::Error::Conflict => Self::Conflict,
+            _ => Self::Domain,
+        }
+    }
+}
+
+#[cfg(test)]
+extern crate self as hagency_matrix;

@@ -779,7 +779,7 @@ fn native_owner_approval_recovery_schema12() {
         assert_eq!(
             sql.pragma_query_value(None, "user_version", |r| r.get::<_, u64>(0))
                 .unwrap(),
-            14
+            15
         );
         assert_eq!(count(&sql, "approval_bindings"), 0);
         assert_eq!(count(&sql, "approval_grants"), 0);
@@ -855,4 +855,46 @@ fn native_owner_approval_binding_rejects_another_project() {
     let mut room = f.rooms[0].clone();
     room.room_id = "!project:example.test".into();
     assert!(f.db.observe_approval_room(&room, 1012).is_err());
+}
+
+#[test]
+fn native_matrix_transport_negative_retires_only_own_approval_authority() {
+    let mut f = Fixture::new(true);
+    for agent in 0..2 {
+        let a = f.admit(agent, 1);
+        f.choose(&a.id, ApprovalChoice::Always);
+        f.apply(agent, &a.id);
+    }
+    let applying = f.admit(0, 2);
+    f.db.consume_owner_approval(&f.caps[0], &applying.id, 1015)
+        .unwrap();
+    let decided = f.admit(0, 3);
+    let expected =
+        f.db.matrix_transport_state(&f.agents[0])
+            .unwrap()
+            .unwrap()
+            .observation;
+    f.db.invalidate_matrix_transport(
+        &MatrixTransportInvalidation {
+            expected,
+            reason: "whoami mismatch".into(),
+        },
+        1016,
+    )
+    .unwrap();
+    assert!(f.grants(0)[0].revoked);
+    assert!(!f.grants(1)[0].revoked);
+    for (id, state) in [(&applying.id, "uncertain"), (&decided.id, "invalidated")] {
+        assert_eq!(
+            f.sql()
+                .query_row("SELECT state FROM owner_approvals WHERE id=?1", [id], |r| r
+                    .get::<_, String>(0))
+                .unwrap(),
+            state
+        );
+    }
+    assert!(
+        f.db.consume_owner_approval(&f.caps[0], &decided.id, 1017)
+            .is_err()
+    );
 }

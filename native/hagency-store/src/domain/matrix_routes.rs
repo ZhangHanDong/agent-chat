@@ -106,7 +106,7 @@ fn observed_transport(
     if registration != c.registration.generation {
         return Err(Error::Generation);
     }
-    db.query_row("SELECT sender_mxid FROM matrix_transports WHERE engagement_id=?1 AND registration_generation=?2 AND generation=?3",params![engagement,registration,transport],|r|r.get(0)).optional()?.ok_or(Error::RunnerAuthority)
+    db.query_row("SELECT sender_mxid FROM matrix_transports WHERE engagement_id=?1 AND registration_generation=?2 AND generation=?3 AND available=1",params![engagement,registration,transport],|r|r.get(0)).optional()?.ok_or(Error::RunnerAuthority)
 }
 fn invalidate(
     tx: &Transaction<'_>,
@@ -132,6 +132,107 @@ fn invalidate(
 }
 
 impl DomainRepository {
+    pub fn matrix_room_state(
+        &self,
+        engagement: &str,
+        room: &str,
+    ) -> Result<Option<MatrixRoomState>, Error> {
+        let c = context(&self.db, engagement)?;
+        matrix_room(room, &c.registration.server_name)?;
+        Ok(self.db.query_row("SELECT generation,available FROM matrix_room_scopes WHERE server_name=?1 AND room_id=?2 AND fleet_id=?3 AND project_id=?4 AND registration_generation=?5",params![c.registration.server_name,room,c.registration.fleet_id,c.project,c.registration.generation],|r|Ok(MatrixRoomState{generation:r.get(0)?,available:r.get(1)?})).optional()?)
+    }
+    pub fn matrix_transport_state(
+        &self,
+        engagement: &str,
+    ) -> Result<Option<MatrixTransportState>, Error> {
+        let c = context(&self.db, engagement)?;
+        let row: Option<(u64,u64,String,String,bool)> = self.db.query_row(
+            "SELECT registration_generation,generation,sender_mxid,device_id,available FROM matrix_transports WHERE engagement_id=?1 AND server_name=?2",
+            params![engagement,c.registration.server_name],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
+        ).optional()?;
+        Ok(row.map(
+            |(registration_generation, generation, sender_mxid, device_id, available)| {
+                MatrixTransportState {
+                    observation: MatrixTransportObservation {
+                        engagement_id: engagement.into(),
+                        registration_generation,
+                        generation,
+                        sender_mxid,
+                        device_id,
+                    },
+                    available,
+                }
+            },
+        ))
+    }
+
+    /// A failed authenticated bootstrap retires all old route-dependent powers.
+    /// Exact captured identity prevents a delayed failure from retiring a newer
+    /// owner. Negative evidence does not become a positive account observation.
+    pub fn invalidate_matrix_transport(
+        &mut self,
+        input: &MatrixTransportInvalidation,
+        now: u64,
+    ) -> Result<(), Error> {
+        clock(now)?;
+        let expected = &input.expected;
+        generation(expected.registration_generation)?;
+        generation(expected.generation)?;
+        text(&expected.device_id, 255)?;
+        text(&input.reason, 256)?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let c = context(&tx, &expected.engagement_id)?;
+        if c.registration.generation != expected.registration_generation {
+            return Err(Error::Generation);
+        }
+        user(&expected.sender_mxid, &c.registration.server_name)?;
+        if [
+            &c.owner,
+            &c.registration.representative_mxid,
+            &c.registration.approval_bot_mxid,
+        ]
+        .contains(&&expected.sender_mxid)
+        {
+            return Err(Error::RunnerAuthority);
+        }
+        let digest = hagency_core::canonical::digest(&serde_json::json!(input))?;
+        let prior:Option<(u64,u64,String,String,bool,Option<String>)> = tx.query_row(
+            "SELECT registration_generation,generation,sender_mxid,device_id,available,invalidation FROM matrix_transports WHERE engagement_id=?1 AND server_name=?2",
+            params![expected.engagement_id,c.registration.server_name],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))
+        ).optional()?;
+        if let Some((reg, incarnation, sender, device, available, prior_digest)) = prior {
+            if reg != expected.registration_generation
+                || incarnation != expected.generation
+                || sender != expected.sender_mxid
+                || device != expected.device_id
+            {
+                return Err(Error::Generation);
+            }
+            if !available {
+                return if prior_digest.as_deref() == Some(&digest) {
+                    tx.commit()?;
+                    Ok(())
+                } else {
+                    Err(Error::Conflict)
+                };
+            }
+            tx.execute(
+                "UPDATE matrix_transports SET available=0,invalidation=?2 WHERE engagement_id=?1",
+                params![expected.engagement_id, digest],
+            )?;
+        } else {
+            if expected.generation != 1 {
+                return Err(Error::Generation);
+            }
+            tx.execute("INSERT INTO matrix_transports(engagement_id,registration_generation,generation,server_name,sender_mxid,device_id,available,invalidation) VALUES(?1,?2,?3,?4,?5,?6,0,?7)",params![expected.engagement_id,expected.registration_generation,expected.generation,c.registration.server_name,expected.sender_mxid,expected.device_id,digest])?;
+        }
+        reconcile(&tx, now)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Called after authenticating the exact Matrix account/device. No endpoint
     /// accepts this observation and an applied provisioning string is not enough.
     pub fn observe_matrix_transport(
@@ -160,8 +261,8 @@ impl DomainRepository {
         {
             return Err(Error::RunnerAuthority);
         }
-        let old:Option<(u64,u64,String,String,String)>=tx.query_row("SELECT generation,registration_generation,server_name,sender_mxid,device_id FROM matrix_transports WHERE engagement_id=?1",[&input.engagement_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?;
-        if let Some((old_gen, reg, server, sender, device)) = old {
+        let old:Option<(u64,u64,String,String,String,bool)>=tx.query_row("SELECT generation,registration_generation,server_name,sender_mxid,device_id,available FROM matrix_transports WHERE engagement_id=?1",[&input.engagement_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional()?;
+        if let Some((old_gen, reg, server, sender, device, available)) = old {
             if old_gen == input.generation {
                 if reg != input.registration_generation
                     || server != c.registration.server_name
@@ -169,6 +270,9 @@ impl DomainRepository {
                     || device != input.device_id
                 {
                     return Err(Error::Conflict);
+                }
+                if !available {
+                    return Err(Error::State);
                 }
                 tx.commit()?;
                 return Ok(());
@@ -179,7 +283,7 @@ impl DomainRepository {
         } else if input.generation != 1 {
             return Err(Error::Generation);
         }
-        tx.execute("INSERT INTO matrix_transports(engagement_id,registration_generation,generation,server_name,sender_mxid,device_id) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(engagement_id) DO UPDATE SET registration_generation=excluded.registration_generation,generation=excluded.generation,server_name=excluded.server_name,sender_mxid=excluded.sender_mxid,device_id=excluded.device_id",params![input.engagement_id,input.registration_generation,input.generation,c.registration.server_name,input.sender_mxid,input.device_id])?;
+        tx.execute("INSERT INTO matrix_transports(engagement_id,registration_generation,generation,server_name,sender_mxid,device_id) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(engagement_id) DO UPDATE SET registration_generation=excluded.registration_generation,generation=excluded.generation,server_name=excluded.server_name,sender_mxid=excluded.sender_mxid,device_id=excluded.device_id,available=1,invalidation=NULL",params![input.engagement_id,input.registration_generation,input.generation,c.registration.server_name,input.sender_mxid,input.device_id])?;
         tx.execute(
             "UPDATE matrix_transports SET observed_at=?2 WHERE engagement_id=?1",
             params![input.engagement_id, now],
@@ -377,7 +481,7 @@ pub(super) fn resolve(
     )? {
         return Err(Error::Conflict);
     }
-    let transport:Option<(u64,String,String)>=tx.query_row("SELECT generation,sender_mxid,device_id FROM matrix_transports WHERE engagement_id=?1 AND registration_generation=?2",params![binding.engagement_id,c.registration.generation],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+    let transport:Option<(u64,String,String)>=tx.query_row("SELECT generation,sender_mxid,device_id FROM matrix_transports WHERE engagement_id=?1 AND registration_generation=?2 AND available=1",params![binding.engagement_id,c.registration.generation],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
     let (transport_generation, sender_mxid, device_id) = transport.ok_or(Error::RunnerAuthority)?;
     let room:Option<(u64,String,bool)>=tx.query_row("SELECT generation,privacy,encrypted FROM matrix_room_scopes WHERE server_name=?1 AND room_id=?2 AND fleet_id=?3 AND project_id=?4 AND registration_generation=?5 AND owner_mxid=?6",params![c.registration.server_name,binding.room_id,c.registration.fleet_id,c.project,c.registration.generation,c.owner],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
     let (room_generation, privacy, encrypted) = room.ok_or(Error::RunnerAuthority)?;

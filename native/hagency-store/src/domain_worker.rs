@@ -311,6 +311,34 @@ impl DomainStore {
         .await
     }
 
+    pub async fn matrix_transport_state(
+        &self,
+        engagement: String,
+    ) -> Result<Option<MatrixTransportState>, Error> {
+        self.call(weight(&engagement)?, move |db| {
+            db.matrix_transport_state(&engagement)
+        })
+        .await
+    }
+    pub async fn matrix_room_state(
+        &self,
+        engagement: String,
+        room: String,
+    ) -> Result<Option<MatrixRoomState>, Error> {
+        self.call(weight(&(&engagement, &room))?, move |db| {
+            db.matrix_room_state(&engagement, &room)
+        })
+        .await
+    }
+    pub async fn invalidate_matrix_transport(
+        &self,
+        input: MatrixTransportInvalidation,
+    ) -> Result<(), Error> {
+        self.call(weight(&input)?, move |db| {
+            db.invalidate_matrix_transport(&input, writer_time()?)
+        })
+        .await
+    }
     pub async fn observe_matrix_transport(
         &self,
         input: MatrixTransportObservation,

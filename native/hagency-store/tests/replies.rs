@@ -968,7 +968,7 @@ fn native_reply_routes_schema_ten_does_not_invent_legacy_privacy() {
     assert_eq!(
         sql.query_row("PRAGMA user_version", [], |r| r.get::<_, u64>(0))
             .unwrap(),
-        14
+        15
     );
     assert_eq!(
         sql.query_row(
@@ -1020,4 +1020,160 @@ fn native_reply_routes_schema_ten_does_not_invent_legacy_privacy() {
             .id
             == "fresh"
     );
+}
+
+#[test]
+fn native_matrix_transport_negative_routes_and_send_custody() {
+    for direct in [false, true] {
+        for sending in [false, true] {
+            let mut f = Fixture::new(direct, None);
+            f.done();
+            let reply = f.reply();
+            let claim = f.db.claim_final_reply(1009, 1000).unwrap().unwrap();
+            if sending {
+                f.db.begin_final_reply_send(&claim, 1010).unwrap();
+            }
+            let negative = MatrixTransportInvalidation {
+                expected: f.transport.clone(),
+                reason: "Authenticated whoami failed".into(),
+            };
+            f.sql().execute_batch("CREATE TRIGGER fail_retire BEFORE UPDATE ON matrix_session_routes WHEN NEW.retired=1 BEGIN SELECT RAISE(ABORT,'fixture rollback'); END;").unwrap();
+            assert!(f.db.invalidate_matrix_transport(&negative, 1011).is_err());
+            assert!(
+                f.db.matrix_transport_state(&f.engagement)
+                    .unwrap()
+                    .unwrap()
+                    .available
+            );
+            assert_eq!(
+                f.state(&reply.id),
+                if sending { "sending" } else { "claimed" }
+            );
+            f.sql().execute_batch("DROP TRIGGER fail_retire").unwrap();
+            f.db.invalidate_matrix_transport(&negative, 1011).unwrap();
+            f.db.invalidate_matrix_transport(&negative, 1012).unwrap();
+            assert_eq!(
+                f.state(&reply.id),
+                if sending { "uncertain" } else { "cancelled" }
+            );
+            assert_eq!(count(&f.sql(), "current_matrix_routes"), 0);
+            assert!(
+                f.db.resolve_verified_matrix_session(&f.binding, 1013)
+                    .is_err()
+            );
+            assert!(f.db.begin_final_reply_send(&claim, 1013).is_err());
+            assert!(f.db.observe_matrix_transport(&f.transport, 1013).is_err());
+            drop(f.db);
+            f.db = DomainRepository::open(&f.root.path().join("state")).unwrap();
+            assert!(
+                !f.db
+                    .matrix_transport_state(&f.engagement)
+                    .unwrap()
+                    .unwrap()
+                    .available
+            );
+            assert!(f.db.observe_matrix_transport(&f.transport, 1014).is_err());
+        }
+    }
+}
+#[test]
+fn native_matrix_transport_generation_stale_negative_cannot_retire_replacement() {
+    let mut f = Fixture::new(true, None);
+    let old = MatrixTransportInvalidation {
+        expected: f.transport.clone(),
+        reason: "old failure".into(),
+    };
+    f.db.invalidate_matrix_transport(&old, 1007).unwrap();
+    f.transport.generation = 2;
+    f.db.observe_matrix_transport(&f.transport, 1008).unwrap();
+    f.room.transport_generation = 2;
+    f.db.observe_matrix_room(&f.room, 1009).unwrap();
+    let binding = SessionBinding {
+        id: "fresh".into(),
+        ..f.binding.clone()
+    };
+    f.db.resolve_verified_matrix_session(&binding, 1010)
+        .unwrap();
+    assert!(f.db.invalidate_matrix_transport(&old, 1011).is_err());
+    assert!(
+        f.db.matrix_transport_state(&f.engagement)
+            .unwrap()
+            .unwrap()
+            .available
+    );
+    assert_eq!(count(&f.sql(), "current_matrix_routes"), 1);
+    for field in ["device", "sender", "registration"] {
+        let mut bad = MatrixTransportInvalidation {
+            expected: f.transport.clone(),
+            reason: "failure".into(),
+        };
+        match field {
+            "device" => bad.expected.device_id = "OTHER".into(),
+            "sender" => bad.expected.sender_mxid = "@other:example.test".into(),
+            _ => bad.expected.registration_generation = 2,
+        };
+        assert!(f.db.invalidate_matrix_transport(&bad, 1012).is_err());
+    }
+    assert_eq!(count(&f.sql(), "current_matrix_routes"), 1);
+}
+#[test]
+fn native_matrix_transport_migration_preserves_verified_routes() {
+    let mut f = Fixture::new(true, None);
+    drop(f.db);
+    let sql = rusqlite::Connection::open(f.root.path().join("state/domain.sqlite3")).unwrap();
+    remove_matrix_transport_schema(&sql);
+    sql.pragma_update(None, "user_version", 14).unwrap();
+    drop(sql);
+    f.db = DomainRepository::open(&f.root.path().join("state")).unwrap();
+    assert_eq!(count(&f.sql(), "current_matrix_routes"), 1);
+    assert!(
+        f.db.matrix_transport_state(&f.engagement)
+            .unwrap()
+            .unwrap()
+            .available
+    );
+    f.db.invalidate_matrix_transport(
+        &MatrixTransportInvalidation {
+            expected: f.transport.clone(),
+            reason: "migration fixture failure".into(),
+        },
+        1010,
+    )
+    .unwrap();
+    assert_eq!(count(&f.sql(), "current_matrix_routes"), 0);
+}
+
+#[test]
+fn native_matrix_transport_migration_missing_structure_and_rollback() {
+    for damaged in ["missing_trigger", "partial_upgrade"] {
+        let f = Fixture::new(true, None);
+        let root = f.root;
+        drop(f.db);
+        let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        if damaged == "missing_trigger" {
+            sql.execute_batch("DROP TRIGGER matrix_transport_retire_approvals")
+                .unwrap();
+        } else {
+            remove_matrix_transport_schema(&sql);
+            sql.execute_batch("ALTER TABLE matrix_transports ADD COLUMN invalidation TEXT; PRAGMA user_version=14;").unwrap();
+        }
+        assert!(DomainRepository::open(&root.path().join("state")).is_err());
+        if damaged == "partial_upgrade" {
+            assert_eq!(
+                sql.pragma_query_value(None, "user_version", |r| r.get::<_, u64>(0))
+                    .unwrap(),
+                14
+            );
+            assert!(
+                sql.prepare("SELECT available FROM matrix_transports")
+                    .is_err()
+            );
+        }
+        assert_eq!(
+            sql.query_row("SELECT device_id FROM matrix_transports", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "DEVICE_1"
+        );
+    }
 }
