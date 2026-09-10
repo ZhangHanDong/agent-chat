@@ -5,6 +5,7 @@ mod domain_worker;
 pub mod private;
 pub use domain::{DomainRepository, Effect, EffectOutcome, EffectState};
 pub use domain_worker::DomainStore;
+pub mod outbound;
 mod repository;
 mod worker;
 pub use repository::Repository;

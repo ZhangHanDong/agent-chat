@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 pub fn encode(value: &Value) -> Result<String, InvalidInput> {
     let mut output = String::new();
-    write(value, &mut output, 0, false)?;
+    write(value, &mut output, 0, false, false)?;
     Ok(output)
 }
 
@@ -19,11 +19,21 @@ pub fn digest(value: &Value) -> Result<String, InvalidInput> {
 /// including JavaScript rounding outside the JSON-safe integer range.
 pub fn encode_payload(value: &Value) -> Result<String, InvalidInput> {
     let mut output = String::new();
-    write(value, &mut output, 0, true)?;
+    write(value, &mut output, 0, true, false)?;
     Ok(output)
 }
 pub fn payload_digest(value: &Value) -> Result<String, InvalidInput> {
     Ok(format!("{:x}", Sha256::digest(encode_payload(value)?)))
+}
+/// Opaque transport data, never a signed authority DTO. Preserve every JSON key
+/// and JavaScript finite-number semantics, including fractional Matrix fields.
+pub fn encode_transport(value: &Value) -> Result<String, InvalidInput> {
+    let mut output = String::new();
+    write(value, &mut output, 0, true, true)?;
+    Ok(output)
+}
+pub fn transport_digest(value: &Value) -> Result<String, InvalidInput> {
+    Ok(format!("{:x}", Sha256::digest(encode_transport(value)?)))
 }
 fn finite_number(number: &serde_json::Number) -> Result<f64, InvalidInput> {
     // Payload numbers follow JavaScript Number semantics. In particular, JS may
@@ -45,6 +55,7 @@ fn write(
     output: &mut String,
     depth: usize,
     payload: bool,
+    transport: bool,
 ) -> Result<(), InvalidInput> {
     if depth > 64 {
         return Err(InvalidInput("JSON nesting exceeds 64 levels"));
@@ -79,12 +90,12 @@ fn write(
                 if i > 0 {
                     output.push(',');
                 }
-                write(item, output, depth + 1, payload)?;
+                write(item, output, depth + 1, payload, transport)?;
             }
             output.push(']');
         }
         Value::Object(items) => {
-            if items.contains_key("__proto__") {
+            if !transport && items.contains_key("__proto__") {
                 return Err(InvalidInput("prototype property is not a signed DTO field"));
             }
             let mut keys: Vec<_> = items.keys().collect();
@@ -103,7 +114,7 @@ fn write(
                     &serde_json::to_string(key).map_err(|_| InvalidInput("invalid key"))?,
                 );
                 output.push(':');
-                write(&items[key], output, depth + 1, payload)?;
+                write(&items[key], output, depth + 1, payload, transport)?;
             }
             output.push('}');
         }

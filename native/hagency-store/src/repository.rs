@@ -7,12 +7,13 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::{fs::File, path::Path};
 
 const APPLICATION_ID: i32 = 0x48414731; // HAG1; never accept a JS router or crypto database.
-const VERSION: i32 = 1;
+const VERSION: i32 = 2;
 
 pub struct Repository {
-    db: Connection,
-    max_records: i64,
-    max_payload_bytes: i64,
+    pub(crate) db: Connection,
+    pub(crate) max_records: i64,
+    pub(crate) max_payload_bytes: i64,
+    pub(crate) max_attempts: i64,
     _ownership: File, // Must outlive the connection, including its final checkpoint.
 }
 
@@ -25,19 +26,27 @@ impl Repository {
                 lock: "owner.lock",
                 application_id: APPLICATION_ID,
                 version: VERSION,
-                migrations: &[],
+                migrations: &[(2, include_str!("custody-migrations/002-outbound.sql"))],
                 sql: include_str!("schema.sql"),
                 verify: &[
                     "SELECT id,lane,binding,generation,digest,payload,receipt FROM inbox LIMIT 0",
+                    "SELECT kind,origin_machine_generation,lease_generation,lease_token,lease_expires,lease_state,processing_state,retry_at FROM inbox LIMIT 0",
+                    "SELECT binding,identity,fleet_key,consumer,machine_generation,fingerprint,scope,sequence,accepted_sequence,accepted_digest FROM outbound_transports LIMIT 0",
+                    "SELECT binding,lane,ticket,response_digest FROM outbound_polls LIMIT 0",
+                    "SELECT binding,id,lane,delivery_id,command_digest,capability,state,deadline,result,result_digest FROM outbound_attempts LIMIT 0",
+                    "SELECT binding,sequence,digest,body,state FROM outbound_publications LIMIT 0",
                 ],
             },
         )?;
-        Ok(Self {
+        let mut repository = Self {
             db: database.connection,
             max_records: 1024,
             max_payload_bytes: 16 * 1024 * 1024,
+            max_attempts: 4096,
             _ownership: database.ownership,
-        })
+        };
+        repository.recover_outbound()?;
+        Ok(repository)
     }
 
     pub fn receive(&mut self, delivery: &Delivery, now_ms: u64) -> Result<Receipt, Error> {
@@ -49,6 +58,13 @@ impl Repository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM outbound_transports WHERE binding=?1)",
+            [&delivery.binding],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(Error::Generation);
+        }
         let generation: Option<i64> = tx
             .query_row(
                 "SELECT generation FROM bindings WHERE id=?1",
@@ -73,11 +89,8 @@ impl Repository {
             return Ok(serde_json::from_str(&receipt)?);
         }
         let payload = serde_json::to_string(&delivery.payload)?;
-        let (count, bytes): (i64, i64) = tx.query_row(
-            "SELECT COUNT(*),COALESCE(SUM(length(CAST(payload AS BLOB))),0) FROM inbox",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
+        let count: i64 = tx.query_row("SELECT COUNT(*) FROM inbox", [], |r| r.get(0))?;
+        let bytes = crate::outbound::repository::retained_bytes(&tx)?;
         if count >= self.max_records || bytes + payload.len() as i64 > self.max_payload_bytes {
             return Err(Error::Capacity);
         }

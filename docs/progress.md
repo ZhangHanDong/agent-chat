@@ -2478,3 +2478,54 @@ input acknowledgement, sandbox, host authority and durable-domain gates close.
   runner responses, YOLO dispatch and effective sandbox remain implementation
   work. The parallel guardian-owned stdio, verified ingress and outbound custody
   slices continue; production runtimes and live Matrix state remain unchanged.
+
+## 2026-09-10 — Native outbound custody lifecycle
+
+- Separate `feat/rust-outbound-custody` worktree starts at `bf7a47d`. Custody
+  schema 2 extends the existing repository/worker; domain schema, original dirty
+  checkout and services were not changed. Palpo source was read-only at
+  `c7c400e04ab05479a63c30f14679ec0180457d85`; no live version claim is made.
+- Host-only activation pins canonical side/fleet/registration identity and refuses
+  fixture adoption or another binding namespace for the same fleet. A stable
+  UUID consumer survives machine rotation. Opaque scopes/tickets have no
+  Deserialize, Serialize or Debug projection. Machine and Matrix registration
+  generations stay separate, including the delivery's preserved origin.
+- Receive commits the full JSON transaction and content-bound receipt before ACK.
+  Current poll and exact lease tickets reject replaced/stale responses. Retirement
+  of an uncertain machine lease is explicit; rotation never invents a successful
+  remote ACK. Already owned Matrix/request work stays recoverable. Old probe
+  processing and publication authority is fenced.
+- Claims/start/result receipts commit atomically. Startup/expiry retire unstarted
+  claims, while started or explicitly uncertain work requires host inspection.
+  Matrix order is preserved and the separate work lane continues. Completion
+  compacts only payload, preserving arbitrary-ID dedup and exact result receipts.
+  No domain task or request approval is inferred from transport completion.
+- The one-slot publication outbox preserves sequence, bytes and original
+  observedAt timestamps across lost/rejected responses. Exact acceptance receipts
+  cannot clear a newer body. Current probe publication requires an equal completed
+  work-probe result from the exact machine generation. The later Matrix adapter
+  must also suppress embedded old-generation probe evidence in retained full
+  transactions; no authenticated source/event or connection proof is fabricated.
+- Shared JavaScript vectors verify opaque full transactions, prototype-named data,
+  fractional/exponent numbers, Unicode and numeric keys. Existing signed DTO and
+  execution-payload encoders remain strict. Queue accounting covers serialized
+  payload plus escaped envelopes and maximum lease tokens; stored payload/result/
+  publication bytes share the 16 MiB bound. Finite records/attempts never evict
+  pending work or historical dedup markers for capacity.
+- Independent review found that the original queued command reused its enqueue
+  clock. The writer now advances a host-clock anchor by monotonic elapsed time,
+  rounding up milliseconds. A controlled paused-writer regression proves queued
+  Start and Complete cannot use authority that expired while queued.
+- Ten focused outbound tests passed. All 74 core/store tests passed, zero failed
+  or ignored; this includes existing custody and domain regressions. Clippy with
+  warnings denied, rustfmt and diff checks passed. All 95 native selectors on this
+  base resolve. Agent-spec 1.4.0 parse/lint scored 100%; exact lifecycle passed
+  six scenarios plus the explicit boundary (7 pass, 0 fail/skip/uncertain).
+  Output is retained in the local 2026-09-10 migration validation cache as
+  `outbound-tests.log`, `outbound-full-tests.log`, `outbound-bindings.log` and
+  `outbound-lifecycle.json`. Cross-platform CI for this slice remains required.
+- ADR-037 records the host boundary and next gates: actual HTTPS/wire validation,
+  credential ownership, Matrix source/membership proof, domain handoff, bounded
+  status observation and network loops. This task added no client crate, ran no
+  model/homeserver/browser and made no deployment. Continuous retention beyond
+  finite custody capacity remains a release gate.
