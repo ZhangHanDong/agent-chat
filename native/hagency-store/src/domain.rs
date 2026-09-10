@@ -15,6 +15,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{fs::File, path::Path};
+mod approvals;
 mod conversation_lifecycle;
 mod conversations;
 mod execution;
@@ -298,7 +299,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 12,
+                version: 13,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -311,9 +312,12 @@ impl DomainRepository {
                     (10, include_str!("migrations/010-task-graphs.sql")),
                     (11, include_str!("migrations/011-final-replies.sql")),
                     (12, include_str!("migrations/012-verified-ingress.sql")),
+                    (13, include_str!("migrations/013-owner-approvals.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT r.available,r.config,b.incarnation,c.digest,a.state,g.context_key,v.digest FROM approval_rooms r CROSS JOIN approval_bindings b CROSS JOIN approval_contexts c CROSS JOIN owner_approvals a CROSS JOIN approval_grants g CROSS JOIN approval_verdict_receipts v LIMIT 0",
+                    "SELECT engagement_id FROM current_approval_bindings LIMIT 0",
                     "SELECT e.id,e.context,e.evidence,e.projection,f.payload,p.owner_mxid,r.config,s.config,d.result,g.config,rp.role,rt.config,rd.capability_hash,ro.task,mi.digest,si.wake,di.message_sequence,ti.anchor_event_id,tn.delivery,tf.dispatch_id,tin.message_sequence,tir.digest,ic.digest,ip.session_id,pm.digest,psi.wake,pdi.message_sequence,lpi.session_id,tdpr.dispatch_id,drr.task_id,crr.execution_epoch,co.digest,ds.fence,ud.id,ic.revision FROM engagements e LEFT JOIN effects f ON f.engagement_id=e.id CROSS JOIN projects p CROSS JOIN resources r CROSS JOIN seats s CROSS JOIN decisions d CROSS JOIN registrations g CROSS JOIN role_publications rp CROSS JOIN canonical_tasks rt CROSS JOIN runner_dispatches rd CROSS JOIN task_outbox ro CROSS JOIN admitted_messages mi CROSS JOIN session_inputs si CROSS JOIN dispatch_inputs di CROSS JOIN task_intents ti CROSS JOIN task_notices tn CROSS JOIN task_followup_ready tf CROSS JOIN task_inputs tin CROSS JOIN task_input_receipts tir CROSS JOIN internal_conversations ic CROSS JOIN internal_participants ip CROSS JOIN peer_messages pm CROSS JOIN peer_session_inputs psi CROSS JOIN peer_dispatch_inputs pdi CROSS JOIN live_peer_inputs lpi CROSS JOIN task_dispatch_input_ready tdpr CROSS JOIN dispatch_recovery_reports drr CROSS JOIN current_recovery_reports crr CROSS JOIN conversation_operations co CROSS JOIN dispatch_stops ds CROSS JOIN unresolved_dispatches ud CROSS JOIN runner_sessions sc INDEXED BY canonical_runner_session LIMIT 0",
                     "SELECT tg.config,gn.state,gn.result_value,gc.digest,gd.digest FROM task_graphs tg CROSS JOIN graph_nodes gn CROSS JOIN graph_commands gc CROSS JOIN graph_dependencies gd LIMIT 0",
                     "SELECT id FROM current_graph_scopes LIMIT 0",
@@ -341,6 +345,7 @@ impl DomainRepository {
         graphs::reconcile(&tx, graphs::now_ms()?)?;
         replies::reconcile(&tx, graphs::now_ms()?, true)?;
         execution::recover_all(&tx)?;
+        approvals::recover(&tx)?;
         tx.commit()?;
         Ok(Self {
             db: database.connection,

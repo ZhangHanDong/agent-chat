@@ -1369,3 +1369,24 @@ terminal closure. Windows piped IO is explicitly unavailable; its existing
 atomic job launch is unchanged. POSIX guardian-death recovery, macOS detached
 descendant proof, real models, effective sandbox and service authority remain
 open; native Agent execution remains disabled.
+
+Native owner approval authority (2026-09-10, ADR-043): schema 13 stores shared
+project-owner private room evidence separately from per-Agent binding incarnations.
+A third member, encryption loss or missing/unknown room reported through Agent B
+must fence Agent A too. Authenticated negative evidence for the current generation
+must persist unavailability even if its digest contradicts the earlier safe
+snapshot; returning Conflict alone leaves old grants live. Same-generation positive
+restoration stays refused, and replaying the old safe digest cannot restore access.
+
+Host approval contexts freeze original connection/thread/turn, current task epoch,
+verified route and exact leased workspace. mayWrite requires the actual exclusive
+lease; YOLO is currently refused, and read-only allows are only representable
+network-only requests. Reuse core execution::derive; unknown writable scopes stay
+once/deny. Agent HTTP cannot write metadata, grants, owner verdicts or application
+observations. Persist request/park, verdict/grant/receipt and one-shot consumption
+atomically. Applying after a lost response must never rearm; restart marks it
+Uncertain. Only exact host Applied observations for every request can resume a
+current dispatch, and generic park(false) checks the same barrier. An old observed
+application may record truth without restoring an expired capability. Scope-grant
+revocation after consumption cannot undo an operation that was already authorized.
+Live runtime mapping, inspection and Matrix transport remain unimplemented gates.

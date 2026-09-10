@@ -570,6 +570,9 @@ impl DomainRepository {
             now,
             if parked { &["started"] } else { &["parked"] },
         )?;
+        if !parked {
+            super::approvals::check_resume(&tx, &cap.dispatch_id, cap.fence)?;
+        }
         let state = if parked { "parked" } else { "started" };
         tx.execute(
             "UPDATE runner_dispatches SET state=?2 WHERE id=?1",

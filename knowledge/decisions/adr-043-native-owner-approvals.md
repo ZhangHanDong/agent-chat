@@ -1,0 +1,111 @@
+---
+kind: decision
+id: ADR-043
+title: Persist exact private owner authority before one-shot native approval application
+status: Accepted
+---
+
+Schema 13 provides the durable authority boundary for REQ-OWNER-UI-APPROVAL and
+REQ-EXECUTION-AUTHORIZATION. It builds on ADR-003/005/028/039 and existing canonical
+task/dispatch custody. It does not enable a native runtime permission response,
+Matrix card sender or verdict crypto adapter. A persisted approval is not proof
+that the native process received it, executed its tool or completed the task.
+
+An authenticated host observes the current project-owner private approval room.
+Owner, server, project and registered approval-bot identity come from allocation
+and registration truth; the observation supplies actual joined members, encryption,
+invitation policy, device identity and room generation. A positive snapshot requires
+exactly owner and approval bot, encryption and invitation-only access. The full
+bounded snapshot is stored once per server/room. Several Agents in the same project
+may share that room, with independent Agent binding incarnations. Sharing cannot
+substitute another registration, owner or project. The existing registered project
+owner/private-room policy is retained; generalized owner rebinding remains separate.
+
+Current negative evidence retires availability and saved grants immediately,
+including when the reporting adapter has not advanced its generation yet. A third
+member, missing/unknown room, encryption loss or invitation-policy loss reported
+through Agent B also fences Agent A. Same-generation positive mutation/restoration
+is refused. Replaying a previously safe observation cannot restore availability;
+restoration needs a new room generation and refreshed per-Agent incarnation.
+Registration, project owner/private binding and engagement changes revoke grants
+with database triggers. Restoring the previous owner does not resurrect them.
+
+The host freezes execution context under an exact current dispatch capability:
+connection, upstream thread/turn, canonical task epoch, verified Matrix session,
+private binding, workspace resource/path, path flavor, environment and mayWrite.
+The repository verifies the actual current resource lease; a supplied mayWrite
+boolean is never evidence of write custody. Writable context requires the exact
+exclusive lease and a clean workspace. Context cannot be mutated by replaying its
+ID. Upstream metadata must match the host's expected thread, turn, item and
+explicit environment; echoed runtime fields cannot define those expectations.
+No context/request/verdict/grant observation DTO implements Deserialize and no
+Agent HTTP command constructs it.
+
+Request identity includes the original upstream JSON-RPC ID and host connection.
+Numeric and string IDs are distinct. Immutable request digests bind full input,
+context, expiry and source identity. Parameters are size/depth bounded before
+canonical processing. Scope candidates come only from core execution::derive and
+its shared vectors: exact command/context, structured network host or explicit
+permission profile. No prose-domain inference, shell-prefix parser or broad native
+session rule is introduced. Unknown writable scopes offer only once/deny.
+Read-only contexts currently admit only representable network-only requests;
+unknown, command or additional-permission escalation is refused because this
+slice cannot prove it preserves confinement. YOLO contexts are refused entirely
+until persisted operator policy and an effective runtime adapter are integrated.
+
+Request admission and dispatch parking commit together. A matching saved grant
+creates a per-request decided state, still parked and unconsumed. A structured,
+decrypted private owner verdict must match full sender MXID, server, room, binding
+incarnation and exact request digest before expiry. Ordinary text has no verdict
+constructor. The verdict receipt, request decision and any task/always grant commit
+atomically. A duplicate source event retrieves the same record without creating
+another grant; changed content conflicts. Console/public summaries contain only
+request ID, state, choice and representable-scope marker. Grant summaries expose
+only grant ID, static scope kind, mode and revoked status. Raw owner room, workspace,
+upstream/source IDs, command and input remain host/private-card metadata.
+
+Grants bind the exact Agent allocation incarnation, registration, project, owner,
+private room/device generations, normalized workspace, resource, environment,
+mayWrite and exact derived scope. Task grants additionally bind canonical task and
+execution epoch, and are permanently revoked on Done or epoch change. Always grants
+can survive a completed dispatch/restart for that same current context; they do not
+transfer to another Agent or changed workspace/environment. Every reuse creates a
+fresh one-shot request. Explicit revocation is rechecked before consumption,
+including revocation after a decision was saved. It cannot undo an operation whose
+allow decision was already consumed or permissions already held by a native turn.
+
+Consumption revalidates capability, lease, task, binding, scope and grant. Expired
+pending requests can produce one exact deny only while the dispatch remains current;
+expired capability or retired task/binding yields no application authority. The
+transaction persists Applying before returning the host application descriptor.
+That descriptor binds exact upstream request/thread/turn/item and allow/deny. A
+second consumption always fails, even if the caller lost the first response.
+No method re-arms an Applying, Uncertain, Applied or NotApplied record.
+
+A separate authenticated host observation records whether the exact native response
+was applied. It must match the full persisted application descriptor and bounded
+evidence; altered upstream ID or decision fails. Lost response, restart or observed
+unknown outcome preserves uncertainty. NotApplied remains terminal rather than
+silently permitting another allow. The host may later record actual Applied truth
+for an old uncertain operation without reviving expired dispatch authority. Only
+current exact application observations for every outstanding request let a parked
+dispatch resume. The generic park(false) path checks the same unresolved-request
+barrier, so completing one approval cannot bypass another pending or uncertain
+request. Parked/unknown work retains existing workspace custody and cleanup rules.
+
+The single DomainRepository writer commits all state. Admission caps are 16 live
+requests per dispatch attempt, 64 per Agent and 1,024 globally; retained contexts,
+requests, grants and verdict receipts each stop at 100,000. Exact request retries
+retrieve their receipts at capacity. Metadata is bounded to 48 KiB and private room
+membership to 1,000 entries/48 KiB. This is bounded backpressure, not operational
+retention/compaction parity. Fresh schema upgrades create no approval binding or
+grant from legacy rows.
+
+Remaining gates are explicit: real authenticated Matrix sync/verdict decryption,
+late-key custody, one-time-key/device maintenance, private card delivery, supported
+native decision mapping, connection cancellation and immediate validation before
+external I/O, runtime application inspection after a lost response, operator YOLO
+policy, sandbox enforcement, graphical controls and deployment cutover. Native
+runtime decisions remain unsupported until that adapter exists. Task-notice sending
+retains ADR-038's separate unresolved send-custody gate. No model, service, credential,
+production room or runtime process was used or changed in this slice.

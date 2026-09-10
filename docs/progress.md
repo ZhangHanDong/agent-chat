@@ -2661,3 +2661,43 @@ the repository. No changes were pushed, merged or deployed from this worktree.
   combined-owned-io-lifecycle.json. Cross-platform CI is pending this push.
 - Parallel work continues on Windows cancellable pipes, outbound HTTPS and
   persisted owner approvals. No deployed service or original checkout changed.
+
+## 2026-09-10 — Durable private owner decisions and exact approval application
+
+- Isolated worktree based on 7eabc42 adds schema 13 and ADR-043. Full shared
+  project-owner approval-room observations derive private authority; per-Agent
+  incarnations remain separate. Current negative evidence, including a conflicting
+  same-generation snapshot, retires all old room bindings and grants. Positive
+  replay cannot restore them. Project/owner/registration and allocation changes
+  revoke old grants durably.
+- Host context pins current capability, verified Matrix session, canonical task
+  epoch, exact native connection/thread/turn/item and leased workspace. Request
+  admission and parking commit together. Core execution scope derivation supplies
+  exact reusable command/network/profile candidates; unknown writable requests
+  retain once/deny. Read-only escalation is limited to network-only scope and YOLO
+  is refused pending operator policy plus actual sandbox/runtime integration.
+- Structured encrypted owner verdicts commit content-bound receipts and grants
+  atomically. Task grants stop at completion/epoch change; Always grants survive a
+  clean dispatch/restart only under the same Agent/private/workspace context.
+  Explicit revocation after decision but before consumption prevents another allow.
+- Consumption persists Applying once before returning host application data. Lost
+  response/restart remains Uncertain, and neither NotApplied nor expired authority
+  can rearm it. Exact observed application may record old truth without resuming
+  an expired dispatch. Every unresolved approval blocks the generic resume path.
+  Public/console summaries omit private room, owner, workspace, source and payload.
+- Parent review found the same-generation negative-evidence gap; a regression now
+  covers B invalidating A's decided reusable request, old safe replay and fresh
+  generation restoration. Additional fixtures cover shared-room cross-project
+  refusal, exact ID types, wrong owner/scope/capability, multiple requests, injected
+  rollback, pending limits, private projections, clean grant restart and schema
+  upgrade. One existing schema assertion still expected 12 and now asserts 13.
+- Final full native workspace: 172 tests passed, zero failed or ignored, including
+  ten approval test groups. Workspace Clippy, rustfmt, spec parse/lint and lifecycle
+  pass; all six scenarios plus boundary passed with zero skipped/uncertain results.
+  All 122 native spec selectors resolve. Logs live in the operator cache outside
+  the repository; the earlier fixture/compiler and schema-expectation failures
+  remain in their original logs.
+- No live Matrix/model/runtime, credential or deployed service changed. Native
+  decision wiring, application inspection adapters, Matrix cards/verdict crypto,
+  operator YOLO policy, general owner rebinding and M6/M9 operational gates remain
+  open. Task-notice sending retains its separate custody gate from ADR-038.

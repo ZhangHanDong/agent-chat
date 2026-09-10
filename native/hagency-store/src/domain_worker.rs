@@ -138,6 +138,94 @@ fn writer_time() -> Result<u64, Error> {
         .ok_or(Error::Unavailable)
 }
 impl DomainStore {
+    pub async fn observe_approval_room(
+        &self,
+        input: hagency_core::approvals::ApprovalRoomObservation,
+    ) -> Result<(), Error> {
+        self.call(weight(&input)?, move |db| {
+            db.observe_approval_room(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn bind_approval_context(
+        &self,
+        cap: RunnerCapability,
+        input: hagency_core::approvals::HostApprovalContext,
+    ) -> Result<(), Error> {
+        self.call(weight(&input)?, move |db| {
+            db.bind_approval_context(&cap, &input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn request_owner_approval(
+        &self,
+        cap: RunnerCapability,
+        input: hagency_core::approvals::HostApprovalRequest,
+    ) -> Result<hagency_core::approvals::ApprovalSummary, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.request_owner_approval(&cap, &input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn observe_owner_verdict(
+        &self,
+        input: hagency_core::approvals::OwnerVerdictObservation,
+    ) -> Result<hagency_core::approvals::ApprovalSummary, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.observe_owner_verdict(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn consume_owner_approval(
+        &self,
+        cap: RunnerCapability,
+        id: String,
+    ) -> Result<hagency_core::approvals::ApprovalApplication, Error> {
+        self.call(weight(&id)?, move |db| {
+            db.consume_owner_approval(&cap, &id, writer_time()?)
+        })
+        .await
+    }
+    pub async fn observe_approval_application(
+        &self,
+        input: hagency_core::approvals::ApprovalApplicationObservation,
+    ) -> Result<hagency_core::approvals::ApprovalSummary, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.observe_approval_application(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn approval_summary(
+        &self,
+        id: String,
+    ) -> Result<hagency_core::approvals::ApprovalSummary, Error> {
+        self.call(weight(&id)?, move |db| db.approval_summary(&id))
+            .await
+    }
+    pub async fn private_approval(
+        &self,
+        id: String,
+    ) -> Result<hagency_core::approvals::PrivateApproval, Error> {
+        self.call(weight(&id)?, move |db| {
+            db.private_approval(&id, writer_time()?)
+        })
+        .await
+    }
+    pub async fn revoke_approval_grant(&self, id: String) -> Result<(), Error> {
+        self.call(weight(&id)?, move |db| db.revoke_approval_grant(&id))
+            .await
+    }
+    pub async fn approval_grants(
+        &self,
+        engagement: String,
+        after: String,
+        limit: u64,
+    ) -> Result<Vec<hagency_core::approvals::GrantSummary>, Error> {
+        self.call(weight(&(&engagement, &after))?, move |db| {
+            db.approval_grants(&engagement, &after, limit)
+        })
+        .await
+    }
     pub async fn matrix_ingress_scope(
         &self,
         session: String,

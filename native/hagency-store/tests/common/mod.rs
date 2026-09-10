@@ -113,6 +113,7 @@ pub fn remove_reply_schema(db: &rusqlite::Connection) {
 
 /// Restore schema 11 without manufacturing new ingress provenance.
 pub fn remove_ingress_schema(db: &rusqlite::Connection) {
+    remove_approval_schema(db);
     db.execute_batch("DROP VIEW current_final_replies; DROP VIEW current_matrix_routes; DROP VIEW task_followup_ready; DROP TABLE verified_task_requests; DROP TABLE matrix_ingress_events; ALTER TABLE matrix_transports DROP COLUMN observed_at; ALTER TABLE matrix_room_scopes DROP COLUMN visibility_since; ALTER TABLE matrix_session_routes DROP COLUMN ingress_since; ALTER TABLE matrix_session_routes DROP COLUMN parent_session_id; ALTER TABLE session_inputs DROP COLUMN config; ALTER TABLE task_inputs DROP COLUMN config; ALTER TABLE task_inputs DROP COLUMN wake; ALTER TABLE task_notices DROP COLUMN verified_route; ALTER TABLE task_notices DROP COLUMN content_digest;").unwrap();
     let routes = include_str!("../../src/migrations/011-final-replies.sql");
     let start = routes.find("CREATE VIEW current_matrix_routes AS").unwrap();
@@ -123,4 +124,9 @@ pub fn remove_ingress_schema(db: &rusqlite::Connection) {
     let tasks = include_str!("../../src/migrations/005-task-intents.sql");
     db.execute_batch(&tasks[tasks.find("CREATE VIEW task_followup_ready AS").unwrap()..])
         .unwrap();
+}
+
+/// Reconstruct schema 12 without backfilling owner approval authority.
+pub fn remove_approval_schema(db: &rusqlite::Connection) {
+    db.execute_batch("DROP TRIGGER approval_room_retire_grants; DROP TRIGGER approval_project_retire; DROP TRIGGER approval_registration_retire; DROP TRIGGER approval_engagement_retire; DROP TRIGGER approval_task_retire; DROP VIEW current_approval_bindings; DROP TABLE approval_verdict_receipts; DROP TABLE approval_grants; DROP TABLE owner_approvals; DROP TABLE approval_contexts; DROP TABLE approval_bindings; DROP TABLE approval_rooms;").unwrap();
 }

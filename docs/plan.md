@@ -49,6 +49,12 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    without manually creating a task. Continue live notice send custody, actual
    authenticated Matrix intake/transport, automatic discussion-window selection,
    taskless output and generalized room policy before operational use.
+   Schema 13 now persists private owner decisions and exact scoped grants,
+   parks each native request and consumes it once before observed application.
+   Shared approval-room negative evidence fences every Agent binding, and any
+   unresolved request blocks resume. Continue native decision/inspection adapters,
+   Matrix cards/verdict crypto and persisted operator YOLO policy before enabling
+   runtime approval or treating this as full M6 parity.
    The initial hagency-platform proof now launches explicit native probes: Windows
    atomic Job Object assignment and POSIX unreaped-leader group cancellation.
    Continue native Windows CI validation, POSIX guardian/detached-child ownership,
