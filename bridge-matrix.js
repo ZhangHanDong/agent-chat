@@ -1,3 +1,4 @@
+import { publishLegacyApprovalProjection, legacyOwnedJsonRequest, LegacyApprovalProjectionError } from './lib/legacy-approval-projection.js';
 import {
   EncryptedRoomEvent,
   MatrixClient,
@@ -3482,6 +3483,10 @@ export class MatrixBridge {
       throw new Error('verified Matrix bot publisher context required');
     }
     this.approvalBotPublisherReady = { client, mxid, credentialGeneration };
+  }
+
+  publishLegacyApprovalProjection(row, options = {}) {
+    return publishLegacyApprovalProjection(row, legacyApprovalProjectionIo(this), options);
   }
 
   callBackendApi(method, routePath, body, contextLabel = '') {
@@ -11141,8 +11146,91 @@ function approvalProjectionIo(bridge) {
   };
 }
 
+function legacyApprovalProjectionIo(bridge) {
+  const error = code => { throw new LegacyApprovalProjectionError(code); };
+  const actors = row => ['local_bot', `side-representative:${projectionServer(row.target_room_id)}`].flatMap(scope => {
+    const actor = projectionActorForBridge(bridge, { ...row, publisher: { scope } });
+    if (!actor) return [];
+    if (actor.sender.kind === 'local_bot') {
+      const client = actor.sender.client;
+      if (!client?.crypto?.isReady || !client.accessToken || !client.homeserverUrl
+        || client.impersonatedUserId || client.impersonatedDeviceId) return [];
+      return [{ ...actor, transport: { baseUrl: client.homeserverUrl, token: client.accessToken, masquerade: false } }];
+    }
+    const { side, credential } = actor.sender;
+    const token = credential.kind === 'appservice' ? credential.asToken : credential.representativeToken;
+    if (!side?.active || side.accessState !== 'accepted' || !side.apiBaseUrl || !token) return [];
+    return [{ ...actor, transport: { baseUrl: side.apiBaseUrl, token, masquerade: credential.kind === 'appservice' } }];
+  });
+  const current = (actor, row) => Boolean(actor && actors(row).some(candidate => sameProjectionActor(actor, candidate)
+    && actor.transport.baseUrl === candidate.transport.baseUrl && actor.transport.token === candidate.transport.token
+    && actor.transport.masquerade === candidate.transport.masquerade
+    && actor.sender.client === candidate.sender.client));
+  const matrix = async (actor, endpoint, budget, method = 'GET', body) => {
+    budget.check();
+    if (!rateLimitGate.beforeRequest()) error('legacy_rate_limited');
+    const url = new URL(`${String(actor.transport.baseUrl).replace(/\/+$/, '')}${endpoint}`);
+    if (actor.transport.masquerade) url.searchParams.set('user_id', actor.publisher_mxid);
+    return legacyOwnedJsonRequest(url, { method, body,
+      headers: { Authorization: `Bearer ${actor.transport.token}`, 'Content-Type': 'application/json' },
+      observeResponse: response => rateLimitGate.observeResponse(response) }, budget);
+  };
+  const roomPath = row => `/_matrix/client/v3/rooms/${encodeURIComponent(row.target_room_id)}`;
+  return {
+    actors, current,
+    backend: async (method, route, body, budget) => {
+      if (!MATRIX_BRIDGE_SECRET) error('legacy_backend_secret_unavailable');
+      const response = await legacyOwnedJsonRequest(`${BACKEND_URL}${route}`, { method, body,
+        headers: { 'X-Bridge-Secret': MATRIX_BRIDGE_SECRET, 'Content-Type': 'application/json' } }, budget);
+      if (!response.ok) error(response.status === 409 ? 'legacy_backend_conflict' : 'legacy_backend_unavailable');
+      return response.body;
+    },
+    privateContext: async (actor, row, budget) => {
+      const members = await matrix(actor, `${roomPath(row)}/joined_members`, budget);
+      if (!members.ok || !members.body?.joined || !Object.hasOwn(members.body.joined, actor.publisher_mxid)
+        || !Object.hasOwn(members.body.joined, row.approval.owner_mxid)) error('legacy_private_membership_unavailable');
+      const security = await matrix(actor, `${roomPath(row)}/state/m.room.encryption/`, budget);
+      let encrypted;
+      if (security.ok && security.body?.algorithm === 'm.megolm.v1.aes-sha2') encrypted = true;
+      else if (security.status === 404 && security.body?.errcode === 'M_NOT_FOUND') encrypted = false;
+      else error('legacy_private_security_unavailable');
+      if (encrypted && actor.sender.kind !== 'local_bot') error('legacy_private_crypto_unavailable');
+      if (!encrypted && (bridge.approvalDmMode !== 'plaintext-test' || resolveApprovalDmMode() !== 'plaintext-test')) {
+        error('legacy_plaintext_not_authorized');
+      }
+      return { room_id: row.target_room_id, owner_mxid: row.approval.owner_mxid, ready: true, joined: true, encrypted };
+    },
+    event: async (actor, row, eventId, budget) => {
+      const response = await matrix(actor, `${roomPath(row)}/event/${encodeURIComponent(eventId)}`, budget);
+      if (!response.ok) error('legacy_event_unavailable');
+      return response.body;
+    },
+    decrypt: async (actor, raw, roomId) => {
+      if (actor.sender.kind !== 'local_bot' || !actor.sender.client.crypto?.isReady) error('legacy_private_crypto_unavailable');
+      // Direct SDK decrypt preserves the authenticated outer envelope. Never call
+      // getEvent/processEvent/onRoomMessage for historical evidence.
+      const clear = await actor.sender.client.crypto.decryptRoomEvent(new EncryptedRoomEvent(raw), roomId);
+      return clear?.raw;
+    },
+    encrypt: (actor, roomId, content) => {
+      if (actor.sender.kind !== 'local_bot' || !actor.sender.client.crypto?.isReady) error('legacy_private_crypto_unavailable');
+      // Awaited in the worker's same slot. SDK-internal key I/O has no cancellation
+      // handle here; the caller rechecks its deadline/current context after settlement.
+      return actor.sender.client.crypto.encryptRoomEvent(roomId, 'm.room.message', content);
+    },
+    send: async (actor, row, plan, budget) => {
+      if (typeof plan.transaction_id !== 'string' || !/^[A-Za-z0-9_.-]{1,128}$/.test(plan.transaction_id)) error('legacy_transaction_invalid');
+      const response = await matrix(actor, `${roomPath(row)}/send/${encodeURIComponent(plan.prepared_event_type)}/${plan.transaction_id}`,
+        budget, 'PUT', plan.prepared_payload);
+      if (!response.ok) error('legacy_matrix_send_failed');
+      return response.body;
+    },
+  };
+}
+
 export function approvalProjectionIoForTest(bridge) { return approvalProjectionIo(bridge); }
 export async function publishApprovalProjectionWithBridgeForTest(bridge, row) {
+  if (row.migration_kind === 'legacy_v1') return bridge.publishLegacyApprovalProjection(row);
   return publishApprovalProjection(row, approvalProjectionIo(bridge));
 }
 
