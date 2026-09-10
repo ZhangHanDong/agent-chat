@@ -26,7 +26,7 @@ pub(super) fn read_message(db: &Connection, sequence: u64) -> Result<Message, Er
     Ok(serde_json::from_str(&encoded)?)
 }
 fn input_items(db: &Connection, dispatch: &str) -> Result<Vec<InboxItem>, Error> {
-    db.prepare("SELECT m.config,i.wake FROM dispatch_inputs d JOIN admitted_messages m ON m.sequence=d.message_sequence JOIN runner_dispatches r ON r.id=d.dispatch_id JOIN session_inputs i ON i.session_id=r.session_id AND i.message_sequence=m.sequence WHERE d.dispatch_id=?1 ORDER BY m.sequence")?.query_map([dispatch],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
+    db.prepare("SELECT CASE WHEN s.matrix_generation>0 THEN i.config ELSE m.config END,i.wake FROM dispatch_inputs d JOIN admitted_messages m ON m.sequence=d.message_sequence JOIN runner_dispatches r ON r.id=d.dispatch_id JOIN runner_sessions s ON s.id=r.session_id JOIN session_inputs i ON i.session_id=r.session_id AND i.message_sequence=m.sequence WHERE d.dispatch_id=?1 ORDER BY m.sequence")?.query_map([dispatch],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
 }
 pub(super) fn complete_inputs(tx: &Transaction<'_>, dispatch: &str, now: u64) -> Result<(), Error> {
     tx.execute("UPDATE session_inputs SET processed_at=?2 WHERE dispatch_id=?1 AND session_id=(SELECT session_id FROM runner_dispatches WHERE id=?1) AND message_sequence IN (SELECT message_sequence FROM dispatch_inputs WHERE dispatch_id=?1) AND processed_at IS NULL",params![dispatch,now])?;
@@ -122,6 +122,13 @@ impl DomainRepository {
                 return Err(hagency_core::InvalidInput("duplicate message target").into());
             }
             let binding = execution::matrix_admission_session(&tx, &target.session_id)?;
+            if tx.query_row(
+                "SELECT matrix_generation>0 FROM runner_sessions WHERE id=?1",
+                [&target.session_id],
+                |r| r.get::<_, bool>(0),
+            )? {
+                return Err(Error::RunnerAuthority);
+            }
             if binding.room_id != input.room_id || binding.thread_root != input.thread_root {
                 return Err(Error::RunnerAuthority);
             }
@@ -221,7 +228,7 @@ impl DomainRepository {
         if let Some(kind) = kind {
             text(kind, 64)?;
         }
-        self.db.prepare("SELECT m.config,i.wake FROM session_inputs i JOIN admitted_messages m ON m.sequence=i.message_sequence WHERE i.session_id=?1 AND i.message_sequence>?2 AND i.processed_at IS NULL AND i.dispatch_id IS NULL AND (?3 IS NULL OR json_extract(m.config,'$.kind')=?3) ORDER BY m.sequence LIMIT ?4")?.query_map(params![session,after,kind,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
+        self.db.prepare("SELECT CASE WHEN s.matrix_generation>0 THEN i.config ELSE m.config END,i.wake FROM session_inputs i JOIN admitted_messages m ON m.sequence=i.message_sequence JOIN runner_sessions s ON s.id=i.session_id WHERE i.session_id=?1 AND i.message_sequence>?2 AND i.processed_at IS NULL AND i.dispatch_id IS NULL AND (?3 IS NULL OR json_extract(m.config,'$.kind')=?3) ORDER BY m.sequence LIMIT ?4")?.query_map(params![session,after,kind,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
     }
     pub fn enqueue_inbox_dispatch(
         &mut self,
@@ -258,7 +265,7 @@ impl DomainRepository {
                 return Err(Error::State);
             }
             items.push(InboxItem {
-                message: read_message(&tx, seq)?,
+                message: super::verified_ingress::input_message(&tx, &input.session_id, seq)?,
                 wake,
             });
         }
@@ -301,6 +308,6 @@ impl DomainRepository {
         }
         // Dispatches contain at most 100 events and 64 KiB. The indexed page below
         // also preserves the bound when a later migration raises the dispatch cap.
-        self.db.prepare("SELECT m.config,i.wake FROM dispatch_inputs d JOIN admitted_messages m ON m.sequence=d.message_sequence JOIN runner_dispatches r ON r.id=d.dispatch_id JOIN session_inputs i ON i.session_id=r.session_id AND i.message_sequence=m.sequence WHERE d.dispatch_id=?1 AND m.sequence>?2 ORDER BY m.sequence LIMIT ?3")?.query_map(params![cap.dispatch_id,after,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
+        self.db.prepare("SELECT CASE WHEN s.matrix_generation>0 THEN i.config ELSE m.config END,i.wake FROM dispatch_inputs d JOIN admitted_messages m ON m.sequence=d.message_sequence JOIN runner_dispatches r ON r.id=d.dispatch_id JOIN runner_sessions s ON s.id=r.session_id JOIN session_inputs i ON i.session_id=r.session_id AND i.message_sequence=m.sequence WHERE d.dispatch_id=?1 AND m.sequence>?2 ORDER BY m.sequence LIMIT ?3")?.query_map(params![cap.dispatch_id,after,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
     }
 }

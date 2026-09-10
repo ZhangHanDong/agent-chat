@@ -179,6 +179,10 @@ impl DomainRepository {
             return Err(Error::Generation);
         }
         tx.execute("INSERT INTO matrix_transports(engagement_id,registration_generation,generation,server_name,sender_mxid,device_id) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(engagement_id) DO UPDATE SET registration_generation=excluded.registration_generation,generation=excluded.generation,server_name=excluded.server_name,sender_mxid=excluded.sender_mxid,device_id=excluded.device_id",params![input.engagement_id,input.registration_generation,input.generation,c.registration.server_name,input.sender_mxid,input.device_id])?;
+        tx.execute(
+            "UPDATE matrix_transports SET observed_at=?2 WHERE engagement_id=?1",
+            params![input.engagement_id, now],
+        )?;
         reconcile(&tx, now)?;
         tx.commit()?;
         Ok(())
@@ -289,6 +293,10 @@ impl DomainRepository {
         }
         let direct_sender = matches!(input.privacy, RoomPrivacy::Direct { .. }).then_some(sender);
         tx.execute("INSERT INTO matrix_room_scopes(server_name,room_id,generation,fleet_id,project_id,registration_generation,owner_mxid,privacy,encrypted,direct_sender,joined,invite_only) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT(server_name,room_id) DO UPDATE SET generation=excluded.generation,registration_generation=excluded.registration_generation,owner_mxid=excluded.owner_mxid,privacy=excluded.privacy,encrypted=excluded.encrypted,direct_sender=excluded.direct_sender,joined=excluded.joined,invite_only=excluded.invite_only,available=1,invalidation=NULL",params![c.registration.server_name,input.room_id,input.generation,c.registration.fleet_id,c.project,c.registration.generation,c.owner,privacy,input.encrypted,direct_sender,joined,input.invite_only])?;
+        tx.execute(
+            "UPDATE matrix_room_scopes SET visibility_since=?3 WHERE server_name=?1 AND room_id=?2",
+            params![c.registration.server_name, input.room_id, now],
+        )?;
         membership(
             &tx,
             input,
@@ -338,56 +346,64 @@ impl DomainRepository {
         binding: &SessionBinding,
         now: u64,
     ) -> Result<SessionBinding, Error> {
-        binding.validate()?;
-        clock(now)?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let c = context(&tx, &binding.engagement_id)?;
-        reconcile(&tx, now)?;
-        let current:Option<String>=tx.query_row("SELECT s.id FROM runner_sessions s JOIN current_matrix_routes r ON r.session_id=s.id WHERE s.engagement_id=?1 AND json_extract(s.binding,'$.room_id')=?2 AND json_extract(s.binding,'$.thread_root') IS ?3",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0)).optional()?;
-        if let Some(id) = current {
-            let existing = execution::matrix_admission_session(&tx, &id)?;
-            tx.commit()?;
-            return Ok(existing);
-        }
-        if tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM runner_sessions WHERE id=?1)",
-            [&binding.id],
-            |r| r.get::<_, bool>(0),
-        )? {
-            return Err(Error::Conflict);
-        }
-        let transport:Option<(u64,String,String)>=tx.query_row("SELECT generation,sender_mxid,device_id FROM matrix_transports WHERE engagement_id=?1 AND registration_generation=?2",params![binding.engagement_id,c.registration.generation],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-        let (transport_generation, sender_mxid, device_id) =
-            transport.ok_or(Error::RunnerAuthority)?;
-        let room:Option<(u64,String,bool)>=tx.query_row("SELECT generation,privacy,encrypted FROM matrix_room_scopes WHERE server_name=?1 AND room_id=?2 AND fleet_id=?3 AND project_id=?4 AND registration_generation=?5 AND owner_mxid=?6",params![c.registration.server_name,binding.room_id,c.registration.fleet_id,c.project,c.registration.generation,c.owner],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
-        let (room_generation, privacy, encrypted) = room.ok_or(Error::RunnerAuthority)?;
-        let session_generation:u64=tx.query_row("SELECT COALESCE(MAX(matrix_generation),0)+1 FROM runner_sessions WHERE engagement_id=?1 AND json_extract(binding,'$.room_id')=?2 AND json_extract(binding,'$.thread_root') IS ?3",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0))?;
-        generation(session_generation)?;
-        let route = ReplyRoute {
-            session_id: binding.id.clone(),
-            session_generation,
-            engagement_id: binding.engagement_id.clone(),
-            fleet_id: c.registration.fleet_id,
-            project_id: c.project,
-            registration_generation: c.registration.generation,
-            server_name: c.registration.server_name,
-            room_id: binding.room_id.clone(),
-            room_generation,
-            sender_mxid,
-            device_id,
-            transport_generation,
-            owner_mxid: c.owner,
-            privacy: serde_json::from_str(&privacy)?,
-            encrypted,
-            thread_root: binding.thread_root.clone(),
-        };
-        bounded_row(&tx, "runner_sessions", "id", &binding.id, 10_000)?;
-        tx.execute("INSERT INTO runner_sessions(id,engagement_id,binding,matrix_generation) VALUES(?1,?2,?3,?4)",params![binding.id,binding.engagement_id,serialize(binding)?,session_generation])?;
-        tx.execute("INSERT INTO matrix_session_routes(session_id,server_name,room_id,room_generation,transport_generation,registration_generation,config) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![binding.id,route.server_name,route.room_id,route.room_generation,route.transport_generation,route.registration_generation,serialize(&route)?])?;
-        check(&tx, &binding.id)?;
+        let value = resolve(&tx, binding, now)?;
         tx.commit()?;
-        Ok(binding.clone())
+        Ok(value)
     }
+}
+
+pub(super) fn resolve(
+    tx: &Transaction<'_>,
+    binding: &SessionBinding,
+    now: u64,
+) -> Result<SessionBinding, Error> {
+    binding.validate()?;
+    clock(now)?;
+    let c = context(tx, &binding.engagement_id)?;
+    reconcile(tx, now)?;
+    let current:Option<String>=tx.query_row("SELECT s.id FROM runner_sessions s JOIN current_matrix_routes r ON r.session_id=s.id WHERE s.engagement_id=?1 AND json_extract(s.binding,'$.room_id')=?2 AND json_extract(s.binding,'$.thread_root') IS ?3",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0)).optional()?;
+    if let Some(id) = current {
+        let existing = execution::matrix_admission_session(tx, &id)?;
+        return Ok(existing);
+    }
+    if tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM runner_sessions WHERE id=?1)",
+        [&binding.id],
+        |r| r.get::<_, bool>(0),
+    )? {
+        return Err(Error::Conflict);
+    }
+    let transport:Option<(u64,String,String)>=tx.query_row("SELECT generation,sender_mxid,device_id FROM matrix_transports WHERE engagement_id=?1 AND registration_generation=?2",params![binding.engagement_id,c.registration.generation],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+    let (transport_generation, sender_mxid, device_id) = transport.ok_or(Error::RunnerAuthority)?;
+    let room:Option<(u64,String,bool)>=tx.query_row("SELECT generation,privacy,encrypted FROM matrix_room_scopes WHERE server_name=?1 AND room_id=?2 AND fleet_id=?3 AND project_id=?4 AND registration_generation=?5 AND owner_mxid=?6",params![c.registration.server_name,binding.room_id,c.registration.fleet_id,c.project,c.registration.generation,c.owner],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+    let (room_generation, privacy, encrypted) = room.ok_or(Error::RunnerAuthority)?;
+    let session_generation:u64=tx.query_row("SELECT COALESCE(MAX(matrix_generation),0)+1 FROM runner_sessions WHERE engagement_id=?1 AND json_extract(binding,'$.room_id')=?2 AND json_extract(binding,'$.thread_root') IS ?3",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0))?;
+    generation(session_generation)?;
+    let route = ReplyRoute {
+        session_id: binding.id.clone(),
+        session_generation,
+        engagement_id: binding.engagement_id.clone(),
+        fleet_id: c.registration.fleet_id,
+        project_id: c.project,
+        registration_generation: c.registration.generation,
+        server_name: c.registration.server_name,
+        room_id: binding.room_id.clone(),
+        room_generation,
+        sender_mxid,
+        device_id,
+        transport_generation,
+        owner_mxid: c.owner,
+        privacy: serde_json::from_str(&privacy)?,
+        encrypted,
+        thread_root: binding.thread_root.clone(),
+    };
+    bounded_row(tx, "runner_sessions", "id", &binding.id, 10_000)?;
+    tx.execute("INSERT INTO runner_sessions(id,engagement_id,binding,matrix_generation) VALUES(?1,?2,?3,?4)",params![binding.id,binding.engagement_id,serialize(binding)?,session_generation])?;
+    tx.execute("INSERT INTO matrix_session_routes(session_id,server_name,room_id,room_generation,transport_generation,registration_generation,config) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![binding.id,route.server_name,route.room_id,route.room_generation,route.transport_generation,route.registration_generation,serialize(&route)?])?;
+    tx.execute("UPDATE matrix_session_routes SET ingress_since=(SELECT MAX(t.observed_at,r.visibility_since) FROM matrix_transports t JOIN matrix_room_scopes r ON r.server_name=t.server_name AND r.room_id=?2 WHERE t.engagement_id=?3) WHERE session_id=?1",params![binding.id,binding.room_id,binding.engagement_id])?;
+    check(tx, &binding.id)?;
+    Ok(binding.clone())
 }

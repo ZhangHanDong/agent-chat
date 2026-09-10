@@ -1,5 +1,7 @@
 #[path = "../../hagency-store/tests/common/mod.rs"]
 mod common;
+#[path = "runner/verified_ingress.rs"]
+mod verified_ingress;
 use common::*;
 use hagency::App;
 use hagency_core::{messages::*, tasks::*};
@@ -116,8 +118,18 @@ impl Fixture {
             kind: "m.text".into(),
             origin_ts: current,
         };
-        let receipt = db
-            .ingest_message(
+        let source_sequence = if verified {
+            let observation = hagency_core::ingress::MatrixEventObservation {
+                scope: db.matrix_ingress_scope("session").unwrap(),
+                event: source,
+                mentions: std::collections::BTreeSet::from(["@worker:example.test".into()]),
+                encrypted: false,
+            };
+            db.admit_matrix_event(&observation, current)
+                .unwrap()
+                .sequence
+        } else {
+            db.ingest_message(
                 &source,
                 &[MessageTarget {
                     session_id: "session".into(),
@@ -125,7 +137,9 @@ impl Fixture {
                 }],
                 current,
             )
-            .unwrap();
+            .unwrap()
+            .sequence
+        };
         db.enqueue_inbox_dispatch(
             &DispatchInput {
                 id: "dispatch".into(),
@@ -134,7 +148,7 @@ impl Fixture {
                 resources: vec![],
                 payload: json!({"instruction":"verify"}),
             },
-            &[receipt.sequence],
+            &[source_sequence],
         )
         .unwrap();
         let cap = db
@@ -162,7 +176,7 @@ impl Fixture {
             custody,
             cap,
             engagement: e.id,
-            source_sequence: receipt.sequence,
+            source_sequence,
         }
     }
     async fn close(self) {

@@ -138,6 +138,54 @@ fn writer_time() -> Result<u64, Error> {
         .ok_or(Error::Unavailable)
 }
 impl DomainStore {
+    pub async fn matrix_ingress_scope(
+        &self,
+        session: String,
+    ) -> Result<hagency_core::ingress::MatrixIngressScope, Error> {
+        self.call(weight(&session)?, move |db| {
+            db.matrix_ingress_scope(&session)
+        })
+        .await
+    }
+    pub async fn admit_matrix_event(
+        &self,
+        input: hagency_core::ingress::MatrixEventObservation,
+    ) -> Result<hagency_core::ingress::MatrixIngressReceipt, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.admit_matrix_event(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn create_verified_task_intent(
+        &self,
+        input: hagency_core::ingress::VerifiedTaskRequest,
+    ) -> Result<IntentResult, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.create_verified_task_intent(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn claim_verified_task_notice(
+        &self,
+        lease_ms: u64,
+    ) -> Result<Option<hagency_core::ingress::VerifiedNoticeClaim>, Error> {
+        self.call(1, move |db| {
+            db.claim_verified_task_notice(writer_time()?, lease_ms)
+        })
+        .await
+    }
+    pub async fn deliver_verified_task_notice(
+        &self,
+        id: String,
+        token: String,
+        input: ReplyDeliveryObservation,
+    ) -> Result<IntentResult, Error> {
+        self.call(weight(&(&id, &token, &input))?, move |db| {
+            db.deliver_verified_task_notice(&id, &token, &input, writer_time()?)
+        })
+        .await
+    }
+
     pub async fn observe_matrix_transport(
         &self,
         input: MatrixTransportObservation,

@@ -107,5 +107,20 @@ pub fn remove_graph_schema(db: &rusqlite::Connection) {
 }
 /// Restore schema 10 without inventing privacy for any earlier native session.
 pub fn remove_reply_schema(db: &rusqlite::Connection) {
+    remove_ingress_schema(db);
     db.execute_batch("DROP VIEW current_final_replies; DROP VIEW current_matrix_routes; DROP TABLE final_reply_inspections; DROP TABLE final_reply_calls; DROP TABLE final_replies; DROP TABLE matrix_session_routes; DROP TABLE matrix_room_memberships; DROP TABLE matrix_room_scopes; DROP TABLE matrix_transports; DROP INDEX canonical_runner_session; ALTER TABLE runner_sessions DROP COLUMN matrix_generation; CREATE UNIQUE INDEX canonical_runner_session ON runner_sessions(engagement_id,CASE WHEN json_extract(binding,'$.kind')='internal' THEN 'internal' ELSE 'matrix' END,CASE WHEN json_extract(binding,'$.kind')='internal' THEN id ELSE json_extract(binding,'$.room_id') END,COALESCE(json_extract(binding,'$.thread_root'),''));").unwrap();
+}
+
+/// Restore schema 11 without manufacturing new ingress provenance.
+pub fn remove_ingress_schema(db: &rusqlite::Connection) {
+    db.execute_batch("DROP VIEW current_final_replies; DROP VIEW current_matrix_routes; DROP VIEW task_followup_ready; DROP TABLE verified_task_requests; DROP TABLE matrix_ingress_events; ALTER TABLE matrix_transports DROP COLUMN observed_at; ALTER TABLE matrix_room_scopes DROP COLUMN visibility_since; ALTER TABLE matrix_session_routes DROP COLUMN ingress_since; ALTER TABLE matrix_session_routes DROP COLUMN parent_session_id; ALTER TABLE session_inputs DROP COLUMN config; ALTER TABLE task_inputs DROP COLUMN config; ALTER TABLE task_inputs DROP COLUMN wake; ALTER TABLE task_notices DROP COLUMN verified_route; ALTER TABLE task_notices DROP COLUMN content_digest;").unwrap();
+    let routes = include_str!("../../src/migrations/011-final-replies.sql");
+    let start = routes.find("CREATE VIEW current_matrix_routes AS").unwrap();
+    let end = routes.find("\n\nCREATE TABLE final_replies").unwrap();
+    db.execute_batch(&routes[start..end]).unwrap();
+    db.execute_batch(&routes[routes.find("CREATE VIEW current_final_replies AS").unwrap()..])
+        .unwrap();
+    let tasks = include_str!("../../src/migrations/005-task-intents.sql");
+    db.execute_batch(&tasks[tasks.find("CREATE VIEW task_followup_ready AS").unwrap()..])
+        .unwrap();
 }

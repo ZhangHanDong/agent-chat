@@ -94,7 +94,7 @@ pub struct TaskNotice {
     pub sender_engagement: String,
     pub server_name: String,
     pub room_id: String,
-    pub thread_root: String,
+    pub thread_root: Option<String>,
     pub transaction_id: String,
     pub body: String,
     pub kind: String,

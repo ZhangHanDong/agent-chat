@@ -42,6 +42,13 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    uncertain sends cannot silently resume. Continue real authenticated Matrix
    task-intent/session integration, arbitrary room/DM policy, taskless output and
    transport inspection before treating this as an operational reply bridge.
+   Schema 12 now admits host-observed Matrix input into independent current
+   session copies and creates/activates canonical task intents from that input.
+   Direct main stays null-root; group/explicit threads retain authenticated roots.
+   Offline repository and HTTP fixtures reach dispatch, follow-up and final intent
+   without manually creating a task. Continue live notice send custody, actual
+   authenticated Matrix intake/transport, automatic discussion-window selection,
+   taskless output and generalized room policy before operational use.
    The initial hagency-platform proof now launches explicit native probes: Windows
    atomic Job Object assignment and POSIX unreaped-leader group cancellation.
    Continue native Windows CI validation, POSIX guardian/detached-child ownership,

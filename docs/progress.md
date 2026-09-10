@@ -2529,3 +2529,38 @@ input acknowledgement, sandbox, host authority and durable-domain gates close.
   status observation and network loops. This task added no client crate, ran no
   model/homeserver/browser and made no deployment. Continuous retention beyond
   finite custody capacity remains a release gate.
+## 2026-09-10 — Verified Matrix input to canonical task integration
+
+- Isolated worktree based on b89c576 adds schema 12 and ADR-038. Host-only typed
+  observations bind current full Matrix identity and generations; runtime HTTP
+  cannot choose input target, wake policy or transport truth. Legacy intake stays
+  fenced from verified sessions.
+- Current joined-human and full-MXID mention evidence derives wake. Direct main
+  stays null-root without @; Agent/service messages remain background. Independent
+  session/task copies retain exact original source SIDs, body and scope receipts.
+  Task creation, dormant input, ACK and request dedup commit atomically.
+- Actual ACK observation activates canonical work; frozen dispatch and original-
+  human follow-up carry the same task through canonical epochs to final intent.
+  Repository and HTTP fixtures now begin with admitted input instead of manually
+  creating the task. Wrong device/sender/content, runtime forged fields, promoted
+  null-root DM, retired parent, allocation/device rotation, missing legacy
+  boundaries, transaction failure and restart have deterministic coverage.
+- Review retained the live notice adapter as an explicit unimplemented gate:
+  claim/reclaim alone lacks begin-send and uncertain-send custody. A later rejected
+  ACK cannot undo a delayed private send. ADR/spec and API comments require current
+  route validation, cancellation and durable uncertainty before any live adapter.
+  Self-review also added parent provenance for pre-resolved explicit threads.
+- Validation found three existing migration expectations still naming schema 11;
+  they now assert 12. New HTTP fixtures initially used the wrong App constructor
+  arguments and response nesting, and one follow-up fixture expected epoch 2 after
+  a second Done although the canonical result is 3. These fixture failures are
+  preserved in cache logs. Clippy requested a grouped projection argument and
+  removal of redundant borrows in the shared intent persistence helper.
+- The full native workspace passed 131 tests with zero failures or ignored tests;
+  workspace Clippy, rustfmt, task parse/lint and final lifecycle pass. All seven
+  scenarios plus boundary passed with zero skips/uncertain results, and all 102
+  native spec selectors resolve. The final workspace rerun after helper cleanup
+  also passed 131 tests. Logs live under the operator cache, outside the repo.
+- No model, live Matrix service, credential or deployment changed. Real sync/crypto
+  and transport, generalized invitation/DM policy, taskless/front-desk output,
+  automatic unread discussion-window selection and migration cutover remain open.

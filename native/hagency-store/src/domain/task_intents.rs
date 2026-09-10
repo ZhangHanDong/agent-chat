@@ -8,7 +8,7 @@ use serde_json::json;
 fn active_engagement(db: &Connection, id: &str) -> Result<(String, String, String), Error> {
     db.query_row("SELECT e.fleet_id,e.project_id,json_extract(r.config,'$.serverName') FROM engagements e JOIN registrations r ON r.fleet_id=e.fleet_id WHERE e.id=?1 AND e.state='active' AND e.generation=r.generation",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(Error::RunnerAuthority)
 }
-fn notice(db: &Connection, id: &str) -> Result<TaskNotice, Error> {
+pub(super) fn notice(db: &Connection, id: &str) -> Result<TaskNotice, Error> {
     let data: String = db
         .query_row("SELECT config FROM task_notices WHERE id=?1", [id], |r| {
             r.get(0)
@@ -23,7 +23,7 @@ fn notice_id(task_id: &str, kind: &str) -> Result<String, Error> {
         canonical::digest(&json!([task_id, kind]))?
     ))
 }
-fn add_notice(
+pub(super) fn add_notice(
     tx: &Transaction<'_>,
     task: &Task,
     root: &Message,
@@ -37,19 +37,43 @@ fn add_notice(
         id: id.clone(),
         task_id: task.id.clone(),
         session_id: task.session_id.clone(),
-        sender_engagement: session.engagement_id,
+        sender_engagement: session.engagement_id.clone(),
         server_name: root.server_name.clone(),
         room_id: root.room_id.clone(),
-        thread_root: root.event_id.clone(),
+        thread_root: if tx.query_row(
+            "SELECT matrix_generation>0 FROM runner_sessions WHERE id=?1",
+            [&task.session_id],
+            |r| r.get::<_, bool>(0),
+        )? {
+            session.thread_root.clone()
+        } else {
+            Some(root.event_id.clone())
+        },
         transaction_id: format!("hagency_{}", &canonical::digest(&json!(id))?[..40]),
         body,
         kind: kind.into(),
     };
     bounded_row(tx, "task_notices", "id", &id, 30_000)?;
     tx.execute("INSERT INTO task_notices(id,task_id,config,state,not_before) VALUES(?1,?2,?3,'pending',?4)",params![id,task.id,serialize(&value)?,now])?;
+    if tx.query_row(
+        "SELECT matrix_generation>0 FROM runner_sessions WHERE id=?1",
+        [&task.session_id],
+        |r| r.get::<_, bool>(0),
+    )? {
+        let route = super::matrix_routes::route(tx, &task.session_id)?;
+        let digest = canonical::digest(&json!([&value, &route, root.event_id]))?;
+        tx.execute(
+            "UPDATE task_notices SET verified_route=?2,content_digest=?3 WHERE id=?1",
+            params![id, serialize(&route)?, digest],
+        )?;
+    }
     Ok(value)
 }
-fn intent_result(db: &Connection, id: &str, replayed: bool) -> Result<IntentResult, Error> {
+pub(super) fn intent_result(
+    db: &Connection,
+    id: &str,
+    replayed: bool,
+) -> Result<IntentResult, Error> {
     let (session_id, activation): (String, String) = db.query_row(
         "SELECT session_id,state FROM task_intents WHERE task_id=?1",
         [id],
@@ -166,6 +190,37 @@ fn create_intent(
         )?;
         binding.id
     };
+    persist_intent(
+        tx,
+        input,
+        creator,
+        now,
+        IntentProjection {
+            session_id: &session_id,
+            root: &root,
+            sequences: &ids,
+        },
+        &digest,
+    )
+}
+pub(super) struct IntentProjection<'a> {
+    pub session_id: &'a str,
+    pub root: &'a Message,
+    pub sequences: &'a [u64],
+}
+pub(super) fn persist_intent(
+    tx: &Transaction<'_>,
+    input: &TaskIntent,
+    creator: Option<&str>,
+    now: u64,
+    projection: IntentProjection<'_>,
+    digest: &str,
+) -> Result<IntentResult, Error> {
+    let IntentProjection {
+        session_id,
+        root,
+        sequences: ids,
+    } = projection;
     let existing: bool = tx.query_row(
         "SELECT EXISTS(SELECT 1 FROM task_intents WHERE session_id=?1)",
         [&session_id],
@@ -187,7 +242,7 @@ fn create_intent(
         return Err(Error::Conflict);
     }
     let mut task =
-        execution::create_task(tx, &id, &session_id, creator, &input.definition.title, now)?;
+        execution::create_task(tx, &id, session_id, creator, &input.definition.title, now)?;
     task.description = input.definition.description.clone();
     task.priority = input.definition.priority;
     task.granularity = input.definition.granularity;
@@ -204,14 +259,15 @@ fn create_intent(
     add_notice(
         tx,
         &task,
-        &root,
+        root,
         "ack",
         format!("Task created: {}", task.title),
         now,
     )?;
     intent_result(tx, &id, false)
 }
-fn project_inputs(tx: &Transaction<'_>, task_id: &str) -> Result<(), Error> {
+
+pub(super) fn project_inputs(tx: &Transaction<'_>, task_id: &str) -> Result<(), Error> {
     let session: String = tx.query_row(
         "SELECT session_id FROM task_intents WHERE task_id=?1",
         [task_id],
@@ -226,7 +282,7 @@ fn project_inputs(tx: &Transaction<'_>, task_id: &str) -> Result<(), Error> {
     if pending + added > 2000 {
         return Err(Error::Capacity);
     }
-    tx.execute("INSERT OR IGNORE INTO session_inputs(session_id,message_sequence,wake) SELECT ?2,message_sequence,1 FROM task_inputs WHERE task_id=?1",params![task_id,session])?;
+    tx.execute("INSERT OR IGNORE INTO session_inputs(session_id,message_sequence,wake,config) SELECT ?2,message_sequence,COALESCE(wake,1),config FROM task_inputs WHERE task_id=?1",params![task_id,session])?;
     Ok(())
 }
 fn binding(db: &Connection, id: &str) -> Result<Option<(String, u64)>, Error> {
@@ -330,7 +386,7 @@ pub(super) fn start_task(
         add_notice(
             tx,
             task,
-            &messages::read_message(tx, root)?,
+            &super::verified_ingress::task_message(tx, &task.id, root)?,
             &format!("followup_{}", task.execution_epoch),
             format!("Continuing task: {}", task.title),
             now,
@@ -446,6 +502,13 @@ impl DomainRepository {
             };
         }
         let task = execution::task(&tx, id)?;
+        if tx.query_row(
+            "SELECT matrix_generation>0 FROM runner_sessions WHERE id=?1",
+            [&task.session_id],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(Error::RunnerAuthority);
+        }
         execution::admission_session(&tx, &task.session_id)?;
         let (state, root_seq) = binding(&tx, id)?.ok_or(Error::NotFound)?;
         if state == "closed" {
@@ -493,7 +556,7 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let ids=tx.prepare("SELECT id FROM task_notices WHERE not_before<=?1 AND (state='pending' OR (state='claimed' AND claim_until<=?1)) ORDER BY rowid LIMIT 128")?.query_map([now],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+        let ids=tx.prepare("SELECT id FROM task_notices WHERE verified_route IS NULL AND not_before<=?1 AND (state='pending' OR (state='claimed' AND claim_until<=?1)) ORDER BY rowid LIMIT 128")?.query_map([now],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
         for id in ids {
             let value = notice(&tx, &id)?;
             match execution::matrix_admission_session(&tx, &value.session_id) {
@@ -534,6 +597,13 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if tx.query_row(
+            "SELECT verified_route IS NOT NULL FROM task_notices WHERE id=?1",
+            [id],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(Error::RunnerAuthority);
+        }
         let command = notice(&tx, id)?;
         execution::matrix_admission_session(&tx, &command.session_id)?;
         if command.server_name != delivery.server_name

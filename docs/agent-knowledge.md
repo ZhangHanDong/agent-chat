@@ -1314,3 +1314,24 @@ machine generation, but that is not authenticated Matrix proof. Retained Matrix
 transactions can contain old probe events; the future authenticated adapter must
 suppress those events' connection-proof effect while retaining all stored bytes.
 No native network collector or domain admission shortcut exists in this slice.
+Verified Matrix intake integration (2026-09-10, ADR-038): schema 12 leaves the
+legacy find_session fence intact and adds host-only typed generation observations.
+Keep original source SIDs and immutable per-session input separate from shared
+message storage. Same-generation refresh must preserve initial visibility times;
+legacy nullable evidence cannot be upgraded by replay. A timestamp is a deny
+filter, never proof of Matrix authenticity, membership or safe backfill. Root and
+trigger copies must come from the same current Agent route family. Explicit task
+threads inherit their original root projection's parent SID even when a host
+resolved the thread before creating the task.
+
+Direct main tasks keep a null thread root: source event, ACK event and canonical
+Done remain separate facts. Group mention starts a task thread; Agent/service
+messages stay background input. ACK activates dormant copies under exact current
+sender/device/content/route receipts. Real intake-to-task-to-final fixtures now
+exist, superseding ADR-033's manual-task-only seam for this bounded proof. They do
+not establish an operational adapter. Verified notice claims still lack durable
+begin-send/Uncertain custody; never connect claim/reclaim directly to live Matrix.
+Immediate route checks, cancellation coordination and observed uncertain-send
+recovery are required before that adapter is safe. A stable transaction ID alone
+cannot prevent a delayed private notice after promotion. Taskless output, broader
+room/DM policy and automatic unread room-window selection remain open.
