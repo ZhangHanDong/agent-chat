@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { createLoopbackTestServer } from './helpers/loopback-test-server.js';
 
 function writeJson(filePath, value) {
   writeFileSync(filePath, JSON.stringify(value, null, 2));
@@ -13,6 +14,8 @@ describe('provenance metadata (5.8.3 Layer 1)', () => {
   const bridgeSecret = 'provenance-bridge-secret';
   let runtimeDir;
   let app;
+  let backendModule;
+  let listener;
 
   beforeAll(async () => {
     runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-provenance-'));
@@ -36,10 +39,14 @@ describe('provenance metadata (5.8.3 Layer 1)', () => {
 
     const backendUrl = pathToFileURL(path.resolve('backend-v2.js')).href;
     const cacheBust = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    ({ app } = await import(`${backendUrl}?provenance-test=${cacheBust}`));
+    backendModule = await import(`${backendUrl}?provenance-test=${cacheBust}`);
+    listener = await createLoopbackTestServer(backendModule.app);
+    app = listener.server;
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await listener?.close();
+    await backendModule?.stopServer();
     rmSync(runtimeDir, { recursive: true, force: true });
     delete process.env.MATRIX_BRIDGE_SECRET;
   });

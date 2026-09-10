@@ -28,7 +28,9 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import express from 'express';
 import request from 'supertest';
+import { createLoopbackTestServer } from './helpers/loopback-test-server.js';
 
+const requestListeners = [];
 let q = null;            // the module, cache-busted per test
 let logsRoot = null;
 let sinkLog = null;      // every sink call, for assertions
@@ -93,14 +95,17 @@ async function initQueue({ sinks = {}, idleThresholdMs = 50 } = {}) {
   return q;
 }
 
-function appFor(queueModule) {
+async function appFor(queueModule) {
   const app = express();
   app.use(express.json());
   queueModule.installDeliveryQueueRoutes(app);
-  return app;
+  const listener = await createLoopbackTestServer(app);
+  requestListeners.push(listener);
+  return listener.server;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(requestListeners.splice(0).map((listener) => listener.close()));
   q?.stopDeliveryQueueLoops?.();
   q?.resetDeliveryQueueHooks?.();
   q = null;
@@ -173,7 +178,7 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
   test('enqueue → snapshot → deliver via force-send', async () => {
     await initQueue();
     q.setDeliveryQueueHooks({ execFileAsync: obedientTmux() });
-    const app = appFor(q);
+    const app = await appFor(q);
 
     const created = await request(app).post('/api/queue')
       .send({ from: 'op', to: 'alpha:0.0', payload: 'hello' });
@@ -186,7 +191,7 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
 
   test('idempotency: same key dedupes, and the ledger survives a restart', async () => {
     await initQueue();
-    const app = appFor(q);
+    const app = await appFor(q);
     const first = await request(app).post('/api/queue')
       .set('Idempotency-Key', 'k1').send({ from: 'op', to: 'a:0.0', payload: 'x' });
     const second = await request(app).post('/api/queue')
@@ -196,7 +201,7 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
 
     // Reload from disk into the same module: the key still dedupes.
     q.initDeliveryQueue({ logsRoot, emitDeliveryEvent: () => {} });
-    const third = await request(appFor(q)).post('/api/queue')
+    const third = await request(await appFor(q)).post('/api/queue')
       .set('Idempotency-Key', 'k1').send({ from: 'op', to: 'a:0.0', payload: 'x' });
     expect(third.body.deduped).toBe(true);
   });
@@ -212,7 +217,7 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
     writeFileSync(path.join(logsRoot, 'redirects.json'), JSON.stringify({ 'old:0.0': 'new:0.0' }));
     q.initDeliveryQueue({ logsRoot, emitDeliveryEvent: () => {} });
 
-    const res = await request(appFor(q)).post('/api/queue')
+    const res = await request(await appFor(q)).post('/api/queue')
       .send({ from: 'op', to: 'old:0.0', payload: 'x' });
     expect(res.body.redirected).toBe('old:0.0');
     const snapshot = q.queueSnapshot();
@@ -221,7 +226,7 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
 
   test('a newer backend notification supersedes the queued one for the same target', async () => {
     await initQueue();
-    const app = appFor(q);
+    const app = await appFor(q);
     const mk = (n) => ({
       from: 'hafleet-backend', to: 'alpha:0.0', payload: `[NOTIFICATION] v${n}`,
       notifyMeta: { kind: 'inbox', sourceMsgId: `msg_${n}` },
@@ -236,7 +241,7 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
 
   test('DELETE /api/queue/:id refuses while delivery is in flight', async () => {
     await initQueue();
-    const app = appFor(q);
+    const app = await appFor(q);
     await request(app).post('/api/queue').send({ from: 'op', to: 'a:0.0', payload: 'x' });
     // Claim it the way the tick does, then try to cancel it out from under the delivery.
     const entry = q.queueSnapshot()[0];
@@ -257,7 +262,7 @@ describe('the queue routes, driven through the module\'s own installRoutes', () 
 
   test('clearing an agent\'s notifications drops only notifications, only that agent\'s', async () => {
     await initQueue();
-    const app = appFor(q);
+    const app = await appFor(q);
     await request(app).post('/api/queue').send({
       from: 'hafleet-backend', to: 'alpha:0.0', payload: '[NOTIFICATION] x',
       notifyMeta: { kind: 'inbox', sourceMsgId: 'm1' },
@@ -287,7 +292,7 @@ describe('the tick: idle gating, urgency, staleness', () => {
   test('not idle → held; idle → delivered', async () => {
     await initQueue({ idleThresholdMs: 50 });
     q.setDeliveryQueueHooks({ execFileAsync: obedientTmux() });
-    const app = appFor(q);
+    const app = await appFor(q);
     await request(app).post('/api/queue').send({ from: 'op', to: 'alpha:0.0', payload: 'x' });
 
     // Busy pane: a fresh single observation counts as active, so the tick holds the message.
@@ -304,7 +309,7 @@ describe('the tick: idle gating, urgency, staleness', () => {
   test('urgent priority bypasses the idle gate', async () => {
     await initQueue({ idleThresholdMs: 60_000 });   // nothing could ever look idle
     q.setDeliveryQueueHooks({ execFileAsync: obedientTmux() });
-    const app = appFor(q);
+    const app = await appFor(q);
     await request(app).post('/api/queue').send({ from: 'op', to: 'alpha:0.0', payload: 'now', priority: 'urgent' });
     await q.updatePaneSnapshot('alpha:0.0');       // observed, and by construction never idle
     await q.processQueueTick();
@@ -322,7 +327,7 @@ describe('the tick: idle gating, urgency, staleness', () => {
       sinks: { unreadSnapshot: async () => ({ unread_total: 0 }) },
     });
     q.setDeliveryQueueHooks({ execFileAsync: obedientTmux() });
-    const app = appFor(q);
+    const app = await appFor(q);
     await request(app).post('/api/queue').send({
       from: 'hafleet-backend', to: 'alpha:0.0', payload: '[NOTIFICATION] stale',
       notifyMeta: { kind: 'inbox', sourceMsgId: 'gone', unreadCount: 3 },
@@ -407,7 +412,7 @@ describe('reminders: scheduled, fired, merged', () => {
      * whose payload lists both, so the agent reads one message with the full history.
      */
     await initQueue();
-    const app = appFor(q);
+    const app = await appFor(q);
     await request(app).post('/api/reminders').send({ target: 'alpha:0.0', delay: 0.01, msg: '第一件事' });
     await request(app).post('/api/reminders').send({ target: 'alpha:0.0', delay: 0.01, msg: '第二件事' });
     await new Promise((r) => setTimeout(r, 30));
@@ -424,17 +429,17 @@ describe('reminders: scheduled, fired, merged', () => {
 
   test('reminders persist across a reload, and DELETE cancels one', async () => {
     await initQueue();
-    const app = appFor(q);
+    const app = await appFor(q);
     const created = await request(app).post('/api/reminders')
       .send({ target: 'alpha:0.0', delay: 3600, msg: '很久以后' });
     expect(created.body.ok).toBe(true);
 
     q.initDeliveryQueue({ logsRoot, emitDeliveryEvent: () => {} });
-    const listed = (await request(appFor(q)).get('/api/reminders')).body;
+    const listed = (await request(await appFor(q)).get('/api/reminders')).body;
     expect(listed).toHaveLength(1);
 
-    const del = await request(appFor(q)).delete(`/api/reminders/${listed[0].id}`);
+    const del = await request(await appFor(q)).delete(`/api/reminders/${listed[0].id}`);
     expect(del.body).toMatchObject({ ok: true });
-    expect((await request(appFor(q)).get('/api/reminders')).body).toEqual([]);
+    expect((await request(await appFor(q)).get('/api/reminders')).body).toEqual([]);
   });
 });

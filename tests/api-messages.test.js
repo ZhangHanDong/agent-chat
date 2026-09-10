@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
+import { createLoopbackTestServer } from './helpers/loopback-test-server.js';
 
 const API_TOKEN = 'messages-test-api-token';
 const ALPHA_TOKEN = 'alpha-agent-token';
@@ -326,6 +327,8 @@ describe('backend message API', () => {
       summary: 'restore committed message', source: 'matrix', source_event_id: '$committed-event',
     };
 
+    let reloaded;
+    let reloadListener;
     try {
       const first = await request(recovering.app).post('/api/messages')
         .set('X-Bridge-Secret', 'matrix-committed-secret').send(payload);
@@ -333,8 +336,9 @@ describe('backend message API', () => {
       writeFileSync(path.join(recovering.runtimeDir, 'data', 'messages.json'), '[]');
 
       const backendUrl = pathToFileURL(path.resolve('backend-v2.js')).href;
-      const reloaded = await import(`${backendUrl}?matrix-committed-recovery=${Date.now()}-${Math.random()}`);
-      const replay = await request(reloaded.app).post('/api/messages')
+      reloaded = await import(`${backendUrl}?matrix-committed-recovery=${Date.now()}-${Math.random()}`);
+      reloadListener = await createLoopbackTestServer(reloaded.app);
+      const replay = await request(reloadListener.server).post('/api/messages')
         .set('X-Bridge-Secret', 'matrix-committed-secret').send(payload);
 
       expect(replay.body).toMatchObject({ ok: true, id: first.body.id, deduped: true });
@@ -345,7 +349,9 @@ describe('backend message API', () => {
         event.type === 'message.accepted' && event.messageId === first.body.id
       ))).toHaveLength(1);
     } finally {
-      recovering.cleanup();
+      await reloadListener?.close();
+      await reloaded?.stopServer();
+      await recovering.cleanup();
     }
   });
 
@@ -384,6 +390,8 @@ describe('backend message API', () => {
       source_event_id: '$recover-event',
     };
 
+    let reloaded;
+    let reloadListener;
     try {
       recovering.internals.setMatrixDispatchFailureForTest('after-message-persist');
       const interrupted = await request(recovering.app).post('/api/messages')
@@ -393,8 +401,9 @@ describe('backend message API', () => {
       expect(readDeliveryEvents(recovering.runtimeDir)).toHaveLength(0);
 
       const backendUrl = pathToFileURL(path.resolve('backend-v2.js')).href;
-      const reloaded = await import(`${backendUrl}?matrix-recovery=${Date.now()}-${Math.random()}`);
-      const replay = await request(reloaded.app).post('/api/messages')
+      reloaded = await import(`${backendUrl}?matrix-recovery=${Date.now()}-${Math.random()}`);
+      reloadListener = await createLoopbackTestServer(reloaded.app);
+      const replay = await request(reloadListener.server).post('/api/messages')
         .set('X-Bridge-Secret', 'matrix-recovery-secret')
         .send({ ...payload, summary: 'changed replay payload' });
 
@@ -404,7 +413,9 @@ describe('backend message API', () => {
         event.type === 'message.accepted' && event.messageId === 'msg_0001'
       ))).toHaveLength(1);
     } finally {
-      recovering.cleanup();
+      await reloadListener?.close();
+      await reloaded?.stopServer();
+      await recovering.cleanup();
     }
   });
 
@@ -436,6 +447,8 @@ describe('backend message API', () => {
       summary: 'resume reliable wake', source: 'matrix', source_event_id: '$wake-event',
     };
 
+    let reloaded;
+    let reloadListener;
     try {
       recovering.internals.setMatrixDispatchFailureForTest('after-wake-before-commit');
       const interrupted = await request(recovering.app).post('/api/messages')
@@ -444,8 +457,9 @@ describe('backend message API', () => {
       expect(queue.requests).toHaveLength(1);
 
       const backendUrl = pathToFileURL(path.resolve('backend-v2.js')).href;
-      const reloaded = await import(`${backendUrl}?matrix-wake-recovery=${Date.now()}-${Math.random()}`);
-      const replay = await request(reloaded.app).post('/api/messages')
+      reloaded = await import(`${backendUrl}?matrix-wake-recovery=${Date.now()}-${Math.random()}`);
+      reloadListener = await createLoopbackTestServer(reloaded.app);
+      const replay = await request(reloadListener.server).post('/api/messages')
         .set('X-Bridge-Secret', 'matrix-wake-secret').send(payload);
 
       expect(replay.body).toMatchObject({ ok: true, id: 'msg_0001', deduped: true });
@@ -458,7 +472,9 @@ describe('backend message API', () => {
       ).trim().split('\n').map(JSON.parse);
       expect(receipts.at(-1).status).toBe('committed');
     } finally {
-      recovering.cleanup();
+      await reloadListener?.close();
+      await reloaded?.stopServer();
+      await recovering.cleanup();
       await queue.close();
     }
   });

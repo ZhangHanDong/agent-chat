@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { createLoopbackTestServer } from './loopback-test-server.js';
 
 /** Serialises the env-set/import window. See createBackendTestContext. */
 let importLock = Promise.resolve();
@@ -198,38 +199,25 @@ export async function createBackendTestContext(prefix, seed = {}) {
 
   const { app } = backendModule;
   const servers = new Set();
+  async function listen(host = '127.0.0.1') {
+    const listener = await createLoopbackTestServer(app, { host });
+    servers.add(listener);
+    return listener;
+  }
+  const requestListener = await listen();
+  let cleanupPromise;
 
   return {
-    app,
+    // Existing callers pass app to Supertest. Keep the Express function
+    // separately for callers that need middleware or direct lifecycle access.
+    app: requestListener.server,
+    expressApp: app,
     backendModule,
     internals: backendModule.__backendV2TestInternals || {},
     runtimeDir,
-    async listen(host = '127.0.0.1') {
-      const server = await new Promise((resolve, reject) => {
-        const instance = app.listen(0, host, () => resolve(instance));
-        instance.on('error', reject);
-      });
-      if (typeof server.unref === 'function') server.unref();
-      servers.add(server);
-      const address = server.address();
-      return {
-        server,
-        baseUrl: `http://${host}:${address.port}`,
-        close() {
-          return new Promise((resolve, reject) => {
-            if (typeof server.closeAllConnections === 'function') {
-              server.closeAllConnections();
-            }
-            server.close((error) => {
-              servers.delete(server);
-              if (error) reject(error);
-              else resolve();
-            });
-          });
-        },
-      };
-    },
+    listen,
     cleanup() {
+      if (cleanupPromise) return cleanupPromise;
       // Stop the module's background loops before the runtime dir is deleted
       // underneath them.
       //
@@ -255,19 +243,17 @@ export async function createBackendTestContext(prefix, seed = {}) {
         // A context that failed mid-import may have no stopServer; nothing to stop.
       }
 
-      for (const server of servers) {
-        try {
-          server.close();
-        } catch {
-          // ignore close errors in test cleanup
-        }
-      }
+      // close() stops accepting synchronously, preserving existing synchronous
+      // afterEach callers; awaiting cleanup also observes all close callbacks.
+      const closingServers = [...servers].map((listener) => listener.close());
       servers.clear();
       rmSync(runtimeDir, { recursive: true, force: true });
       for (const [key, value] of savedEnv.entries()) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
+      cleanupPromise = Promise.all(closingServers).then(() => undefined);
+      return cleanupPromise;
     },
   };
 }

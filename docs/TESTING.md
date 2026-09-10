@@ -6,6 +6,49 @@ npm run test:kernel       # sharded kernel + CLI subset
 npm run verify:ci         # all gates (needs GNU timeout; macOS: brew install coreutils)
 ```
 
+## Confirmed loopback transport defect (2026-09-09)
+
+On macOS with Node 24.2.0 and Supertest 7.2.2, a wildcard IPv6 HTTP listener
+can bind the same port as an existing `127.0.0.1` listener. This also happens
+with automatic `listen(0)` allocation. Supertest's `request(expressApp)` opens
+that wildcard listener but sends its request to `127.0.0.1`, where the unrelated
+IPv4 listener receives it instead.
+
+An owned local fixture reproduced this through the unmodified installed
+Supertest: the intended handler received **zero requests**, while the client
+received an unrelated 404, `ECONNRESET` / `socket hang up`, and
+`HPE_INVALID_CONSTANT` / `Expected HTTP/, RTSP/ or ICE/`, according to what the
+other owned listener returned. An explicitly bound IPv4 control reached its
+intended handler and returned 403. The automatic-port probe needed 16,354
+allocations to cycle back to one of 16 occupied fixture ports and took 497 ms;
+the three Supertest specimens took 1.542 seconds. No existing service was probed.
+
+This is a demonstrated test transport defect matching several historical
+symptoms. The original CI logs did not identify their actual responder, so this
+does **not** establish that every historical flake had this cause. Memory
+retention and environment-isolation debt remain separate concerns.
+
+The backend fixture now awaits a server bound to `127.0.0.1` before returning.
+`context.app` remains the Supertest target and is now that ready HTTP server;
+`context.expressApp` and `context.backendModule.app` retain the original Express
+function. Direct backend imports used for HTTP tests must call
+`createLoopbackTestServer` and pass its `server` to Supertest. The helper also
+provides an awaited `close()`. Context cleanup stops listeners synchronously,
+restores environment state as before, and returns a promise for close completion.
+
+`tests/backend-test-loopback.test.js` checks the bound address before any HTTP
+request, verifies that the owned handler receives it, checks close completion,
+and verifies that an occupied IPv4 port fails with `EADDRINUSE` without reaching
+either handler. This deterministic regression does not scan the ephemeral port
+range or depend on the host's current allocation cursor.
+
+The historical diagnoses below are retained as observations, not current
+conclusions. In particular, the claim that Supertest files do not open real
+sockets is false, and an unawaited `context.cleanup()` alone does not establish
+premature closure: Supertest awaited its own per-request server close already.
+Passing isolated reruns and memory/concurrency measurements did not rule out
+address misrouting.
+
 ## Runaway-loop guardrails — LOOP-R1..R6 (2026-08-31)
 
 Seven Vitest fork workers dumped core in one night (SIGABRT, V8 heap exhaustion at
@@ -501,7 +544,7 @@ would not explain `api-pool`, which flakes with one context — but one file is 
 | two contexts running concurrently | `fileParallelism: false`, `maxWorkers: 1` — never two at once |
 | a leaked timer from the previous FILE | the 2026-08-15 pair ran at #7 and #197 of 198 |
 | the twelve files that set `HAFLEET_RUNTIME_DIR` themselves, bypassing the import lock | none of the recurring cast is among them; all nine use the helper |
-| real sockets (the `Parse Error: Expected HTTP/` shape) | one of the nine calls `.listen()`; the other eight never open a port |
+| real sockets (the `Parse Error: Expected HTTP/` shape) | **Refuted 2026-09-09:** Supertest opens a real listener for every `request(expressApp)`, even when the test does not call `.listen()` itself. See the confirmed loopback defect above. |
 
 Note also that this section's own measurements say each file gets a FRESH WORKER PROCESS, which rules
 out the whole family of cross-file-leakage theories before any of them is written down — including
@@ -676,7 +719,23 @@ const context = await createBackendTestContext('my-feature-test-', { agents: {} 
 // context.app        supertest target
 // context.internals  __backendV2TestInternals
 // context.runtimeDir temp runtime root
-context.cleanup();     // always, in afterEach
+await context.cleanup(); // always, in afterEach; wait for listener close completion
+```
+
+The context's `app` is the ready IPv4 HTTP server. Use `expressApp` only when
+the Express function itself is needed, and keep HTTP requests on the ready
+server. A direct module import can use the same listener helper:
+
+```js
+import { createLoopbackTestServer } from './helpers/loopback-test-server.js';
+
+const listener = await createLoopbackTestServer(backendModule.app);
+try {
+  await request(listener.server).get('/health').expect(200);
+} finally {
+  await listener.close();
+  await backendModule.stopServer();
+}
 ```
 
 Prefer **one context per test file** over one per test where the tests do not
