@@ -5,17 +5,23 @@ use serde_json::{Value, json};
 use std::{collections::BTreeSet, sync::Arc};
 use tokio::sync::{Mutex, Semaphore};
 
-struct Inner {
-    config: HostConfig,
-    http: Http,
-    domain: DomainStore,
-    owner: Mutex<Option<Owner>>,
-    busy: Arc<Semaphore>,
+pub(crate) struct Inner {
+    pub(crate) config: HostConfig,
+    pub(crate) http: Http,
+    pub(crate) domain: DomainStore,
+    pub(crate) owner: Mutex<Option<Owner>>,
+    pub(crate) busy: Arc<Semaphore>,
+    #[cfg(test)]
+    pub(crate) handoff_fault: std::sync::atomic::AtomicU8,
+    #[cfg(test)]
+    pub(crate) handoff_reached: tokio::sync::Notify,
+    #[cfg(test)]
+    pub(crate) handoff_continue: tokio::sync::Notify,
     #[cfg(test)]
     lose_positive_response: std::sync::atomic::AtomicBool,
 }
 pub struct Collector {
-    inner: Arc<Inner>,
+    pub(crate) inner: Arc<Inner>,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct ObservationSummary {
@@ -34,6 +40,12 @@ impl Collector {
                 domain,
                 owner: Mutex::new(None),
                 busy: Arc::new(Semaphore::new(1)),
+                #[cfg(test)]
+                handoff_fault: std::sync::atomic::AtomicU8::new(0),
+                #[cfg(test)]
+                handoff_reached: tokio::sync::Notify::new(),
+                #[cfg(test)]
+                handoff_continue: tokio::sync::Notify::new(),
                 #[cfg(test)]
                 lose_positive_response: std::sync::atomic::AtomicBool::new(false),
             }),
@@ -107,59 +119,123 @@ impl Inner {
             return Err(Error::Generation);
         }
         let expected = prior.map_or_else(|| t.clone(), |p| p.observation);
-        let result=async {
+        let result = async {
             self.whoami(cancel).await?;
-            let mut guard=self.owner.lock().await;
-            if guard.is_none(){*guard=Some(Owner::open(&self.config).await?);}
-            let owner=guard.as_ref().ok_or(Error::Storage)?;
-            let cursor=owner.cursor().await?;
-            let filter=json!({"room":{"rooms":self.config.rooms.iter().map(|r|&r.room_id).collect::<Vec<_>>(),"timeline":{"limit":0},"ephemeral":{"types":[]},"account_data":{"types":[]},"state":{"lazy_load_members":false}},"presence":{"types":[]},"account_data":{"types":[]}}).to_string();
-            let mut query=vec![("timeout","0"),("full_state","true"),("filter",filter.as_str())];
-            if let Some(cursor)=cursor.as_deref(){query.push(("since",cursor));}
-            let value=self.http.request(&["_matrix","client","v3","sync"],Some(&query),cancel).await?.success()?;
-            self.sync_bounds(&value)?;
-            owner.sync(value).await?;
-            drop(guard);
-            if cancel.is_cancelled(){return Err(Error::Cancelled);}
-            self.domain.observe_matrix_transport(t.clone()).await?;
-            #[cfg(test)]
-            if self.lose_positive_response.swap(false,std::sync::atomic::Ordering::SeqCst) {return Err(Error::OutcomeUnknown);}
-            for target in &self.config.rooms { self.collect_room(target,cancel).await?; }
-            Ok(ObservationSummary{transport_generation:t.generation,rooms:self.config.rooms.len()})
-        }.await;
-        if let Err(error) = result {
-            // Conservative whole-device fence: incomplete collection cannot
-            // leave an earlier private room or long-lived grant usable.
-            // Positive commit may have succeeded before its response was lost.
-            // Try both known exact identities; never a third/newer incarnation.
-            let mut failed = false;
-            let candidates = if expected == *t {
-                vec![expected]
-            } else {
-                vec![expected, t.clone()]
-            };
-            for expected in candidates {
-                match self
-                    .domain
-                    .invalidate_matrix_transport(MatrixTransportInvalidation {
-                        expected,
-                        reason: "Matrix authenticated collection failed".into(),
-                    })
-                    .await
-                {
-                    Ok(())
-                    | Err(hagency_store::Error::Generation | hagency_store::Error::Conflict) => {}
-                    Err(_) => failed = true,
-                }
+            let mut guard = self.owner.lock().await;
+            if guard.is_none() {
+                *guard = Some(Owner::open(&self.config).await?);
             }
-            if failed {
+            let owner = guard.as_ref().ok_or(Error::Storage)?;
+            if let Some(batch) = owner.batch().await?
+                && batch.phase != crate::event_batch::Phase::Derived
+            {
                 return Err(Error::OutcomeUnknown);
             }
-            return Err(error);
+            if !owner.intake_mode().await? {
+                let cursor = owner.cursor().await?;
+                let filter = json!({
+                    "room": {
+                        "rooms": self.config.rooms.iter().map(|r| &r.room_id).collect::<Vec<_>>(),
+                        "timeline": {"limit": 0}, "ephemeral": {"types": []},
+                        "account_data": {"types": []}, "state": {"lazy_load_members": false}
+                    },
+                    "presence": {"types": []}, "account_data": {"types": []}
+                })
+                .to_string();
+                let mut query = vec![
+                    ("timeout", "0"),
+                    ("full_state", "true"),
+                    ("filter", filter.as_str()),
+                ];
+                if let Some(cursor) = cursor.as_deref() {
+                    query.push(("since", cursor));
+                }
+                let value = self
+                    .http
+                    .request(&["_matrix", "client", "v3", "sync"], Some(&query), cancel)
+                    .await?
+                    .success()?;
+                self.sync_bounds(&value)?;
+                owner.sync(value).await?;
+            }
+            drop(guard);
+            if cancel.is_cancelled() {
+                return Err(Error::Cancelled);
+            }
+            self.domain.observe_matrix_transport(t.clone()).await?;
+            #[cfg(test)]
+            if self
+                .lose_positive_response
+                .swap(false, std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(Error::OutcomeUnknown);
+            }
+            for target in &self.config.rooms {
+                self.collect_room(target, cancel).await?;
+            }
+            Ok(ObservationSummary {
+                transport_generation: t.generation,
+                rooms: self.config.rooms.len(),
+            })
+        }
+        .await;
+        if let Err(error) = result {
+            return self.fence_observation(expected, error).await;
         }
         result
     }
-    async fn collect_room(
+    pub(crate) async fn expected_transport(&self) -> Result<MatrixTransportObservation, Error> {
+        let t = &self.config.identity.transport;
+        let prior = self
+            .domain
+            .matrix_transport_state(t.engagement_id.clone())
+            .await?;
+        if prior.as_ref().is_some_and(|p| {
+            p.observation.registration_generation != t.registration_generation
+                || p.observation.generation > t.generation
+                || (p.observation.generation == t.generation
+                    && (!p.available || p.observation != *t))
+        }) {
+            return Err(Error::Generation);
+        }
+        Ok(prior.map_or_else(|| t.clone(), |p| p.observation))
+    }
+    pub(crate) async fn fence_observation<T>(
+        &self,
+        expected: MatrixTransportObservation,
+        error: Error,
+    ) -> Result<T, Error> {
+        let t = &self.config.identity.transport;
+        // Conservative whole-device fence: incomplete collection cannot
+        // leave an earlier private room or long-lived grant usable.
+        // Positive commit may have succeeded before its response was lost.
+        // Try both known exact identities; never a third/newer incarnation.
+        let mut failed = false;
+        let candidates = if expected == *t {
+            vec![expected]
+        } else {
+            vec![expected, t.clone()]
+        };
+        for expected in candidates {
+            match self
+                .domain
+                .invalidate_matrix_transport(MatrixTransportInvalidation {
+                    expected,
+                    reason: "Matrix authenticated collection failed".into(),
+                })
+                .await
+            {
+                Ok(()) | Err(hagency_store::Error::Generation | hagency_store::Error::Conflict) => {
+                }
+                Err(_) => failed = true,
+            }
+        }
+        if failed {
+            return Err(Error::OutcomeUnknown);
+        }
+        Err(error)
+    }
+    pub(crate) async fn collect_room(
         &self,
         target: &HostRoom,
         cancel: &CancellationToken,
@@ -221,7 +297,7 @@ impl Inner {
         }
         result
     }
-    async fn whoami(&self, cancel: &CancellationToken) -> Result<(), Error> {
+    pub(crate) async fn whoami(&self, cancel: &CancellationToken) -> Result<(), Error> {
         let value = self
             .http
             .request(
@@ -243,7 +319,7 @@ impl Inner {
         }
         Ok(())
     }
-    fn sync_bounds(&self, value: &Value) -> Result<(), Error> {
+    pub(crate) fn sync_bounds(&self, value: &Value) -> Result<(), Error> {
         let token = value
             .get("next_batch")
             .and_then(Value::as_str)
@@ -372,7 +448,7 @@ impl Inner {
 
 #[cfg(test)]
 #[path = "../tests/common/mod.rs"]
-mod fixtures;
+pub(crate) mod fixtures;
 #[cfg(test)]
 mod tests {
     use super::fixtures as common;

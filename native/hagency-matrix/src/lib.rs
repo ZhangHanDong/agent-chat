@@ -1,12 +1,15 @@
-//! Authenticated bounded account/room observation collector. This is not an
-//! event-admission authority or a connected encrypted sender.
+//! Bounded authenticated account/room observations and scoped SDK event intake.
+//! Live key lifecycle, outgoing crypto processing and connected sends remain gated.
 mod collector;
 mod config;
+mod event_batch;
 mod http;
+mod intake;
 mod sdk;
 mod wire;
 pub use collector::{Collector, ObservationSummary};
 pub use config::{HostConfig, HostIdentity, HostRoom, Limits};
+pub use intake::{HostIntakePlan, IntakeStatus, IntakeSummary};
 pub use tokio_util::sync::CancellationToken;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
@@ -46,6 +49,8 @@ pub enum Error {
     Capacity,
     #[error("Matrix receipt identity was replayed with different content")]
     Conflict,
+    #[error("Matrix event intake retains unsupported or quarantined custody")]
+    Unsupported,
     #[error("domain authority rejected the observation")]
     Domain,
 }

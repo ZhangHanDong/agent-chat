@@ -1,5 +1,15 @@
 # Repository audit knowledge
 
+- **Native authenticated event intake, 2026-09-10:** ADR-054 owns the SDK
+  sync cursor after the first accepted intake, including unchanged bootstrap
+  replay. Prepared/Applying raw input and exact target tickets are encrypted
+  before SDK work. Applying interruption stays inspectable OutcomeUnknown;
+  only persisted SDK-derived handoffs may use exact historical domain receipts.
+  Receipt lookup never grants new admission after scope rotation. Verified
+  encrypted human DM is proven with actual offline SDK key exchange; live key
+  lifecycle remains absent. Capacity64 deliberately stops new batches without
+  evicting dedup or pending custody. See ADR-054 for supported text and hard gates.
+
 - **Matrix fixture waits, 2026-09-10:** ADR-047's scripted peer previously
   allowed only three seconds between requests although the owned SDK bootstrap
   has a ten-second budget. The fake now derives its finite wait from SDK plus

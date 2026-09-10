@@ -1043,3 +1043,56 @@ fn native_verified_ingress_recovery_schema_eleven_has_unknown_boundary() {
     assert!(f.db.admit_matrix_event(&fresh, 2005).unwrap().wake);
     assert!(f.db.matrix_ingress_scope("a").is_err());
 }
+
+#[test]
+fn native_matrix_intake_rotation_historical_receipt_is_content_bound_read_only() {
+    let mut f = Fixture::new(false);
+    let event = f.event("a", "receipt", None, &["@a:example.test"], 1004);
+    assert!(f.db.matrix_ingress_receipt(&event).unwrap().is_none());
+    let receipt = f.db.admit_matrix_event(&event, 1004).unwrap();
+    let found = f.db.matrix_ingress_receipt(&event).unwrap().unwrap();
+    assert_eq!(found.sequence, receipt.sequence);
+    assert!(!found.created && !found.projected);
+    let mut changed = event.clone();
+    changed.event.body.push('!');
+    assert!(matches!(
+        f.db.matrix_ingress_receipt(&changed),
+        Err(Error::Conflict)
+    ));
+    let mut foreign = event.clone();
+    foreign.scope.transport_generation += 1;
+    assert!(matches!(
+        f.db.matrix_ingress_receipt(&foreign),
+        Err(Error::RunnerAuthority)
+    ));
+    f.db.invalidate_matrix_transport(
+        &MatrixTransportInvalidation {
+            expected: MatrixTransportObservation {
+                engagement_id: f.agents[0].clone(),
+                registration_generation: 1,
+                generation: 1,
+                sender_mxid: "@a:example.test".into(),
+                device_id: "DEVICE_a".into(),
+            },
+            reason: "Retired authenticated source".into(),
+        },
+        1005,
+    )
+    .unwrap();
+    assert!(f.db.admit_matrix_event(&event, 1006).is_err());
+    assert_eq!(
+        f.db.matrix_ingress_receipt(&event)
+            .unwrap()
+            .unwrap()
+            .sequence,
+        receipt.sequence
+    );
+    let mut absent = event.clone();
+    absent.event.event_id = "$absent".into();
+    assert!(f.db.matrix_ingress_receipt(&absent).unwrap().is_none());
+    let n: u64 = f
+        .sql()
+        .query_row("SELECT COUNT(*) FROM admitted_messages", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
+}

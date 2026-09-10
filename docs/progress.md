@@ -3407,3 +3407,48 @@ targets pass 22 tests. Logs are retained under `combined-owned-progress-metering
 `integrated-matrix-fixture-*`. This local result does not replace actual Linux,
 Windows or cgroup qualification for the new commit. The next CI run must provide
 that evidence. No live service is enabled or replaced.
+
+
+### 2026-09-10 — Authenticated SDK event intake with durable domain handoff
+
+ADR-054 adds a host-only intake plan over existing current Matrix sessions. Actual
+bounded HTTPS sync feeds the owned SDK, retaining the full response and frozen
+registration/account/device/room/session tickets in the encrypted SDK journal
+before processing. Derived events are persisted before domain mutation. Native
+admission still rechecks current shared scope atomically; no domain schema, runner
+API, second task store, runtime activation, Matrix sends or live service changed.
+
+Actual offline Olm/Megolm cross-signing and verification prove a human encrypted
+DM without @, exact group mentions and thread projection. Unknown key/unverified
+identity/forged sender/plaintext trust flags/media/incomplete timelines fail visibly.
+Applying interruption survives restart as OutcomeUnknown with exact original raw
+and targets; no replay of the SDK's already-consumed token fabricates completion.
+Busy and lost domain replies retain handoff without inventing device failure.
+Concurrent cancellation, negative room scope and committed-but-lost results recover
+only an exact existing historical receipt. Unadmitted retired/conflicting events
+remain quarantined rather than retargeted. Changed content cannot reuse a receipt.
+
+Root review found an unchanged initial next_batch could return before persisting
+cursor ownership. Fixed and tested through reopen: subsequent collect refreshes
+whoami/full state but cannot consume a sync. Restore now checks actual SDK cursor,
+identity, original digest and frozen targets. Real encrypted journal consistency
+faults and SQLite ACK/finalization rollback are covered. Receipt capacity64 has no
+eviction; observation/intake share that ceiling and production remains gated on a
+future safe compaction lifecycle. New SDK proof DTOs remain private; public status
+exposes only phase/digest/counts. Live publication/query/verification of keys,
+automatic Applying/quarantine recovery, history/media and native cutover are open.
+
+Final local checks: complete Matrix package30 tests and verified-ingress target14
+pass (44 distinct tests, no ignored/failures), Clippy for Matrix/store all targets
+with warnings denied, fmt/diff and172 native bindings pass. Earlier development
+failures included fixture API signatures, a valid negative-room generation,
+required media fields, SDK signature-upload acknowledgement, and duplicate test
+module imports; they were corrected rather than reclassified as passing. Logs
+are matrix-intake-* in the 2026-09-10 migration cache. The scoped six-scenario
+contract lifecycle and fourteen-path boundary are recorded separately below.
+
+Agent-spec1.4 final lifecycle passes all six ADR-054 scenarios plus the explicit
+fourteen-path boundary (7/7, quality100%, no fail/skip/uncertain). Exact run logs
+are retained in matrix-intake-lifecycle/ and matrix-intake-lifecycle.log. These
+local fixture results do not claim hosted Linux/Windows or live Matrix behavior;
+the coordinator will run the integrated checks after the isolated commit.

@@ -1,7 +1,11 @@
 //! The owner thread retains the filesystem lock until accepted SDK work and
 //! store shutdown finish, even if its caller cancels or drops the receiver.
-use crate::{Error, HostConfig};
+use crate::{
+    Error, HostConfig,
+    event_batch::{Acknowledgement, Batch, Phase, Receipt},
+};
 use hagency_core::canonical;
+use hagency_core::replies::ReplyRoute;
 use hagency_store::private;
 use matrix_sdk_base::{
     BaseClient, DmRoomDefinition, SessionMeta, ThreadingSupport,
@@ -26,19 +30,40 @@ const JOURNAL: &[u8] = b"hagency.observer.sync.v1";
 const DATABASES: [&str; 2] = ["matrix-sdk-state.sqlite3", "matrix-sdk-crypto.sqlite3"];
 const MAX_SYNCS: usize = 64;
 // StoreCipher JSON ciphertext uses decimal byte arrays. This bounds the full
-// encrypted form of one 1 MiB response plus 64 x 4096-byte cursor receipts.
-const MAX_JOURNAL_BYTES: usize = 8 * 1024 * 1024;
+// encrypted raw/derived pending batch plus 64 bounded cursor/handoff receipts.
+const MAX_JOURNAL_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Default, Serialize, Deserialize)]
 struct Journal {
     pending: Option<Value>,
     receipts: Vec<(String, String)>,
+    #[serde(default)]
+    intake_enabled: bool,
+    #[serde(default)]
+    intake: Option<Batch>,
+    #[serde(default)]
+    intake_receipts: Vec<Receipt>,
 }
 enum Command {
+    #[cfg(test)]
+    CryptoFixture(bool, oneshot::Sender<Value>),
+    #[cfg(test)]
+    ApplyFault(oneshot::Sender<()>),
     #[cfg(test)]
     SeedPending(Value, oneshot::Sender<Result<(), Error>>),
     #[cfg(test)]
     CloseFault(oneshot::Sender<()>),
     Cursor(oneshot::Sender<Option<String>>),
+    IntakeMode(oneshot::Sender<bool>),
+    IntakeBatch(oneshot::Sender<Option<Batch>>),
+    IntakeStart(Value, Vec<ReplyRoute>, oneshot::Sender<Result<(), Error>>),
+    IntakeAck(
+        String,
+        usize,
+        Acknowledgement,
+        oneshot::Sender<Result<(), Error>>,
+    ),
+    IntakeFinish(String, oneshot::Sender<Result<(), Error>>),
+    IntakeQuarantine(String, oneshot::Sender<Result<(), Error>>),
     Sync(Value, oneshot::Sender<Result<(), Error>>),
     Close(oneshot::Sender<Result<(), Error>>),
 }
@@ -102,6 +127,16 @@ impl Owner {
                     while let Some(command) = rx.recv().await {
                         match command {
                             #[cfg(test)]
+                            Command::CryptoFixture(verified, reply) => {
+                                let _ = reply
+                                    .send(crypto_fixture::encrypted_human(&sdk, verified).await);
+                            }
+                            #[cfg(test)]
+                            Command::ApplyFault(reply) => {
+                                sdk.apply_fault = true;
+                                let _ = reply.send(());
+                            }
+                            #[cfg(test)]
                             Command::SeedPending(value, reply) => {
                                 sdk.journal.pending = Some(value);
                                 let _ = reply.send(sdk.persist().await);
@@ -110,6 +145,24 @@ impl Owner {
                             Command::CloseFault(reply) => {
                                 sdk.close_fault = true;
                                 let _ = reply.send(());
+                            }
+                            Command::IntakeMode(reply) => {
+                                let _ = reply.send(sdk.journal.intake_enabled);
+                            }
+                            Command::IntakeBatch(reply) => {
+                                let _ = reply.send(sdk.journal.intake.clone());
+                            }
+                            Command::IntakeStart(value, targets, reply) => {
+                                let _ = reply.send(sdk.intake_start(value, targets).await);
+                            }
+                            Command::IntakeAck(digest, index, ack, reply) => {
+                                let _ = reply.send(sdk.intake_ack(&digest, index, ack).await);
+                            }
+                            Command::IntakeFinish(digest, reply) => {
+                                let _ = reply.send(sdk.intake_finish(&digest).await);
+                            }
+                            Command::IntakeQuarantine(reason, reply) => {
+                                let _ = reply.send(sdk.intake_quarantine(reason).await);
                             }
                             Command::Cursor(reply) => {
                                 let _ =
@@ -163,6 +216,75 @@ impl Owner {
         let (send, reply) = oneshot::channel();
         self.tx
             .try_send(Command::Sync(value, send))
+            .map_err(|_| Error::Busy)?;
+        tokio::time::timeout(self.timeout, reply)
+            .await
+            .map_err(|_| Error::OutcomeUnknown)?
+            .map_err(|_| Error::OutcomeUnknown)?
+    }
+    pub(crate) async fn intake_mode(&self) -> Result<bool, Error> {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::IntakeMode(send))
+            .map_err(|_| Error::Busy)?;
+        tokio::time::timeout(self.timeout, reply)
+            .await
+            .map_err(|_| Error::OutcomeUnknown)?
+            .map_err(|_| Error::Storage)
+    }
+    pub(crate) async fn batch(&self) -> Result<Option<Batch>, Error> {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::IntakeBatch(send))
+            .map_err(|_| Error::Busy)?;
+        tokio::time::timeout(self.timeout, reply)
+            .await
+            .map_err(|_| Error::OutcomeUnknown)?
+            .map_err(|_| Error::Storage)
+    }
+    pub(crate) async fn intake_start(
+        &self,
+        value: Value,
+        targets: Vec<ReplyRoute>,
+    ) -> Result<(), Error> {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::IntakeStart(value, targets, send))
+            .map_err(|_| Error::Busy)?;
+        tokio::time::timeout(self.timeout, reply)
+            .await
+            .map_err(|_| Error::OutcomeUnknown)?
+            .map_err(|_| Error::OutcomeUnknown)?
+    }
+    pub(crate) async fn intake_ack(
+        &self,
+        digest: String,
+        index: usize,
+        ack: Acknowledgement,
+    ) -> Result<(), Error> {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::IntakeAck(digest, index, ack, send))
+            .map_err(|_| Error::Busy)?;
+        tokio::time::timeout(self.timeout, reply)
+            .await
+            .map_err(|_| Error::OutcomeUnknown)?
+            .map_err(|_| Error::OutcomeUnknown)?
+    }
+    pub(crate) async fn intake_finish(&self, digest: String) -> Result<(), Error> {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::IntakeFinish(digest, send))
+            .map_err(|_| Error::Busy)?;
+        tokio::time::timeout(self.timeout, reply)
+            .await
+            .map_err(|_| Error::OutcomeUnknown)?
+            .map_err(|_| Error::OutcomeUnknown)?
+    }
+    pub(crate) async fn intake_quarantine(&self, reason: String) -> Result<(), Error> {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::IntakeQuarantine(reason, send))
             .map_err(|_| Error::Busy)?;
         tokio::time::timeout(self.timeout, reply)
             .await
@@ -284,8 +406,11 @@ struct Sdk {
     root: PathBuf,
     journal: Journal,
     cipher: StoreCipher,
+    identity: String,
     #[cfg(test)]
     close_fault: bool,
+    #[cfg(test)]
+    apply_fault: bool,
 }
 impl Sdk {
     async fn open(init: &Init, fresh: bool) -> Result<Self, Error> {
@@ -368,8 +493,56 @@ impl Sdk {
             if journal.pending.is_some() {
                 return Err(Error::OutcomeUnknown);
             }
+            if journal
+                .intake
+                .as_ref()
+                .is_some_and(|batch| batch.sdk_identity != identity)
+                || journal.intake_receipts.len() > MAX_SYNCS
+                || (journal.intake.is_some() && !journal.intake_enabled)
+            {
+                return Err(Error::Storage);
+            }
             if journal.receipts.len() > MAX_SYNCS {
                 return Err(Error::Storage);
+            }
+            let sdk_cursor = client.sync_token().await;
+            let committed = journal.receipts.last().map(|r| r.0.as_str());
+            let mut tokens = std::collections::BTreeSet::new();
+            if journal.receipts.iter().any(|(token, digest)| {
+                token.is_empty()
+                    || token.len() > 4096
+                    || digest.len() != 64
+                    || !tokens.insert(token)
+            }) {
+                return Err(Error::Storage);
+            }
+            if let Some(batch) = &journal.intake {
+                batch.validate_restored(&identity, &init.user, &init.device)?;
+                let expected = match batch.phase {
+                    Phase::Prepared => committed,
+                    Phase::Applying if sdk_cursor.as_deref() == committed => committed,
+                    _ => Some(batch.token.as_str()),
+                };
+                if sdk_cursor.as_deref() != expected || tokens.contains(&batch.token) {
+                    return Err(Error::Storage);
+                }
+            } else if sdk_cursor.as_deref() != committed {
+                return Err(Error::Storage);
+            }
+            for receipt in &journal.intake_receipts {
+                if !journal.intake_enabled
+                    || receipt.target_digest.len() != 64
+                    || receipt
+                        .acknowledgements
+                        .len()
+                        .checked_add(receipt.filtered)
+                        .is_none_or(|n| n > crate::event_batch::MAX_TIMELINE)
+                    || !journal
+                        .receipts
+                        .contains(&(receipt.token.clone(), receipt.digest.clone()))
+                {
+                    return Err(Error::Storage);
+                }
             }
             if fresh {
                 client
@@ -391,8 +564,12 @@ impl Sdk {
                 root: init.root.clone(),
                 journal,
                 cipher,
+                identity: String::from_utf8(read(&init.root.join("identity"), 256)?)
+                    .map_err(|_| Error::Storage)?,
                 #[cfg(test)]
                 close_fault: false,
+                #[cfg(test)]
+                apply_fault: false,
             }),
             Err(e) => {
                 let _ = client.close_stores().await;
@@ -427,7 +604,148 @@ impl Sdk {
             .map_err(|_| Error::OutcomeUnknown)?;
         Ok(())
     }
+    async fn intake_start(&mut self, value: Value, targets: Vec<ReplyRoute>) -> Result<(), Error> {
+        if self.journal.pending.is_some() || self.journal.intake.is_some() {
+            return Err(Error::OutcomeUnknown);
+        }
+        files(&self.root)?;
+        let batch = Batch::new(value, targets, self.identity.clone())?;
+        if let Some((_, old)) = self
+            .journal
+            .receipts
+            .iter()
+            .find(|(token, _)| *token == batch.token)
+        {
+            if old != &batch.digest {
+                return Err(Error::Conflict);
+            }
+            // An unchanged observation-era token is still an accepted intake
+            // transition. Persist cursor ownership before reporting success.
+            if !self.journal.intake_enabled {
+                self.journal.intake_enabled = true;
+                self.persist().await?;
+            }
+            return Ok(());
+        }
+        if self.journal.receipts.len() >= MAX_SYNCS {
+            return Err(Error::Capacity);
+        }
+        self.journal.intake_enabled = true;
+        self.journal.intake = Some(batch);
+        self.persist().await?;
+        // Applying is durable before SDK mutation. Restart never pretends that
+        // replaying an already-consumed next_batch would return lost timelines.
+        self.journal.intake.as_mut().unwrap().phase = Phase::Applying;
+        self.persist().await?;
+        use ruma::api::IncomingResponse;
+        let raw = &self.journal.intake.as_ref().unwrap().raw;
+        let response = ruma::api::client::sync::sync_events::v3::Response::try_from_http_response(
+            http::Response::builder()
+                .body(serde_json::to_vec(raw).map_err(|_| Error::Wire)?)
+                .map_err(|_| Error::Wire)?,
+        )
+        .map_err(|_| Error::Wire)?;
+        let processed = self
+            .client
+            .receive_sync_response(response)
+            .await
+            .map_err(|_| Error::OutcomeUnknown)?;
+        #[cfg(test)]
+        if std::mem::take(&mut self.apply_fault) {
+            return Err(Error::OutcomeUnknown);
+        }
+        if let Err(error) = self.journal.intake.as_mut().unwrap().derive(processed) {
+            self.intake_quarantine("unsupported SDK event or incomplete timeline".into())
+                .await?;
+            return Err(error);
+        }
+        if self.persist().await.is_err() {
+            self.journal.intake.as_mut().unwrap().phase = Phase::Applying;
+            return Err(Error::OutcomeUnknown);
+        }
+        files(&self.root)?;
+        Ok(())
+    }
+    async fn intake_ack(
+        &mut self,
+        digest: &str,
+        index: usize,
+        ack: Acknowledgement,
+    ) -> Result<(), Error> {
+        let batch = self.journal.intake.as_mut().ok_or(Error::Conflict)?;
+        if batch.digest != digest || batch.phase != Phase::Derived {
+            return Err(Error::Conflict);
+        }
+        if index < batch.acknowledgements.len() {
+            return if batch.acknowledgements[index] == ack {
+                Ok(())
+            } else {
+                Err(Error::Conflict)
+            };
+        }
+        if index != batch.acknowledgements.len()
+            || batch
+                .events
+                .get(index)
+                .is_none_or(|e| e.route.session_id != ack.session_id)
+            || ack.sequence == 0
+            || ack.sequence > hagency_core::JSON_SAFE_MAX
+        {
+            return Err(Error::Conflict);
+        }
+        batch.acknowledgements.push(ack);
+        if self.persist().await.is_err() {
+            self.journal.intake.as_mut().unwrap().acknowledgements.pop();
+            return Err(Error::OutcomeUnknown);
+        }
+        Ok(())
+    }
+    async fn intake_finish(&mut self, digest: &str) -> Result<(), Error> {
+        let Some(batch) = self.journal.intake.as_ref() else {
+            return if self
+                .journal
+                .intake_receipts
+                .iter()
+                .any(|r| r.digest == digest)
+            {
+                Ok(())
+            } else {
+                Err(Error::Conflict)
+            };
+        };
+        if batch.digest != digest
+            || batch.phase != Phase::Derived
+            || batch.acknowledgements.len() != batch.events.len()
+        {
+            return Err(Error::Conflict);
+        }
+        let receipt = batch.receipt()?;
+        let pending = self.journal.intake.take();
+        self.journal
+            .receipts
+            .push((receipt.token.clone(), receipt.digest.clone()));
+        self.journal.intake_receipts.push(receipt);
+        if self.persist().await.is_err() {
+            self.journal.receipts.pop();
+            self.journal.intake_receipts.pop();
+            self.journal.intake = pending;
+            return Err(Error::OutcomeUnknown);
+        }
+        Ok(())
+    }
+    async fn intake_quarantine(&mut self, reason: String) -> Result<(), Error> {
+        if reason.len() > 128 {
+            return Err(Error::Config);
+        }
+        let batch = self.journal.intake.as_mut().ok_or(Error::Conflict)?;
+        batch.phase = Phase::Quarantined;
+        batch.reason = Some(reason);
+        self.persist().await
+    }
     async fn sync(&mut self, value: Value) -> Result<(), Error> {
+        if self.journal.intake_enabled {
+            return Err(Error::Busy);
+        }
         if self.journal.pending.is_some() {
             return Err(Error::OutcomeUnknown);
         }
@@ -677,5 +995,25 @@ mod close_tests {
         // Error acknowledgement follows actual store/runtime termination and lock release.
         let next = Owner::open(&config).await.unwrap();
         next.close().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/intake/crypto_fixture.rs"]
+mod crypto_fixture;
+#[cfg(test)]
+impl Owner {
+    pub(crate) async fn crypto_fixture(&self, verified: bool) -> Value {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(Command::CryptoFixture(verified, tx))
+            .await
+            .unwrap();
+        rx.await.unwrap()
+    }
+    pub(crate) async fn apply_fault(&self) {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Command::ApplyFault(tx)).await.unwrap();
+        rx.await.unwrap()
     }
 }

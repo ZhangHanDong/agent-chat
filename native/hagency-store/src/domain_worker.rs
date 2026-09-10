@@ -432,6 +432,22 @@ impl DomainStore {
         })
         .await
     }
+    pub async fn matrix_intake_route(
+        &self,
+        session: String,
+    ) -> Result<hagency_core::replies::ReplyRoute, Error> {
+        self.call(weight(&session)?, move |db| {
+            db.matrix_intake_route(&session)
+        })
+        .await
+    }
+    pub async fn matrix_ingress_receipt(
+        &self,
+        input: hagency_core::ingress::MatrixEventObservation,
+    ) -> Result<Option<hagency_core::ingress::MatrixIngressReceipt>, Error> {
+        self.call(weight(&input)?, move |db| db.matrix_ingress_receipt(&input))
+            .await
+    }
     pub async fn admit_matrix_event(
         &self,
         input: hagency_core::ingress::MatrixEventObservation,

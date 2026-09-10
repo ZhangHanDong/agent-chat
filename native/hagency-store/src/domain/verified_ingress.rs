@@ -167,6 +167,64 @@ impl DomainRepository {
         scoped(&self.db, &scope)?;
         Ok(scope)
     }
+    /// Host-only snapshot for one current intake target. A returned route is
+    /// copied into authenticated custody, then checked again by admission.
+    pub fn matrix_intake_route(&self, session: &str) -> Result<ReplyRoute, Error> {
+        let scope = self.matrix_ingress_scope(session)?;
+        scoped(&self.db, &scope)
+    }
+    /// Historical receipt lookup never projects input or revives a retired route.
+    /// It is solely the acknowledgement seam for an already-committed exact event.
+    pub fn matrix_ingress_receipt(
+        &self,
+        input: &MatrixEventObservation,
+    ) -> Result<Option<MatrixIngressReceipt>, Error> {
+        input.validate()?;
+        let encoded: Option<String> = self
+            .db
+            .query_row(
+                "SELECT config FROM matrix_session_routes WHERE session_id=?1",
+                [&input.scope.session_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(encoded) = encoded else {
+            return Ok(None);
+        };
+        let route: ReplyRoute = serde_json::from_str(&encoded)?;
+        if !input.scope.matches(&route) {
+            return Err(Error::RunnerAuthority);
+        }
+        let source = input.event.source_key()?;
+        let prior: Option<(String,String,String,String,u64)>=self.db.query_row(
+            "SELECT scope_digest,digest,config,source_session_id,message_sequence FROM matrix_ingress_events WHERE engagement_id=?1 AND source_key=?2",
+            params![route.engagement_id,source], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)),
+        ).optional()?;
+        let Some((scope, digest, config, session, sequence)) = prior else {
+            return Ok(None);
+        };
+        if session != route.session_id || scope != scope_digest(&route)? {
+            return Err(Error::RunnerAuthority);
+        }
+        if digest != canonical::digest(&json!([input.event, input.mentions, input.encrypted]))? {
+            return Err(Error::Conflict);
+        }
+        let (wake, stored): (bool, String) = self.db.query_row(
+            "SELECT wake,config FROM session_inputs WHERE session_id=?1 AND message_sequence=?2",
+            params![session, sequence],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if stored != config {
+            return Err(Error::Conflict);
+        }
+        Ok(Some(MatrixIngressReceipt {
+            sequence,
+            session_id: session,
+            wake,
+            created: false,
+            projected: false,
+        }))
+    }
     pub fn admit_matrix_event(
         &mut self,
         input: &MatrixEventObservation,
