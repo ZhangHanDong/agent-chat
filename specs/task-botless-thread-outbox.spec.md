@@ -30,6 +30,10 @@ polling starts only after ordinary bot login succeeds.
   existing outbox delivery implementation without changing its protocol.
 - [JS-only] Verify with Vitest using the real startup, poll and delivery
   methods, replacing unrelated startup I/O and the external send boundary.
+- Classify fixture backend calls by method and exact route: approval request/room/marker
+  GET pages return their real empty collection shape and never count as router receipts.
+  Exercise their startup and recurring worker polls, then stop owned work and clear
+  fake timers during cleanup. Keep the real router startup and delivered metadata checks.
 - Keep live Docker Palpo and Robrix evidence separate from deterministic
   coverage. Report incomplete E2E boundaries explicitly.
 
