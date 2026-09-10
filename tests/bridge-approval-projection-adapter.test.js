@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { MatrixClient } from 'matrix-bot-sdk';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
+import { ApprovalMatrixPacer } from '../lib/approval-matrix-pacer.js';
 import {
   MatrixBridge, bridgeStateForTest, ourServerNameForTest,
   matrixRateLimitGateForTest,
@@ -290,6 +291,10 @@ describe('approval projection production request adapter', () => {
     });
     let matrixAttempts = 0;
     const doRequest = vi.fn(async (method, path, _query, content) => {
+      if (method === 'GET') {
+        expect(path).toContain('/state/m.room.encryption/');
+        return { algorithm: 'm.megolm.v1.aes-sha2' };
+      }
       order.push('matrix');
       matrixAttempts += 1;
       expect(method).toBe('PUT');
@@ -309,6 +314,7 @@ describe('approval projection production request adapter', () => {
       return { event_id: '$adapter-event' };
     });
     const bridge = {
+      _approvalMatrixPacer: new ApprovalMatrixPacer({ gapMs: 0 }),
       botClient: {
         getRoomStateEvent: vi.fn(async () => ({ algorithm: 'm.megolm.v1.aes-sha2' })),
         crypto: { onRoomEvent: vi.fn(async () => {}), isRoomEncrypted: vi.fn(async () => true), encryptRoomEvent },
@@ -344,9 +350,11 @@ describe('approval projection production request adapter', () => {
     const result = await publishApprovalProjectionWithBridgeForTest(bridge, retryRow);
     expect(result).toEqual({ ok: true, event_id: '$adapter-event' });
     expect(encryptRoomEvent).toHaveBeenCalledTimes(1);
-    expect(doRequest).toHaveBeenCalledTimes(2);
-    expect(doRequest.mock.calls[1][3]).toEqual(doRequest.mock.calls[0][3]);
-    expect(doRequest.mock.calls[1][1]).toBe(doRequest.mock.calls[0][1]);
+    const sends = doRequest.mock.calls.filter(([method]) => method === 'PUT');
+    expect(sends).toHaveLength(2);
+    expect(doRequest.mock.calls.filter(([method]) => method === 'GET')).toHaveLength(3);
+    expect(sends[1][3]).toEqual(sends[0][3]);
+    expect(sends[1][1]).toBe(sends[0][1]);
     expect(order.lastIndexOf('matrix')).toBeLessThan(order.indexOf('receipt'));
     const after = await bridgeRequest('get', '/api/approvals/matrix/projections?limit=20');
     expect(after.body.projections.some(item => item.request_id === row.request_id
@@ -419,7 +427,8 @@ describe('approval projection production request adapter', () => {
       expect(inventory.synchronization).toMatchObject({ ok: true, marker: { approval_room_id: `!worker-owner:${server}` } });
       expect(inventory.reconciliation).toEqual({ observed_nonempty: false, reconciliation: null });
       expect(send).toHaveBeenCalled();
-      expect(ownerCheck).toHaveBeenCalledWith(expect.objectContaining({ owner_mxid: `@owner:${server}` }), server);
+      expect(ownerCheck).toHaveBeenCalledWith(expect.objectContaining({ owner_mxid: `@owner:${server}` }), server,
+        expect.objectContaining({ request: expect.any(Function), fetchImpl: expect.any(Function) }));
       expect(matrixCalls.filter(call => call.path.endsWith('/joined_members'))).toHaveLength(1);
       expect(matrixCalls.filter(call => call.method === 'PUT')).toHaveLength(1);
       expect(warnings).not.toHaveBeenCalled();
@@ -560,12 +569,14 @@ describe('approval projection production request adapter', () => {
     '%s final PUT aborts a stalled response body within the owned deadline', async (kind) => {
       vi.unstubAllGlobals();
       matrixRateLimitGateForTest.reset();
+      let puts = 0;
       const socket = createServer((req, res) => {
         if (req.url.includes('/state/m.room.encryption/')) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ errcode: 'M_NOT_FOUND' }));
           return;
         }
+        puts += 1;
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.flushHeaders();
       });
@@ -577,6 +588,9 @@ describe('approval projection production request adapter', () => {
       const sender = { kind: 'appservice', ...side, agentUserId: `@ac_worker:${server}`, agentName: 'worker' };
       const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
         approvalProjectionSendTimeoutMs: 25,
+        // Isolate the response-body timeout; default admission has its own
+        // real cross-category and queued-deadline integration tests.
+        _approvalMatrixPacer: new ApprovalMatrixPacer({ gapMs: 0 }),
         actingSideFor: () => side,
         agentSenderFor: () => sender,
         isKnownAgentMxid: () => true,
@@ -595,6 +609,7 @@ describe('approval projection production request adapter', () => {
       try {
         await expect(approvalProjectionIoForTest(bridge).send(plan, actor, row))
           .rejects.toThrow(/abort/i);
+        expect(puts).toBe(1);
       } finally {
         socket.closeAllConnections();
         await new Promise(resolve => socket.close(resolve));
@@ -623,6 +638,7 @@ describe('approval projection production request adapter', () => {
       const sender = { kind: 'appservice', ...side, agentUserId: `@ac_worker:${server}`, agentName: 'worker' };
       const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
         approvalProjectionSendTimeoutMs: 100,
+        _approvalMatrixPacer: new ApprovalMatrixPacer({ gapMs: 0 }),
         actingSideFor: () => side,
         agentSenderFor: () => sender,
         isKnownAgentMxid: () => true,

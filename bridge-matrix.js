@@ -49,12 +49,14 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { promisify } from 'util';
+import { performance } from 'node:perf_hooks';
 import EventSource from './lib/eventsource-mini.js';
 import BotCommands from './lib/bot-commands.js';
 import { assertRuntimeDir } from './lib/runtime-dir-guard.js';
 import { NotificationRouter } from './lib/notification-router.js';
 import { MatrixEventStore } from './src/matrix-event-store.mjs';
 import { MatrixRateLimitGate } from './src/matrix-rate-limit-gate.mjs';
+import { ApprovalMatrixPacer } from './lib/approval-matrix-pacer.js';
 import { getProcessStartIdentity } from './src/process-identity.mjs';
 import { writeBridgeHealthRecord } from './src/health-record.mjs';
 import { PendingEncryptedEventStore } from './lib/pending-encrypted-event-store.js';
@@ -242,6 +244,14 @@ const SKIP_AGENTS = new Set(
 // this ONE gate, so a rate limit hit by any path blocks every other path instead of each
 // path backing off independently (which only amplifies the very limit it's dodging).
 const rateLimitGate = new MatrixRateLimitGate();
+
+function startApprovalMatrixRequest(bridge, request, { check = () => {}, signal } = {}) {
+  bridge._approvalMatrixPacer ||= new ApprovalMatrixPacer();
+  return bridge._approvalMatrixPacer.start(request, { signal, check() {
+    check();
+    if (!rateLimitGate.beforeRequest()) throw new Error('approval Matrix request is rate limited');
+  } });
+}
 
 // A homeserver fetch that backs off on M_LIMIT_EXCEEDED, sharing state with every other
 // Matrix request source via `rateLimitGate`: it waits out an already-active cooldown
@@ -8101,24 +8111,31 @@ export class MatrixBridge {
     }
   }
 
-  async ensureApprovalDmEncrypted(roomId) {
+  async ensureApprovalDmEncrypted(roomId, control = {}) {
     if (!this.botClient?.crypto) {
       throw new Error('Matrix E2EE is unavailable for owner approval rooms');
     }
     let encryption = null;
     try {
-      encryption = await this.botClient.getRoomStateEvent(roomId, 'm.room.encryption', '');
+      encryption = control.request
+        ? await control.request('GET', `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.encryption/`)
+        : await this.botClient.getRoomStateEvent(roomId, 'm.room.encryption', '');
     } catch (error) {
       const message = String(error?.message || error);
       if (!/M_NOT_FOUND|404|not found/i.test(message)) throw error;
     }
     if (!encryption) {
       encryption = { algorithm: MATRIX_MEGOLM_ALGORITHM };
-      await this.botClient.sendStateEvent(roomId, 'm.room.encryption', '', encryption);
+      if (control.request) {
+        await control.request('PUT', `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.encryption/`, encryption);
+      } else {
+        await this.botClient.sendStateEvent(roomId, 'm.room.encryption', '', encryption);
+      }
     }
     if (encryption.algorithm !== MATRIX_MEGOLM_ALGORITHM) {
       throw new Error(`unsupported Matrix encryption algorithm in ${roomId}`);
     }
+    control.check?.();
     await this.botClient.crypto.onRoomEvent(roomId, {
       type: 'm.room.encryption',
       state_key: '',
@@ -8127,12 +8144,16 @@ export class MatrixBridge {
     return true;
   }
 
-  async ensureApprovalDmSecurity(roomId) {
+  async ensureApprovalDmSecurity(roomId, control = {}) {
     if (this.approvalDmMode !== 'plaintext-test') {
-      return this.ensureApprovalDmEncrypted(roomId);
+      return this.ensureApprovalDmEncrypted(roomId, control);
     }
     try {
-      await this.botClient.getRoomStateEvent(roomId, 'm.room.encryption', '');
+      if (control.request) {
+        await control.request('GET', `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.encryption/`);
+      } else {
+        await this.botClient.getRoomStateEvent(roomId, 'm.room.encryption', '');
+      }
     } catch (error) {
       const message = String(error?.message || error);
       if (/M_NOT_FOUND|404|not found/i.test(message)) return true;
@@ -8655,7 +8676,7 @@ export class MatrixBridge {
    * AN UNREADABLE MEMBERSHIP SAYS NOTHING. "I could not ask" is not "the owner is absent", and reporting
    * the two the same way would make this alert untrustworthy the first time a homeserver was slow.
    */
-  async warnIfOwnerCannotSeeApprovalRoom(approval, dmServer) {
+  async warnIfOwnerCannotSeeApprovalRoom(approval, dmServer, control = {}) {
     const roomId = approval?.owner_dm_room_id;
     const owner = approval?.owner_mxid;
     if (!roomId || !owner) return;
@@ -8664,12 +8685,14 @@ export class MatrixBridge {
       if (dmServer && dmServer !== MATRIX_SERVER_NAME) {
         const acting = this.actingSideFor(dmServer);
         if (!acting) return;
-        const read = await joinedMembersOnSide({ ...acting, roomId });
+        const read = await joinedMembersOnSide({ ...acting, roomId, ...(control.fetchImpl ? { fetchImpl: control.fetchImpl } : {}) });
         if (!read.known) return;
         members = read.members;
       } else {
         if (!this.botClient) return;
-        members = await this.botClient.getJoinedRoomMembers(roomId);
+        members = control.request
+          ? Object.keys((await control.request('GET', `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/joined_members`)).joined || {})
+          : await this.botClient.getJoinedRoomMembers(roomId);
       }
       if (!Array.isArray(members)) return;
       const present = members.some((m) => String(m).toLowerCase() === String(owner).toLowerCase());
@@ -8800,7 +8823,18 @@ export class MatrixBridge {
       && (epoch === null || epoch === this._approvalProjectionEpoch)) {
       const room = String(row.target_room_id || '');
       const server = room.includes(':') ? room.slice(room.indexOf(':') + 1).toLowerCase() : '';
-      await this.warnIfOwnerCannotSeeApprovalRoom(row.approval, server);
+      const actor = projectionActorForBridge(this, row);
+      if (!actor) return result;
+      const check = () => {
+        if (this._approvalProjectionStopped || (epoch !== null && epoch !== this._approvalProjectionEpoch)
+          || !sameProjectionActor(actor, projectionActorForBridge(this, row))) {
+          throw new Error('approval publisher changed before owner observation');
+        }
+      };
+      await this.warnIfOwnerCannotSeeApprovalRoom(row.approval, server, {
+        ...(actor?.sender.kind === 'local_bot' ? { request: approvalLocalMatrixRequest(this, actor, check) } : {}),
+        fetchImpl: approvalProjectionFetch(this, check),
+      });
     }
     return result;
   }
@@ -10916,6 +10950,12 @@ async function localMarkerRequest(bridge, actor, row, endpoint, method, body, co
       'Content-Type': 'application/json',
     },
     observeResponse: response => rateLimitGate.observeResponse(response),
+    admit: (start, signal) => startApprovalMatrixRequest(bridge, start, { signal, check() {
+      control.check?.();
+      if (!sameLocalMarkerTransport(actor, markerActorForBridge(bridge, row))) {
+        throw new Error('approval marker publisher changed before local state request');
+      }
+    } }),
   }, markerTimeoutMs(bridge));
   const knownReceipt = method === 'PUT' && result.ok && /^\$[^\s]+$/.test(result.body?.event_id || '');
   if (!knownReceipt) {
@@ -10957,7 +10997,13 @@ function boundedMarkerFetch(bridge, expectedActor, row, control = {}) {
       ? AbortSignal.any([init.signal, controller.signal])
       : controller.signal;
     try {
-      const response = await fetchImpl(url, { ...init, redirect: 'error', signal });
+      const response = await startApprovalMatrixRequest(bridge,
+        () => fetchImpl(url, { ...init, redirect: 'error', signal }), { signal, check() {
+          control.check?.();
+          if (!sameProjectionActor(expectedActor, markerActorForBridge(bridge, row))) {
+            throw new Error('approval marker publisher changed before side request');
+          }
+        } });
       const limited = await rateLimitGate.observeResponse(response);
       controller.signal.throwIfAborted();
       if (limited) throw new Error('approval marker state request is rate limited');
@@ -11198,10 +11244,15 @@ async function assertSideApprovalPlaintext(bridge, actor, row, assertWorkerActiv
     ? Math.min(Math.max(bridge.approvalProjectionSecurityTimeoutMs, 1), 5_000) : 5_000;
   const timeout = setTimeout(() => controller.abort(), deadlineMs);
   try {
-    const response = await fetch(url.toString(), {
+    const response = await startApprovalMatrixRequest(bridge, () => fetch(url.toString(), {
       method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
       redirect: 'error',
-    });
+    }), { signal: controller.signal, check() {
+      assertWorkerActive();
+      if (!sameProjectionActor(actor, projectionActorForBridge(bridge, row))) {
+        throw new Error('approval projection publisher changed before side security check');
+      }
+    } });
     const limited = await rateLimitGate.observeResponse(response);
     controller.signal.throwIfAborted();
     if (limited) throw new Error('project-side approval security check rate limited');
@@ -11237,7 +11288,11 @@ function approvalProjectionFetch(bridge, validateContext) {
     };
     let response;
     try {
-      response = await fetch(url, { ...options, signal: controller.signal, redirect: 'error' });
+      response = await startApprovalMatrixRequest(bridge,
+        () => fetch(url, { ...options, signal: controller.signal, redirect: 'error' }),
+        { signal: controller.signal, check: validateContext });
+      throwIfDeadlineExpired();
+      if (await rateLimitGate.observeResponse(response)) throw new Error('approval Matrix request is rate limited');
       throwIfDeadlineExpired();
     } catch (error) {
       controller.abort();
@@ -11264,6 +11319,35 @@ function approvalProjectionFetch(bridge, validateContext) {
   };
 }
 
+function approvalLocalMatrixRequest(bridge, actor, validateContext) {
+  const client = actor.sender.client;
+  const token = client.accessToken; const homeserver = client.homeserverUrl;
+  return async (method, endpoint, body) => {
+    const timeoutMs = Number.isFinite(bridge.approvalProjectionSendTimeoutMs)
+      ? Math.min(Math.max(bridge.approvalProjectionSendTimeoutMs, 1), 60_000) : 60_000;
+    const deadline = performance.now() + timeoutMs;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await startApprovalMatrixRequest(bridge, () => client.doRequest(method, endpoint, null, body,
+        Math.max(1, deadline - performance.now())), { signal: controller.signal, check() {
+        validateContext();
+        if (performance.now() >= deadline) throw new Error('approval Matrix admission exceeded its deadline');
+        if (client !== bridge.botClient || token !== client.accessToken || homeserver !== client.homeserverUrl) {
+          throw new Error('approval local transport changed before Matrix request');
+        }
+      } });
+    } catch (error) {
+      rateLimitGate.observeError(error);
+      throw error;
+    } finally {
+      // The started SDK request stays awaited. The timer cancels queued
+      // admission only; it cannot abandon SDK-internal I/O or a known receipt.
+      clearTimeout(timer);
+    }
+  };
+}
+
 function approvalProjectionIo(bridge, workerEpoch = null) {
   const assertWorkerActive = () => {
     if (workerEpoch !== null && (bridge._approvalProjectionStopped
@@ -11274,6 +11358,16 @@ function approvalProjectionIo(bridge, workerEpoch = null) {
   const post = (row, operation, body) => bridge.callBackendApi('POST',
     `/api/approvals/${encodeURIComponent(row.request_id)}/matrix/projections/${row.revision}/${operation}`,
     body, `context=approval-projection:${operation}`);
+  const localControl = (row, actor) => {
+    const check = () => {
+      assertWorkerActive();
+      if (!sameProjectionActor(actor, projectionActorForBridge(bridge, row))
+        || (actor.sender.kind === 'local_bot' && actor.sender.client !== bridge.botClient)) {
+        throw new Error('approval projection publisher changed before Matrix request');
+      }
+    };
+    return { check, request: approvalLocalMatrixRequest(bridge, actor, check) };
+  };
   return {
     resolveActor: async row => {
       assertWorkerActive();
@@ -11299,7 +11393,7 @@ function approvalProjectionIo(bridge, workerEpoch = null) {
         return { event_type: 'm.room.message', content: message };
       }
       if (actor.sender.kind !== 'local_bot') return { event_type: 'm.room.message', content: message };
-      await bridge.ensureApprovalDmSecurity(row.target_room_id);
+      await bridge.ensureApprovalDmSecurity(row.target_room_id, localControl(row, actor));
       assertWorkerActive();
       if (bridge.approvalDmMode === 'plaintext-test') return { event_type: 'm.room.message', content: message };
       if (!bridge.botClient?.crypto || !(await bridge.botClient.crypto.isRoomEncrypted(row.target_room_id))) {
@@ -11322,7 +11416,8 @@ function approvalProjectionIo(bridge, workerEpoch = null) {
         }
       };
       if (actor.sender.kind === 'local_bot') {
-        await bridge.ensureApprovalDmSecurity(row.target_room_id);
+        const control = localControl(row, actor);
+        await bridge.ensureApprovalDmSecurity(row.target_room_id, control);
         assertWorkerActive();
         if (plan.prepared_event_type === 'm.room.message' && bridge.approvalDmMode !== 'plaintext-test') {
           throw new Error('stored plaintext approval cannot be sent to an encrypted owner room');
@@ -11332,7 +11427,7 @@ function approvalProjectionIo(bridge, workerEpoch = null) {
         }
         const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(row.target_room_id)}`
           + `/send/${encodeURIComponent(plan.prepared_event_type)}/${plan.transaction_id}`;
-        const response = await actor.sender.client.doRequest('PUT', endpoint, null, plan.prepared_payload);
+        const response = await control.request('PUT', endpoint, plan.prepared_payload);
         return response?.event_id || null;
       }
       if (actor.sender.kind === 'side-representative') {
@@ -11387,7 +11482,9 @@ function legacyApprovalProjectionIo(bridge) {
     return legacyOwnedJsonRequest(url, { method, body,
       completeStartedSend: method === 'PUT' && endpoint.includes('/send/'),
       headers: { Authorization: `Bearer ${actor.transport.token}`, 'Content-Type': 'application/json' },
-      observeResponse: response => rateLimitGate.observeResponse(response) }, budget);
+      observeResponse: response => rateLimitGate.observeResponse(response),
+      admit: (start, signal) => startApprovalMatrixRequest(bridge, start, { signal, check: () => budget.check() }),
+    }, budget);
   };
   const roomPath = row => `/_matrix/client/v3/rooms/${encodeURIComponent(row.target_room_id)}`;
   return {

@@ -6,6 +6,7 @@ import { MatrixClient } from 'matrix-bot-sdk';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 import { markerOwnedJsonRequest } from '../lib/approval-marker-bridge.js';
+import { ApprovalMatrixPacer } from '../lib/approval-matrix-pacer.js';
 
 const previousEnv = {
   MATRIX_SERVER_NAME: process.env.MATRIX_SERVER_NAME,
@@ -91,8 +92,16 @@ async function seedFourBindings() {
   }
 }
 
+function transportBridge() {
+  // Preserve the5ms body/rotation tests' transport boundary. Dedicated worker
+  // admission tests use the real production default200ms pacing instead.
+  return Object.assign(Object.create(bridgeModule.MatrixBridge.prototype), {
+    _approvalMatrixPacer: new ApprovalMatrixPacer({ gapMs: 0 }),
+  });
+}
+
 function concreteBridge(doRequest) {
-  const bridge = Object.create(bridgeModule.MatrixBridge.prototype);
+  const bridge = transportBridge();
   bridge.callBackendApi = api;
   bridge.approvalMarkerMatrixTimeoutMs = 50;
   bridge.actingSideFor = () => null;
@@ -302,7 +311,7 @@ describe('approval room marker production adapter', () => {
       senderLocalpart: 'representative',
       outboundGeneration: 'side-g1',
     };
-    const bridge = Object.create(bridgeModule.MatrixBridge.prototype);
+    const bridge = transportBridge();
     bridge.approvalMarkerMatrixTimeoutMs = 50;
     bridge.approvalMarkerFetchImpl = vi.fn(async (url, init) => {
       captures.push({ url, init });
@@ -339,7 +348,7 @@ describe('approval room marker production adapter', () => {
     expect(new URL(captures[1].url).searchParams.has('user_id')).toBe(false);
     expect(captures[1].init.headers.Authorization).toBe('Bearer test-representative-token');
 
-    const unavailableLocal = Object.create(bridgeModule.MatrixBridge.prototype);
+    const unavailableLocal = transportBridge();
     unavailableLocal.botClient = null;
     unavailableLocal.botUserId = null;
     unavailableLocal.approvalBotPublisherReady = null;
@@ -364,7 +373,7 @@ describe('approval room marker production adapter', () => {
       representativeMxid: '@representative:slow.test',
       outboundGeneration: 'slow-g1',
     };
-    const bridge = Object.create(bridgeModule.MatrixBridge.prototype);
+    const bridge = transportBridge();
     bridge.approvalMarkerMatrixTimeoutMs = 5;
     bridge.actingSideFor = () => ({ side, credential });
     bridge.approvalMarkerFetchImpl = vi.fn(async (_url, init) => ({
@@ -454,7 +463,7 @@ describe('approval room marker production adapter', () => {
     client.doRequest = vi.fn(() => {
       throw new Error('marker state must not use the SDK inactivity timeout');
     });
-    const bridge = Object.create(bridgeModule.MatrixBridge.prototype);
+    const bridge = transportBridge();
     bridge.callBackendApi = api;
     bridge.approvalMarkerMatrixTimeoutMs = 50;
     bridge.actingSideFor = () => null;

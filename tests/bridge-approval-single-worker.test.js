@@ -3,9 +3,11 @@ import { createServer } from 'node:http';
 import { once, EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { MatrixClient, CryptoClient } from 'matrix-bot-sdk';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 import { legacyRecord } from './helpers/approval-legacy-fixture.js';
+import { ApprovalMatrixPacer } from '../lib/approval-matrix-pacer.js';
 
 const SECRET = 'single-worker-synthetic-bridge';
 const TOKEN = 'single-worker-synthetic-agent';
@@ -17,7 +19,8 @@ const gate = () => { let release; let entered; return { wait: new Promise(r => {
   reached: new Promise(r => { entered = r; }), release: (...args) => release(...args), enter: () => entered() }; };
 const requestId = name => `approval_${createHash('sha256').update(name).digest('hex').slice(0, 32)}`;
 
-async function fixture({ legacy = false, disk = null } = {}) {
+async function fixture({ legacy = false, disk = null, pacing = false } = {}) {
+  const originalListeners = new Map(['exit', 'SIGINT', 'SIGTERM'].map(event => [event, new Set(process.rawListeners(event))]));
   vi.resetModules();
   const calls = []; const apiCalls = []; const sockets = new Set(); const historical = new Map();
   const hooks = { matrix: null, backend: null, backendAfter: null, crypto: null };
@@ -29,7 +32,7 @@ async function fixture({ legacy = false, disk = null } = {}) {
       const url = new URL(req.url, 'http://fixture');
       const pieces = url.pathname.split('/').map(decodeURIComponent);
       const room = pieces[pieces.indexOf('rooms') + 1];
-      const call = { method: req.method, path: url.pathname, room, body: raw ? JSON.parse(raw) : null,
+      const call = { at: performance.now(), method: req.method, path: url.pathname, room, body: raw ? JSON.parse(raw) : null,
         eventType: pieces[pieces.indexOf('state') + 1], query: url.search };
       calls.push(call);
       if (hooks.matrix && await hooks.matrix(call, req, res)) return;
@@ -105,6 +108,9 @@ async function fixture({ legacy = false, disk = null } = {}) {
   const bridge = new mod.MatrixBridge({ approvalProjectionIntervalMs: 60_000, eventSourceFactory: () => {
     const stream = new EventEmitter(); stream.close = () => {}; streams.push(stream); return stream;
   } });
+  // Existing worker/transport tests isolate their own clocks and body budgets.
+  // Dedicated pacing cases leave the production default admission owner intact.
+  if (!pacing) bridge._approvalMatrixPacer = new ApprovalMatrixPacer({ gapMs: 0 });
   const state = mod.bridgeStateForTest(); state.botMxid = BOT; state.botCredentialGeneration = 'worker-bot-g1';
   state.agentTokens.worker = { accessToken: 'owned-agent-token', mxid: '@ac_worker:test', homeserver: matrixUrl, credentialGeneration: 'worker-agent-g1' };
   bridge.botClient = client; bridge.botUserId = BOT; bridge.installApprovalBotPublisherReady(client, BOT, 'worker-bot-g1');
@@ -141,14 +147,131 @@ async function fixture({ legacy = false, disk = null } = {}) {
     async cleanup() {
       bridge.stopApprovalProjectionWorker(); for (const release of releases) release();
       await bridge._approvalProjectionDrainPromise;
+      await bridge._approvalMatrixPacer?.tail;
       for (const socket of sockets) socket.destroy();
       await Promise.all([new Promise(r => matrix.close(r)), new Promise(r => backend.close(r))]);
       await context.cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+      for (const [event, original] of originalListeners) {
+        for (const listener of process.rawListeners(event)) if (!original.has(listener)) process.removeListener(event, listener);
+      }
       expect(calls.filter(c => c.fixtureError).map(c => c.fixtureError.message)).toEqual([]);
     },
   };
 }
 afterEach(async () => { if (f) { const owned = f; f = null; await owned.cleanup(); } });
+
+test('approval HTTP admission shares the default gap across real native legacy and marker adapters', async () => {
+  f = await fixture({ legacy: true, pacing: true });
+  const native = await f.native('paced');
+  await f.bind('claude', 'paced-marker', '!paced-marker:test');
+  await f.passes(3);
+  expect(f.store.state.projectionOutbox.some(row => row.requestId === native.id && row.channel === 'private_request' && row.eventId)).toBe(true);
+  expect(f.store.state.projectionOutbox.some(row => row.requestId === requestId('good') && row.eventId)).toBe(true);
+  expect(f.store.state.markerOutbox.some(row => row.approvalRoomId === '!paced-marker:test' && row.markerChannel === 'room_marker_v2' && row.eventId)).toBe(true);
+  expect(f.calls.some(call => call.path.includes('/event/'))).toBe(true);
+  expect(f.calls.some(call => call.path.includes('/send/'))).toBe(true);
+  expect(f.calls.some(call => call.method === 'PUT' && call.path.includes('/state/'))).toBe(true);
+  const gaps = f.calls.slice(1).map((call, index) => call.at - f.calls[index].at);
+  // Arrival time may differ slightly from admission time due to socket scheduling.
+  expect(Math.min(...gaps)).toBeGreaterThanOrEqual(160);
+}, 20_000);
+
+test.each(['native', 'legacy', 'marker'].flatMap(kind => ['stop', 'rotation', 'deadline'].map(cause => ({ kind, cause }))))(
+  'approval queued stop rotation and deadline prevent new Matrix I/O ($kind/$cause)', async ({ kind, cause }) => {
+    f = await fixture({ legacy: kind === 'legacy', pacing: true });
+    let row;
+    if (kind === 'marker') {
+      await f.bind('claude', 'queued', '!queued:test');
+      await f.bridge.syncApprovalRoomMarker({ agent: 'claude', owner_mxid: OWNER, approval_room_id: '!queued:test' });
+      row = (await f.api('GET', '/api/approval-bindings/matrix/markers?limit=20')).markers[0];
+    } else {
+      const id = kind === 'native' ? (await f.native('queued')).id : requestId('good');
+      row = (await f.api('GET', '/api/approvals/matrix/projections?limit=20')).projections
+        .find(item => item.request_id === id && item.channel === (kind === 'native' ? 'private_request' : 'private_status'));
+    }
+    expect(row).toBeTruthy();
+    await f.bridge.reconcileObservedLegacyMarker({ approval_room_id: '!prime:test' });
+    expect(f.calls).toHaveLength(1);
+    const waiting = f.hold(); const originalWait = f.bridge._approvalMatrixPacer.wait;
+    f.bridge._approvalMatrixPacer.wait = (...args) => { waiting.enter(); return originalWait(...args); };
+    if (cause === 'deadline') {
+      f.bridge.approvalProjectionSendTimeoutMs = 30;
+      f.bridge.approvalMarkerMatrixTimeoutMs = 30;
+    }
+    const options = { isCurrent: () => !f.bridge._approvalProjectionStopped,
+      ...(cause === 'deadline' ? { httpTimeoutMs: 30 } : {}) };
+    const pending = (kind === 'native' ? f.bridge.publishApprovalProjectionRow(row, f.bridge._approvalProjectionEpoch)
+      : kind === 'legacy' ? f.bridge.publishLegacyApprovalProjection(row, options)
+        : f.bridge.publishApprovalMarker(row, options)).catch(error => ({ error }));
+    await waiting.reached;
+    if (cause === 'stop') f.bridge.stopApprovalProjectionWorker();
+    if (cause === 'rotation') f.state.botCredentialGeneration = 'changed-while-queued';
+    const result = await pending;
+    expect(result.ok).not.toBe(true);
+    expect(f.calls).toHaveLength(1);
+    expect(f.store.state.projectionOutbox.some(item => item.eventId)).toBe(false);
+    expect(f.store.state.markerOutbox.some(item => item.eventId)).toBe(false);
+  }, 10_000,
+);
+
+test('approval pacing honors a real429 before any later category starts', async () => {
+  f = await fixture({ legacy: true, pacing: true }); const native = await f.native('limited');
+  await f.bind('claude', 'limited-marker', '!limited-marker:test');
+  await f.bridge.syncApprovalRoomMarker({ agent: 'claude', owner_mxid: OWNER, approval_room_id: '!limited-marker:test' });
+  f.hooks.matrix = (_call, _req, res) => { respond(res, 429, { errcode: 'M_LIMIT_EXCEEDED', retry_after_ms: 5000 }); return true; };
+  await expect(f.bridge.reconcileObservedLegacyMarker({ approval_room_id: '!prime:test' })).rejects.toThrow(/rate limited/);
+  const remaining = f.mod.matrixRateLimitGateForTest.cooldownRemainingMs();
+  const requests = (await f.api('GET', '/api/approvals/matrix/projections?limit=20')).projections;
+  const marker = (await f.api('GET', '/api/approval-bindings/matrix/markers?limit=20')).markers[0];
+  await f.bridge.publishApprovalProjectionRow(requests.find(row => row.request_id === native.id && row.channel === 'private_request'), 1).catch(() => {});
+  await f.bridge.publishLegacyApprovalProjection(requests.find(row => row.request_id === requestId('good')));
+  await f.bridge.publishApprovalMarker(marker);
+  expect(f.calls).toHaveLength(1);
+  expect(f.mod.matrixRateLimitGateForTest.cooldownRemainingMs()).toBeGreaterThan(4000);
+  expect(f.mod.matrixRateLimitGateForTest.cooldownRemainingMs()).toBeLessThanOrEqual(remaining);
+  expect(f.store.state.projectionOutbox.some(row => row.eventId)).toBe(false);
+  expect(f.store.state.markerOutbox.some(row => row.eventId)).toBe(false);
+});
+
+test('approval side security send and marker PUT share actual HTTP admission', async () => {
+  f = await fixture({ pacing: true });
+  const sides = f.context.internals.projectSideStoreForTest;
+  sides.upsertSide({ server_name: 'side.test', api_base_url: f.client.homeserverUrl,
+    credential: { kind: 'appservice', asToken: 'side-token', hsToken: 'side-hs-token', senderLocalpart: 'representative', namespace: '@ac_.*' } });
+  sides.setRepresentative('side.test', { mxid: '@representative:side.test' });
+  sides.observeAccess('side.test', { state: 'accepted' });
+  await f.bridge.refreshActingCredentials();
+  f.hooks.matrix = (call, _req, res) => {
+    if (call.method === 'GET' && call.path.includes('/state/m.room.encryption')) {
+      respond(res, 404, { errcode: 'M_NOT_FOUND' }); return true;
+    }
+    return false;
+  };
+  const native = await f.native('side-paced', '!native:side.test');
+  await f.bind('claude', 'side-marker', '!marker:side.test');
+  await f.bridge.syncApprovalRoomMarker({ agent: 'claude', owner_mxid: OWNER, approval_room_id: '!marker:side.test' });
+  const row = (await f.api('GET', '/api/approvals/matrix/projections?limit=20')).projections
+    .find(item => item.request_id === native.id && item.channel === 'private_request');
+  const marker = (await f.api('GET', '/api/approval-bindings/matrix/markers?limit=20')).markers[0];
+  const results = await Promise.all([f.bridge.publishApprovalProjectionRow(row, 1), f.bridge.publishApprovalMarker(marker)]);
+  expect(results.every(result => result.ok)).toBe(true);
+  expect(f.calls.some(call => call.method === 'PUT' && call.path.includes('/send/'))).toBe(true);
+  expect(f.calls.some(call => call.method === 'PUT' && call.path.includes('/state/'))).toBe(true);
+  expect(f.calls.every(call => new URLSearchParams(call.query).get('user_id') === '@representative:side.test')).toBe(true);
+  expect(Math.min(...f.calls.slice(1).map((call, index) => call.at - f.calls[index].at))).toBeGreaterThanOrEqual(160);
+});
+
+test('approval owner observation skips unavailable publisher after exact receipt', async () => {
+  f = await fixture({ pacing: true }); const created = await f.native('receipt-rotation');
+  const row = (await f.api('GET', '/api/approvals/matrix/projections?limit=20')).projections
+    .find(item => item.request_id === created.id && item.channel === 'private_request');
+  f.hooks.backendAfter = async (call, status) => {
+    if (call.path.endsWith('/receipt')) { expect(status).toBe(200); f.state.botCredentialGeneration = 'rotated-after-receipt'; }
+  };
+  expect(await f.bridge.publishApprovalProjectionRow(row, 1)).toMatchObject({ ok: true });
+  expect(f.calls.some(call => call.path.endsWith('/joined_members'))).toBe(false);
+  expect(f.store.state.projectionOutbox.find(item => item.requestId === created.id && item.channel === 'private_request').eventId).toBeTruthy();
+});
 
 test('single worker publishes four shared bindings as v2 before distinct v1 retirement', async () => {
   f = await fixture();

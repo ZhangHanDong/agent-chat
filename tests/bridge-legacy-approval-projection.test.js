@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { MatrixClient, CryptoClient } from 'matrix-bot-sdk';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
+import { ApprovalMatrixPacer } from '../lib/approval-matrix-pacer.js';
 import { legacyRecord } from './helpers/approval-legacy-fixture.js';
 
 const SECRET = 'synthetic-legacy-reader-secret';
@@ -65,6 +66,9 @@ function eventPair(name) {
 function respond(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); }
 function makeBridge() {
   const bridge = Object.create(bridgeModule.MatrixBridge.prototype);
+  // These cases target proof/crypto/body deadlines. Shared default200ms
+  // admission is exercised separately through the real single-worker fixture.
+  bridge._approvalMatrixPacer = new ApprovalMatrixPacer({ gapMs: 0 });
   Object.assign(bridge, { botClient: sdk, botUserId: '@bot:legacy.test', approvalDmMode: 'required', actingSideFor: () => null,
     approvalBotPublisherReady: { client: sdk, mxid: '@bot:legacy.test', credentialGeneration: 'legacy-reader-g1' } });
   return bridge;
