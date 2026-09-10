@@ -8595,6 +8595,7 @@ app.post('/api/approval-bindings/matrix/markers/sync', requireApprovalBridgeSecr
 
 app.post('/api/approval-bindings/matrix/markers/migrate-v2', requireApprovalBridgeSecret, (req, res) => {
   try {
+    if (Object.hasOwn(req.body || {}, 'approval_room_id')) validateMarkerPublisher(req.body);
     return res.json({ ok: true, migration: approvalStore.migrateMarkerRoomsV2(req.body || {}) });
   } catch (error) {
     return respondApprovalStoreError(res, error, 'failed to migrate approval room markers');

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { createServer } from 'node:http';
+import { MatrixClient } from 'matrix-bot-sdk';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 import {
@@ -353,47 +354,81 @@ describe('approval projection production request adapter', () => {
   });
 
   test('production worker drains a real canonical row through the adapter', async () => {
-    await bridgeRequest('put', '/api/approval-bindings', {
-      agent: 'worker', project: 'adapter-worker', project_room_id: `!worker-project:${server}`,
-      owner_mxid: `@owner:${server}`, owner_dm_room_id: `!worker-owner:${server}`,
+    vi.unstubAllGlobals();
+    const matrixCalls = [];
+    const socket = createServer(async (req, res) => {
+      let raw = ''; for await (const chunk of req) raw += chunk;
+      matrixCalls.push({ method: req.method, path: req.url, body: raw ? JSON.parse(raw) : null });
+      const missing = req.method === 'GET' && !req.url.endsWith('/joined_members');
+      res.writeHead(missing ? 404 : 200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(missing ? { errcode: 'M_NOT_FOUND' }
+        : req.method === 'PUT' ? { event_id: '$worker-event' }
+          : { joined: { [`@owner:${server}`]: {}, [`@bot:${server}`]: {} } }));
     });
-    const created = await request(context.app).post('/api/approvals').set('X-Agent-Token', AGENT_TOKEN).send({
-      agent: 'worker', runtime: 'codex', project: 'adapter-worker', project_room_id: `!worker-project:${server}`,
-      upstream_request_id: `adapter-worker-native-${Date.now()}`, tool_name: 'Bash', input_preview: 'pwd',
+    await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
+    const matrixUrl = `http://127.0.0.1:${socket.address().port}`;
+    const isolated = await createBackendTestContext('hafleet-worker-isolated-', {
+      agents: { worker: { name: 'worker', type: 'agent', kind: 'agent', online: true } },
+      agentTokens: { worker: AGENT_TOKEN },
+      env: { MATRIX_BRIDGE_SECRET: SECRET, HAFLEET_AGENT_TOKEN_MODE: 'hard',
+        MATRIX_SERVER_NAME: server, MATRIX_BOT_USERNAME: 'bot', MATRIX_HOMESERVER: matrixUrl },
     });
-    expect(created.status).toBe(201);
-    const client = { crypto: {}, doRequest: vi.fn(async () => ({ event_id: '$worker-event' })) };
-    const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: 'https://side.invalid' },
-      credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
-        outboundGeneration: 'side-generation' } };
-    const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
-      botClient: client, botUserId: `@bot:${server}`, approvalDmMode: 'plaintext-test',
-      approvalBotPublisherReady: { client, mxid: `@bot:${server}`,
-        credentialGeneration: 'adapter-bot-generation' },
-      agentWork: new Map(),
-      recentMatrixEvents: new Map(),
-      actingSideFor: () => side,
-      ensureApprovalDmSecurity: vi.fn(async () => {}),
-      warnIfOwnerCannotSeeApprovalRoom: vi.fn(async () => {}),
-      _approvalProjectionStopped: false, _approvalProjectionCursor: null,
-      callBackendApi: async (method, url, body) => {
-        const response = await bridgeRequest(method, url, body);
+    const api = (method, url, body) => {
+      const pending = request(isolated.app)[method.toLowerCase()](url).set('X-Bridge-Secret', SECRET);
+      return body === undefined ? pending : pending.send(body);
+    };
+    let bridge;
+    const warnings = vi.spyOn(console, 'warn');
+    try {
+      await api('put', '/api/approval-bindings', {
+        agent: 'worker', project: 'adapter-worker', project_room_id: `!worker-project:${server}`,
+        owner_mxid: `@owner:${server}`, owner_dm_room_id: `!worker-owner:${server}`,
+      });
+      const created = await request(isolated.app).post('/api/approvals').set('X-Agent-Token', AGENT_TOKEN).send({
+        agent: 'worker', runtime: 'codex', project: 'adapter-worker', project_room_id: `!worker-project:${server}`,
+        upstream_request_id: 'adapter-worker-native', tool_name: 'Bash', input_preview: 'pwd',
+      });
+      expect(created.status).toBe(201);
+      vi.resetModules();
+      const owned = await import('../bridge-matrix.js');
+      const client = new MatrixClient(matrixUrl, 'owned-worker-test-token');
+      client.crypto = {};
+      const send = vi.spyOn(client, 'doRequest');
+      const state = owned.bridgeStateForTest();
+      state.botMxid = `@bot:${server}`; state.botCredentialGeneration = 'isolated-worker-generation';
+      bridge = new owned.MatrixBridge();
+      bridge.botClient = client; bridge.botUserId = state.botMxid; bridge.approvalDmMode = 'plaintext-test';
+      bridge.installApprovalBotPublisherReady(client, state.botMxid, state.botCredentialGeneration);
+      bridge._approvalProjectionStopped = false; bridge._approvalProjectionEpoch = 1;
+      bridge.callBackendApi = async (method, url, body) => {
+        const response = await api(method, url, body);
         if (response.status >= 400) throw new Error(`backend ${response.status}`);
         return response.body;
-      },
-    });
-    try {
+      };
+      const ownerCheck = vi.spyOn(bridge, 'warnIfOwnerCannotSeeApprovalRoom');
+      warnings.mockClear();
       const result = await bridge.drainApprovalProjectionsOnce();
-      expect(result.selected).toBeGreaterThan(0);
-      expect(client.doRequest).toHaveBeenCalled();
-      expect(bridge.warnIfOwnerCannotSeeApprovalRoom).toHaveBeenCalledWith(
-        expect.objectContaining({ owner_mxid: `@owner:${server}` }), server,
-      );
-      const remaining = (await bridgeRequest('get', '/api/approvals/matrix/projections?limit=200')).body.projections;
-      expect(remaining.some(row => row.request_id === created.body.approval.id
-        && row.channel === 'private_request')).toBe(false);
+      expect(result.selected).toBe(2); // This request plus its inventoried owner room, no other test's rows.
+      expect(result.settled).toHaveLength(2);
+      for (const outcome of result.settled) {
+        expect(outcome.status).toBe('fulfilled');
+        expect(outcome.value).not.toHaveProperty('unresolved', true);
+        expect(outcome.value).not.toHaveProperty('error');
+      }
+      const inventory = result.settled.find(outcome => Object.hasOwn(outcome.value || {}, 'synchronization')).value;
+      expect(inventory.synchronization).toMatchObject({ ok: true, marker: { approval_room_id: `!worker-owner:${server}` } });
+      expect(inventory.reconciliation).toEqual({ observed_nonempty: false, reconciliation: null });
+      expect(send).toHaveBeenCalled();
+      expect(ownerCheck).toHaveBeenCalledWith(expect.objectContaining({ owner_mxid: `@owner:${server}` }), server);
+      expect(matrixCalls.filter(call => call.path.endsWith('/joined_members'))).toHaveLength(1);
+      expect(matrixCalls.filter(call => call.method === 'PUT')).toHaveLength(1);
+      expect(warnings).not.toHaveBeenCalled();
+      const remaining = (await api('get', '/api/approvals/matrix/projections?limit=200')).body.projections;
+      expect(remaining.some(row => row.request_id === created.body.approval.id && row.channel === 'private_request')).toBe(false);
     } finally {
-      vi.unstubAllGlobals();
+      bridge?.stopApprovalProjectionWorker(); warnings.mockRestore();
+      socket.closeAllConnections(); await new Promise(resolve => socket.close(resolve));
+      await isolated.cleanup(); vi.unstubAllGlobals();
     }
   });
 

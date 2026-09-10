@@ -5,7 +5,7 @@ import {
 } from '../bridge-matrix.js';
 
 function worker(overrides = {}) {
-  return Object.assign(Object.create(MatrixBridge.prototype), {
+  const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
     approvalProjectionIntervalMs: 5_000,
     _approvalProjectionTimer: null,
     _approvalProjectionDrainPromise: null,
@@ -17,6 +17,13 @@ function worker(overrides = {}) {
     publishApprovalProjectionRow: vi.fn(async () => ({ ok: true })),
     ...overrides,
   });
+  const requestApi = bridge.callBackendApi;
+  bridge.callBackendApi = vi.fn((method, url, ...args) => {
+    if (url.startsWith('/api/approval-bindings/matrix/rooms?')) return Promise.resolve({ rooms: [] });
+    if (url.startsWith('/api/approval-bindings/matrix/markers?')) return Promise.resolve({ markers: [] });
+    return requestApi(method, url, ...args);
+  });
+  return bridge;
 }
 
 afterEach(() => vi.useRealTimers());
@@ -24,9 +31,9 @@ afterEach(() => vi.useRealTimers());
 describe('approval projection request worker', () => {
   test('one page selects at most two requests and rotates the opaque cursor past blocked work', async () => {
     const pages = [
-      [{ request_id: 'a', cursor: 'opaque-a1' }, { request_id: 'a', cursor: 'opaque-a2' },
-        { request_id: 'b', cursor: 'opaque-b' }],
-      [{ request_id: 'c', cursor: 'opaque-c' }],
+      [{ request_id: 'a', target_room_id: '!a:test', cursor: 'opaque-a1' }, { request_id: 'a', target_room_id: '!a:test', cursor: 'opaque-a2' },
+        { request_id: 'b', target_room_id: '!b:test', cursor: 'opaque-b' }],
+      [{ request_id: 'c', target_room_id: '!c:test', cursor: 'opaque-c' }],
     ];
     let page = 0;
     let active = 0;
@@ -57,7 +64,7 @@ describe('approval projection request worker', () => {
 
   test('a full page progresses behind two persistently unavailable requests with concurrency two', async () => {
     const rows = Array.from({ length: 20 }, (_, index) => ({
-      request_id: `request-${String(index).padStart(2, '0')}`, cursor: `cursor-${index}`,
+      request_id: `request-${String(index).padStart(2, '0')}`, target_room_id: `!room-${index}:test`, cursor: `cursor-${index}`,
     }));
     let active = 0;
     let maximum = 0;
@@ -156,7 +163,7 @@ describe('approval projection request worker', () => {
     bridge.wakeApprovalProjectionWorker();
     release({ projections: [] });
     await first;
-    expect(bridge.callBackendApi).toHaveBeenCalledTimes(2);
+    expect(bridge.callBackendApi).toHaveBeenCalledTimes(6);
   });
 
   test('timer convergence is nonoverlapping and stop prevents new work', async () => {
@@ -207,4 +214,18 @@ describe('approval projection request worker', () => {
     expect(bridge.wakeApprovalProjectionWorker).toHaveBeenCalledOnce();
     expect(bridge.callBackendApi).not.toHaveBeenCalled();
   });
+});
+
+
+test('different channels for one selected request are retained and serialized', async () => {
+  const rows = ['private_status', 'public_notice'].map((channel, i) => ({ request_id: 'same', revision: 2, channel,
+    cas_token: `cas-${i}`, cursor: `cursor-${i}`, target_room_id: `!room-${i}:test` }));
+  let active = 0; let maximum = 0; const seen = [];
+  const bridge = worker({ callBackendApi: vi.fn(async () => ({ projections: rows })),
+    publishApprovalProjectionRow: vi.fn(async row => {
+      active++; maximum = Math.max(maximum, active); seen.push(row.channel); await Promise.resolve(); active--; return { ok: true };
+    }) });
+  await bridge.drainApprovalProjectionsOnce();
+  expect(seen).toEqual(['private_status', 'public_notice']); expect(maximum).toBe(1);
+  expect(bridge._approvalProjectionCursor).toBe('cursor-1');
 });

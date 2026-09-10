@@ -330,7 +330,24 @@ describe('approval room marker production adapter', () => {
       state_key: '',
       prepared_payload: { version: 2 },
       publisher_mxid: '@representative:slow.test',
-    }, actor, row)).rejects.toThrow(/state send failed|changed during side response|event_id/);
+    }, actor, row)).resolves.toBe('$stale-side-response');
+    // A complete successful PUT belongs to the old immutable plan. Rotation
+    // cannot erase its receipt, but it prevents another I/O using that actor.
+    await expect(io.send({
+      prepared_event_type: 'com.agentchat.approval.room.v2', state_key: '',
+      prepared_payload: { version: 2 }, publisher_mxid: '@representative:slow.test',
+    }, actor, row)).rejects.toThrow(/changed before/);
+    expect(bridge.approvalMarkerFetchImpl).toHaveBeenCalledTimes(1);
+    const refreshed = await io.resolveActor(row);
+    bridge.approvalMarkerFetchImpl = vi.fn(async () => ({ ok: true, status: 200,
+      json: async () => {
+        credential = { ...credential, outboundGeneration: 'slow-g3' };
+        return { version: 1, binding_generation: 1 };
+      },
+    }));
+    await expect(io.readLegacyState(row.approval_room_id, refreshed, 'com.agentchat.approval.room.v1'))
+      .resolves.toBeNull();
+    expect(bridge.approvalMarkerFetchImpl).toHaveBeenCalledTimes(1);
   });
 
   test('local marker HTTP owns success stalled and continuous trickle deadlines', async () => {

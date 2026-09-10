@@ -143,6 +143,44 @@ describe('shared approval room marker v2 contract', () => {
     expect(v2Rows.find((row) => row.approval_room_id === '!z-room:test').binding_generation).toBeGreaterThan(7);
   });
 
+  test('exact inactive room migration validates its publisher and rolls back without moving the global cursor', () => {
+    const { store, file } = setup();
+    store.state.markerScopes = Object.fromEntries(['!A:test', '!B:test'].map((room, i) => [
+      `worker\0${room}`, { agent: 'worker', approvalRoomId: room, ownerMxid: OWNER,
+        publisherMxid: '@private-publisher:test', generation: i + 3,
+        associations: [{ project_room_id: `!project-${i}:test`, active: false }] },
+    ]));
+    store.state.markerRoomMigration = { cursor: '!previous:test', complete: false };
+    store._save();
+    const identity = { approval_room_id: '!B:test', limit: 1, publisher_scope: 'local_bot',
+      publisher_mxid: '@private-publisher:test', credential_kind: 'local_bot', credential_generation: 'private-g1' };
+    const before = readFileSync(file, 'utf8');
+    const memory = JSON.stringify(store.state);
+    for (const invalid of [
+      { approval_room_id: null }, { approval_room_id: 'not-a-room' },
+      { publisher_scope: 'side-representative:test' }, { publisher_mxid: '@other:test' },
+      { credential_kind: 'appservice' }, { credential_generation: 'stale' },
+    ]) {
+      expect(() => store.migrateMarkerRoomsV2({ ...identity, ...invalid })).toThrow();
+      expect(JSON.stringify(store.state)).toBe(memory);
+      expect(readFileSync(file, 'utf8')).toBe(before);
+    }
+    store.fsFault = phase => { if (phase === 'beforeRename') throw new Error('exact migration write failed'); };
+    expect(() => store.migrateMarkerRoomsV2(identity)).toThrow(/persist|exact migration/);
+    expect(JSON.stringify(store.state)).toBe(memory);
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    store.fsFault = () => {};
+    expect(store.migrateMarkerRoomsV2(identity)).toEqual({ examined: 1, complete: true, cursor: null });
+    expect(store.state.markerRoomMigration).toEqual({ cursor: '!previous:test', complete: false });
+    expect(store.listDueMarkers()).toHaveLength(1);
+    expect(store.listDueMarkers()[0]).toMatchObject({ approval_room_id: '!B:test', marker_channel: 'room_marker_v2' });
+    expect(store.state.markerRoomScopes).not.toHaveProperty('!A:test');
+    expect(store.state.bindings).toEqual({});
+    const reloaded = createApprovalStore(file);
+    expect(reloaded.state.markerRoomMigration).toEqual({ cursor: '!previous:test', complete: false });
+    expect(reloaded.listDueMarkers()).toEqual(store.listDueMarkers());
+  });
+
   test('v2 receipt queues fixed retirement and preserves old attempted receipt semantics', () => {
     const { store, file } = setup();
     seedActualFour(store);

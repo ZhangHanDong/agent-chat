@@ -15,6 +15,7 @@ import {
 } from './lib/matrix-representative.js';
 import {
   publishApprovalMarker,
+  migrateApprovalRoomMarker,
   markerOwnedJsonRequest,
   reconcileObservedLegacyMarker,
   syncApprovalRoomMarker,
@@ -3415,6 +3416,9 @@ export class MatrixBridge {
     this._approvalProjectionDrainPromise = null;
     this._approvalProjectionWakeQueued = false;
     this._approvalProjectionCursor = null;
+    this._approvalRoomCursor = null;
+    this._approvalMarkerCursor = null;
+    this._approvalProjectionPassPromise = null;
     this._approvalProjectionStopped = true;
     this._approvalProjectionEpoch = 0;
     this._eventSourceFactory = eventSourceFactory;
@@ -3503,16 +3507,20 @@ export class MatrixBridge {
     return backendApi(method, routePath, body, contextLabel);
   }
 
-  syncApprovalRoomMarker(binding) {
-    return syncApprovalRoomMarker(binding, approvalMarkerIo(this));
+  syncApprovalRoomMarker(binding, options = {}) {
+    return syncApprovalRoomMarker(binding, approvalMarkerIo(this, options));
   }
 
-  publishApprovalMarker(row) {
-    return publishApprovalMarker(row, approvalMarkerIo(this));
+  migrateApprovalRoomMarker(room, options = {}) {
+    return migrateApprovalRoomMarker(room, approvalMarkerIo(this, options));
   }
 
-  reconcileObservedLegacyMarker(room) {
-    return reconcileObservedLegacyMarker(room, approvalMarkerIo(this));
+  publishApprovalMarker(row, options = {}) {
+    return publishApprovalMarker(row, approvalMarkerIo(this, options));
+  }
+
+  reconcileObservedLegacyMarker(room, options = {}) {
+    return reconcileObservedLegacyMarker(room, approvalMarkerIo(this, options));
   }
 
   // ── Task 8: standalone cross-component doctor — business-health record ──────
@@ -8677,55 +8685,113 @@ export class MatrixBridge {
     }
   }
 
-  async drainApprovalProjectionsOnce() {
-    if (this._approvalProjectionStopped) return { stopped: true, selected: 0 };
-    const query = new URLSearchParams({ limit: '20' });
-    if (this._approvalProjectionCursor) query.set('after', this._approvalProjectionCursor);
-    const page = await this.callBackendApi(
-      'GET', `/api/approvals/matrix/projections?${query}`, null, 'context=approval-projection:list',
-    );
-    const rows = Array.isArray(page?.projections) ? page.projections : [];
-    if (rows.length === 0) {
-      this._approvalProjectionCursor = null;
-      return { stopped: false, selected: 0 };
-    }
-    this._approvalProjectionCursor = rows[rows.length - 1]?.cursor || null;
-    const selected = [];
-    const requestIds = new Set();
-    for (const row of rows) {
-      if (!row?.request_id || requestIds.has(row.request_id)) continue;
-      requestIds.add(row.request_id);
-      selected.push(row);
-    }
+  drainApprovalProjectionsOnce() {
+    // Direct callers and lifecycle wakes share the same page admission owner.
+    if (this._approvalProjectionPassPromise) return this._approvalProjectionPassPromise;
+    this._approvalProjectionPassPromise = this._drainApprovalCanonicalPage().finally(() => {
+      this._approvalProjectionPassPromise = null;
+    });
+    return this._approvalProjectionPassPromise;
+  }
+
+  async _drainApprovalCanonicalPage() {
     const epoch = this._approvalProjectionEpoch;
-    const settled = new Array(selected.length);
-    let next = 0;
-    const runWorker = async () => {
-      while (next < selected.length) {
-        const index = next;
-        next += 1;
-        if (this._approvalProjectionStopped || epoch !== this._approvalProjectionEpoch) {
-          settled[index] = { status: 'fulfilled', value: { stopped: true } };
-          continue;
+    const current = () => !this._approvalProjectionStopped && epoch === this._approvalProjectionEpoch;
+    if (!current()) return { stopped: true, selected: 0 };
+    const pages = [];
+    for (const [category, route, field, cursorField] of [
+      ['request', '/api/approvals/matrix/projections', 'projections', '_approvalProjectionCursor'],
+      ['room', '/api/approval-bindings/matrix/rooms', 'rooms', '_approvalRoomCursor'],
+      ['marker', '/api/approval-bindings/matrix/markers', 'markers', '_approvalMarkerCursor'],
+    ]) {
+      if (!current()) break;
+      const query = new URLSearchParams({ limit: '20' });
+      if (this[cursorField]) query.set('after', this[cursorField]);
+      try {
+        const response = await this.callBackendApi('GET', `${route}?${query}`, null, `context=approval-worker:${category}`);
+        if (!current()) break;
+        const rows = response?.[field];
+        if (!Array.isArray(rows) || rows.length > 20 || rows.some(row => !row || typeof row.cursor !== 'string')) {
+          throw new Error('invalid bounded approval page');
         }
+        if (!rows.length) this[cursorField] = null;
+        pages.push({ category, rows, cursorField, tail: rows.at(-1)?.cursor, jobs: [] });
+      } catch {
+        // Preserve this opaque cursor. Another category can still converge.
+        console.warn(`[approval-projection] ${category} page deferred`);
+      }
+    }
+    const jobs = []; const seen = new Set();
+    for (let index = 0; index < 20; index += 1) {
+      for (const page of pages) {
+        const row = page.rows[index];
+        if (!row) continue;
+        const room = page.category === 'request' ? row.target_room_id : row.approval_room_id;
+        const identity = page.category === 'request'
+          ? [row.request_id, row.revision, row.channel, row.cas_token]
+          : page.category === 'room' ? [room] : [room, row.binding_generation, row.marker_channel, row.cas_token];
+        const key = JSON.stringify([page.category, ...identity]);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const job = { category: page.category, row, room, request: page.category === 'request' ? row.request_id : null,
+          started: false, settled: null };
+        page.jobs.push(job); jobs.push(job);
+      }
+    }
+    const rooms = new Set(); const requests = new Set();
+    const runSlot = async () => {
+      while (current()) {
+        const job = jobs.find(item => !item.started && !rooms.has(item.room)
+          && (!item.request || !requests.has(item.request)));
+        if (!job) return;
+        job.started = true; rooms.add(job.room); if (job.request) requests.add(job.request);
         try {
-          settled[index] = { status: 'fulfilled', value: await this.publishApprovalProjectionRow(selected[index], epoch) };
-        } catch (reason) {
-          settled[index] = { status: 'rejected', reason };
+          job.settled = { status: 'fulfilled', value: await this.runApprovalCanonicalJob(job, epoch) };
+        } catch {
+          job.settled = { status: 'rejected', reason: 'approval_job_deferred' };
+        } finally {
+          rooms.delete(job.room); if (job.request) requests.delete(job.request);
         }
       }
     };
-    await Promise.all([runWorker(), runWorker()]);
-    for (let index = 0; index < settled.length; index += 1) {
-      const outcome = settled[index];
-      if (outcome.status === 'rejected') {
-        console.warn(`[approval-projection] request=${selected[index].request_id} deferred: ${outcome.reason?.message || outcome.reason}`);
-      }
+    await Promise.all([runSlot(), runSlot()]);
+    for (const page of pages) {
+      if (page.tail && page.jobs.every(job => job.settled)) this[page.cursorField] = page.tail;
     }
-    return { stopped: false, selected: selected.length, settled };
+    return { stopped: !current(), selected: jobs.length,
+      settled: jobs.map(job => job.settled || { status: 'fulfilled', value: { stopped: true } }) };
+  }
+
+  async runApprovalCanonicalJob(job, epoch) {
+    const options = { isCurrent: () => !this._approvalProjectionStopped && epoch === this._approvalProjectionEpoch };
+    if (!options.isCurrent()) throw new Error('approval projection worker stopped');
+    if (job.category === 'request') return this.publishApprovalProjectionRow(job.row, epoch);
+    if (job.category === 'marker') {
+      if (!['room_marker_v2', 'room_marker_v1_retirement'].includes(job.row.marker_channel)) {
+        throw new Error('legacy marker publication is disabled');
+      }
+      return this.publishApprovalMarker(job.row, options);
+    }
+    let synchronization;
+    try {
+      if (job.row.synchronization_allowed === true && job.row.conflict === false) {
+        synchronization = await this.syncApprovalRoomMarker(job.row, options);
+      } else if (job.row.conflict === false) {
+        synchronization = await this.migrateApprovalRoomMarker(job.row, options);
+      }
+    } catch { synchronization = { unresolved: true }; }
+    if (!options.isCurrent()) throw new Error('approval projection worker stopped');
+    const reconciliation = await this.reconcileObservedLegacyMarker(job.row, options);
+    return { synchronization, reconciliation };
   }
 
   async publishApprovalProjectionRow(row, epoch = null) {
+    if (row.migration_kind === 'legacy_v1') {
+      if (row.channel !== 'private_status') throw new Error('legacy actionable publication is disabled');
+      return this.publishLegacyApprovalProjection(row, { isCurrent: () => epoch === null
+        || (!this._approvalProjectionStopped && epoch === this._approvalProjectionEpoch) });
+    }
+    if (row.migration_kind !== 'native_v2') throw new Error('unsupported approval migration kind');
     const result = await publishApprovalProjection(row, approvalProjectionIo(this, epoch));
     if (result?.ok && row.channel === 'private_request'
       && !this._approvalProjectionStopped
@@ -10829,7 +10895,8 @@ function sameLocalMarkerTransport(left, right) {
     && left?.transport?.access_token === right?.transport?.access_token;
 }
 
-async function localMarkerRequest(bridge, actor, row, endpoint, method, body) {
+async function localMarkerRequest(bridge, actor, row, endpoint, method, body, control = {}) {
+  control.check?.();
   const current = markerActorForBridge(bridge, row);
   if (!sameLocalMarkerTransport(actor, current)) {
     throw new Error('approval marker publisher changed before local state request');
@@ -10848,8 +10915,12 @@ async function localMarkerRequest(bridge, actor, row, endpoint, method, body) {
     },
     observeResponse: response => rateLimitGate.observeResponse(response),
   }, markerTimeoutMs(bridge));
-  if (!sameLocalMarkerTransport(actor, markerActorForBridge(bridge, row))) {
-    throw new Error('approval marker publisher changed during local state response');
+  const knownReceipt = method === 'PUT' && result.ok && /^\$[^\s]+$/.test(result.body?.event_id || '');
+  if (!knownReceipt) {
+    control.check?.();
+    if (!sameLocalMarkerTransport(actor, markerActorForBridge(bridge, row))) {
+      throw new Error('approval marker publisher changed during local state response');
+    }
   }
   return result;
 }
@@ -10868,9 +10939,10 @@ function markerTimeoutMs(bridge) {
   return Number.isFinite(configured) ? Math.min(Math.max(configured, 1), 30_000) : 10_000;
 }
 
-function boundedMarkerFetch(bridge, expectedActor, row) {
+function boundedMarkerFetch(bridge, expectedActor, row, control = {}) {
   const fetchImpl = bridge.approvalMarkerFetchImpl || fetch;
   return async (url, init = {}) => {
+    control.check?.();
     if (!sameProjectionActor(expectedActor, markerActorForBridge(bridge, row))) {
       throw new Error('approval marker publisher changed before side request');
     }
@@ -10895,8 +10967,12 @@ function boundedMarkerFetch(bridge, expectedActor, row) {
             try {
               const body = await json();
               controller.signal.throwIfAborted();
-              if (!sameProjectionActor(expectedActor, markerActorForBridge(bridge, row))) {
-                throw new Error('approval marker publisher changed during side response');
+              const knownReceipt = init.method === 'PUT' && response.ok && /^\$[^\s]+$/.test(body?.event_id || '');
+              if (!knownReceipt) {
+                control.check?.();
+                if (!sameProjectionActor(expectedActor, markerActorForBridge(bridge, row))) {
+                  throw new Error('approval marker publisher changed during side response');
+                }
               }
               return body;
             } finally {
@@ -10914,7 +10990,8 @@ function boundedMarkerFetch(bridge, expectedActor, row) {
   };
 }
 
-async function sendMarkerStateWithBridge(bridge, plan, actor, row) {
+async function sendMarkerStateWithBridge(bridge, plan, actor, row, control = {}) {
+  control.check?.();
   if (!sameProjectionActor(actor, markerActorForBridge(bridge, row))) {
     throw new Error('approval marker publisher changed before Matrix state send');
   }
@@ -10931,7 +11008,7 @@ async function sendMarkerStateWithBridge(bridge, plan, actor, row) {
     const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(row.approval_room_id)}`
       + `/state/${encodeURIComponent(plan.prepared_event_type)}/`;
     const response = await localMarkerRequest(
-      bridge, actor, row, endpoint, 'PUT', plan.prepared_payload,
+      bridge, actor, row, endpoint, 'PUT', plan.prepared_payload, control,
     );
     if (!response.ok) {
       throw new Error(`approval marker state send failed with HTTP ${response.status}`);
@@ -10949,18 +11026,19 @@ async function sendMarkerStateWithBridge(bridge, plan, actor, row) {
     stateKey: plan.state_key,
     content: plan.prepared_payload,
     expectedPublisherMxid: plan.publisher_mxid,
-    fetchImpl: boundedMarkerFetch(bridge, actor, row),
+    fetchImpl: boundedMarkerFetch(bridge, actor, row, control),
   });
   if (!result.sent) throw new Error(result.reason || 'side approval marker state send failed');
   return result.eventId;
 }
 
-async function readLegacyMarkerWithBridge(bridge, roomId, actor, eventType) {
+async function readLegacyMarkerWithBridge(bridge, roomId, actor, eventType, control = {}) {
+  control.check?.();
   const row = { approval_room_id: roomId };
   if (actor.sender.kind === 'local_bot') {
     const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}`
       + `/state/${encodeURIComponent(eventType)}/`;
-    const response = await localMarkerRequest(bridge, actor, row, endpoint, 'GET');
+    const response = await localMarkerRequest(bridge, actor, row, endpoint, 'GET', undefined, control);
     if (response.status === 404 && response.body?.errcode === 'M_NOT_FOUND') return null;
     if (!response.ok) {
       throw new Error(`approval marker state observation failed with HTTP ${response.status}`);
@@ -10975,7 +11053,7 @@ async function readLegacyMarkerWithBridge(bridge, roomId, actor, eventType) {
   const url = new URL(`${String(side.apiBaseUrl).replace(/\/+$/, '')}/_matrix/client/v3/rooms/`
     + `${encodeURIComponent(roomId)}/state/${encodeURIComponent(eventType)}/`);
   if (credential.kind === 'appservice') url.searchParams.set('user_id', actor.publisher_mxid);
-  const response = await boundedMarkerFetch(bridge, actor, row)(url.toString(), {
+  const response = await boundedMarkerFetch(bridge, actor, row, control)(url.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -10985,24 +11063,33 @@ async function readLegacyMarkerWithBridge(bridge, roomId, actor, eventType) {
   return body;
 }
 
-function approvalMarkerIo(bridge) {
-  const markerPost = (operation, body) => bridge.callBackendApi(
+function approvalMarkerIo(bridge, options = {}) {
+  const control = { check() {
+    if (options.signal?.aborted || (options.isCurrent && options.isCurrent() !== true)) {
+      throw new Error('approval projection worker stopped');
+    }
+  } };
+  const markerPost = (operation, body) => {
+    if (operation !== 'receipt') control.check();
+    return bridge.callBackendApi(
     'POST',
     `/api/approval-bindings/matrix/markers/${operation}`,
     body,
     `context=approval-marker:${operation}`,
-  );
+    );
+  };
   return {
-    resolveActor: async row => markerActorForBridge(bridge, row),
-    registerPublisher: actor => bridge.callBackendApi('PUT', '/api/approvals/matrix/publishers', {
+    resolveActor: async row => { control.check(); return markerActorForBridge(bridge, row); },
+    registerPublisher: actor => { control.check(); return bridge.callBackendApi('PUT', '/api/approvals/matrix/publishers', {
       scope: actor.scope,
       publisher_mxid: actor.publisher_mxid,
       homeserver: actor.homeserver,
       credential_kind: actor.credential_kind,
       credential_generation: actor.credential_generation,
       ...(actor.side_id ? { side_id: actor.side_id } : {}),
-    }, 'context=approval-marker:publisher'),
+    }, 'context=approval-marker:publisher'); },
     sync: body => markerPost('sync', body),
+    migrate: body => markerPost('migrate-v2', body),
     prepare: body => markerPost('prepare', body),
     begin: body => markerPost('begin-send', body),
     receipt: (body, eventId) => markerPost('receipt', { ...body, event_id: eventId }),
@@ -11011,9 +11098,9 @@ function approvalMarkerIo(bridge) {
       error_code: String(error?.code || 'matrix_state_send_failed').slice(0, 128),
     }),
     reconcile: body => markerPost('reconcile-retirements', body),
-    send: (plan, actor, row) => sendMarkerStateWithBridge(bridge, plan, actor, row),
+    send: (plan, actor, row) => sendMarkerStateWithBridge(bridge, plan, actor, row, control),
     readLegacyState: (roomId, actor, eventType) => (
-      readLegacyMarkerWithBridge(bridge, roomId, actor, eventType)
+      readLegacyMarkerWithBridge(bridge, roomId, actor, eventType, control)
     ),
   };
 }
@@ -11288,6 +11375,7 @@ function legacyApprovalProjectionIo(bridge) {
     const url = new URL(`${String(actor.transport.baseUrl).replace(/\/+$/, '')}${endpoint}`);
     if (actor.transport.masquerade) url.searchParams.set('user_id', actor.publisher_mxid);
     return legacyOwnedJsonRequest(url, { method, body,
+      completeStartedSend: method === 'PUT' && endpoint.includes('/send/'),
       headers: { Authorization: `Bearer ${actor.transport.token}`, 'Content-Type': 'application/json' },
       observeResponse: response => rateLimitGate.observeResponse(response) }, budget);
   };
