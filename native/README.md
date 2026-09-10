@@ -9,8 +9,9 @@ The current developer checkpoint includes domain schema 12: scoped tasks,
 internal groups, durable graphs, verified-input task activation and final-reply
 custody. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation. The runtime crate provides a bounded
-Codex one-turn session, and the native CLI maintains an assigned task through
-the scoped API. Runtime execution and actual Matrix delivery remain disabled.
+Codex one-turn session connected to guardian-owned Unix child pipes for offline
+fixtures. The native CLI maintains an assigned task through the scoped API.
+Service Agent execution and actual Matrix delivery remain disabled.
 The sections below record the successive checkpoints.
 
 Build and run from this worktree, using a new state directory:

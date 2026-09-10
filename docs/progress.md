@@ -2647,3 +2647,17 @@ Selectors ran 1 lifecycle, 1 admission, 2 IO-failure and 2 custody tests; platfo
 ancillary unit evidence comes from the separate focused platform test run.
 Logs and the exact lifecycle command are in the operator migration cache outside
 the repository. No changes were pushed, merged or deployed from this worktree.
+
+## 2026-09-10 — Combined native client and owned runner verification
+
+- Integrated native task CLI as dbf3162 and owned child IO as 1609289. Review
+  confirmed exact framed guardian reads do not consume the ancillary marker;
+  disposable pre-start macOS failure handling and bounded owner stop remain
+  explicit. Append-only coordination conflicts preserve both histories.
+- All 176 native workspace tests passed, zero failed or ignored. Workspace
+  Clippy, rustfmt and diff checks passed; all 124 native selectors resolve.
+  Integrated owned-IO lifecycle passed 5/5 with zero skips or uncertainty.
+  Combined logs are in the migration cache as combined-owned-cli-* and
+  combined-owned-io-lifecycle.json. Cross-platform CI is pending this push.
+- Parallel work continues on Windows cancellable pipes, outbound HTTPS and
+  persisted owner approvals. No deployed service or original checkout changed.
