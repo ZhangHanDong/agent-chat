@@ -186,7 +186,7 @@ async fn native_matrix_transport_rooms_full_snapshots_refuse_unsafe_or_conflicti
         let f = Fixture::new();
         let c = Collector::new(f.config(&fake.endpoint), f.store.clone()).unwrap();
         let cancel = CancellationToken::new();
-        let (result, _) = tokio::join!(c.collect(&cancel), async {
+        let (result, _) = scripted(c.collect(&cancel), async {
             fake.next().await.json(200, who());
             fake.next().await.json(200, sync("batch"));
             let mut v = state();
@@ -195,7 +195,7 @@ async fn native_matrix_transport_rooms_full_snapshots_refuse_unsafe_or_conflicti
  "third"=>a.push(json!({"type":"m.room.member","state_key":"@third:example.test","content":{"membership":"join"}})),
  "missing"=>{a.remove(1);},"duplicate"=>a.push(a[0].clone()),"plaintext"=>{a.pop();},"public"=>a[2]["content"]["join_rule"]=json!("public"),"algorithm"=>a[3]["content"]["algorithm"]=json!("unknown"),_=>a[0]["room_id"]=json!("!other:example.test")};
             fake.next().await.json(200, v);
-        });
+        }).await;
         assert!(result.is_err(), "{variant}");
         assert!(!f.available().await);
         c.close().await.unwrap();
@@ -361,7 +361,7 @@ async fn native_matrix_transport_rooms_unsafe_shared_state_retires_other_agent_r
     .unwrap();
     let c = Collector::new(config, store.clone()).unwrap();
     let cancel = CancellationToken::new();
-    let (result, _) = tokio::join!(c.collect(&cancel), async {
+    let (result, _) = scripted(c.collect(&cancel), async {
         fake.next().await.json(200, who());
         fake.next().await.json(200, sync("unsafe"));
         fake.next().await.json(200,json!([
@@ -369,7 +369,8 @@ async fn native_matrix_transport_rooms_unsafe_shared_state_retires_other_agent_r
   {"type":"m.room.member","state_key":"@peer:example.test","content":{"membership":"join"}},
   {"type":"m.room.member","state_key":"@owner:example.test","content":{"membership":"leave"}}
  ]));
-    });
+    })
+    .await;
     assert!(result.is_err());
     let sql = rusqlite::Connection::open(root.path().join("domain/domain.sqlite3")).unwrap();
     assert_eq!(
@@ -399,4 +400,53 @@ async fn native_matrix_transport_rooms_unsafe_shared_state_retires_other_agent_r
     c.close().await.unwrap();
     store.shutdown().await.unwrap();
     fake.close().await;
+}
+
+#[tokio::test]
+async fn native_matrix_transport_rooms_fixture_accepts_sdk_sized_gap_between_requests() {
+    let mut fake = Fake::start(false).await;
+    let endpoint = fake.endpoint.clone();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let (result, ()) = scripted(
+        async {
+            client
+                .get(format!("{endpoint}whoami"))
+                .send()
+                .await
+                .unwrap();
+            // Deterministically reproduce a legal SDK interval longer than the
+            // old three-second fake-peer deadline. No production timeout changes.
+            tokio::time::sleep(Duration::from_millis(3100)).await;
+            client.get(format!("{endpoint}sync")).send().await.unwrap();
+            Ok::<_, Error>(())
+        },
+        async {
+            let request = fake.next().await;
+            assert_eq!(request.target, "/whoami");
+            request.json(200, who());
+            let request = fake.next().await;
+            assert_eq!(request.target, "/sync");
+            request.json(200, sync("fixture"));
+        },
+    )
+    .await;
+    assert_eq!(result, Ok(()));
+    fake.close().await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "collector completed before its HTTP script: Err(Identity)")]
+async fn native_matrix_transport_rooms_fixture_reports_early_refusal() {
+    let mut fake = Fake::start(false).await;
+    let f = Fixture::new();
+    let c = Collector::new(f.config(&fake.endpoint), f.store.clone()).unwrap();
+    let _ = scripted(c.collect(&CancellationToken::new()), async {
+        fake.next().await.json(
+            200,
+            json!({"user_id":"@other:example.test","device_id":"OTHER"}),
+        );
+        // Refused whoami must never produce this request; report Identity.
+        fake.next().await;
+    })
+    .await;
 }

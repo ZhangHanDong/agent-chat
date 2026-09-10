@@ -1,5 +1,13 @@
 # Repository audit knowledge
 
+- **Matrix fixture waits, 2026-09-10:** ADR-047's scripted peer previously
+  allowed only three seconds between requests although the owned SDK bootstrap
+  has a ten-second budget. The fake now derives its finite wait from SDK plus
+  HTTP budgets, and the two room scripts surface early collector completion.
+  The archived Linux431b2ec timeout does not identify the collector's outcome;
+  do not describe that CI run as passing or infer an authentication failure.
+  A controlled 3.1-second gap and actual whoami refusal cover the fixture fix.
+
 - **Native child progress evidence, 2026-09-10:** CI at `68af16c` failed an
   unrelated-child assertion that sampled heartbeat growth once after 80 ms and
   never read the retained child's exit status. A native, host-paused heartbeat

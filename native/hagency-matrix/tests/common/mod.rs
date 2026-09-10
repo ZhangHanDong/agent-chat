@@ -3,7 +3,7 @@ use hagency_core::replies::*;
 use hagency_matrix::{CancellationToken, HostConfig, HostIdentity, HostRoom, Limits};
 use hagency_store::{DomainRepository, DomainStore, EffectOutcome};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, fmt::Debug, future::Future, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
@@ -132,6 +132,22 @@ pub async fn success(fake: &mut Fake, token: &str) {
     assert!(request.target.ends_with("/state"));
     request.json(200, state());
 }
+/// A script must finish issuing its responses before collection settles. Report
+/// an early collector failure directly instead of waiting for an HTTP request
+/// that it will never make. Prefer the completed script when both are ready.
+pub async fn scripted<C, S>(collector: C, script: S) -> (C::Output, S::Output)
+where
+    C: Future,
+    C::Output: Debug,
+    S: Future,
+{
+    tokio::pin!(collector, script);
+    tokio::select! {
+        biased;
+        output = &mut script => (collector.await, output),
+        output = &mut collector => panic!("collector completed before its HTTP script: {output:?}"),
+    }
+}
 pub struct Request {
     pub method: String,
     pub target: String,
@@ -217,10 +233,12 @@ impl Fake {
         }
     }
     pub async fn next(&mut self) -> Request {
-        timeout(Duration::from_secs(3), self.requests.recv())
+        // An SDK bootstrap or committed sync runs between HTTP requests. This
+        // is a fixture orchestration bound, not an HTTP/production deadline.
+        timeout(limits().sdk + limits().request, self.requests.recv())
             .await
-            .unwrap()
-            .unwrap()
+            .expect("scripted HTTP request missing after SDK plus HTTP budget")
+            .expect("scripted HTTP peer closed")
     }
     pub async fn no_request(&mut self) {
         assert!(
