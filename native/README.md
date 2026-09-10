@@ -437,3 +437,11 @@ No runtime provisioner or service enablement is supplied. Closing descriptors
 does not itself kill processes; simultaneous host/guardian crash containment
 remains Unsupported, and a partial cleanup observation never releases a domain
 lease or completes a canonical task.
+
+The [native metering parser](../knowledge/decisions/adr-055-native-metering-parsers.md)
+normalizes bounded, supplied Claude/Codex transcript snapshots. It preserves all
+four token categories, excludes cache reads from ceiling arithmetic, and exposes
+missing or contradictory evidence. Its 135 vectors execute the retained JS
+parser; separate correction fixtures reject coerced/unsafe numbers, duplicate
+keys and conflicting message identities. This library does not read transcript
+files, authenticate usage, attribute it to an Agent/project, or enforce a quota.

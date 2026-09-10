@@ -3241,3 +3241,28 @@ At 2c7b402, Node CI and native macOS and Windows CI passed. Native Linux tests p
 actual cgroup qualifier refused the then-unqualified 6.17 kernel. The new family
 check is ready for a separate real CI run. The complete native CI run remains
 failed until actual Linux cgroup qualification succeeds.
+
+## 2026-09-10 — Native transcript token normalization (ADR-055)
+
+Added the pure hagency-metering library with explicit byte/line/record/metadata
+bounds. Claude UUID deduplication and Codex last cumulative totals agree with 135
+synthetic vectors executed against the retained JavaScript parser. Four token
+categories remain separate; cache reads do not draw the fresh-token ceiling.
+Absent usage remains unknown; malformed lines and incomplete source records stay
+visible. Private workspace/model hints establish no attribution or path access.
+
+Parallel review reproduced three gaps before integration: changed Codex cumulative
+breakdowns could look consistent, missing whole usage objects escaped diagnostics,
+and missing fields could hide arithmetic overflow. The fixes retain last known
+components across gaps, count absent expected usage records, and independently
+accumulate known Claude lower bounds. Regression fixtures cover each reproduction,
+raw numeric spellings, Unicode model ordering, duplicate keys/UUID conflicts,
+decreasing totals and capacity exhaustion. Five focused Rust tests and Clippy with
+warnings denied pass. The preserved review probe and metering logs are in the
+external migration cache. Discovery, persistent ledger, authenticated provenance,
+project attribution, quota enforcement and UI integration remain open M7 work.
+
+Final focused validation: 5/5 native tests, 135 unchanged JS oracle cases and
+23/23 existing metering Vitest tests passed. All 177 native selectors resolve.
+Lifecycle passed 6/6, including all 14 changed paths, with no fail/skip/uncertain.
+Cargo added only the local metering package; existing versions remain pinned.

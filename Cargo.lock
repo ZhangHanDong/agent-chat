@@ -1081,6 +1081,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hagency-metering"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "hagency-palpo"
 version = "0.1.0"
 dependencies = [

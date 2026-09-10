@@ -1622,3 +1622,13 @@ child, Clippy, 172 selector bindings and lifecycle 7/7 with all 16 changed paths
 The native MCP catalog now has 19 tools; the five assigned-task tools retain
 their narrower scope. Local evidence remains separate from the new Linux
 kernel qualification and complete three-platform CI.
+
+ADR055 adds bounded in-memory Claude/Codex transcript normalization only. Reports
+carry optional categories and explicit missing/contradictory evidence; a consumer
+must not drop diagnostics or treat a transcript workspace as authenticated Agent
+attribution. Codex uses cumulative totals and keeps last known category values
+across gaps; Claude separately bounds known volume so null aggregation cannot hide
+overflow. Integer JSON literals are accepted through MAX_SAFE_INTEGER; decimal,
+exponent, coercible and out-of-range values are refused. Cache reads are displayed
+separately and excluded from fresh-token ceiling arithmetic. No ledger or live
+usage reader is wired to this library.

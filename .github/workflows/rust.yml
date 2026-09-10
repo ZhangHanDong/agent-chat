@@ -32,6 +32,7 @@ jobs:
       # installation script and native addon build in this Rust-only job.
       - run: npm ci --ignore-scripts --omit=dev
       - run: node native/scripts/matrix-format-vectors.mjs --check
+      - run: node native/scripts/metering-vectors.mjs --check
       - run: node native/scripts/canonical-vectors.mjs --check
       - run: node native/scripts/allocation-vectors.mjs --check
       - run: node native/scripts/project-vectors.mjs --check
