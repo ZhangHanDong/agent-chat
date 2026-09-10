@@ -13,6 +13,8 @@ use std::{
 };
 mod pipe;
 mod scope;
+#[allow(unsafe_code)]
+mod stdio;
 use pipe::{FRAME_LIMIT, Pipe};
 
 // Private wire data on an anonymous inherited socket. Deserialization is not
@@ -64,6 +66,7 @@ impl Configuration {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Request {
     Prepare { version: u32, launch: Configuration },
+    PreparePiped { version: u32, launch: Configuration },
     Start,
     Stop,
 }
@@ -100,15 +103,36 @@ pub(super) struct Supervisor {
 }
 impl Supervisor {
     pub(super) fn spawn(guardian: &Path, launch: &Launch) -> io::Result<Self> {
+        Self::spawn_inner(guardian, launch, false).map(|(owner, _)| owner)
+    }
+    pub(super) fn spawn_piped(
+        guardian: &Path,
+        launch: &Launch,
+    ) -> io::Result<(Self, crate::StdioPipes)> {
+        let (owner, pipes) = Self::spawn_inner(guardian, launch, true)?;
+        Ok((owner, pipes.ok_or_else(protocol_error)?))
+    }
+    fn spawn_inner(
+        guardian: &Path,
+        launch: &Launch,
+        piped: bool,
+    ) -> io::Result<(Self, Option<crate::StdioPipes>)> {
         if launch.require_crash_containment {
             return Err(unsupported());
         }
         let configuration = Configuration::from_launch(launch);
+        let (host_pipes, child_pipes) = if piped {
+            let (host, child) = crate::StdioPipes::pair()?;
+            (Some(host), Some(child))
+        } else {
+            (None, None)
+        };
         let (owner, worker) = UnixStream::pair()?;
         let pipe = Pipe::new(owner)?;
         let input: OwnedFd = worker.into();
         // The socket is unnamed and only inherited as stdin by this guardian.
-        // Work receives null stdin and cannot retain the owner endpoint.
+        // Work receives null or separately transferred pipe stdin and cannot
+        // retain this socket or its duplicate guardian-reply endpoint.
         let mut command = Command::new(guardian);
         command
             .arg("guardian")
@@ -128,13 +152,21 @@ impl Supervisor {
             report: None,
         };
         let until = Instant::now() + Duration::from_secs(5);
-        result.pipe.send(
-            &Request::Prepare {
+        let request = if piped {
+            Request::PreparePiped {
                 version: 1,
                 launch: configuration,
-            },
-            until,
-        )?;
+            }
+        } else {
+            Request::Prepare {
+                version: 1,
+                launch: configuration,
+            }
+        };
+        result.pipe.send(&request, until)?;
+        if let Some(pipes) = child_pipes {
+            stdio::send(&result.pipe.stream, pipes, until)?;
+        }
         if !matches!(
             result.pipe.required::<Reply>(until, 1024)?,
             Reply::Prepared { version: 1 }
@@ -146,7 +178,7 @@ impl Supervisor {
             Reply::Started { pid } if pid > 1 => result.pid = pid,
             _ => return Err(io::Error::other("native guardian launch failed")),
         }
-        Ok(result)
+        Ok((result, host_pipes))
     }
     pub(super) fn id(&self) -> u32 {
         self.pid
@@ -238,21 +270,27 @@ fn protocol_error() -> io::Error {
 pub fn run_guardian() -> io::Result<()> {
     // CLOEXEC is essential: a runner must never inherit a descriptor that can
     // impersonate guardian replies to its host. stdin itself is replaced with
-    // /dev/null during the scoped child spawn.
+    // /dev/null or the transferred child pipe during the scoped child spawn.
     let input = rustix::io::fcntl_dupfd_cloexec(std::io::stdin(), 3)?;
     let mut pipe = Pipe::new(UnixStream::from(input))?;
     let until = Instant::now() + Duration::from_secs(5);
-    let Request::Prepare { version: 1, launch } = pipe.required::<Request>(until, FRAME_LIMIT)?
-    else {
-        return Err(protocol_error());
+    let (launch, piped) = match pipe.required::<Request>(until, FRAME_LIMIT)? {
+        Request::Prepare { version: 1, launch } => (launch, false),
+        Request::PreparePiped { version: 1, launch } => (launch, true),
+        _ => return Err(protocol_error()),
     };
     let launch = launch.into_launch()?;
     let mut process = scope::Scope::prepare()?;
+    let pipes = if piped {
+        Some(stdio::receive(&pipe.stream, until)?)
+    } else {
+        None
+    };
     pipe.send(&Reply::Prepared { version: 1 }, until)?;
     if !matches!(pipe.required::<Request>(until, 1024)?, Request::Start) {
         return Err(protocol_error());
     }
-    if let Err(error) = process.start(&launch) {
+    if let Err(error) = process.start(&launch, pipes) {
         let _ = pipe.send(&Reply::Failed, Instant::now() + Duration::from_secs(1));
         return Err(error);
     }

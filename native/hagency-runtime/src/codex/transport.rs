@@ -66,7 +66,7 @@ impl Default for Limits {
     }
 }
 impl Limits {
-    fn validate(self) -> Result<(), Error> {
+    pub(crate) fn validate(self) -> Result<(), Error> {
         if [self.write_timeout_ms, self.event_wait_ms, self.lifetime_ms]
             .iter()
             .any(|&value| value == 0 || value > MAX_REQUEST_MS)

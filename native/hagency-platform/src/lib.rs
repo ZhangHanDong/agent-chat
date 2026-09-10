@@ -7,6 +7,8 @@ mod supervisor;
 #[cfg(unix)]
 pub use supervisor::run_guardian;
 pub use supervisor::{StopCause, SupervisedProcess, SupervisedReport};
+mod stdio;
+pub use stdio::StdioPipes;
 
 #[cfg(unix)]
 mod unix;
@@ -93,6 +95,13 @@ impl OwnedProcess {
         launch.validate()?;
         Ok(Self {
             inner: Process::spawn(launch)?,
+        })
+    }
+    #[cfg(unix)]
+    pub(crate) fn spawn_piped(launch: &Launch, pipes: stdio::ChildPipes) -> io::Result<Self> {
+        launch.validate()?;
+        Ok(Self {
+            inner: Process::spawn_piped(launch, pipes)?,
         })
     }
     /// Informational only: ownership is the private child/job handle, never this PID.

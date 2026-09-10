@@ -1345,3 +1345,27 @@ connection future is polled inside the request future, so cancellation closes th
 socket without a detached task. Native dispatch already starts canonical work;
 helper start records its heartbeat, not task creation. Host environment and full
 MCP/helper installation remain separate integration work.
+
+Native owned runner IO (2026-09-10): ADR-040 adds one-use child pipes to the same
+guardian prepare/start and retained-identity launcher. SCM_RIGHTS reception is
+private to the disposable guardian before workspace Start. Exact three FIFO
+endpoints, direction, control metadata and CLOEXEC must be checked there. On
+macOS truncated rights can install descriptors whose numbers never reach the
+caller; do not parse an oversized cmsg_len or return to a long-lived daemon.
+The pre-start receiver exits 125 on truncation, closing all undisclosed rights.
+The 4 KiB bound is documented against pinned XNU source, with a disposable
+adversarial truncation test. Linux retains atomic CLOEXEC and kernel excess-fd
+closure; both platforms retain existing post-fork descriptor sealing.
+
+OwnedSession uses native nonblocking Tokio Unix pipe adapters, retains its
+SupervisedProcess and stops it on terminal protocol state, failure or dropped
+operations. The synchronous three-second stop can block a Tokio worker; this is
+for a dedicated host execution worker, not nonblocking HTTP orchestration.
+Cleanup::Observed preserves macOS whole_tree_stopped=false; Unknown remains
+unresolved, startup acknowledgement loss is Uncertain, and neither settles a
+task or lease. Closing data streams does not itself stop a child. Stderr counts
+observed bytes and does not promise to drain bytes left in the kernel after
+terminal closure. Windows piped IO is explicitly unavailable; its existing
+atomic job launch is unchanged. POSIX guardian-death recovery, macOS detached
+descendant proof, real models, effective sandbox and service authority remain
+open; native Agent execution remains disabled.

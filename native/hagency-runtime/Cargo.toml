@@ -10,10 +10,12 @@ publish.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util"] }
+tokio = { workspace = true, features = ["io-util", "net"] }
+hagency-platform = { path = "../hagency-platform" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true
 
 [lints]
 workspace = true

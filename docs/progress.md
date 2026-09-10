@@ -2599,3 +2599,51 @@ input acknowledgement, sandbox, host authority and durable-domain gates close.
   the line-ending correction remains pending the next push.
 - Host environment provisioning and full legacy/MCP helper parity are not enabled
   by this CLI. The production service and original checkout remain unchanged.
+
+## 2026-09-10 — M4 owned child stdio integration (ADR-040)
+
+Added SupervisedProcess::spawn_piped and one-use StdioPipes through the existing
+guardian prepare/start and retained child-identity launcher. Exactly three
+checked endpoints cross the private socket before Start. OwnedSession consumes
+native Tokio Unix pipe adapters and retains process custody through completion,
+EOF, timeout and dropped-operation cancellation. Protocol outcome and exact
+platform termination report remain separate. Its bounded synchronous stop can
+block an execution worker; nonblocking server orchestration is not claimed.
+
+The offline native fixture now traverses initialize, initialized, thread/start,
+turn/start, streamed item text and completion over actual child pipes. It also
+exercises a failed executable, silent and closed output, a cancelled partially
+written request, 256 KiB stderr pressure, a child surviving stream closure, and
+an independently observed descendant. It never launches a model or live service.
+
+Adversarial descriptor tests exposed a real macOS truncation hazard during
+development: the original ancillary header can exceed copied control bytes and
+the kernel can install descriptor IDs omitted by truncation. The receiver now
+uses a source-bound 4 KiB buffer and exits its disposable pre-start process on
+macOS truncation; a subprocess test verifies exit 125 and closure of undisclosed
+rights. Parser traversal and payload lengths are bounded before reads. Test
+pipes were also sealed to avoid unrelated concurrent fixture inheritance.
+Parent review requested the defensive control-length clamp and it is included.
+
+A final test pass exposed an overly strong stderr fixture expectation: terminal
+stdout can close streams while a final chunk remains in the kernel. The test
+now checks observed drainage and exact bounded tail content, without equating
+produced bytes with observed bytes. Descendant markers were separated and must
+show activity before protocol completion, removing a weak shared-file assertion.
+
+Focused platform/runtime verification passed 59 tests locally on macOS 26.5 /
+Darwin 25.5.0 (19 platform and 40 runtime), zero failed or ignored. Linux-specific
+subreaper/ancillary tests and Windows refusal still require their CI hosts.
+Windows cancellable piped IO remains Unsupported; atomic job launching is
+unchanged. POSIX crash-containment refusal and macOS incomplete descendant
+reports remain intact. Real sandbox/runtime qualification, guardian-death
+recovery, authenticated dispatch and durable task/lease settlement remain open.
+Native execution stays disabled; no migration phase is declared complete.
+
+All-target focused Clippy with warnings denied, workspace formatting and diff
+checks passed. Agent-spec 1.4 lifecycle passed all four bound scenarios plus the
+explicit 20-file boundary check (5/5, quality 98%, zero fail/skip/uncertain).
+Selectors ran 1 lifecycle, 1 admission, 2 IO-failure and 2 custody tests; platform
+ancillary unit evidence comes from the separate focused platform test run.
+Logs and the exact lifecycle command are in the operator migration cache outside
+the repository. No changes were pushed, merged or deployed from this worktree.

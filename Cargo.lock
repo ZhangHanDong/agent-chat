@@ -990,8 +990,10 @@ dependencies = [
 name = "hagency-runtime"
 version = "0.1.0"
 dependencies = [
+ "hagency-platform",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tokio",
 ]

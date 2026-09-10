@@ -15,6 +15,15 @@ pub(super) struct Process {
 }
 impl Process {
     pub(super) fn spawn(launch: &Launch) -> io::Result<Self> {
+        Self::spawn_inner(launch, None)
+    }
+    pub(super) fn spawn_piped(
+        launch: &Launch,
+        pipes: crate::stdio::ChildPipes,
+    ) -> io::Result<Self> {
+        Self::spawn_inner(launch, Some(pipes))
+    }
+    fn spawn_inner(launch: &Launch, pipes: Option<crate::stdio::ChildPipes>) -> io::Result<Self> {
         if launch.require_crash_containment {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -31,6 +40,12 @@ impl Process {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .process_group(0);
+        if let Some(pipes) = pipes {
+            command
+                .stdin(Stdio::from(pipes.stdin))
+                .stdout(Stdio::from(pipes.stdout))
+                .stderr(Stdio::from(pipes.stderr));
+        }
         crate::unix_spawn::seal(&mut command);
         let mut child = command.spawn()?;
         // Never permit kill(-1) semantics, even if an exotic namespace starts

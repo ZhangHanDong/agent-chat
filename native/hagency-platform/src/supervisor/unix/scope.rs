@@ -22,11 +22,18 @@ impl Scope {
             reaper: reaper::Reaper::prepare()?,
         })
     }
-    pub(super) fn start(&mut self, launch: &Launch) -> io::Result<()> {
+    pub(super) fn start(
+        &mut self,
+        launch: &Launch,
+        pipes: Option<crate::stdio::ChildPipes>,
+    ) -> io::Result<()> {
         if self.process.is_some() {
             return Err(io::Error::other("scope already started"));
         }
-        self.process = Some(OwnedProcess::spawn(launch)?);
+        self.process = Some(match pipes {
+            Some(pipes) => OwnedProcess::spawn_piped(launch, pipes)?,
+            None => OwnedProcess::spawn(launch)?,
+        });
         Ok(())
     }
     pub(super) fn id(&self) -> u32 {
