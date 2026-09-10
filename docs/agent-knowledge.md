@@ -1188,3 +1188,16 @@ from dispatch_resources joined to unresolved_dispatches, excluding already
 inspected recoveries and settled stops. Preparing one giant schema verification
 query with expanded views exceeded SQLite's 64-table limit; prepare every
 independent check before schema version commit, and again during reopen.
+
+
+Native Codex protocol foundation (2026-09-10): `hagency-runtime` is IO-free and
+not linked into the server. Codex 0.153.4 generated envelope schemas and reusable
+wire vectors are recorded under its tests; see ADR-032. JSONL is bounded to 1 MiB,
+64 value levels and a 10-second absolute partial-line lifetime. IDs retain signed
+integer/string distinctions, initialize gates ordinary requests, and unknown or
+duplicate response IDs fence the whole connection. Server request tombstones are
+never evicted; only explicit unsupported-handler errors are currently available.
+Interrupt ACK, turn notification, child cleanup and canonical completion remain
+separate. The future adapter must supply ordered bounded IO, real stdin ACK,
+current thread/turn/item authority, applied owner decisions and guardian custody.
+A clean protocol EOF is not a clean dispatch outcome. Native execution stays off.

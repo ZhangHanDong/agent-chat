@@ -984,6 +984,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hagency-runtime"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "hagency-store"
 version = "0.1.0"
 dependencies = [

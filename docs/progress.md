@@ -2225,3 +2225,34 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - Actual model execution, graph tool adapters, final reply privacy/delivery,
   Matrix/Palpo transport, sandbox policy and remaining migration gates are open.
   Original dirty checkout and deployed services remain unchanged.
+
+
+## 2026-09-10 — Native Codex protocol foundation in parallel worktree
+
+- Implemented an independent M4 protocol slice on `feat/rust-runner-protocol`,
+  based on committed 8aa01af while the primary worktree closes M3 graphs. Original
+  dirty source checkout, active services and credentials were not changed.
+- Added `hagency-runtime` with a bounded incremental JSONL codec and an IO-free
+  host connection state. Integer/string identity namespaces, duplicate JSON keys,
+  handshake order, absolute deadlines, finite pending requests and permanent
+  server request tombstones are explicitly checked. No server success/allow
+  response is implemented, and runtime text cannot settle work.
+- Inspected installed Codex CLI 0.153.4 and exported its JSON schemas using its
+  schema generator; committed selected schema snapshots/digests and reusable
+  wire vectors. Checked the official App Server protocol documentation. No model
+  execution or external-service test was run.
+- Nine focused native tests pass, zero failed or ignored. They cover fragmented
+  UTF-8, CRLF/coalesced lines, exact/oversized frames, invalid/duplicate fields,
+  out-of-order/type-substituted RPC IDs, pending/lifetime limits, resolution before
+  request, stale server requests, interruption ACK/error, timeout amid output,
+  partial EOF, transport loss and sanitized locally generated errors. Rustfmt and
+  focused Clippy pass. The initial Clippy run found one collapsible condition; it
+  was corrected, with no suppressed lint or altered assertion.
+- The new task contract parses and lints at 100% quality. agent-spec 1.4.0 lifecycle
+  ran against `native/hagency-runtime`: all four scenario selectors execute real
+  tests (3 + 2 + 2 + 2), and the explicit boundary check passes, 5/5 overall.
+- This is protocol preparation only. Runtime IO/write ACK, typed thread/turn and
+  approval authority, sandbox observation, process custody, real runtime platform
+  qualification, task completion and final delivery remain integration gates.
+  The primary agent will review this commit and run the combined workspace suite
+  after the graph checkpoint; full old-workspace tests were not repeated here.
