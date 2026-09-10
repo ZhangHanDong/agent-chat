@@ -7,7 +7,7 @@ import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 import { legacyRecord } from './helpers/approval-legacy-fixture.js';
 
 const SECRET = 'synthetic-legacy-reader-secret';
-const names = ['success', 'retry', 'stalled', 'crypto', 'stop', 'rotate', 'invalid', 'side', 'missing', 'keys', 'envelope', 'aftercrypto', 'afterbegin', 'rate', 'large', 'registration', 'sideencrypted', 'siderotate', 'redirect'];
+const names = ['success', 'retry', 'stalled', 'crypto', 'stop', 'rotate', 'invalid', 'side', 'missing', 'keys', 'envelope', 'aftercrypto', 'afterbegin', 'rate', 'large', 'registration', 'sidereplay', 'sideencrypted', 'siderotate', 'redirect'];
 const records = Object.fromEntries(names.map((name) => {
   const id = `approval_${createHash('sha256').update(name).digest('hex').slice(0, 32)}`;
   return [name, legacyRecord({ id, ownerMxid: '@owner:legacy.test', ownerDmRoomId: `!${name}:legacy.test`,
@@ -266,11 +266,9 @@ test('legacy rate limit does not retry and its body obeys the same byte bound', 
 });
 
 
-// The source base's old acting-credentials wire omits generation/readiness.
-// B1.4b owns that endpoint→refresh repair. Here the actor uses the exact accepted
-// output shape backed by the REAL current ProjectSideStore, never invented tokens
-// or generations; protected publisher/attestation/prepare/begin still hit Express.
-function installSide(bridge, kind) {
+// Refresh the exact protected endpoint backed by the current ProjectSideStore;
+// neither tokens nor generations are invented by the fixture.
+async function installSide(bridge, kind) {
   const sideStore = context.internals.projectSideStoreForTest;
   sideStore.upsertSide({ server_name: 'legacy.test', api_base_url: sdk.homeserverUrl,
     credential: kind === 'appservice'
@@ -278,7 +276,22 @@ function installSide(bridge, kind) {
       : { kind, registrationToken: 'not-a-send-token', representativeToken: 'synthetic-representative-send-token' } });
   sideStore.observeAccess('legacy.test', { state: 'accepted' }); sideStore.setRepresentative('legacy.test', { mxid: '@historical:legacy.test' });
   bridge.approvalBotPublisherReady = null;
-  bridge.actingSideFor = server => ({ side: sideStore.getSide(server), credential: sideStore.credentialFor(server) });
+  delete bridge.actingSideFor;
+  bridge.actingCredentials = new Map();
+  bridge.forgetRoomsOnSides = () => {};
+  const { default: request } = await import('supertest');
+  bridge.backendApiForActing = async () => {
+    const response = await request(context.app).get('/api/project-sides/acting-credentials')
+      .set('X-Bridge-Secret', SECRET);
+    expect(response.status).toBe(200);
+    return response.body;
+  };
+  await bridge.refreshActingCredentials();
+  expect([...bridge.actingCredentials.keys()]).toEqual(['legacy.test']);
+  expect(bridge.actingSideFor('legacy.test')).toMatchObject({
+    side: { active: true, accessState: 'accepted', representative: { mxid: '@historical:legacy.test' } },
+    credential: { kind, outboundGeneration: sideStore.credentialFor('legacy.test').outboundGeneration },
+  });
   return sideStore;
 }
 function plaintextSideHandler(previous) {
@@ -295,10 +308,10 @@ function plaintextSideHandler(previous) {
   };
 }
 test.each([['side', 'appservice'], ['registration', 'registrationToken']])('legacy %s uses actual store generation and exact private sender transport', async (name, kind) => {
-  selected = name; const bridge = makeBridge(); const sideStore = installSide(bridge, kind);
+  selected = name; const bridge = makeBridge(); const sideStore = await installSide(bridge, kind);
   handler = plaintextSideHandler(handler);
-  vi.stubEnv('HAFLEET_APPROVAL_DM_MODE', 'plaintext-test'); vi.stubEnv('HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST', '1');
-  bridge.approvalDmMode = 'plaintext-test';
+  vi.stubEnv('NODE_ENV', 'production'); vi.stubEnv('HAFLEET_APPROVAL_DM_MODE', 'required');
+  vi.stubEnv('HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST', '');
   try {
     expect(await bridge.publishLegacyApprovalProjection(row(selected))).toEqual({ ok: true, event_id: `$status-${selected}` });
     expect(encryptCount).toBe(0); expect(decryptCount).toBe(0); expect(sendCount).toBe(1);
@@ -315,20 +328,52 @@ test.each([['side', 'appservice'], ['registration', 'registrationToken']])('lega
   } finally { vi.unstubAllEnvs(); }
 });
 
+
+test('legacy uncertain side plaintext replay rechecks security and reuses exact stored bytes', async () => {
+  selected = 'sidereplay';
+  const bridge = makeBridge();
+  await installSide(bridge, 'appservice');
+  const base = plaintextSideHandler(handler);
+  const attempts = [];
+  handler = async (req, res) => {
+    if (req.method !== 'PUT') return base(req, res);
+    let body = ''; for await (const chunk of req) body += chunk;
+    attempts.push({ url: req.url, body });
+    return respond(res, attempts.length === 1 ? 502 : 200,
+      attempts.length === 1 ? { errcode: 'M_UNKNOWN' } : { event_id: '$side-replay' });
+  };
+  vi.stubEnv('NODE_ENV', 'production'); vi.stubEnv('HAFLEET_APPROVAL_DM_MODE', 'required');
+  vi.stubEnv('HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST', '');
+  try {
+    expect(await bridge.publishLegacyApprovalProjection(row(selected))).toMatchObject({ ok: false, uncertain: true });
+    const stored = structuredClone(row(selected).plan);
+    expect(stored.prepared_event_type).toBe('m.room.message');
+    calls.length = 0;
+    expect(await bridge.publishLegacyApprovalProjection(row(selected))).toEqual({ ok: true, event_id: '$side-replay' });
+    expect(calls.filter(call => call.url.includes('/state/m.room.encryption/'))).toHaveLength(1);
+    expect(calls.filter(call => call.url.includes('/event/'))).toHaveLength(0);
+    expect(attempts[1]).toEqual(attempts[0]);
+    expect(JSON.parse(attempts[1].body)).toEqual(stored.prepared_payload);
+  } finally { vi.unstubAllEnvs(); }
+});
+
 test('legacy side encrypted or rotated contexts cannot downgrade or continue proof reads', async () => {
-  selected = 'sideencrypted'; const bridge = makeBridge(); const sides = installSide(bridge, 'appservice');
+  selected = 'sideencrypted'; const bridge = makeBridge(); const sides = await installSide(bridge, 'appservice');
   const previous = handler;
   handler = (req, res) => req.url.includes('/joined_members')
     ? respond(res, 200, { joined: { '@historical:legacy.test': {}, '@owner:legacy.test': {} } }) : previous(req, res);
   expect(await bridge.publishLegacyApprovalProjection(row(selected))).toMatchObject({ ok: false, error_code: 'legacy_private_crypto_unavailable' });
   expect(calls.filter(c => c.url.includes('/event/'))).toHaveLength(0);
   selected = 'siderotate'; calls.length = 0; const plain = plaintextSideHandler(handler);
-  handler = (req, res) => {
-    if (req.url.includes('/event/')) sides.setCredential('legacy.test', { ...sides.credentialFor('legacy.test'), asToken: 'rotated-side-token' });
+  handler = async (req, res) => {
+    if (req.url.includes('/event/')) {
+      sides.setCredential('legacy.test', { ...sides.credentialFor('legacy.test'), asToken: 'rotated-side-token' });
+      await bridge.refreshActingCredentials();
+    }
     return plain(req, res);
   };
-  vi.stubEnv('HAFLEET_APPROVAL_DM_MODE', 'plaintext-test'); vi.stubEnv('HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST', '1');
-  bridge.approvalDmMode = 'plaintext-test';
+  vi.stubEnv('NODE_ENV', 'production'); vi.stubEnv('HAFLEET_APPROVAL_DM_MODE', 'required');
+  vi.stubEnv('HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST', '');
   try {
     expect(await bridge.publishLegacyApprovalProjection(row(selected))).toMatchObject({ ok: false, error_code: 'legacy_publisher_changed' });
     expect(calls.filter(c => c.url.includes('/event/'))).toHaveLength(1); expect(sendCount).toBe(0);

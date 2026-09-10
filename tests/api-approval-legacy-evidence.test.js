@@ -117,8 +117,8 @@ test('legacy status pins current publisher and rejects rotation while accepting 
   } finally { await f.c.cleanup(); }
 });
 
-test('legacy API rejects stale side context and plaintext downgrade', async () => {
-  const f = await isolated();
+test('legacy API accepts current project-side plaintext and rejects encrypted or stale side context', async () => {
+  const f = await isolated(undefined, { NODE_ENV: 'production', HAFLEET_APPROVAL_DM_MODE: 'required', HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST: '' });
   try {
     const sideStore = f.c.internals.projectSideStoreForTest;
     sideStore.upsertSide({ server_name: 'test', api_base_url: 'http://127.0.0.1:1',
@@ -129,21 +129,21 @@ test('legacy API rejects stale side context and plaintext downgrade', async () =
     expect((await f.api('put', '/api/approvals/matrix/publishers').send({ ...actor, scope: actor.publisher_scope, side_id: 'test' })).status).toBe(200);
     f.attestation.original.sender = actor.publisher_mxid; f.attestation.publisher = actor;
     const plaintext = structuredClone(f.attestation); plaintext.private_context.encrypted = false;
-    expect((await f.api('post', f.path).send(plaintext)).status).toBe(409);
-    const accepted = await f.api('post', f.path).send(f.attestation); expect(accepted.status).toBe(200);
+    const accepted = await f.api('post', f.path).send(plaintext); expect(accepted.status).toBe(200);
     const status = (await f.api('get', `${f.path}?cas_token=${f.row.cas_token}`)).body.content;
     const preparePath = `/api/approvals/${legacyId}/matrix/projections/${f.row.revision}`;
     const input = { ...actor, cas_token: f.row.cas_token, channel: 'private_status',
-      legacy_evidence_cas: accepted.body.evidence.evidence_cas, private_context: f.attestation.private_context,
+      legacy_evidence_cas: accepted.body.evidence.evidence_cas, private_context: plaintext.private_context,
       prepared_event_type: 'm.room.message', prepared_payload: status };
-    expect((await f.api('post', `${preparePath}/prepare`).send(input)).status).toBe(409);
-    const encrypted = { ...input, prepared_event_type: 'm.room.encrypted', prepared_payload: { ciphertext: 'one' } };
-    const prepared = await f.api('post', `${preparePath}/prepare`).send(encrypted); expect(prepared.status).toBe(200);
+    const prepared = await f.api('post', `${preparePath}/prepare`).send(input); expect(prepared.status).toBe(200);
+    const encrypted = { ...input, private_context: f.attestation.private_context,
+      prepared_event_type: 'm.room.encrypted', prepared_payload: { ciphertext: 'one' } };
+    expect((await f.api('post', `${preparePath}/prepare`).send(encrypted)).status).toBe(409);
     // Rotate the real ProjectSideStore token without refreshing the publisher registry.
     sideStore.setCredential('test', { kind: 'appservice', asToken: 'synthetic-as-v2', hsToken: 'synthetic-hs', namespace: '@ac_.*', senderLocalpart: 'historical' });
     sideStore.observeAccess('test', { state: 'accepted' });
-    expect((await f.api('post', f.path).send(f.attestation)).status).toBe(409);
-    expect((await f.api('post', `${preparePath}/prepare`).send(encrypted)).status).toBe(409);
+    expect((await f.api('post', f.path).send(plaintext)).status).toBe(409);
+    expect((await f.api('post', `${preparePath}/prepare`).send(input)).status).toBe(409);
     const plan = prepared.body.plan;
     const identity = { cas_token: plan.cas_token, channel: 'private_status', publisher_scope: plan.publisher_scope,
       publisher_mxid: plan.publisher_mxid, room_id: f.row.target_room_id, credential_generation: plan.credential_generation,

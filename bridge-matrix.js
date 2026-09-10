@@ -11399,7 +11399,8 @@ function legacyApprovalProjectionIo(bridge) {
       else if (security.status === 404 && security.body?.errcode === 'M_NOT_FOUND') encrypted = false;
       else error('legacy_private_security_unavailable');
       if (encrypted && actor.sender.kind !== 'local_bot') error('legacy_private_crypto_unavailable');
-      if (!encrypted && (bridge.approvalDmMode !== 'plaintext-test' || resolveApprovalDmMode() !== 'plaintext-test')) {
+      if (!encrypted && actor.sender.kind === 'local_bot'
+        && (bridge.approvalDmMode !== 'plaintext-test' || resolveApprovalDmMode() !== 'plaintext-test')) {
         error('legacy_plaintext_not_authorized');
       }
       return { room_id: row.target_room_id, owner_mxid: row.approval.owner_mxid, ready: true, joined: true, encrypted };

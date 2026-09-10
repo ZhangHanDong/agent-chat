@@ -13,7 +13,7 @@ Persist positively attested historical approval origins separately from canonica
 - A bridge-secret-only attestation accepts at most 16 KiB of normalized two-event evidence. The bridge authenticates retrieval and decryption; backend validation establishes tuple consistency and current publisher registry/side credential authority, not independent Matrix transport proof.
 - Evidence binds the selected legacy private_status CAS and the stored candidate verdict event ID, complete owner/DM/request/agent/project/project-room/digest tuple, owner verdict action and reply target, and original sender/runtime/upstream/expiry. Missing, edited, redacted, mixed-protocol or mismatched evidence is rejected.
 - Evidence is immutable and idempotent in a separate legacyOriginalEvidence map. Historical credential generation remains null; the first read-only status plan pins the verified current private publisher context. The full MXID stays equal to the original actual sender; rotation blocks begin/retry while exact attempted receipts remain valid.
-- GET returns canonical com.agentchat.approval.status.v1 content, version 1, migration_kind legacy_v1 and the original reply relation, with no actions or private preview. Legacy event types are exact: padded types are rejected before plaintext comparison. Plaintext preparation must match it; encrypted bytes are prepared once by the trusted bridge. Existing required/encrypted and explicit non-production plaintext-test policy remains in force.
+- GET returns canonical com.agentchat.approval.status.v1 content, version 1, migration_kind legacy_v1 and the original reply relation, with no actions or private preview. Legacy event types are exact: padded types are rejected before plaintext comparison. Plaintext preparation must match it; encrypted bytes are prepared once by the trusted bridge. Local plaintext retains the explicit non-production ADR-003 policy; a current side representative uses the distinct ADR-016 project-side plaintext policy and cannot publish to an encrypted room.
 - Attestation commits no canonical request/binding changes or additional projection rows. Existing pre-rename rollback and post-rename committed/degraded semantics remain unchanged. Native publisher validation and native private_request plans are unchanged.
 
 ## Boundaries
@@ -71,10 +71,10 @@ When preparation changes state, relation, tuple or adds actions
 Then it rejects without a plan and canonical content remains read-only.
 
 Scenario: Current private context is mandatory
-  Test: legacy API rejects stale side context and plaintext downgrade
+  Test: legacy API accepts current project-side plaintext and rejects encrypted or stale side context
 Given an accepted side representative with current credentials
-When evidence or send preparation uses stale credentials, unavailable private context or unauthorized plaintext
-Then the API rejects without mutation and exact current encrypted context succeeds.
+When evidence or send preparation uses the positively unencrypted side room, encrypted side room, or stale credentials
+Then the API accepts only the current ADR-016 plaintext context and otherwise rejects without mutation.
 
 Scenario: Native approvals cannot use legacy authority
   Test: native rows cannot attest legacy evidence or borrow its status exception

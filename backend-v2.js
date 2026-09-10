@@ -10523,7 +10523,11 @@ function validateLegacyProjectionPublisher(row, proposed = {}, originalSender, p
     || privateContext.joined !== true || typeof privateContext.encrypted !== 'boolean') {
     throw new ApprovalStoreError('conflict', 'legacy private context is unavailable');
   }
-  if (!privateContext.encrypted && !(
+  const projectSidePlaintext = publisher.scope === `side-representative:${server}`;
+  if (privateContext.encrypted && projectSidePlaintext) {
+    throw new ApprovalStoreError('conflict', 'legacy side publisher has no private-room crypto context');
+  }
+  if (!privateContext.encrypted && !projectSidePlaintext && !(
     String(process.env.HAFLEET_APPROVAL_DM_MODE || 'required').trim().toLowerCase() === 'plaintext-test'
     && String(process.env.HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST || '').trim() === '1'
     && String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production')) {

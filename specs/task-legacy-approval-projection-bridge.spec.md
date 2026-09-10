@@ -15,7 +15,8 @@ Recover positively proven legacy original events through the current private Mat
 - Original full sender must match one current authorized private publisher. Register and attest through protected APIs, fetch canonical version1 legacy_v1 status/relation, prepare with legacy_evidence_cas/private_context, and send only the durable winning plan. Existing uncertain plans reuse exact bytes and transaction without history reads or encryption.
 - Every adapter-owned HTTP request and complete response has a maximum10s deadline and the remaining25s adapter attempt budget. Abort releases owned response streams. Stop/rotation is checked before each new adapter I/O and finalPUT. A complete exact send receipt may finish through a separate10s backend-only request after stop or rotation; this permits no new Matrix send or preparation. HTTP redirects are rejected; no automatic retry or publisher fallback occurs within an attempt.
 - SDK0.8.0 crypto exposes no cancellation; encryption may run internal key/member HTTP under inherited60s SDK limits. Await crypto in the same worker-owned Promise/slot without Promise.race or mutation of shared doRequest. A crypto overrun prevents later adapter I/O but does not guarantee25s total completion or cancellation of already-started SDK internal I/O.
-- Side actor enumeration requires the B1.4b protected acting-credentials/refresh repair carrying active/accessState/representativeMxid/outboundGeneration into actingSideFor. The old truncated base wire fails closed. Tests here validate actual store credentials and protected publication APIs; the endpoint-to-refresh integration remains the separate B1.4b prerequisite.
+- Side actor enumeration uses the protected acting-credentials refresh carrying active/accessState/representativeMxid/outboundGeneration into actingSideFor. Tests validate the actual store, protected endpoint and refreshed bridge cache without invented actor fields.
+- Local plaintext remains an explicit non-production ADR-003 diagnostic. A current side representative may use the distinct production ADR-016 plaintext topology only when the owner and representative are joined and the encryption-state request returns exact `404 M_NOT_FOUND`; encrypted or indeterminate side rooms fail closed.
 - No scheduler, second daemon, canonical request/binding mutation, fake private_request plan, actionable legacy event or public notice is introduced. Native approval adapters remain unchanged.
 
 ## Boundaries
@@ -81,6 +82,12 @@ Scenario: Side credentials retain actual sender and security
 Given an accepted side credential obtained from the current store
 When room encryption requires unavailable crypto or the credential rotates
 Then the adapter remains unresolved without downgrade or another historical event read.
+
+Scenario: Project-side plaintext is distinct from local diagnostics
+  Test: legacy side uses actual store generation and exact private sender transport
+Given a production process with no diagnostic flags and an accepted side from the protected acting-credentials endpoint
+When joined membership and exact Matrix M_NOT_FOUND prove the side approval room is plaintext
+Then appservice and registration-token representatives publish the canonical stored status without enabling local plaintext.
 
 Scenario: Error bodies remain bounded
   Test: legacy rate limit does not retry and its body obeys the same byte bound
