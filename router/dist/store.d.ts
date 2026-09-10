@@ -79,6 +79,7 @@ export declare class RouterStore {
         replayed: boolean;
         deliverable: boolean;
     } | Refusal;
+    approvalThreadOrigin(approvalId: string, agentId: string, roomId: string): string | null;
     readApprovalDecision(input: CapabilityInput & {
         approvalId: string;
         operationDigest: string;

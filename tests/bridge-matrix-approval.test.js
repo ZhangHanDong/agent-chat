@@ -101,6 +101,15 @@ describe('Matrix owner approval bridge', () => {
     expect(serialized).not.toContain('actions');
   });
 
+  test('thread approval notices remain in the originating task thread', () => {
+    const content = buildPublicApprovalNotice({ ...approval, thread_root_event_id: '$original-thread' });
+    expect(content['m.relates_to']).toEqual({ rel_type: 'm.thread', event_id: '$original-thread',
+      is_falling_back: true, 'm.in_reply_to': { event_id: '$original-thread' } });
+    expect(JSON.stringify(content)).not.toContain(approval.input_preview);
+    expect(content['com.agentchat.approval']).not.toHaveProperty('actions');
+    expect(buildPublicApprovalNotice(approval)).not.toHaveProperty('m.relates_to');
+  });
+
   test('owner_dm_approval_request_contains_structured_actions', () => {
     /*
      * REQ-OWNER-UI-APPROVAL-DM and REQ-OWNER-UI-APPROVAL-UI. The DM event is the full
