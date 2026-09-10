@@ -1694,3 +1694,18 @@ the Matrix scripted-peer correction and separated guardian CLI exit proof.
 Earlier failed runs remain evidence, not retroactive passes. New three-platform
 CI and actual Linux cgroup qualification still have to pass before advertising
 those updated platform guarantees.
+
+
+Native progress attachment (2026-09-10, ADR056): construct only from a Running
+SessionDriver/OwnedSession before consuming updates. Opaque receipt sources bind
+exact driver allocation identity plus upstream thread/turn and ordered sequence;
+identical text IDs on another connection cannot impersonate them. Command success
+needs terminal lifecycle, completed status and integer int32 exitCode0. Missing
+or inconsistent result evidence remains unresolved, and contradicting final tool
+snapshots retire only this optional projection. File completion remains upstream
+observation, not filesystem proof. Unsupported tools expose only a fixed gated
+count; raw payloads never enter summary/Debug/serialization. Cancellation borrows
+and retains the original runtime/process owner, retires projection and preserves
+pending local submission uncertainty. No host execution/domain/Matrix integration
+or canonical Done/delivery inference exists; same-run reconstruction after state
+loss is forbidden until a persistent host lifecycle exists.

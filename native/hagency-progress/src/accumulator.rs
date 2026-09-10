@@ -253,6 +253,18 @@ impl Accumulator {
         }
         Ok(self.commit(now, digest))
     }
+    /// Host observed its own runtime start, without manufacturing a hook frame.
+    pub fn start(&mut self, run: &RunId, sequence: u64, now: u64) -> Result<Observation, Error> {
+        let digest = digest("host_start", &Value::Null)?;
+        if self.preflight(run, sequence, now, digest)? {
+            return Ok(Observation::Duplicate);
+        }
+        if self.started {
+            return Err(Error::State);
+        }
+        self.started = true;
+        Ok(self.commit(now, digest))
+    }
     pub fn observe_acp(
         &mut self,
         run: &RunId,
@@ -272,63 +284,119 @@ impl Accumulator {
                 .and_then(Value::as_str)
                 .filter(|v| identity(v))
                 .ok_or(Error::Shape)?;
-            if kind == Some("tool_call") {
-                if let Some(call) = self.calls.get(id) {
-                    if call.digest != digest {
-                        return Err(Error::Conflict);
-                    }
-                } else {
-                    if self.calls.len() == MAX_CALLS {
-                        return Err(Error::Capacity);
-                    }
-                    let decision = self.filter.decide(Some("PostToolUse"), acp_tool(payload));
-                    let state = CallState::terminal(payload).unwrap_or(CallState::Started);
-                    if let Some(verb) = decision.verb {
-                        self.steps.push(Step {
-                            sequence,
-                            verb,
-                            call: Some(id.into()),
-                        });
-                    }
-                    if state == CallState::Failed && decision.report {
-                        self.failures.push(sequence);
-                    }
-                    self.calls.insert(
-                        id.into(),
-                        Call {
-                            digest,
-                            state,
-                            report: decision.report,
-                        },
-                    );
-                }
-            } else {
-                let call = self.calls.get_mut(id).ok_or(Error::Order)?;
-                if let Some(next) = CallState::terminal(payload) {
-                    if call.state != CallState::Started && call.state != next {
-                        return Err(Error::Conflict);
-                    }
-                    if call.state == CallState::Started && next == CallState::Failed && call.report
-                    {
-                        self.failures.push(sequence);
-                    }
-                    if call.state == CallState::Started && next == CallState::Completed {
-                        // A previously accepted pending notice is not a receipt
-                        // for this new completion observation. Keep one lifetime
-                        // contribution, now eligible in the current window.
-                        if let Some(step) = self
-                            .steps
-                            .iter_mut()
-                            .find(|s| s.call.as_deref() == Some(id))
-                        {
-                            step.sequence = sequence;
-                        }
-                    }
-                    call.state = next;
-                }
-            }
+            self.record_tool(
+                id,
+                acp_tool(payload),
+                kind == Some("tool_call"),
+                CallState::terminal(payload),
+                sequence,
+                digest,
+            )?;
         }
         Ok(self.commit(now, digest))
+    }
+    pub fn observe_tool(
+        &mut self,
+        run: &RunId,
+        sequence: u64,
+        now: u64,
+        event: crate::ToolEvent<'_>,
+    ) -> Result<Observation, Error> {
+        if !identity(event.id) || event.tool.is_some_and(|tool| !identity(tool)) {
+            return Err(Error::Shape);
+        }
+        let status = match event.state {
+            crate::ToolState::Pending => "pending",
+            crate::ToolState::Completed => "completed",
+            crate::ToolState::Failed => "failed",
+            crate::ToolState::Unknown => "unknown",
+        };
+        let digest = digest(
+            "typed_tool",
+            &json!({"id":event.id,"tool":event.tool,"start":event.start,"status":status}),
+        )?;
+        if self.preflight(run, sequence, now, digest)? {
+            return Ok(Observation::Duplicate);
+        }
+        let terminal = match event.state {
+            crate::ToolState::Completed => Some(CallState::Completed),
+            crate::ToolState::Failed => Some(CallState::Failed),
+            _ => None,
+        };
+        self.record_tool(
+            event.id,
+            event.tool,
+            event.start,
+            terminal,
+            sequence,
+            digest,
+        )?;
+        Ok(self.commit(now, digest))
+    }
+    fn record_tool(
+        &mut self,
+        id: &str,
+        tool: Option<&str>,
+        start: bool,
+        terminal: Option<CallState>,
+        sequence: u64,
+        digest: [u8; 32],
+    ) -> Result<(), Error> {
+        if start {
+            if let Some(call) = self.calls.get(id) {
+                if call.digest != digest {
+                    return Err(Error::Conflict);
+                }
+            } else {
+                if self.calls.len() == MAX_CALLS {
+                    return Err(Error::Capacity);
+                }
+                let decision = self.filter.decide(Some("PostToolUse"), tool);
+                let state = terminal.unwrap_or(CallState::Started);
+                if let Some(verb) = decision.verb {
+                    self.steps.push(Step {
+                        sequence,
+                        verb,
+                        call: Some(id.into()),
+                    });
+                }
+                if state == CallState::Failed && decision.report {
+                    self.failures.push(sequence);
+                }
+                self.calls.insert(
+                    id.into(),
+                    Call {
+                        digest,
+                        state,
+                        report: decision.report,
+                    },
+                );
+            }
+        } else {
+            let call = self.calls.get_mut(id).ok_or(Error::Order)?;
+            if let Some(next) = terminal {
+                if call.state != CallState::Started && call.state != next {
+                    return Err(Error::Conflict);
+                }
+                if call.state == CallState::Started && next == CallState::Failed && call.report {
+                    self.failures.push(sequence);
+                }
+                if call.state == CallState::Started && next == CallState::Completed {
+                    // A previously accepted pending notice is not a receipt
+                    // for this new completion observation. Keep one lifetime
+                    // contribution, now eligible in the current window.
+                    if let Some(step) = self
+                        .steps
+                        .iter_mut()
+                        .find(|s| s.call.as_deref() == Some(id))
+                    {
+                        step.sequence = sequence;
+                    }
+                }
+                call.state = next;
+            }
+        }
+        Ok(())
     }
     pub fn finish(
         &mut self,
@@ -387,6 +455,17 @@ impl Accumulator {
     }
     pub fn answer_delivery(&self) -> Option<AnswerDelivery> {
         self.delivery
+    }
+    /// Host scheduling observation without a tool, receipt, attempt or delivery.
+    /// A quiet runtime event still fences subsequent backdated submissions.
+    pub fn advance_clock(&mut self, run: &RunId, now: u64) -> Result<(), Error> {
+        self.scope(run)?;
+        self.clock(now)?;
+        if self.phase == Phase::Retired {
+            return Err(Error::State);
+        }
+        self.now = now;
+        Ok(())
     }
     /// Recovery token only; this does not return text or grant another send.
     pub fn pending_id(&self) -> Option<&AttemptId> {

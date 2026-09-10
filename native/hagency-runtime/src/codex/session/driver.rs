@@ -6,6 +6,10 @@ use super::{
 use crate::codex::{Event, MAX_REQUEST_MS, RequestId, TurnScope, transport};
 use serde_json::Value;
 use std::collections::VecDeque;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::{Instant, timeout_at};
@@ -20,6 +24,10 @@ pub struct SessionDriver<R, W, E> {
     deferred: VecDeque<Event>,
     deferred_bytes: usize,
     approvals_enabled: bool,
+    observation_live: Arc<AtomicBool>,
+    observation_sequence: u64,
+    observation_kind: super::ObservationKind,
+    observation_evidence: super::observation::EvidenceTracker,
 }
 
 impl<R, W, E> SessionDriver<R, W, E> {
@@ -43,10 +51,33 @@ impl<R, W, E> SessionDriver<R, W, E> {
             deferred: VecDeque::new(),
             deferred_bytes: 0,
             approvals_enabled: false,
+            observation_live: Arc::new(AtomicBool::new(true)),
+            observation_sequence: 0,
+            observation_kind: super::ObservationKind::Ignored,
+            observation_evidence: super::observation::EvidenceTracker::default(),
         })
     }
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+    /// Attach once the exact turn is Running, before consuming any updates.
+    pub fn observation_source(&self) -> Result<super::ObservationSource, Error> {
+        if self.phase() != Phase::Running || self.observation_sequence != 0 {
+            return Err(Error::State);
+        }
+        self.bound_source()
+    }
+    fn bound_source(&self) -> Result<super::ObservationSource, Error> {
+        Ok(super::ObservationSource {
+            live: self.observation_live.clone(),
+            thread: self.thread_id().ok_or(Error::State)?.into(),
+            turn: self.turn_id().ok_or(Error::State)?.into(),
+        })
+    }
+    pub fn matches_observation_source(&self, source: &super::ObservationSource) -> bool {
+        self.phase() == Phase::Running
+            && !source.is_retired()
+            && self.bound_source().is_ok_and(|value| &value == source)
     }
     /// Explicit host opt-in after the upstream thread and turn were validated.
     pub fn enable_approvals(&mut self) -> Result<(), Error> {
@@ -88,9 +119,13 @@ impl<R, W, E> SessionDriver<R, W, E> {
         if self.state.phase != Phase::Ended {
             self.fail(Error::Cancelled);
         }
+        if !matches!(self.outcome(), Some(Outcome::Completed { .. })) {
+            self.observation_live.store(false, Ordering::Release);
+        }
         self.wire.close();
     }
     fn fail(&mut self, error: Error) {
+        self.observation_live.store(false, Ordering::Release);
         self.state.failed(error);
         self.wire.close();
         self.deferred.clear();
@@ -160,6 +195,13 @@ impl<R, W, E> SessionDriver<R, W, E> {
             .checked_sub(transport::event_bytes(&event).map_err(Error::Transport)?)
             .ok_or(Error::Capacity)?;
         Ok(Some(event))
+    }
+}
+impl<R, W, E> Drop for SessionDriver<R, W, E> {
+    fn drop(&mut self) {
+        if !matches!(self.outcome(), Some(Outcome::Completed { .. })) {
+            self.observation_live.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -376,8 +418,26 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
             session: self,
             finished: false,
         };
-        let result = operation.session.update_inner().await;
+        let mut result = operation.session.update_inner().await;
+        if result.is_ok() {
+            // Every successful read advances, including default API reads. A
+            // progress attachment can detect updates consumed around it.
+            if let Some(next) = operation.session.observation_sequence.checked_add(1) {
+                operation.session.observation_sequence = next;
+            } else {
+                result = Err(Error::Capacity);
+            }
+        }
         operation.finish(result)
+    }
+    pub async fn next_observed_update(&mut self) -> Result<(Update, super::Observation), Error> {
+        let update = self.next_update().await?;
+        let observation = super::Observation {
+            source: self.bound_source()?,
+            sequence: self.observation_sequence,
+            kind: self.observation_kind.clone(),
+        };
+        Ok((update, observation))
     }
     async fn update_inner(&mut self) -> Result<Update, Error> {
         self.wire.ensure_live().map_err(Error::Transport)?;
@@ -400,6 +460,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
                 // Patch and permission requests can precede item/started in
                 // Codex 0.153.4. Bind their exact callback item without inventing
                 // an active timeline item or host session identity.
+                self.observation_kind = super::ObservationKind::Ignored;
                 return Ok(Update::Approval(request));
             }
             event => event,
@@ -422,6 +483,9 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
             self.drain_terminal().await?;
             self.wire.close();
         }
+        self.observation_kind =
+            self.observation_evidence
+                .project(&update, &params, self.state.outcome.as_ref());
         Ok(update)
     }
 

@@ -91,6 +91,12 @@ impl OwnedSession {
     pub fn phase(&self) -> Phase {
         self.session.phase()
     }
+    pub fn observation_source(&self) -> Result<session::ObservationSource, session::Error> {
+        self.session.observation_source()
+    }
+    pub fn matches_observation_source(&self, source: &session::ObservationSource) -> bool {
+        self.session.matches_observation_source(source)
+    }
     pub fn protocol_outcome(&self) -> Option<&Outcome> {
         self.session.outcome()
     }
@@ -137,6 +143,13 @@ impl OwnedSession {
     pub async fn next_update(&mut self) -> Result<Update, session::Error> {
         let operation = Operation::new(self)?;
         let result = operation.runner.session.next_update().await;
+        operation.finish(result)
+    }
+    pub async fn next_observed_update(
+        &mut self,
+    ) -> Result<(Update, session::Observation), session::Error> {
+        let operation = Operation::new(self)?;
+        let result = operation.runner.session.next_observed_update().await;
         operation.finish(result)
     }
 }

@@ -3452,3 +3452,41 @@ fourteen-path boundary (7/7, quality100%, no fail/skip/uncertain). Exact run log
 are retained in matrix-intake-lifecycle/ and matrix-intake-lifecycle.log. These
 local fixture results do not claim hosted Linux/Windows or live Matrix behavior;
 the coordinator will run the integrated checks after the isolated commit.
+
+
+### 2026-09-10 — M6 native Codex progress attachment (ADR056)
+
+- Added `hagency-progress-runtime`, private-constructor runtime source/receipt
+  types and opt-in driver/owned reads. Exact instance/thread/turn and contiguous
+  receipts fence foreign, skipped, stale and retired observations. Default Update,
+  launch, approval and process cleanup behavior stays available to existing callers.
+- Typed tool policy entry shares ACP call tracking without synthesizing ACP JSON.
+  Command completion requires explicit completed status and exitCode0; failed and
+  unresolved attempts stay separate. File-change evidence is upstream-only.
+  Contradicting final snapshots retire the optional projection. Unsupported tool
+  kinds remain counted only in fixed diagnostics; no raw payload reaches text.
+- Borrowed read cancellation and external active-source close/drop retain the
+  runtime/process owner and historical local attempt custody. No Matrix send,
+  domain write, canonical task completion or answer-delivery inference was added.
+- Focused validation: 66 tests passed across progress, progress-runtime and runtime,
+  including two real offline native subprocess cases, plus all 275 unchanged JS
+  progress vectors and 20 explicit correction vectors. Focused Clippy with warnings
+  denied and formatting pass. Full lifecycle/binding results are recorded below.
+- This closes only the typed Codex observation-to-policy seam. Current domain
+  authority attachment, durable status custody, private Matrix routing/encryption
+  and actual sends remain open. Tests use no model or service. Evidence is stored
+  in the external migration cache under `progress-attachment-*`.
+
+Final ADR056 checks: agent-spec1.4 lifecycle passes 6/6 including changed-file
+boundaries, with zero failed/skipped/uncertain/pending-review scenarios. All186
+native selectors resolve in this isolated base. Advisory lint output does not
+establish live adapter or transport coverage. Existing pinned package versions
+are unchanged. The repository has no provisioned task-writer in this checkout;
+this task contract and external lifecycle logs record the bounded migration work,
+not a claim of canonical service-task mutation or production enablement.
+
+Final self-review closed a clock edge: ignored and gated runtime notifications now
+advance the same host clock as claims/settlement, without inventing a tool event
+or policy receipt. Backdated new claims and settlements cannot bypass a later
+quiet event; exact historical settlement replay remains idempotent. The added
+actual-stream regression passes with the complete affected66-test suite.

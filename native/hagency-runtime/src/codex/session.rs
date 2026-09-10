@@ -1,7 +1,11 @@
 //! Typed upstream observations for one host-owned turn, never domain authority.
 mod driver;
+mod observation;
 mod state;
 pub use driver::SessionDriver;
+pub use observation::{
+    Observation, ObservationKind, ObservationSource, ToolEvidence, ToolKind, ToolResult, TurnResult,
+};
 
 use super::transport;
 use serde_json::{Value, json};
