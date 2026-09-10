@@ -129,6 +129,115 @@ fn done(db: &mut DomainRepository, cap: &RunnerCapability, task: &IntentResult, 
 }
 
 #[test]
+fn native_peer_matrix_continuation() {
+    use hagency_core::{conversations::ConversationRequest, peers::*};
+    let (_root, mut db, agents, seq) = setup();
+    let session = db
+        .resolve_session(&SessionBinding {
+            id: "future_task_session".into(),
+            engagement_id: agents[0].clone(),
+            room_id: "!project:example.test".into(),
+            thread_root: Some("$root".into()),
+        })
+        .unwrap();
+    let dispatch = |id: &str, session: &str, task: Option<&str>| DispatchInput {
+        id: id.into(),
+        session_id: session.into(),
+        task_id: task.map(str::to_owned),
+        resources: vec![],
+        payload: json!({"instruction":"Continue scoped work"}),
+    };
+    db.enqueue_dispatch(&dispatch("creator", &session.id, None))
+        .unwrap();
+    let creator = claim(&mut db, 1001);
+    db.start_dispatch(&creator, 1002).unwrap();
+    let group = db
+        .create_internal_conversation(
+            &creator,
+            &ConversationRequest {
+                call_id: "group".into(),
+                label: "协作".into(),
+                participant_engagements: vec![agents[1].clone()],
+            },
+            1003,
+        )
+        .unwrap()
+        .conversation;
+    let b = &group
+        .participants
+        .iter()
+        .find(|p| p.engagement_id == agents[1])
+        .unwrap()
+        .id;
+    db.enqueue_dispatch(&dispatch("child", b, None)).unwrap();
+    let child = claim(&mut db, 1004);
+    db.start_dispatch(&child, 1005).unwrap();
+    db.complete_dispatch(&creator, &json!({}), 1006).unwrap();
+    let task = db
+        .create_task_intent(&intent(&agents[0], seq), 1007)
+        .unwrap();
+    assert_eq!(task.session_id, session.id);
+    let reply = |id: &str| PeerSend {
+        call_id: id.into(),
+        conversation_id: group.id.clone(),
+        recipient_session_ids: vec![session.id.clone()],
+        kind: PeerKind::Response,
+        priority: PeerPriority::Normal,
+        summary: "检查完成".into(),
+        body: String::new(),
+        data: json!({"answer":1.5}),
+    };
+    let first = db.send_peer(&child, &reply("first"), 1008).unwrap();
+    assert!(
+        db.enqueue_peer_dispatch(&input("pending_peer", &task), &[first.sequence])
+            .is_err()
+    );
+    activate(&mut db, 1009);
+    db.enqueue_peer_dispatch(&input("peer", &task), &[first.sequence])
+        .unwrap();
+    // Initial activation still requires the original admitted Matrix input.
+    assert!(
+        db.claim_dispatch("runner", 1011, 60_000, 120_000, 8)
+            .unwrap()
+            .is_none()
+    );
+    db.enqueue_inbox_dispatch(&input("human", &task), &[seq])
+        .unwrap();
+    let human = claim(&mut db, 1012);
+    assert_eq!(human.dispatch_id, "human");
+    db.start_dispatch(&human, 1013).unwrap();
+    db.complete_dispatch(&human, &json!({"waiting_for_peer":true}), 1014)
+        .unwrap();
+    let continued = claim(&mut db, 1015);
+    assert_eq!(continued.dispatch_id, "peer");
+    db.start_dispatch(&continued, 1016).unwrap();
+    assert_eq!(
+        db.runner_peer_inbox(&continued, 0, 100, 1017).unwrap()[0]
+            .message
+            .sequence,
+        first.sequence
+    );
+    assert_eq!(
+        db.canonical_task(&task.task_id).unwrap().status,
+        TaskState::InProgress
+    );
+    done(&mut db, &continued, &task, 1018);
+    db.complete_dispatch(&continued, &json!({}), 1019).unwrap();
+    let second = db.send_peer(&child, &reply("after_done"), 1020).unwrap();
+    db.enqueue_peer_dispatch(&input("cannot_reopen", &task), &[second.sequence])
+        .unwrap();
+    assert!(
+        db.claim_dispatch("runner", 1021, 60_000, 120_000, 8)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        db.canonical_task(&task.task_id).unwrap().status,
+        TaskState::Done
+    );
+}
+
+#[test]
 fn native_task_intent_activation() {
     // Runtime JSON cannot claim that Matrix delivery or source admission happened.
     trait Ambiguous<A> {
@@ -252,6 +361,34 @@ fn native_task_intent_activation() {
             .unwrap()
             .is_none()
     );
+    // A process that already started must also lose authority when a new task
+    // binding is admitted; it cannot use peer/MCP commands before activation.
+    let next = db
+        .ingest_message(&message("next_root", None, 3001), &[target("b")], 3001)
+        .unwrap()
+        .sequence;
+    db.register_session(&SessionBinding {
+        id: "pre_started".into(),
+        engagement_id: agents[1].clone(),
+        room_id: "!project:example.test".into(),
+        thread_root: Some("$next_root".into()),
+    })
+    .unwrap();
+    db.enqueue_dispatch(&DispatchInput {
+        id: "old_started".into(),
+        session_id: "pre_started".into(),
+        task_id: None,
+        resources: vec![],
+        payload: json!({"instruction":"Old taskless scope"}),
+    })
+    .unwrap();
+    let started = claim(&mut db, 3002);
+    db.start_dispatch(&started, 3003).unwrap();
+    db.check_runner(&started, 3004).unwrap();
+    let mut pending = intent(&agents[1], next);
+    pending.request_key = "new_started_binding".into();
+    db.create_task_intent(&pending, 3005).unwrap();
+    assert!(db.check_runner(&started, 3006).is_err());
 }
 
 #[test]

@@ -200,6 +200,12 @@ impl DomainStore {
         self.call(weight(&(&cap, &command))?, move |db| {
             let now = writer_time()?;
             Ok(match command {
+                RunnerCommand::SendPeer(input) => {
+                    serde_json::to_value(db.send_peer(&cap, &input, now)?)?
+                }
+                RunnerCommand::PeerInbox { after, limit } => {
+                    serde_json::to_value(db.runner_peer_inbox(&cap, after, limit, now)?)?
+                }
                 RunnerCommand::OpenConversation(input) => {
                     serde_json::to_value(db.create_internal_conversation(&cap, &input, now)?)?
                 }
@@ -263,6 +269,28 @@ impl DomainStore {
     ) -> Result<Vec<InboxItem>, Error> {
         self.call(weight(&(&session, &kind))?, move |db| {
             db.inbox(&session, after, limit, kind.as_deref())
+        })
+        .await
+    }
+    pub async fn peer_inbox(
+        &self,
+        session: String,
+        after: u64,
+        limit: usize,
+    ) -> Result<Vec<hagency_core::peers::PeerInboxItem>, Error> {
+        self.call(weight(&session)?, move |db| {
+            db.peer_inbox(&session, after, limit)
+        })
+        .await
+    }
+    pub async fn enqueue_peer_dispatch(
+        &self,
+        input: DispatchInput,
+        sequences: Vec<u64>,
+    ) -> Result<(), Error> {
+        input.validate()?;
+        self.call(weight(&(&input, &sequences))?, move |db| {
+            db.enqueue_peer_dispatch(&input, &sequences)
         })
         .await
     }

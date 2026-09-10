@@ -225,7 +225,10 @@ impl DomainRepository {
         sequences: &[u64],
     ) -> Result<(), Error> {
         input.validate()?;
-        if input.payload.get("inbox").is_some() || input.payload.get("recoveryInbox").is_some() {
+        if ["inbox", "recoveryInbox", "peerInbox", "recoveryPeerInbox"]
+            .iter()
+            .any(|k| input.payload.get(k).is_some())
+        {
             return Err(hagency_core::InvalidInput("dispatch input is host-owned").into());
         }
         if sequences.is_empty() || sequences.len() > 100 {

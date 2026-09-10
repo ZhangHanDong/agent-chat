@@ -210,6 +210,116 @@ async fn native_runner_http_conversations() {
 }
 
 #[tokio::test]
+async fn native_runner_http_peer_mailbox() {
+    let f = Fixture::new(true).await;
+    let mut res = auth(
+        TestClient::post(format!("{BASE}/runner/conversations")),
+        &f.cap,
+    )
+    .json(&json!({"call_id":"group","label":"协作","participant_engagements":[f.engagement]}))
+    .send(&f.service)
+    .await;
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let result: Value = res.take_json().await.unwrap();
+    let group = &result["conversation"];
+    let target = group["participants"][0]["id"].as_str().unwrap();
+    let body = json!({"call_id":"send","conversation_id":group["id"],"recipient_session_ids":[target],"kind":"request","summary":"处理任务","data":{"score":0.25}});
+    let send = |body: Value| {
+        auth(
+            TestClient::post(format!("{BASE}/runner/peer-messages")),
+            &f.cap,
+        )
+        .json(&body)
+    };
+    for key in [
+        "source_session_id",
+        "source_engagement_id",
+        "source_task_id",
+        "source_dispatch_id",
+        "received_at",
+    ] {
+        let mut forged = body.clone();
+        forged[key] = json!("forged");
+        assert_eq!(
+            send(forged).send(&f.service).await.status_code,
+            Some(StatusCode::BAD_REQUEST)
+        );
+    }
+    let mut foreign = body.clone();
+    foreign["recipient_session_ids"] = json!(["missing"]);
+    assert_eq!(
+        send(foreign).send(&f.service).await.status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    let before = now();
+    let mut res = send(body.clone()).send(&f.service).await;
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let receipt: Value = res.take_json().await.unwrap();
+    let mut replay = send(body.clone()).send(&f.service).await;
+    assert_eq!(replay.take_json::<Value>().await.unwrap()["replayed"], true);
+    let inbox = f.domain.peer_inbox(target.into(), 0, 100).await.unwrap();
+    assert_eq!(inbox.len(), 1);
+    assert!(inbox[0].message.received_at >= before && inbox[0].message.received_at <= now());
+    assert_eq!(inbox[0].message.source_task_id.as_deref(), Some("task"));
+    f.domain
+        .enqueue_peer_dispatch(
+            DispatchInput {
+                id: "peer_worker".into(),
+                session_id: target.into(),
+                task_id: None,
+                resources: vec![],
+                payload: json!({"instruction":"Handle request"}),
+            },
+            vec![receipt["sequence"].as_u64().unwrap()],
+        )
+        .await
+        .unwrap();
+    let cap = f
+        .domain
+        .claim_dispatch("peer_runner".into(), now(), 60_000, 120_000, 8)
+        .await
+        .unwrap()
+        .unwrap();
+    f.domain.start_dispatch(cap.clone(), now()).await.unwrap();
+    let mut next = body.clone();
+    next["call_id"] = json!("next");
+    assert_eq!(
+        send(next).send(&f.service).await.status_code,
+        Some(StatusCode::OK)
+    );
+    let mut res = get("peer-inbox", &cap).send(&f.service).await;
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let page: Value = res.take_json().await.unwrap();
+    assert_eq!(page.as_array().unwrap().len(), 1);
+    assert_eq!(page[0]["message"]["sequence"], receipt["sequence"]);
+    let mut res = get("peer-inbox", &f.cap).send(&f.service).await;
+    assert!(
+        res.take_json::<Value>()
+            .await
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        get("peer-inbox?limit=101", &cap)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::BAD_REQUEST)
+    );
+    f.domain
+        .park_dispatch(cap.clone(), true, now())
+        .await
+        .unwrap();
+    assert_eq!(
+        get("peer-inbox", &cap).send(&f.service).await.status_code,
+        Some(StatusCode::UNAUTHORIZED)
+    );
+    f.close().await;
+}
+
+#[tokio::test]
 async fn native_runner_http_delegation() {
     let f = Fixture::with_thread(true, None).await;
     let body = json!({"call_id":"delegate","assignee_engagement":f.engagement,"root_sequence":f.source_sequence,"definition":{"title":"编写测试","parent_id":"task"}});

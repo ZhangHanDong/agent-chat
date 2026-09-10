@@ -1033,3 +1033,17 @@ GET /conversations/{id} permits only its exact creator or bound internal session
 Do not broaden this to arbitrary Matrix sessions of a participant Agent. Peer
 mailbox, group close/membership lifecycle and graph observation linkage remain to
 implement; creation alone delivers no message and launches no runner.
+
+Native peer mailbox (2026-09-10): schema 7 stores peer messages and independent
+session input projections in the domain transaction. PeerSend has no source fields;
+the started capability supplies source session, task, dispatch and engagement.
+Targets must be this conversation's internal sessions or its exact original creator
+session, allowing replies to return to the original Matrix task. Request/response
+wake; notification is context. Private peer-inbox reads only the frozen dispatch
+batch. Enqueue/complete/recovery preserve each recipient's input ownership. Peer
+input may resume active incomplete tasks, never initialize or reopen Matrix tasks.
+New task bindings invalidate existing runtime authority; host cleanup of an
+unstarted lease separately validates the attempt so cleanup remains possible.
+Graph linkage/group lifecycle, real runners and transport remain open. Also verify
+the taskless inspected-result recovery path for completed Matrix intent tasks:
+its binding guard currently rejects that path and needs a durable scoped exception.

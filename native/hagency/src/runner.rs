@@ -2,6 +2,7 @@
 use crate::{local_authority, refusal, resources};
 use hagency_core::{
     conversations::ConversationRequest,
+    peers::PeerSend,
     project::identifier,
     task_intents::Delegation,
     tasks::{RunnerCapability, RunnerCommand, TaskMutation},
@@ -25,6 +26,48 @@ pub(super) fn router() -> Router {
         .push(Router::with_path("tasks/{id}/comments").get(comments))
         .push(Router::with_path("tasks/{id}/operations").post(mutate))
         .push(Router::with_path("inbox").get(inbox))
+        .push(Router::with_path("peer-messages").post(send_peer))
+        .push(Router::with_path("peer-inbox").get(peer_inbox))
+}
+#[handler]
+async fn send_peer(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let Some(c) = context(depot, res) else {
+        return;
+    };
+    let Some(input) = resources::body::<PeerSend>(req, depot, res).await else {
+        return;
+    };
+    match c
+        .store
+        .runner_command(c.cap, RunnerCommand::SendPeer(input))
+        .await
+    {
+        Ok(value) => res.render(Json(value)),
+        Err(error) => failure(res, error),
+    }
+}
+#[handler]
+async fn peer_inbox(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let Some(c) = context(depot, res) else {
+        return;
+    };
+    let result = async {
+        let (after, limit) = page(req)?;
+        c.store
+            .runner_command(
+                c.cap,
+                RunnerCommand::PeerInbox {
+                    after: sequence(&after)?,
+                    limit,
+                },
+            )
+            .await
+    }
+    .await;
+    match result {
+        Ok(value) => res.render(Json(value)),
+        Err(error) => failure(res, error),
+    }
 }
 fn single_header<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
     if req.headers().get_all(name).iter().count() != 1 {

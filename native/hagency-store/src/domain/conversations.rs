@@ -23,20 +23,32 @@ fn read(db: &Connection, id: &str) -> Result<Conversation, Error> {
         .ok_or(Error::NotFound)?;
     Ok(serde_json::from_str(&value)?)
 }
-fn scoped(db: &Connection, session_id: &str, id: &str) -> Result<Conversation, Error> {
+pub(super) fn scoped(db: &Connection, session_id: &str, id: &str) -> Result<Conversation, Error> {
     let session = execution::session(db, session_id)?;
     let (fleet, project_id, generation) = project(db, session.engagement_id())?;
-    let allowed:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM internal_conversations WHERE id=?1 AND state='active' AND fleet_id=?2 AND project_id=?3 AND generation=?4)",params![id,fleet,project_id,generation],|r|r.get(0))?;
-    if !allowed {
-        return Err(Error::RunnerAuthority);
-    }
+    let creator:String=db.query_row("SELECT creator_session_id FROM internal_conversations WHERE id=?1 AND state='active' AND fleet_id=?2 AND project_id=?3 AND generation=?4",params![id,fleet,project_id,generation],|r|r.get(0)).optional()?.ok_or(Error::RunnerAuthority)?;
     let value = read(db, id)?;
-    if value.creator_session_id != session_id
+    if value.id != id || value.creator_session_id != creator || value.state != "active" {
+        return Err(Error::State);
+    }
+    if creator != session_id
         && !matches!(&session,StoredSession::Internal(b) if b.conversation_id==id)
     {
         return Err(Error::RunnerAuthority);
     }
     Ok(value)
+}
+pub(super) fn recipient(
+    db: &Connection,
+    conversation: &Conversation,
+    id: &str,
+) -> Result<StoredSession, Error> {
+    let session = execution::admission_session(db, id)?;
+    let allowed:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM internal_conversations c WHERE c.id=?1 AND c.state='active' AND (c.creator_session_id=?2 OR EXISTS(SELECT 1 FROM internal_participants p WHERE p.conversation_id=c.id AND p.session_id=?2)))",params![conversation.id,id],|r|r.get(0))?;
+    if !allowed {
+        return Err(Error::RunnerAuthority);
+    }
+    Ok(session)
 }
 impl DomainRepository {
     pub fn create_internal_conversation(

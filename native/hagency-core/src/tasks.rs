@@ -186,6 +186,11 @@ pub struct MutationResult {
 /// Runtime commands have no operator, session-admission or process-control variant.
 #[derive(Debug, Clone, Serialize)]
 pub enum RunnerCommand {
+    SendPeer(crate::peers::PeerSend),
+    PeerInbox {
+        after: u64,
+        limit: usize,
+    },
     OpenConversation(crate::conversations::ConversationRequest),
     Conversation {
         id: String,

@@ -1931,3 +1931,30 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - Peer mailbox and group lifecycle, atomic graph/message/task linkage, standalone
   local Agents and the remaining M4–M9 work remain open. Conversation admission
   alone is not peer delivery, model execution or complete migration parity.
+
+## 2026-09-10 — Scoped native peer input delivery
+
+- Internal-session commit b5373b2 passed native Windows/macOS/Linux CI (34470955482)
+  and Node CI (34470955561).
+- Schema 7 commits a content-bound peer receipt and every recipient projection
+  atomically. Sources come from the current started capability. Recipients are
+  exact conversation sessions, including the original creator's Matrix session.
+  Arbitrary rooms belonging to the same Agent cannot send or receive this traffic.
+- Request and response messages can wake incomplete work; notification messages
+  remain context. Pages are bounded and do not acknowledge input. Dispatch enqueue
+  freezes input, completion acknowledges only its recipient copy, and inspected
+  recovery transfers uncertain input while releasing superseded queued arrivals.
+- Matrix activation still needs the original admitted input; peer replies cannot
+  reopen completed tasks. Current membership is checked at send, enqueue and start,
+  with closed-conversation work filtered before lease. Runtime authority also now
+  rechecks task binding, including processes started before a new pending intent.
+  Separate host-only unstarted cleanup remains available after binding changes.
+- All 58 native tests passed, zero failed/ignored. Five peer scenarios and lifecycle
+  boundary passed without skip/uncertainty; all 53 native selectors resolve.
+  Clippy, rustfmt and diff checks passed. Tests include injected admission/claim/ACK
+  rollback, stale/revoked/parked callers, finite data, retry conflicts, separate
+  recipient custody, new arrivals across restart and actual protected Salvo routes.
+- No models or live homeservers were contacted. Group lifecycle, atomic graph/task
+  linkage, final delivery and M4–M9 remain open. An existing completed Matrix task
+  cannot yet use a taskless inspected recovery report because the intent binding
+  guard refuses it; a durable scoped report exception is the next correction.

@@ -306,7 +306,7 @@ pub(super) fn start_task(
 ) -> Result<(), Error> {
     check_enqueue(tx, task)?;
     if binding(tx, &task.id)?.is_some() {
-        let attached:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM dispatch_inputs di JOIN task_inputs ti ON ti.message_sequence=di.message_sequence WHERE di.dispatch_id=?1 AND ti.task_id=?2)",params![dispatch_id,task.id],|r|r.get(0))?;
+        let attached:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM task_dispatch_input_ready WHERE dispatch_id=?1 AND task_id=?2)",params![dispatch_id,task.id],|r|r.get(0))?;
         if !attached {
             return Err(Error::RunnerAuthority);
         }

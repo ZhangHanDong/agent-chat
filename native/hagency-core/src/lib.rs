@@ -6,6 +6,7 @@ pub mod conversations;
 pub mod custody;
 pub mod graphs;
 pub mod messages;
+pub mod peers;
 pub mod project;
 pub mod qualification;
 pub mod task_intents;
