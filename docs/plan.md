@@ -32,5 +32,8 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    atomic Job Object assignment and POSIX unreaped-leader group cancellation.
    Continue native Windows CI validation, POSIX guardian/detached-child ownership,
    bounded runner IO and effective sandbox proofs before real runner adapters.
+   Opaque child signal identities now use pidfds/process handles/macOS audit-token
+   versions, with read-only birth metadata kept separate from signal authority.
+   Extend those primitives to verified descendant adoption and guardian handoff.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

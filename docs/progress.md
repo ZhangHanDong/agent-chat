@@ -2013,3 +2013,30 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - Agent execution remains disabled. POSIX guardian and detached-descendant identity,
   actual sandbox/runner IO, M3 graph/group/final delivery and M5–M9 remain open.
   No live deployment or model was contacted.
+
+## 2026-09-10 — Kernel-bound child signal identities
+
+- Process-scope commit e78f274 passed native CI on all three OS families
+  (34476712504), including the actual Windows owner-exit Job Object test. Its
+  Node run (34476712391) was still running when this step began.
+- Added opaque child signal authority constructed only from a host-owned Child.
+  Its read-only PID/birth metadata cannot create authority or retarget the handle.
+  Linux retains pidfds, Windows duplicates existing process handles, and macOS
+  checks unique process lifetime plus kernel-checked audit PID versions.
+- Local SDK/source inspection found macOS proc_signal_with_audittoken. A harmless
+  SIGCONT probe accepted the current version and rejected a changed version with
+  ESRCH; signal zero was rejected with EINVAL and was not treated as a pass. Rust
+  tests now preserve that real kernel check. An exec fixture confirms lifetime
+  continuity while audit versions can be refreshed before a guarded signal.
+- Tests terminate controlled children while unrelated children keep writing,
+  retain expired handles after reaping, reject mismatched metadata and exercise
+  in-place Unix exec. They do not force numeric PID recycling or prove descendant
+  discovery. Existing process-scope tests remain unchanged and pass.
+- All 68 native tests passed locally on macOS, zero failed/ignored, including one
+  macOS-only kernel test. Three child-identity scenarios plus boundary passed;
+  62 native selectors resolve. Workspace Clippy, rustfmt and diff checks passed;
+  Windows all-target Clippy cross-compilation passed. New Linux/Windows runtime
+  checks remain CI gates for this commit.
+- Native guardian handoff, complete descendant discovery, runner IO and effective
+  sandbox integration remain next. No model or live service was contacted; the
+  platform primitives are not yet connected to Agent dispatch.

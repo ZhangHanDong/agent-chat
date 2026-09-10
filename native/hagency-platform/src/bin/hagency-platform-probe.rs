@@ -36,7 +36,32 @@ fn main() -> io::Result<()> {
     }
     let marker = Path::new(&args[1]);
     match args[0].to_str() {
-        Some("leaf") => pulse(marker),
+        Some("leaf") => {
+            fs::write(marker.with_extension("entered"), b"entered")?;
+            pulse(marker)
+        }
+        #[cfg(unix)]
+        Some("exec-on-command") => {
+            use std::os::unix::process::CommandExt;
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(marker.with_extension("pulse"))?;
+            let until = Instant::now() + Duration::from_secs(8);
+            while !marker.with_extension("exec").exists() {
+                if Instant::now() >= until {
+                    return Err(io::Error::other("exec fixture timed out"));
+                }
+                file.write_all(b"x")?;
+                file.flush()?;
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            drop(file);
+            Err(std::process::Command::new(std::env::current_exe()?)
+                .arg("leaf")
+                .arg(marker)
+                .exec())
+        }
         Some("leader") | Some("early") => {
             fs::write(
                 marker.with_extension("environment"),

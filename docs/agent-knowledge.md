@@ -1073,3 +1073,19 @@ implemented. Neither backend grants filesystem/network sandbox permission. Nativ
 probes test ordinary/early-exit cleanup and literal Unicode/quote/backslash argv.
 Windows owner-exit-without-Drop coverage runs only on Windows; macOS checks the
 explicit Unsupported path instead. Cross-compilation is not runtime evidence.
+
+Native child identities (2026-09-10): OwnedChildIdentity requires a real host-owned
+std::process::Child, never JSON/PID metadata. Linux retains pidfd; Windows duplicates
+the Child process handle. macOS flavor 18 returns BSD+unique data in one 192-byte
+record; unique lifetime ID remains stable across exec, while audit PID version may
+change. Match lifetime before refreshing a token, then use
+proc_signal_with_audittoken (SDK-exported) so kernel version matching closes the
+observation/signal race. It returns errno values directly, not -1/last_errno.
+Signal 0 returns EINVAL on this API; the harmless SIGCONT probe proved correct
+version accepted and wrong version ESRCH, and a Rust kernel test preserves that.
+Never replace a failed version check with kill(pid). Sent/NoLongerCurrent are not
+cleanup or task-completion receipts. Birth metadata is not serde and must remain
+exact if later encoded on a protocol (Windows FILETIME is beyond JS safe integers).
+Future descendant capture must separately prove ancestry; do not add a public
+PID-to-signal constructor. Mac NOTE_TRACK/NOTE_CHILD are unsupported since 10.5;
+do not assume kqueue automatically follows descendants. Guardian/discovery remain.

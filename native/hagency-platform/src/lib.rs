@@ -1,6 +1,9 @@
 //! Host-only process scope primitives. Not runner authorization or a sandbox.
 use std::{collections::BTreeMap, ffi::OsString, io, path::PathBuf, time::Duration};
 
+mod child_identity;
+pub use child_identity::{ChildIdentity, OwnedChildIdentity, SignalOutcome};
+
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
