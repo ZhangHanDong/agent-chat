@@ -186,6 +186,132 @@ class Group:
 MODES = ("guardian-death", "stop", "failed-spawn", "guarantee-refused", "nested-user",
          "nested-cgroup", "custodians-abort")
 
+PROBE_NAMES = ("hagency-cgroup-probe", "hagency-platform-probe")
+MAX_PROBE_BYTES = 128 * 1024 * 1024
+
+
+def copy_stamp(metadata):
+    return (identity(metadata), metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
+
+
+def copy_fixed_probe(source, name, directory, created_files):
+    require(name in PROBE_NAMES, "fixed staged probe name required")
+    source_fd = os.open(source, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    destination = None
+    try:
+        before = os.fstat(source_fd)
+        require(stat.S_ISREG(before.st_mode) and before.st_mode & 0o111,
+                "fixed probe must be a regular executable")
+        require(0 < before.st_size <= MAX_PROBE_BYTES, "probe copy exceeds byte bound")
+        destination = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+                              0o600, dir_fd=directory)
+        created_files[name] = identity(os.fstat(destination))
+        remaining = before.st_size
+        while remaining:
+            block = os.read(source_fd, min(64 * 1024, remaining))
+            require(block, "probe source shrank during copy")
+            remaining -= len(block)
+            pending = memoryview(block)
+            while pending:
+                written = os.write(destination, pending)
+                require(written > 0, "incomplete staged probe write")
+                pending = pending[written:]
+        require(not os.read(source_fd, 1), "probe source grew during copy")
+        require(copy_stamp(os.fstat(source_fd)) == copy_stamp(before)
+                and copy_stamp(os.stat(source, follow_symlinks=False)) == copy_stamp(before),
+                "probe source changed during copy")
+        os.fchmod(destination, 0o555)
+        after = os.fstat(destination)
+        require(stat.S_ISREG(after.st_mode) and after.st_uid == os.geteuid()
+                and after.st_nlink == 1 and after.st_size == before.st_size
+                and stat.S_IMODE(after.st_mode) == 0o555,
+                "staged probe was not exclusively owned and sealed")
+    finally:
+        if destination is not None:
+            os.close(destination)
+        os.close(source_fd)
+
+
+class StagedProbes:
+    """Two fixed CI binaries, sealed in an exclusively created boundary.
+
+    Production calls this only after hosted/root admission with fixed /tmp.
+    Tests may supply an ordinary owned parent; that is not privileged evidence.
+    No source/checkout/ancestor permission is changed. The retained directory
+    and exact created files are the only cleanup authority; no recursive walk.
+    """
+
+    def __init__(self, probe, parent=Path("/tmp")):
+        self.parent = self.directory = None
+        self.created_identity = None
+        self.files = {}
+        self.name = f"hagency-cgroup-binaries-{uuid.uuid4().hex}"
+        self.path = Path(parent) / self.name
+        require(Path(probe).name == PROBE_NAMES[0], "fixed offline probe name required")
+        try:
+            self.parent = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+            meta = os.fstat(self.parent)
+            require(meta.st_uid == os.geteuid() and stat.S_ISDIR(meta.st_mode),
+                    "owned staging parent required")
+            require(meta.st_mode & 0o022 == 0 or meta.st_mode & stat.S_ISVTX,
+                    "writable staging parent requires sticky protection")
+            if Path(parent) == Path("/tmp"):
+                root_meta = os.stat("/")
+                protected(root_meta, True)
+                require(meta.st_mode & 0o001 and root_meta.st_mode & 0o001,
+                        "fixed staging ancestry must be traversable")
+            os.mkdir(self.name, 0o700, dir_fd=self.parent)  # EEXIST never adopts.
+            self.created_identity = identity(os.stat(self.name, dir_fd=self.parent, follow_symlinks=False))
+            self.directory = os.open(self.name, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                                     dir_fd=self.parent)
+            self.check_directory()
+            for name in PROBE_NAMES:
+                copy_fixed_probe(Path(probe).with_name(name), name, self.directory, self.files)
+            os.fchmod(self.directory, 0o555)
+            require(stat.S_IMODE(os.fstat(self.directory).st_mode) == 0o555,
+                    "staged directory was not sealed and traversable")
+        except BaseException:
+            self.close()
+            raise
+
+    def check_directory(self):
+        current = os.stat(self.name, dir_fd=self.parent, follow_symlinks=False)
+        require(self.created_identity is not None and stat.S_ISDIR(current.st_mode)
+                and identity(current) == self.created_identity and current.st_uid == os.geteuid(),
+                "refusing changed staging directory")
+        if self.directory is not None:
+            require(identity(os.fstat(self.directory)) == self.created_identity,
+                    "retained staging directory changed")
+
+    def close(self):
+        try:
+            if self.created_identity is None:
+                return
+            self.check_directory()
+            if self.directory is not None:
+                # Ordinary unprivileged tests need write restored for unlink.
+                # This is only the exact fresh retained directory, never /tmp,
+                # the checkout, a source ancestor or a replacement entry.
+                os.fchmod(self.directory, 0o700)
+                for name, observed in self.files.items():
+                    current = os.stat(name, dir_fd=self.directory, follow_symlinks=False)
+                    require(stat.S_ISREG(current.st_mode) and identity(current) == observed,
+                            "refusing changed staged probe")
+                    os.unlink(name, dir_fd=self.directory)
+            os.rmdir(self.name, dir_fd=self.parent)
+            self.created_identity = None
+        finally:
+            for descriptor in (self.directory, self.parent):
+                if descriptor is not None:
+                    os.close(descriptor)
+            self.directory = self.parent = None
+
+    def __enter__(self):
+        return self.path / PROBE_NAMES[0]
+
+    def __exit__(self, kind, value, traceback):
+        self.close()
+
 
 def collect(child, until):
     # Drain both bounded streams on this one thread; no reader threads/tasks.
@@ -239,6 +365,55 @@ def owned_fixture(command, work, group, inspect, timeout=20):
                 child.stderr.close()
 
 
+def reproduce_private_ancestor(probe, work, group, uid, gid):
+    """Controlled hosted fault, explicitly NOT a namespace qualification.
+
+    The failed historical log did not capture source-ancestor permissions. This
+    new owned0700 ancestor reproduces a consistent mechanism without changing
+    any historical checkout/source directory or accepting126 as native refusal.
+    """
+    parent = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    directory = None
+    created_identity = None
+    copies = {}
+    name = "private-probe-source"
+    try:
+        os.mkdir(name, 0o700, dir_fd=parent)
+        created_identity = identity(os.stat(name, dir_fd=parent, follow_symlinks=False))
+        directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                            dir_fd=parent)
+        require(identity(os.fstat(directory)) == created_identity, "private fixture directory changed")
+        copy_fixed_probe(probe, PROBE_NAMES[0], directory, copies)
+        os.fchown(directory, uid, gid)
+        os.fchmod(directory, 0o700)
+        command = ["/usr/bin/unshare", "--user", "--map-root-user", "--",
+                   str(Path(work) / name / PROBE_NAMES[0]), "guardian-death", str(work),
+                   str(group.directory), str(group.procs), str(group.kill)]
+
+        def inspect(outcome):
+            code, stdout, stderr = outcome
+            require(code == 126 and not stdout and b"Permission denied" in stderr,
+                    f"controlled private-ancestor permission refusal not observed: exit={code}, {stderr!r}")
+        owned_fixture(command, work, group, inspect)
+    finally:
+        try:
+            if created_identity is not None:
+                current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                require(stat.S_ISDIR(current.st_mode) and identity(current) == created_identity,
+                        "refusing changed private fixture directory")
+                for filename, observed in copies.items():
+                    current = os.stat(filename, dir_fd=directory, follow_symlinks=False)
+                    require(stat.S_ISREG(current.st_mode) and identity(current) == observed,
+                            "refusing changed private fixture binary")
+                    os.unlink(filename, dir_fd=directory)
+                os.rmdir(name, dir_fd=parent)
+        finally:
+            if directory is not None:
+                os.close(directory)
+            os.close(parent)
+    print("controlled 0700 ancestor exec refusal reproduced; NOT namespace qualification", flush=True)
+
+
 def run_fixture(probe, mode, work, group, uid, gid):
     base = [str(probe), "guardian-death" if mode.startswith("nested-") else mode,
             str(work), str(group.directory), str(group.procs), str(group.kill)]
@@ -283,14 +458,19 @@ def run(args):
     try:
         boundary = Group(root, f"hagency-ci-{uuid.uuid4().hex}", registry)
         print(f"created isolated cgroup: {boundary.name}", flush=True)
-        with tempfile.TemporaryDirectory(prefix="hagency-cgroup-ci-") as scratch:
+        # The nested user maps only initial UID0 and cannot traverse private
+        # runner-owned build ancestors. Stage fixed bytes under root custody;
+        # never make the checkout or its ancestors more accessible.
+        with StagedProbes(probe) as staged_probe, tempfile.TemporaryDirectory(prefix="hagency-cgroup-ci-") as scratch:
             os.chown(scratch, args.uid, args.gid)
             for mode in MODES:
                 group = Group(boundary.directory, mode, registry)
                 work = Path(scratch) / mode
                 work.mkdir(mode=0o700)
                 os.chown(work, args.uid, args.gid)
-                run_fixture(probe, mode, work, group, args.uid, args.gid)
+                if mode == "nested-user":
+                    reproduce_private_ancestor(staged_probe, work, group, args.uid, args.gid)
+                run_fixture(staged_probe, mode, work, group, args.uid, args.gid)
     finally:
         # Root capability survives every helper. Kill the one complete subtree
         # first; attempt all owned removals even when an earlier check failed.

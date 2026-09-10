@@ -22,6 +22,8 @@ launcher without advertising complete POSIX crash containment.
 - Require verified current initial user and cgroup namespaces on source-inspected kernel families, including after guardian exec.
 - Qualify actual guardian loss and nested namespace refusal only through a disposable GitHub-hosted Linux CI provisioner.
 - Retain independent root cleanup for exactly the provisioner's newly created subtree on every helper outcome.
+- Stage exactly two bounded fixed offline probe binaries into a fresh retained root-owned traversable directory for hosted namespace tests.
+- Preserve source and checkout permissions and refuse staged path replacements during cleanup.
 
 ### Must Not
 - Do not mount or change existing system cgroups; the CI-only provisioner may create and remove exactly one fresh private subtree and change only its own control files.
@@ -29,6 +31,7 @@ launcher without advertising complete POSIX crash containment.
 - Do not infer signal authority from a PID or add a second workspace launcher.
 - Do not settle canonical tasks or resource leases from process observations.
 - Do not treat absent delegation, skipped fixtures or cross-compilation as containment proof.
+- Do not accept executable permission errors or exit126 as a native namespace refusal.
 
 ## Boundaries
 
@@ -74,3 +77,12 @@ provisioning. Missing provisioning is a refusal, not a passing containment test.
 
 Simultaneous backend and guardian death recovery by the runtime, production host privilege provisioning, live models,
 actual sandbox qualification, server enablement, macOS containment and full M4.
+
+
+CI-only executable staging is additionally verified by the exact ordinary-file
+Python suite `python3 -B native/scripts/test-qualify-linux-cgroup.py`. Cargo-bound
+lifecycle scenarios above retain native admission/refusal coverage; they do not
+claim Python staging or actual hosted namespace execution. The hosted seven-mode
+qualification remains a separate mandatory workflow command and requires exact
+native exit78/namespace diagnostics for nested cases. Local ordinary-file or
+mode700-ancestor fixtures cannot replace that hosted result.

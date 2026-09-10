@@ -1732,3 +1732,14 @@ loss is forbidden until a persistent host lifecycle exists.
 
 - Codex 0.153.4 thread config accepts dotted TOML override keys. Native MCP `env_vars` forwards names from the runtime process; the generated config uses names only, fixed `["mcp"]` args and three task-maintenance tools. Private values are installed only in the owned launch environment after exact scope admission. `shell_environment_policy.inherit="none"` prevents ordinary ambient inheritance; it is not hostile-process secrecy or proof that existing hooks/config are disabled. Config tables deep-merge, so protected config/home and effective MCP inventory still need qualification.
 - Canonical Done increments execution_epoch. ADR-053's frozen scope intentionally rejects that new epoch and stops old execution. A post-stop fresh writer task read can report Done but grants no release/retry/final-reply authority. Missing read authority is None. The real helper may lose its acknowledgement during this stop; do not force a timing gate or call this a successful final reply flow. Heartbeat proves deterministic native helper exchange/exit, while the Done fixture separately records ACK/readback/exit observations and requires the canonical commit/fence/dirty lease.
+
+Linux CI probe staging (2026-09-10): ae284b9's nested-user log proves exec126
+permission refusal but did not record source-ancestor modes. The provisioner now
+stages only the two fixed bounded native binaries in fresh root-owned/sealed0555
+storage under fixed traversable/tmp, preserving all original source permissions.
+Retained inode identities gate nonrecursive cleanup; replacements survive refusal.
+A separate fresh fixture-UID0700 ancestor reproduces the access mechanism and is
+explicitly not namespace qualification. Actual nested cases must still return
+native78/exact initial-namespace diagnostic. Never accept126, skip a missing
+namespace capability, chmod checkout ancestors or run privileged qualification
+locally. Only the hosted disposable VM may establish the final kernel result.

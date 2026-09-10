@@ -234,3 +234,59 @@ do not count as the still-pending real positive and nested-namespace CI results.
 The optional library path is not wired to a service or OwnedSession; production
 availability, hostile ptrace/reassignment qualification and complete POSIX crash
 containment remain closed gates.
+
+
+### Fixed CI binary staging and separate permission reproduction
+
+Hosted run34529853081 at ae284b9 passed guardian-death, stop, failed-spawn and
+unchanged guarantee-refused, then nested-user returned unshare exit126 with
+"Permission denied" before the native probe ran. This proves an executable access
+refusal, not the exact historical ancestor modes: those modes were not logged.
+A user namespace mapping only initial UID0 cannot use namespace capabilities to
+bypass DAC on an unmapped runner UID's private0700 build ancestor. A separately
+controlled fresh fixture now reproduces that mechanism, consistent with the log.
+It never changes the historical checkout or treats126 as namespace qualification.
+
+The hosted-only provisioner stages exactly the fixed `hagency-cgroup-probe` and
+`hagency-platform-probe` bytes into one exclusive random directory under fixed
+`/tmp`. Hosted/root/initial-namespace gates run first. The `/tmp` parent is opened
+without following a final symlink, must be root-owned and either nonwritable by
+others or sticky, and both `/` and `/tmp` must remain traversable. No existing
+parent is chmodded. The fresh directory is root-owned0700 while copying, then0555;
+its two regular files are exclusively created, root-owned, single-link and0555.
+All seven cases use these staged paths. This prevents an unmapped build UID or
+private Cargo ancestor from blocking the exact intended native admission check.
+
+Source names are fixed, final symlinks and nonregular/nonexecutable files are
+refused, and each source must contain1..128MiB. Copying uses retained descriptors,
+64KiB blocks, bounded exact byte count, full writes, final EOF and before/after
+identity/size/mtime/ctime comparisons. Staging does not authenticate an arbitrary
+binary: these are the trusted current CI revision's built fixtures, and concurrent
+privileged source mutation remains excluded. No source or checkout permission is
+modified and no model or service is invoked. Root retains every created directory
+and file identity; cleanup removes only exact fixed entries through the retained
+directory descriptor. Changed entries refuse deletion. Write permission may be
+restored only on the verified self-created directory, which allows ordinary
+nonroot file tests to clean their own fixtures. There is no recursive stage walk,
+replacement adoption, deletion of unknown descendants or generic chmod fallback.
+
+Before the actual nested-user case, the helper copies the same fixed bounded
+probe behind a fresh fixture-UID-owned0700 directory. Through the same retained
+child/pidfd and root cgroup cleanup helper it requires actual exec126 plus the
+permission diagnostic, labels this **NOT namespace qualification**, then removes
+only that exact copied file and directory. The actual staged nested-user and
+nested-cgroup cases still require native exit78, no stdout and the existing exact
+initial-namespace refusal diagnostic. Missing unshare capability, permission
+failure in that actual case, another exit or incomplete cleanup still fails CI.
+No prior failed run is retroactively reported as passing.
+
+The Python suite executes a tiny fixed compiled native program from staged copies
+whose source ancestor/files remain0700 and unchanged. It also checks empty/large/
+nonexecutable/symlink/directory sources, growth and partial write failures, exact
+stage cleanup, replacement refusal, controlled precheck classification, and126
+rejection by the real qualification verdict function. `/usr/bin/cc` builds only
+that fixed ordinary test program; copying macOS's platform-signed `/bin/echo`
+out of its protected path was correctly killed by AMFI and is not used as a
+portable native fixture. Local Python checks and Cargo-bound admission scenarios
+are separate evidence. Real nested-user/cgroup execution, all seven outcomes and
+independent subtree cleanup remain mandatory hosted CI gates.

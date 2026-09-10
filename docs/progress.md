@@ -3561,3 +3561,32 @@ binding enumeration hit host disk exhaustion; its failure log is retained, and a
 subsequent reduced-artifact attempt was stopped for coordinated cleanup. Only this
 worktree's generated target was cleaned. Combined binding verification is pending
 on the root integration target; neither interrupted run counts as passing.
+
+### 2026-09-10 — Linux hosted qualifier binary staging follow-up (ADR048)
+
+- ae284b9's Linux log passed four native cases, then unshare could not exec the
+  nested-user probe (126/Permission denied). Historical ancestor modes were not
+  recorded; they are not asserted as observed fact. Added an independent fresh
+  fixture-UID0700 ancestor reproduction before the mandatory native78 case.
+- The helper stages two fixed bounded probes in a retained root-owned sealed
+  directory under fixed/tmp. Original source/checkout permissions are preserved;
+  exact descriptor/inode cleanup refuses changed files/directories. No runtime
+  namespace policy, privilege requirement or qualification exit is relaxed.
+- Eleven local ordinary-file Python tests pass, including actual compiled native
+  execution, copy/mode preservation, byte/type/symlink/refusal bounds, source
+  growth, partial write cleanup, replacement survival and strict126 classification.
+  Local tests do not execute a privileged namespace or qualify Linux containment.
+- Evidence lives under external-cache `ci-staging-*`. Cargo-bound native lifecycle
+  and hosted seven-case results are separate; hosted qualification remains pending
+  until the coordinator integrates and runs the workflow. An early local fixture
+  copied Apple's platform-signed echo and was killed by AMFI; a tiny fixed compiled
+  program supplies the portable native-copy fixture without changing code policy.
+
+Final checks: Python11/11, syntax and diff checks pass. Agent-spec1.4 lifecycle
+passes4/4: the three unchanged native admission/refusal scenarios plus all six
+changed-file boundaries, with zero fail/skip/uncertain. This does not substitute
+for the separately run Python suite or pending hosted namespace qualification.
+The first lifecycle attempt exited during local disk exhaustion with no usable
+result; only generated targets from completed worktrees were cleaned, and the
+successful rerun is separately recorded. No source/log deletion, full binding
+inventory, local privileged invocation or deployment/push was performed.
