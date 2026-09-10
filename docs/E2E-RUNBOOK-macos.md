@@ -124,6 +124,27 @@ nohup node bridge-matrix.js >> ~/.hagency/e2e/logs/bridge.log  2>&1 &
 - 注册 `@alex`(开放注册):`POST /_matrix/client/v3/register`(`alex` / 密码自定,记入手册)。
 - 建 **明文** 项目房(名 `e2e project room`,**关加密**)、owner 审批房(名 `e2e owner approvals`),把 room id 写入 `~/.hagency/e2e/{project-room.id,owner-room.id}`,alex 的 token 写 `alex.token`。
 - 邀请代表 `@hagency:127.0.0.1:8008` 进项目房 → 代表经 sync 收到 invite 自动入房("knock answered")→ group 自动创建。
+- owner 审批房还需要两个独立前置条件:owner 与**当前真实代表**都已 `join`,且代表有权写发现 marker 的两个空 state key。先用 owner token 读取该房的 `joined_members`,逐字确认 owner MXID 和当前代表 MXID 都存在;binding、消息来源或已有 marker 只能帮助发现房间,都不是 verdict authority,也不能代替成员事实。
+- 随后用 owner token 在**每次准备写入之前重新 GET** 该房空 state key 的 `m.room.power_levels`,保留其完整 JSON,并先确认 owner 当前有权修改它。房间若由有权限的 bot 创建,或当前代表的 level 已达到两个 marker event 的要求,则不写。以下变更只适用于已确认使用常见 `users_default: 0`、`state_default: 50`,且两个 marker event 没有刻意设置更高自定义策略的测试房:保留全部既有 users/admin/defaults/events,把当前代表的 user level 至少设为 `1`,并只把 `com.agentchat.approval.room.v1` 与 `com.agentchat.approval.room.v2` 的 event level 设为 `1`。例如:
+  ```bash
+  # OWNER_ROOM_ENCODED 是 URL 编码后的 room id;变量值不要写进取证文档。
+  curl -fsS -H "Authorization: Bearer $OWNER_TOKEN" \
+    "$HS/_matrix/client/v3/rooms/$OWNER_ROOM_ENCODED/state/m.room.power_levels/" > "$PL_FRESH"
+  jq --arg rep "$CURRENT_REPRESENTATIVE" '
+    .users = (.users // {}) |
+    .users[$rep] = ([.users[$rep] // .users_default // 0, 1] | max) |
+    .events = (.events // {}) |
+    .events["com.agentchat.approval.room.v1"] = 1 |
+    .events["com.agentchat.approval.room.v2"] = 1
+  ' "$PL_FRESH" > "$PL_PATCH"
+  curl -fsS -X PUT -H "Authorization: Bearer $OWNER_TOKEN" -H 'Content-Type: application/json' \
+    --data-binary @"$PL_PATCH" \
+    "$HS/_matrix/client/v3/rooms/$OWNER_ROOM_ENCODED/state/m.room.power_levels/"
+  # PUT 后重新 GET,核对代表 level 与两个精确 event type,并核对其他键没有被覆盖。
+  curl -fsS -H "Authorization: Bearer $OWNER_TOKEN" \
+    "$HS/_matrix/client/v3/rooms/$OWNER_ROOM_ENCODED/state/m.room.power_levels/" > "$PL_AFTER"
+  ```
+  不得把 `state_default` 降为 `0`,不得重建一个只含测试键的 power-level 对象,也不得给代表 verdict 权限。最终 readback 不匹配即停止 E2E。
 
 ### 2.6 本地 agent
 ```
@@ -148,8 +169,9 @@ tmux ls   # 期望看到 e2e-claude
 ## 4. E2E-2(robrix2 GUI)
 1. **干净会话**:robrix 会自动恢复上次登录(如 matrix.palpo.im)。用隔离目录启动:macOS 下 robrix 数据在 `~/Library/Application Support/robrix`(robius_directories ProjectDirs);把它临时改名,或用 `HOME=<隔离目录>` 启动。
 2. 登录页三栏:User ID `alex` / Password / **Homeserver URL 手输 `http://127.0.0.1:8008`**(默认 matrix.org);Makepad 输入框**没有 Tab 切焦点、没有可见焦点指示**,必须**鼠标点击**每个框再输入;输入后截图确认文字落在正确框再提交。
-3. 进 `e2e project room`,发 `!request coding 500`(编辑器里 **Enter 是换行**,点右下角发送按钮)→ 代表回执 → API 批准(§3.1)→ 再发点名 nonce → **时间线出现 `ac_e2e-claude [bot]` 的回复**(截图)→ `/messages` 核对原消息/回复/`m.in_reply_to.event_id`。
-4. 结束后 robrix 保持运行给 operator 看。
+3. 先完成 **engagement 资源分配**:在项目房发送 `!request coding 500`,看到代表的 engagement 回执后,按 §3.1 对 `/api/engagements/:id/verdict` 提交资源批准与 `allocatedTokens`。这一步只建立项目资源/agent 前置条件,不会被记作 native execution approval,也不要求它生成 owner execution 卡片。
+4. 分配完成后,在 Robrix 的 `@` picker 选择**实际 agent**,发送一条会触发受保护工具调用的唯一 nonce 任务。此时 owner 审批房必须出现对应的真实 native execution approval 卡片;owner 分别实测卡片上的一次性 **Approve once** 与 **Deny**,核对决定只绑定各自 request/digest,并核对批准后的 agent 回复仍在原项目线程。卡片、任一 owner 按钮或结果关联缺失时本项为 **failed**;直接调用 `/api/approvals` verdict 只能单独诊断后端,不能替代 GUI 验收。
+5. 结束后 robrix 保持运行给 operator 看。
 安全规则:每次点击/输入前确认前台窗口是 Robrix(`osascript -e 'tell app "System Events" to get name of first process whose frontmost is true'`),只点 Robrix 窗口内坐标;只输入 URL/用户名/测试密码/一条指令;连续两次焦点确认失败即停;**非安全类偏差(如 Enter 变换行)自行处理继续**。
 
 ---
