@@ -15,6 +15,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Maintain the canonical task from the host-provisioned runner environment.
+    Task {
+        /// Stable identifier for a mutation; reuse only with identical content.
+        #[arg(long, global = true)]
+        call_id: Option<String>,
+        #[command(subcommand)]
+        command: hagency::task_client::Command,
+    },
     /// Internal native guardian. Requires a private inherited channel on stdin.
     #[cfg(unix)]
     #[command(hide = true)]
@@ -55,6 +63,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     match command {
+        Command::Task { call_id, command } => {
+            let context = hagency::task_client::Context::from_env()?;
+            let output = hagency::task_client::run(
+                &context,
+                &command,
+                call_id.as_deref(),
+                hagency::task_client::DEFAULT_DEADLINE,
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&output)?);
+        }
         #[cfg(unix)]
         Command::Guardian => return Err("guardian requires isolated synchronous startup".into()),
         Command::Init { state_dir } => {

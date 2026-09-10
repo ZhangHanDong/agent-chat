@@ -5,11 +5,13 @@ replacement for the deployed Hagency application**. Resource allocation, Agents,
 Palpo transport, the console API and Matrix chat still run in the existing JS/TS
 implementation. Native capability responses explicitly mark these unavailable.
 
-The current developer checkpoint includes domain schema 11: scoped tasks,
-internal groups, durable graphs and final-reply custody. The independent runtime
-crate provides a Codex protocol and bounded stream driver. Verified Matrix input
-still needs its task-intent integration, and neither runtime execution nor actual
-Matrix delivery is enabled. The sections below record the successive checkpoints.
+The current developer checkpoint includes domain schema 12: scoped tasks,
+internal groups, durable graphs, verified-input task activation and final-reply
+custody. Independent custody schema 2 preserves outbound work and publication
+receipts across machine-token rotation. The runtime crate provides a bounded
+Codex one-turn session, and the native CLI maintains an assigned task through
+the scoped API. Runtime execution and actual Matrix delivery remain disabled.
+The sections below record the successive checkpoints.
 
 Build and run from this worktree, using a new state directory:
 
@@ -183,6 +185,38 @@ rechecks current authority. There is no runtime-supplied clock, author or arbitr
 endpoint command. Claim/start/recovery, session admission and configuration remain
 host operations. The `runner_task_api` capability describes this interface;
 `agent_execution` remains false until real native runner adapters are available.
+
+The native task helper uses that same API and domain writer:
+
+```sh
+hagency task get
+hagency task --call-id heartbeat-1 heartbeat
+hagency task --call-id wait-1 wait --reason "Waiting for source" --until 2030-01-01T00:00:00Z
+hagency task --call-id resume-1 resume
+hagency task --call-id done-1 done
+```
+
+The host must provision `HAGENCY_RUNNER_API_ADDR` (literal loopback socket),
+`HAGENCY_RUNNER_CAPABILITY` (private scoped JSON) and `HAGENCY_TASK_ID` in the
+runner's inherited environment. No operator-token fallback or credential file is
+used. The launcher integration that provisions these values is still to implement.
+`start` records a heartbeat of the host-started task; it never creates another
+task. `comment --text` adds a canonical task comment. Every mutation requires an
+explicit call ID, and the response is one JSON task result with its replay status.
+
+The client has a five-second total deadline, a 16 KiB request/header-buffer bound,
+32 response headers and a 64 KiB response limit. It follows no redirects, resolves
+no arbitrary DNS and uses no environment proxy. Lost mutation responses stay
+unknown: inspect the task or retry the identical command and call ID. Raw remote
+error bodies and credentials never appear in its diagnostics. Local fixtures test
+the executable and actual loopback API, including task scope, parking, idempotent
+replay, malformed/oversized responses, stalled bodies and cancellation closure.
+
+Pure reusable permission-scope derivation matches 64 JavaScript policy/path
+vectors. Candidate scopes do not grant permission; native owner verdicts,
+persistent grants, effective sandbox and runtime application remain required.
+Verified task-notice claims likewise must not be connected directly to Matrix:
+durable send-start/uncertainty and current-route cancellation are still missing.
 
 Schema 5 connects task metadata, admitted source inputs, canonical conversation
 binding and an acknowledgement outbox in one transaction. Tasks remain pending

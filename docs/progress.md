@@ -2578,3 +2578,24 @@ input acknowledgement, sandbox, host authority and durable-domain gates close.
   Only append-only coordination records conflicted; both histories were retained.
   Their combined full-workspace verification is still in progress alongside the
   native task-client integration. Deployed services remain unchanged.
+
+## 2026-09-10 — Native task maintenance CLI
+
+- Added task get/start/heartbeat/wait/resume/done/comment to the native executable.
+  An inherited exact runner context chooses one task and loopback socket; mutation
+  call IDs go to the existing scoped API and sole canonical writer. Credentials
+  never enter CLI arguments, configuration or model-visible output.
+- Actual local Salvo/SQLite fixtures and the native executable verify lifecycle,
+  identical retries, changed-content conflict, wrong task/secret/fence, parked
+  rejection and sanitized failure. Controlled peers verify redirects, excess
+  headers/chunked data, partial EOF and stalled body cancellation without retry.
+- Four task-client tests and workspace Clippy pass. Only direct dependency entries
+  for already-locked Hyper/Hyper-util/http-body-util were added; no package version
+  changed. Combined ingress/outbound/client validation passed 166 native tests
+  with zero failures or ignored tests; all 120 Rust spec selectors resolve.
+  Integrated agent-spec lifecycle passed task client 5/5, outbound custody 7/7
+  and verified ingress 8/8, including explicit file boundaries and no skips or
+  uncertain results. Logs are in the 2026-09-10 migration cache. Windows CI for
+  the line-ending correction remains pending the next push.
+- Host environment provisioning and full legacy/MCP helper parity are not enabled
+  by this CLI. The production service and original checkout remain unchanged.

@@ -1335,3 +1335,13 @@ Immediate route checks, cancellation coordination and observed uncertain-send
 recovery are required before that adapter is safe. A stable transaction ID alone
 cannot prevent a delayed private notice after promotion. Taskless output, broader
 room/DM policy and automatic unread room-window selection remain open.
+
+Native task client (2026-09-10, ADR-041): inherited environment contains the exact
+runner capability, literal loopback socket and assigned task ID. Do not provision
+capability files or CLI secret arguments. The helper has one HTTP operation and
+requires a caller-stable mutation ID; the domain writer owns receipts and current
+authority. A lost mutation response is unknown, with no automatic retry. Hyper's
+connection future is polled inside the request future, so cancellation closes the
+socket without a detached task. Native dispatch already starts canonical work;
+helper start records its heartbeat, not task creation. Host environment and full
+MCP/helper installation remain separate integration work.

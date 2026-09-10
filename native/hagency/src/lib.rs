@@ -2,6 +2,7 @@ use hagency_core::custody::{Delivery, MAX_DELIVERY_BYTES};
 use hagency_store::{DomainStore, Error, Store};
 mod resources;
 mod runner;
+pub mod task_client;
 use salvo::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
