@@ -10,6 +10,18 @@
   lifecycle remains absent. Capacity64 deliberately stops new batches without
   evicting dedup or pending custody. See ADR-054 for supported text and hard gates.
 
+- **Native workspace snapshot custody, 2026-09-10:** ADR-058's `hagency-files`
+  accepts only a host-opened directory capability. Every single-component open
+  refuses following links; retained root, ancestor and file handles preserve
+  object custody across pathname replacement. Snapshots hold bounded copied bytes,
+  their SHA256 and a shared RAII permit. Private workspace provisioning and external
+  mount/hardlink prevention remain host responsibilities. Link counts and modified
+  times cannot prove point-in-time isolation; same-size writes with restored times
+  can produce mixed copied bytes. No ambient path API, Matrix delivery, domain
+  authorization, persistent staging or cancellable regular-file syscall is enabled.
+  Windows reparse fixtures are real objects and fail visibly if prerequisites are
+  absent; cross-compilation does not establish Windows runtime qualification.
+
 - **Matrix fixture waits, 2026-09-10:** ADR-047's scripted peer previously
   allowed only three seconds between requests although the owned SDK bootstrap
   has a ten-second budget. The fake now derives its finite wait from SDK plus
