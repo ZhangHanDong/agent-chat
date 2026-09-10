@@ -910,3 +910,13 @@ successful delivery. Matrix fixtures must return state events with admission
 timestamps and valid event IDs for sends; old mocks can otherwise mask custody bugs.
 Native agent-spec cannot execute these Vitest scenarios; record skips separately
 from deterministic test results and use explicit repository-relative change paths.
+
+
+## 2026-09-09 — Dependency PR integration
+
+HAFleet PR 157 updates Hono and Morgan while retaining the advisory policy.
+The registry audit is a required external command, not a fabricated Vitest
+selector: keep offline bindings real and record npm run audit:baseline separately.
+See docs/reviews/2026-09-09-pr157-integration.md for the integration evidence and
+remaining PR conflicts. The current GitHub account has READ permission on
+palpo-im/palpo; local source edits do not imply upstream PR merge authority.

@@ -16,6 +16,10 @@ approval boundaries, and existing debt policy.
 - Do not add advisory identifiers to the baseline or allowlist, or weaken CI.
 - Do not upgrade unrelated direct dependencies or change runtime authorization.
 - Automated tests use local fixtures and must not contact live agent services.
+- Before merging, run `npm run audit:baseline` against current registry data
+  using the repaired production lockfile. It must exit zero with no new advisory
+  identifier outside the unchanged baseline. Record this command result
+  separately: offline fixture tests cannot stand in for the registry's report.
 
 ## Decisions
 
@@ -35,6 +39,9 @@ approval boundaries, and existing debt policy.
 - ./package-lock.json
 - knowledge/requirements/req-dependency-advisory-repair.md
 - specs/task-dependency-advisory-repair.spec.md
+- docs/agent-knowledge.md
+- docs/progress.md
+- docs/reviews/2026-09-09-pr157-integration.md
 
 ### Forbidden
 - Do not edit security/audit-baseline.json or scripts/audit-deps.sh.
@@ -65,12 +72,6 @@ Scenario: Preserve authenticated approval identity
   Given a structured owner verdict fixture
   When the Matrix approval adapter processes it
   Then the authenticated sender and request binding remain unchanged
-
-Scenario: Clear the newly reported advisory regressions
-  Test: manual_test_dependency_advisory_ratchet
-  Given the repaired production lockfile
-  When the operator runs npm run audit:baseline against current registry data
-  Then no new advisory identifier remains outside the unchanged baseline
 
 ## Out of Scope
 

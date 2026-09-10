@@ -1632,3 +1632,19 @@ Native agent-spec has one boundary pass and nine skipped Node scenarios, so its
 overall result remains non-passing. Optional live probes skipped; no live
 deployment or Matrix/LLM acceptance is claimed. Findings, evidence and limits:
 docs/reviews/2026-09-09-review-followup.md. The source task-writer is absent.
+
+## 2026-09-09 — Merge conflict-free dependency PR 157
+
+Merged HAFleet PR 157 into the isolated review integration; GitHub confirms
+MERGED at 7f61fcd. Fresh root/console npm installs, the actual registry advisory
+ratchet and 22 focused tests pass. Full verify:ci passes with 483 executable
+spec bindings and 505 kernel/CLI tests. The new inventory rejected the PR
+manual-test placeholder; its mandatory registry check now lives explicitly in
+Constraints, while all four real offline test bindings remain intact. Native
+agent-spec records one boundary pass and four Node skips, not lifecycle success.
+
+HAFleet PRs 154/155/156/158 conflict with local master and remain unmerged.
+The current account has only READ permission on palpo-im/palpo, so its upstream
+PRs cannot be merged here. No live deployment changed. Website coordination
+edits remain outside the integration. Full details and evidence locations:
+docs/reviews/2026-09-09-pr157-integration.md.
