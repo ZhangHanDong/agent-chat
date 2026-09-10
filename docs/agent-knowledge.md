@@ -1236,3 +1236,30 @@ Agent-spec 1.4.0 lifecycle still attempts Cargo selectors for Node contracts eve
 with `--layers lint,boundary`; retain its Skip/non-passing result and run exact
 Vitest plus Node binding checks separately. Do not rename or fabricate Rust tests
 to turn those skips into parity evidence.
+
+Native final-reply custody (2026-09-10): schema 11 never backfills privacy into
+legacy generation-zero sessions. Host observations bind full Matrix identities,
+current registration/device generations and explicit room privacy. Store the full
+bounded joined set plus invitation policy with the room generation; otherwise a
+new snapshot through agent B can leave departed agent A authorized. Unsafe current
+snapshots and explicit missing/unknown-room observations persist unavailability,
+retire old sessions/descendants and fence queued replies. Restoration needs a
+new generation and fresh SID, including DM main sessions with a null root.
+
+Final intent requires an exact canonical Done epoch or inspected report grant.
+Runtime content cannot pick room/sender/device or assert delivery. Claim then
+begin-send separates unsent custody from possible external effects. Never turn
+Sending into Pending merely because the lease, server or session disappeared.
+Persist explicit cancellation separately from Uncertain: otherwise a later NotSent
+inspection can revive cancelled output on a still-current route. Bind inspection
+receipts to intent/fence/content, retaining stable transaction IDs across actual
+retries. Actual delivered inspection may record a cancelled send that already
+happened; it does not authorize another send. Keep taskless/front-desk output,
+arbitrary first group-room invitation, broader human/federated DM policy and real
+Matrix input/transport adapters as explicit remaining migration work (ADR-033).
+
+Verified Matrix ingress remains a separate seam: messages::find_session refuses
+scopes with matrix_generation>0, so current host ingestion/task-intent intake
+cannot target verified fresh sessions. Reply tests manually create/finish tasks.
+Add verified-route-aware intake and scheduling before claiming end-to-end Matrix
+behavior; do not remove that fence by silently routing old context into new IDs.

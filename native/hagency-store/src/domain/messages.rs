@@ -8,7 +8,11 @@ pub(super) fn find_session(
     db: &Connection,
     binding: &SessionBinding,
 ) -> Result<Option<String>, Error> {
-    Ok(db.query_row("SELECT id FROM runner_sessions WHERE engagement_id=?1 AND json_extract(binding,'$.room_id')=?2 AND COALESCE(json_extract(binding,'$.thread_root'),'')=COALESCE(?3,'')",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0)).optional()?)
+    let scoped:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM runner_sessions WHERE matrix_generation>0 AND engagement_id=?1 AND json_extract(binding,'$.room_id')=?2 AND json_extract(binding,'$.thread_root') IS ?3)",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0))?;
+    if scoped {
+        return Err(Error::RunnerAuthority);
+    }
+    Ok(db.query_row("SELECT id FROM runner_sessions WHERE matrix_generation=0 AND engagement_id=?1 AND json_extract(binding,'$.room_id')=?2 AND COALESCE(json_extract(binding,'$.thread_root'),'')=COALESCE(?3,'')",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0)).optional()?)
 }
 pub(super) fn read_message(db: &Connection, sequence: u64) -> Result<Message, Error> {
     let encoded: String = db

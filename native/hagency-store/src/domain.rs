@@ -19,8 +19,10 @@ mod conversation_lifecycle;
 mod conversations;
 mod execution;
 mod graphs;
+mod matrix_routes;
 mod messages;
 mod peers;
+mod replies;
 mod task_intents;
 
 pub struct DomainRepository {
@@ -295,7 +297,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 10,
+                version: 11,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -306,6 +308,7 @@ impl DomainRepository {
                     (8, include_str!("migrations/008-recovery-reports.sql")),
                     (9, include_str!("migrations/009-conversation-lifecycle.sql")),
                     (10, include_str!("migrations/010-task-graphs.sql")),
+                    (11, include_str!("migrations/011-final-replies.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
@@ -315,6 +318,10 @@ impl DomainRepository {
                     "SELECT dispatch_id FROM graph_dispatch_ready LIMIT 0",
                     "SELECT dispatch_id FROM graph_dispatch_scope LIMIT 0",
                     "SELECT message_sequence FROM admissible_dispatch_peer_inputs LIMIT 0",
+                    "SELECT t.device_id,s.privacy,r.retired,f.digest,c.reply_id FROM matrix_transports t CROSS JOIN matrix_room_scopes s CROSS JOIN matrix_session_routes r CROSS JOIN final_replies f CROSS JOIN final_reply_calls c LIMIT 0",
+                    "SELECT session_id FROM current_matrix_routes LIMIT 0",
+                    "SELECT s.joined,s.invite_only,s.available,s.invalidation,m.transport_generation,f.cancel_requested,i.digest FROM matrix_room_scopes s CROSS JOIN matrix_room_memberships m CROSS JOIN final_replies f CROSS JOIN final_reply_inspections i LIMIT 0",
+                    "SELECT id FROM current_final_replies LIMIT 0",
                 ],
             },
         )?;
@@ -329,6 +336,7 @@ impl DomainRepository {
             [],
         )?;
         graphs::reconcile(&tx, graphs::now_ms()?)?;
+        replies::reconcile(&tx, graphs::now_ms()?, true)?;
         execution::recover_all(&tx)?;
         tx.commit()?;
         Ok(Self {
@@ -369,6 +377,7 @@ impl DomainRepository {
         tx.execute("INSERT INTO registrations(fleet_id,generation,config) VALUES(?1,?2,?3) ON CONFLICT(fleet_id) DO UPDATE SET generation=excluded.generation,config=excluded.config",
             params![registration.fleet_id,registration.generation,serialize(registration)?])?;
         graphs::reconcile(&tx, graphs::now_ms()?)?;
+        matrix_routes::reconcile(&tx, graphs::now_ms()?)?;
         tx.commit()?;
         Ok(())
     }
@@ -697,6 +706,7 @@ impl DomainRepository {
         };
         write_engagement(&tx, &value)?;
         graphs::reconcile(&tx, graphs::now_ms()?)?;
+        matrix_routes::reconcile(&tx, graphs::now_ms()?)?;
         record_decision(&tx, command_id, &digest, &value)?;
         tx.commit()?;
         Ok(value)

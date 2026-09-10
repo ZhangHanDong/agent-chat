@@ -122,7 +122,7 @@ fn close(
     }
     Ok(())
 }
-fn retire(
+pub(super) fn retire(
     tx: &Transaction<'_>,
     mut queue: VecDeque<String>,
     reason: &str,

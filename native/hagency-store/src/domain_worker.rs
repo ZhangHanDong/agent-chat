@@ -4,6 +4,7 @@ use hagency_core::{
     authority::{Registration, VerifiedRequest},
     messages::{InboundMessage, InboxItem, MessageReceipt, MessageTarget},
     project::{CatalogResource, ConfiguredResource, Engagement, Resource, Seat},
+    replies::*,
     task_intents::{IntentResult, NoticeClaim, NoticeDelivery, TaskIntent},
     tasks::{
         DispatchInput, MutationResult, RunnerCapability, RunnerCommand, SessionBinding, Task,
@@ -137,6 +138,75 @@ fn writer_time() -> Result<u64, Error> {
         .ok_or(Error::Unavailable)
 }
 impl DomainStore {
+    pub async fn observe_matrix_transport(
+        &self,
+        input: MatrixTransportObservation,
+    ) -> Result<(), Error> {
+        self.call(weight(&input)?, move |db| {
+            db.observe_matrix_transport(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn observe_matrix_room(&self, input: MatrixRoomObservation) -> Result<(), Error> {
+        self.call(weight(&input)?, move |db| {
+            db.observe_matrix_room(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn invalidate_matrix_room(&self, input: MatrixRoomInvalidation) -> Result<(), Error> {
+        let bytes = weight(&input)?;
+        self.call(bytes, move |db| {
+            db.invalidate_matrix_room(&input, writer_time()?)
+        })
+        .await
+    }
+
+    pub async fn resolve_verified_matrix_session(
+        &self,
+        input: SessionBinding,
+    ) -> Result<SessionBinding, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.resolve_verified_matrix_session(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn claim_final_reply(&self, lease_ms: u64) -> Result<Option<ReplyClaim>, Error> {
+        self.call(1, move |db| db.claim_final_reply(writer_time()?, lease_ms))
+            .await
+    }
+    pub async fn begin_final_reply_send(&self, claim: ReplyClaim) -> Result<ReplySend, Error> {
+        self.call(weight(&(&claim.id, &claim.secret))?, move |db| {
+            db.begin_final_reply_send(&claim, writer_time()?)
+        })
+        .await
+    }
+    pub async fn observe_final_reply(
+        &self,
+        claim: ReplyClaim,
+        input: ReplyDeliveryObservation,
+    ) -> Result<ReplyReceipt, Error> {
+        self.call(weight(&(&claim.id, &claim.secret, &input))?, move |db| {
+            db.observe_final_reply(&claim, &input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn cancel_final_reply(&self, id: String) -> Result<ReplyReceipt, Error> {
+        self.call(weight(&id)?, move |db| {
+            db.cancel_final_reply(&id, writer_time()?)
+        })
+        .await
+    }
+    pub async fn reconcile_final_reply(
+        &self,
+        id: String,
+        fence: u64,
+        input: ReplyReconciliation,
+    ) -> Result<ReplyReceipt, Error> {
+        self.call(weight(&(&id, &input))?, move |db| {
+            db.reconcile_final_reply(&id, fence, &input, writer_time()?)
+        })
+        .await
+    }
     /// Host cancellation adapter only; deliberately absent from RunnerCommand.
     pub async fn pending_conversation_stops(
         &self,
@@ -223,6 +293,12 @@ impl DomainStore {
         self.call(weight(&(&cap, &command))?, move |db| {
             let now = writer_time()?;
             Ok(match command {
+                RunnerCommand::SubmitFinalReply(input) => {
+                    serde_json::to_value(db.submit_final_reply(&cap, &input, now)?)?
+                }
+                RunnerCommand::FinalReply { id } => {
+                    serde_json::to_value(db.runner_final_reply(&cap, &id, now)?)?
+                }
                 RunnerCommand::CreateWorkflow(input) => {
                     serde_json::to_value(db.create_workflow(&cap, &input, now)?)?
                 }

@@ -9,6 +9,7 @@ pub mod messages;
 pub mod peers;
 pub mod project;
 pub mod qualification;
+pub mod replies;
 pub mod task_intents;
 pub mod tasks;
 pub mod workflows;

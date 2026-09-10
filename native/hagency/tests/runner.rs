@@ -33,6 +33,9 @@ impl Fixture {
         Self::with_thread(start, Some("$thread")).await
     }
     async fn with_thread(start: bool, thread: Option<&str>) -> Self {
+        Self::configured(start, thread, false).await
+    }
+    async fn configured(start: bool, thread: Option<&str>, verified: bool) -> Self {
         let root = tempfile::tempdir().unwrap();
         let state = root.path().join("state");
         let custody = Store::start(Repository::open(&state).unwrap(), 16).unwrap();
@@ -52,13 +55,47 @@ impl Fixture {
             },
         )
         .unwrap();
-        db.register_session(&SessionBinding {
+        let binding = SessionBinding {
             id: "session".into(),
             engagement_id: e.id.clone(),
             room_id: "!project:example.test".into(),
             thread_root: thread.map(str::to_owned),
-        })
-        .unwrap();
+        };
+        if verified {
+            use hagency_core::replies::*;
+            db.observe_matrix_transport(
+                &MatrixTransportObservation {
+                    engagement_id: e.id.clone(),
+                    registration_generation: 1,
+                    generation: 1,
+                    sender_mxid: "@worker:example.test".into(),
+                    device_id: "DEVICE".into(),
+                },
+                now(),
+            )
+            .unwrap();
+            db.observe_matrix_room(
+                &MatrixRoomObservation {
+                    engagement_id: e.id.clone(),
+                    registration_generation: 1,
+                    transport_generation: 1,
+                    room_id: binding.room_id.clone(),
+                    generation: 1,
+                    privacy: RoomPrivacy::Group {},
+                    joined: std::collections::BTreeSet::from([
+                        "@worker:example.test".into(),
+                        "@owner:example.test".into(),
+                    ]),
+                    invite_only: true,
+                    encrypted: false,
+                },
+                now(),
+            )
+            .unwrap();
+            db.resolve_verified_matrix_session(&binding, now()).unwrap();
+        } else {
+            db.register_session(&binding).unwrap();
+        }
         let current = now();
         db.create_canonical_task("task", "session", "Verify the implementation", current)
             .unwrap();
@@ -161,6 +198,134 @@ async fn operation(f: &Fixture, call: &str, operation: Value) -> (StatusCode, Va
     .await;
     let code = response.status_code.unwrap();
     (code, response.take_json().await.unwrap())
+}
+
+#[tokio::test]
+async fn native_runner_http_replies() {
+    let f = Fixture::configured(true, None, true).await;
+    let send = |body: Value| {
+        auth(
+            TestClient::post(format!("{BASE}/runner/final-replies")),
+            &f.cap,
+        )
+        .json(&body)
+    };
+    let input = json!({"call_id":"final","body":"Verified output"});
+    assert_eq!(
+        send(input.clone()).send(&f.service).await.status_code,
+        Some(StatusCode::CONFLICT)
+    );
+    let (code, _) = operation(&f, "done", json!({"action":"transition","status":"done"})).await;
+    assert_eq!(code, StatusCode::OK);
+    for field in [
+        "room_id",
+        "owner_mxid",
+        "task_id",
+        "execution_epoch",
+        "route",
+        "device_id",
+        "delivered",
+        "fence",
+    ] {
+        let mut forged = input.clone();
+        forged[field] = json!("forged");
+        assert_eq!(
+            send(forged).send(&f.service).await.status_code,
+            Some(StatusCode::BAD_REQUEST)
+        );
+    }
+    let mut response = send(input.clone()).send(&f.service).await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    let result: Value = response.take_json().await.unwrap();
+    let id = result["id"].as_str().unwrap();
+    assert_eq!(result["state"], "pending");
+    let mut replay = send(input).send(&f.service).await;
+    assert!(
+        replay.take_json::<Value>().await.unwrap()["replayed"]
+            .as_bool()
+            .unwrap()
+    );
+    let mut response = get(&format!("final-replies/{id}"), &f.cap)
+        .send(&f.service)
+        .await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    let receipt: Value = response.take_json().await.unwrap();
+    for field in [
+        "body",
+        "route",
+        "owner_mxid",
+        "room_id",
+        "sender_mxid",
+        "device_id",
+        "transaction_id",
+    ] {
+        assert!(receipt.get(field).is_none())
+    }
+    let mut foreign = f.cap.clone();
+    foreign.fence += 1;
+    assert_eq!(
+        get(&format!("final-replies/{id}"), &foreign)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::UNAUTHORIZED)
+    );
+    for path in [
+        "final-replies/claim",
+        &format!("final-replies/{id}/observe"),
+        "matrix/rooms",
+        "matrix/transports",
+        "matrix/sessions",
+    ] {
+        assert_eq!(
+            auth(TestClient::post(format!("{BASE}/runner/{path}")), &f.cap)
+                .json(&json!({}))
+                .send(&f.service)
+                .await
+                .status_code,
+            Some(if path == "final-replies/claim" {
+                StatusCode::METHOD_NOT_ALLOWED
+            } else {
+                StatusCode::NOT_FOUND
+            })
+        );
+    }
+    let claim = f.domain.claim_final_reply(60_000).await.unwrap().unwrap();
+    let outbound = f
+        .domain
+        .begin_final_reply_send(claim.clone())
+        .await
+        .unwrap();
+    assert_eq!(outbound.route.room_id, "!project:example.test");
+    assert_eq!(outbound.route.thread_root, None);
+    assert_eq!(
+        send(json!({"call_id":"changed","body":"Other"}))
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::CONFLICT)
+    );
+    f.close().await;
+    let legacy = Fixture::new(true).await;
+    let (code, _) = operation(
+        &legacy,
+        "done",
+        json!({"action":"transition","status":"done"}),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(
+        auth(
+            TestClient::post(format!("{BASE}/runner/final-replies")),
+            &legacy.cap
+        )
+        .json(&json!({"call_id":"final","body":"Legacy unverified output"}))
+        .send(&legacy.service)
+        .await
+        .status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    legacy.close().await;
 }
 
 #[tokio::test]

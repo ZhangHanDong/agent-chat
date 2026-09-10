@@ -2374,3 +2374,41 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   terminal/sandbox/guardian behavior, live transport/browser integration,
   packaging, soak and controlled cutover gates remain open. No model or homeserver
   was contacted by this slice.
+
+## 2026-09-10 — Native final-reply intent and private route custody
+
+- Isolated worktree based on a41ab10 adds schema 11 and ADR-033. Fresh Matrix
+  sessions freeze host-observed server, account/device, project owner, explicit
+  privacy and generations. Legacy sessions remain without delivery authority;
+  internal sessions remain internal. The existing internal-kind uniqueness and
+  rejoin policy is preserved.
+- Full room snapshots retain members and invitation policy. Current negative
+  evidence durably retires old routes and internal descendants; unknown/missing
+  rooms have an explicit host invalidation command. A newer snapshot through one
+  group Agent also fences another Agent that left. Restoring access requires
+  renewed evidence and a fresh SID; null-root DM sessions cannot survive promotion.
+- The runtime API admits only call ID and bounded final content under exact
+  canonical Done-epoch or inspected-report authority. One immutable intent per
+  task epoch has content-bound call receipts. No reply marks a task done and no
+  runtime command chooses transport identity or asserts external delivery.
+- Host claim, begin-send, observed delivery and inspection have distinct durable
+  transitions. Lost/unstarted claims can retry; possible sends remain Uncertain.
+  Explicit cancellation persists independently, so a later NotSent observation
+  cannot revive cancelled output. Replayed inspection binds exact content/fence;
+  an actual delivered observation records truth without authorizing another send.
+- Parent review found the cancellation-revival and discarded-negative-observation
+  gaps before commit; both are closed with restart and two-Agent membership tests.
+  The initial new migration fixture reused the original work payload and correctly
+  failed inspected recovery; it now uses a distinct report-only instruction. The
+  Clippy requested equivalent boolean and Result-return simplifications.
+- All 105 workspace tests passed locally, zero failed or ignored, including ten
+  final-reply repository tests, private HTTP, migration and internal rejoin cases.
+  Existing guardian/crypto/graph tests are included; this worktree does not yet
+  include the independently developed Codex protocol crate. Logs are under the
+  operator cache path, not the repository. Workspace Clippy and rustfmt pass;
+  all 87 native spec selectors resolve and the final-reply lifecycle passes
+  six scenarios plus boundary. CI for the combined commit is pending.
+- This is an offline domain/API proof. Actual Matrix authentication, task-intent
+  route integration, encryption/send/inspection, arbitrary first invited groups,
+  non-owner/federated DM policy, taskless/front-desk output and live end-to-end
+  tests remain open. No deployed service, credential, model or live room changed.

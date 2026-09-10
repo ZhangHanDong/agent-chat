@@ -186,6 +186,10 @@ pub struct MutationResult {
 /// Runtime commands have no operator, session-admission or process-control variant.
 #[derive(Debug, Clone, Serialize)]
 pub enum RunnerCommand {
+    SubmitFinalReply(crate::replies::FinalReply),
+    FinalReply {
+        id: String,
+    },
     CreateWorkflow(crate::workflows::WorkflowRequest),
     Workflow {
         id: String,

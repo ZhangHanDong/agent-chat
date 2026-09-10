@@ -93,6 +93,7 @@ pub fn value<T: serde::Serialize>(value: T) -> Value {
 }
 /// Reconstruct pre-graph native schema for older migration regression fixtures.
 pub fn remove_graph_schema(db: &rusqlite::Connection) {
+    remove_reply_schema(db);
     let original: String = db
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type='view' AND name='conversation_peer_inputs'",
@@ -103,4 +104,8 @@ pub fn remove_graph_schema(db: &rusqlite::Connection) {
     db.execute_batch("DROP VIEW admissible_dispatch_peer_inputs; DROP VIEW graph_dispatch_scope; DROP VIEW graph_dispatch_ready; DROP VIEW current_graph_scopes; DROP VIEW live_peer_inputs; DROP VIEW conversation_peer_inputs; DROP TABLE graph_dependencies; DROP TABLE graph_commands; DROP TABLE graph_nodes; DROP TABLE task_graphs;").unwrap();
     db.execute_batch(&original.replacen("conversation_peer_inputs", "live_peer_inputs", 1))
         .unwrap();
+}
+/// Restore schema 10 without inventing privacy for any earlier native session.
+pub fn remove_reply_schema(db: &rusqlite::Connection) {
+    db.execute_batch("DROP VIEW current_final_replies; DROP VIEW current_matrix_routes; DROP TABLE final_reply_inspections; DROP TABLE final_reply_calls; DROP TABLE final_replies; DROP TABLE matrix_session_routes; DROP TABLE matrix_room_memberships; DROP TABLE matrix_room_scopes; DROP TABLE matrix_transports; DROP INDEX canonical_runner_session; ALTER TABLE runner_sessions DROP COLUMN matrix_generation; CREATE UNIQUE INDEX canonical_runner_session ON runner_sessions(engagement_id,CASE WHEN json_extract(binding,'$.kind')='internal' THEN 'internal' ELSE 'matrix' END,CASE WHEN json_extract(binding,'$.kind')='internal' THEN id ELSE json_extract(binding,'$.room_id') END,COALESCE(json_extract(binding,'$.thread_root'),''));").unwrap();
 }

@@ -36,6 +36,12 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    inspected report grants remain distinct. Cancellation and scope retirement
    retain unknown leases and concurrency until host inspection. Continue final
    reply privacy/delivery, graph tool adapters and actual runner stop observation.
+   Schema 11 now freezes explicit host-observed Matrix routes for fresh sessions
+   and separates bounded final intent, send custody and observed delivery.
+   Negative membership/privacy observations retire old sessions; cancelled or
+   uncertain sends cannot silently resume. Continue real authenticated Matrix
+   task-intent/session integration, arbitrary room/DM policy, taskless output and
+   transport inspection before treating this as an operational reply bridge.
    The initial hagency-platform proof now launches explicit native probes: Windows
    atomic Job Object assignment and POSIX unreaped-leader group cancellation.
    Continue native Windows CI validation, POSIX guardian/detached-child ownership,
