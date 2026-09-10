@@ -14,7 +14,7 @@ Connect canonical approval-room marker rows to the existing Matrix bridge and pr
 - Marker identity remains approval room, binding generation, and marker channel; the adapter never accepts caller-authored associations.
 - The backend owns prepare, begin, receipt, retry, and reconciliation state. Matrix state PUT starts only after committed begin.
 - The current private actor must exactly match the row or stored plan scope, MXID, credential kind, and generation before every network attempt and after each asynchronous boundary.
-- Local-bot state uses the initialized SDK client with an explicit bounded request timeout. Side state uses `sendEmptyStateToRoomOnSide` with one whole-response deadline and exact representative or appservice identity.
+- Local-bot state captures the initialized SDK client's exact homeserver and token, then uses owned HTTP with one whole-response deadline. Side state uses `sendEmptyStateToRoomOnSide` with one whole-response deadline and exact representative or appservice identity.
 - State PUT has no transaction deduplication or remote CAS. Exact receipts may arrive after actor rotation; failed or indeterminate sends remain canonical retry work.
 - An authenticated bridge observation of a nonempty v1 state key may request exact-room retirement reconciliation without fabricating a legacy receipt.
 
@@ -54,7 +54,7 @@ Scenario: Local and side state sends preserve actor identity
   Test: concrete marker seam distinguishes local appservice and representative state routes
   Given local-bot, appservice, and registration-token private actors
   When each sends an empty-key marker state event
-  Then local uses bounded SDK state PUT, appservice adds exact masquerade, and representative sends without masquerade.
+  Then local uses bounded direct state PUT, appservice adds exact masquerade, and representative sends without masquerade.
 
 Scenario: Full Matrix response remains inside one deadline
   Test: side marker deadline covers response body and rechecks current actor
@@ -62,11 +62,17 @@ Scenario: Full Matrix response remains inside one deadline
   When the helper consumes the response body
   Then the request aborts or fails closed without recording a receipt.
 
-Scenario: Local SDK state response is bounded
-  Test: local SDK marker timeout bounds a stalled real HTTP response body
-  Given a loopback homeserver accepts the PUT but stalls before completing its response body
-  When the initialized Matrix SDK client sends marker state with the adapter timeout
-  Then the SDK rejects within that bound and the adapter records no successful receipt.
+Scenario: Local state response has one absolute deadline
+  Test: local marker HTTP owns success stalled and continuous trickle deadlines
+  Given a loopback homeserver promptly succeeds, stalls, or continuously trickles a state response body
+  When the adapter uses the captured initialized SDK client homeserver and token
+  Then prompt success is returned while both slow responses abort within one wall-clock bound without using the SDK inactivity timeout.
+
+Scenario: Rate-limit bodies remain bounded
+  Test: local marker HTTP bounds a rate-limit body before observation
+  Given a Matrix 429 response exceeds the marker response limit
+  When the adapter reads it under the owned deadline
+  Then it rejects the oversized response before the shared rate-limit observer can clone or parse it.
 
 Scenario: Lost legacy response is reconciled from observed state
   Test: authenticated nonempty v1 observation queues exact room reconciliation

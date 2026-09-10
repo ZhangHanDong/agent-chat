@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { MatrixClient } from 'matrix-bot-sdk';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
+import { markerOwnedJsonRequest } from '../lib/approval-marker-bridge.js';
 
 const previousEnv = {
   MATRIX_SERVER_NAME: process.env.MATRIX_SERVER_NAME,
@@ -30,7 +31,12 @@ function apiRequest(method, route, body) {
 }
 
 function installLocalActor(bridge, doRequest, generation = 'bot-g1') {
-  const client = { doRequest, crypto: {} };
+  const client = {
+    doRequest,
+    crypto: {},
+    homeserverUrl: 'https://local.test',
+    accessToken: 'test-local-token',
+  };
   const state = bridgeModule.bridgeStateForTest();
   state.botCredentialGeneration = generation;
   bridge.botClient = client;
@@ -88,6 +94,15 @@ function concreteBridge(doRequest) {
   bridge.callBackendApi = api;
   bridge.approvalMarkerMatrixTimeoutMs = 50;
   bridge.actingSideFor = () => null;
+  bridge.approvalMarkerFetchImpl = async (url, init) => {
+    const parsed = new URL(url);
+    const content = init.body ? JSON.parse(init.body) : null;
+    const result = await doRequest(init.method, parsed.pathname, null, content, 50);
+    return new Response(JSON.stringify(result), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
   installLocalActor(bridge, doRequest);
   return bridge;
 }
@@ -317,8 +332,9 @@ describe('approval room marker production adapter', () => {
     }, actor, row)).rejects.toThrow(/state send failed|changed during side response|event_id/);
   });
 
-  test('local SDK marker timeout bounds a stalled real HTTP response body', async () => {
+  test('local marker HTTP owns success stalled and continuous trickle deadlines', async () => {
     const requests = [];
+    let responseMode = 'success';
     const server = createServer((req, res) => {
       const chunks = [];
       req.on('data', chunk => chunks.push(chunk));
@@ -326,19 +342,35 @@ describe('approval room marker production adapter', () => {
         method: req.method,
         url: req.url,
         body: Buffer.concat(chunks).toString('utf8'),
+        authorized: req.headers.authorization === 'Bearer test-local-token',
       }));
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.write('{"event_id":"$late"}');
-      const finish = setTimeout(() => res.end(), 200);
-      res.on('close', () => clearTimeout(finish));
+      if (responseMode === 'success') {
+        res.end('{"event_id":"$prompt"}');
+        return;
+      }
+      if (responseMode === 'stalled') {
+        res.write('{"event_id":"$late"}');
+      }
+      const interval = responseMode === 'trickle'
+        ? setInterval(() => res.write(' '), 10)
+        : null;
+      const finish = setTimeout(() => res.end('{"event_id":"$late"}'), 350);
+      res.on('close', () => {
+        if (interval) clearInterval(interval);
+        clearTimeout(finish);
+      });
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address();
     const client = new MatrixClient(`http://127.0.0.1:${address.port}`, 'test-local-token');
     client.crypto = {};
+    client.doRequest = vi.fn(() => {
+      throw new Error('marker state must not use the SDK inactivity timeout');
+    });
     const bridge = Object.create(bridgeModule.MatrixBridge.prototype);
     bridge.callBackendApi = api;
-    bridge.approvalMarkerMatrixTimeoutMs = 10;
+    bridge.approvalMarkerMatrixTimeoutMs = 50;
     bridge.actingSideFor = () => null;
     const state = bridgeModule.bridgeStateForTest();
     state.botCredentialGeneration = 'bot-g1';
@@ -364,16 +396,45 @@ describe('approval room marker production adapter', () => {
         state_key: '',
         prepared_payload: { version: 2 },
         publisher_mxid: '@bot:test',
+      }, actor, row)).resolves.toBe('$prompt');
+      expect(client.doRequest).not.toHaveBeenCalled();
+
+      responseMode = 'stalled';
+      await expect(bridgeModule.approvalMarkerIoForTest(bridge).send({
+        prepared_event_type: 'com.agentchat.approval.room.v2',
+        state_key: '',
+        prepared_payload: { version: 2 },
+        publisher_mxid: '@bot:test',
       }, actor, row)).rejects.toThrow();
-      expect(Date.now() - started).toBeLessThan(150);
+      expect(Date.now() - started).toBeLessThan(200);
+
+      responseMode = 'trickle';
+      const trickleStarted = Date.now();
+      await expect(bridgeModule.approvalMarkerIoForTest(bridge).send({
+        prepared_event_type: 'com.agentchat.approval.room.v2',
+        state_key: '',
+        prepared_payload: { version: 2 },
+        publisher_mxid: '@bot:test',
+      }, actor, row)).rejects.toThrow(/deadline/);
+      expect(Date.now() - trickleStarted).toBeLessThan(200);
       expect(requests).toContainEqual({
         method: 'PUT',
         url: '/_matrix/client/v3/rooms/!bounded%3Atest/state/com.agentchat.approval.room.v2/',
         body: '{"version":2}',
+        authorized: true,
       });
     } finally {
       await new Promise(resolve => server.close(resolve));
     }
+  });
+
+  test('local marker HTTP bounds a rate-limit body before observation', async () => {
+    const observed = vi.fn();
+    await expect(markerOwnedJsonRequest('https://local.test/state', {
+      fetchImpl: async () => new Response('x'.repeat(65 * 1024), { status: 429 }),
+      observeResponse: observed,
+    }, 500)).rejects.toThrow(/too large/);
+    expect(observed).not.toHaveBeenCalled();
   });
 
   test('authenticated nonempty v1 observation queues exact room reconciliation', async () => {

@@ -14,6 +14,7 @@ import {
 } from './lib/matrix-representative.js';
 import {
   publishApprovalMarker,
+  markerOwnedJsonRequest,
   reconcileObservedLegacyMarker,
   syncApprovalRoomMarker,
 } from './lib/approval-marker-bridge.js';
@@ -10736,13 +10737,24 @@ function markerActorForBridge(bridge, row) {
       || ready.credentialGeneration !== state.botCredentialGeneration) {
       return null;
     }
+    const client = ready.client;
+    if (typeof client.homeserverUrl !== 'string' || !client.homeserverUrl
+      || typeof client.accessToken !== 'string' || !client.accessToken
+      || client.impersonatedUserId || client.impersonatedDeviceId) {
+      return null;
+    }
     const actor = {
       scope: 'local_bot',
       publisher_mxid: ready.mxid,
       homeserver: server,
       credential_kind: 'local_bot',
       credential_generation: ready.credentialGeneration,
-      sender: { kind: 'local_bot', client: ready.client },
+      sender: { kind: 'local_bot', client },
+      transport: {
+        client,
+        base_url: client.homeserverUrl,
+        access_token: client.accessToken,
+      },
     };
     return markerRowAcceptsActor(row, actor) ? actor : null;
   }
@@ -10762,6 +10774,38 @@ function markerActorForBridge(bridge, row) {
     side_id: server,
   };
   return markerRowAcceptsActor(row, actor) ? actor : null;
+}
+
+function sameLocalMarkerTransport(left, right) {
+  return sameProjectionActor(left, right)
+    && left?.transport?.client === right?.transport?.client
+    && left?.transport?.base_url === right?.transport?.base_url
+    && left?.transport?.access_token === right?.transport?.access_token;
+}
+
+async function localMarkerRequest(bridge, actor, row, endpoint, method, body) {
+  const current = markerActorForBridge(bridge, row);
+  if (!sameLocalMarkerTransport(actor, current)) {
+    throw new Error('approval marker publisher changed before local state request');
+  }
+  if (!rateLimitGate.beforeRequest()) {
+    throw new Error('approval marker state request is rate limited');
+  }
+  const url = `${String(actor.transport.base_url).replace(/\/+$/, '')}${endpoint}`;
+  const result = await markerOwnedJsonRequest(url, {
+    method,
+    body,
+    fetchImpl: bridge.approvalMarkerFetchImpl,
+    headers: {
+      Authorization: `Bearer ${actor.transport.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    observeResponse: response => rateLimitGate.observeResponse(response),
+  }, markerTimeoutMs(bridge));
+  if (!sameLocalMarkerTransport(actor, markerActorForBridge(bridge, row))) {
+    throw new Error('approval marker publisher changed during local state response');
+  }
+  return result;
 }
 
 function markerRowAcceptsActor(row, actor) {
@@ -10840,19 +10884,13 @@ async function sendMarkerStateWithBridge(bridge, plan, actor, row) {
   if (actor.sender.kind === 'local_bot') {
     const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(row.approval_room_id)}`
       + `/state/${encodeURIComponent(plan.prepared_event_type)}/`;
-    let response;
-    try {
-      response = await actor.sender.client.doRequest(
-        'PUT', endpoint, null, plan.prepared_payload, markerTimeoutMs(bridge),
-      );
-    } catch (error) {
-      rateLimitGate.observeError(error);
-      throw error;
+    const response = await localMarkerRequest(
+      bridge, actor, row, endpoint, 'PUT', plan.prepared_payload,
+    );
+    if (!response.ok) {
+      throw new Error(`approval marker state send failed with HTTP ${response.status}`);
     }
-    if (!sameProjectionActor(actor, markerActorForBridge(bridge, row))) {
-      throw new Error('approval marker publisher changed during local state response');
-    }
-    return response?.event_id || null;
+    return response.body?.event_id || null;
   }
   if (actor.sender.kind !== 'side-representative') {
     throw new Error('unsupported approval marker publisher');
@@ -10876,17 +10914,12 @@ async function readLegacyMarkerWithBridge(bridge, roomId, actor, eventType) {
   if (actor.sender.kind === 'local_bot') {
     const endpoint = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}`
       + `/state/${encodeURIComponent(eventType)}/`;
-    try {
-      return await actor.sender.client.doRequest(
-        'GET', endpoint, null, null, markerTimeoutMs(bridge),
-      );
-    } catch (error) {
-      rateLimitGate.observeError(error);
-      if (error?.statusCode === 404 || error?.status === 404 || error?.body?.errcode === 'M_NOT_FOUND') {
-        return null;
-      }
-      throw error;
+    const response = await localMarkerRequest(bridge, actor, row, endpoint, 'GET');
+    if (response.status === 404 && response.body?.errcode === 'M_NOT_FOUND') return null;
+    if (!response.ok) {
+      throw new Error(`approval marker state observation failed with HTTP ${response.status}`);
     }
+    return response.body;
   }
   const { side, credential } = actor.sender;
   const token = credential.kind === 'appservice'
