@@ -262,6 +262,43 @@ impl DomainStore {
         })
         .await
     }
+    pub async fn begin_verified_task_notice_send(
+        &self,
+        id: String,
+        token: String,
+    ) -> Result<hagency_core::ingress::VerifiedNoticeSend, Error> {
+        self.call(weight(&(&id, &token))?, move |db| {
+            db.begin_verified_task_notice_send(&id, &token, writer_time()?)
+        })
+        .await
+    }
+    pub async fn verified_notice_receipt(
+        &self,
+        id: String,
+    ) -> Result<hagency_core::ingress::VerifiedNoticeReceipt, Error> {
+        self.call(weight(&id)?, move |db| db.verified_notice_receipt(&id))
+            .await
+    }
+    pub async fn cancel_verified_task_notice(
+        &self,
+        id: String,
+    ) -> Result<hagency_core::ingress::VerifiedNoticeReceipt, Error> {
+        self.call(weight(&id)?, move |db| {
+            db.cancel_verified_task_notice(&id, writer_time()?)
+        })
+        .await
+    }
+    pub async fn reconcile_verified_task_notice(
+        &self,
+        id: String,
+        fence: u64,
+        input: ReplyReconciliation,
+    ) -> Result<hagency_core::ingress::VerifiedNoticeReceipt, Error> {
+        self.call(weight(&(&id, &input))?, move |db| {
+            db.reconcile_verified_task_notice(&id, fence, &input, writer_time()?)
+        })
+        .await
+    }
     pub async fn deliver_verified_task_notice(
         &self,
         id: String,

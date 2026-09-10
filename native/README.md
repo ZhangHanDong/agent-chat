@@ -5,10 +5,11 @@ replacement for the deployed Hagency application**. Resource allocation, Agents,
 Palpo transport, the console API and Matrix chat still run in the existing JS/TS
 implementation. Native capability responses explicitly mark these unavailable.
 
-The current developer checkpoint includes domain schema 12: scoped tasks,
-internal groups, durable graphs, verified-input task activation and final-reply
-custody. Independent custody schema 2 preserves outbound work and publication
-receipts across machine-token rotation. The runtime crate provides a bounded
+The current developer checkpoint includes domain schema 14: scoped tasks,
+internal groups, durable graphs, verified-input task activation, owner approvals
+and notice/final-reply send custody. Independent custody schema 2 preserves outbound work and publication
+receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
+with independent polling and publication. The runtime crate provides a bounded
 Codex one-turn session connected to guardian-owned Unix child pipes for offline
 fixtures. The native CLI maintains an assigned task through the scoped API.
 Service Agent execution and actual Matrix delivery remain disabled.
@@ -214,10 +215,14 @@ the executable and actual loopback API, including task scope, parking, idempoten
 replay, malformed/oversized responses, stalled bodies and cancellation closure.
 
 Pure reusable permission-scope derivation matches 64 JavaScript policy/path
-vectors. Candidate scopes do not grant permission; native owner verdicts,
-persistent grants, effective sandbox and runtime application remain required.
-Verified task-notice claims likewise must not be connected directly to Matrix:
-durable send-start/uncertainty and current-route cancellation are still missing.
+vectors. Candidate scopes alone do not grant permission. Schema 13 stores private owner
+verdicts and scoped grants; actual runtime application and effective sandbox
+qualification remain required. Verified task-notice sends now commit Sending
+before returning a frozen host snapshot. A lost response, lease expiry or restart
+keeps possible sends Uncertain; only exact host inspection can resolve them.
+Retired routes, task epochs and explicit cancellation never reactivate from a
+late delivery or NotSent receipt. The actual Matrix adapter must still coordinate
+current membership, encryption recipients and cancellation before IO.
 
 Schema 5 connects task metadata, admitted source inputs, canonical conversation
 binding and an acknowledgement outbox in one transaction. Tasks remain pending

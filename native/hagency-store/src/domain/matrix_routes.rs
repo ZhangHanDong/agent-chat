@@ -67,6 +67,7 @@ pub(super) fn reconcile(tx: &Transaction<'_>, now: u64) -> Result<(), Error> {
     }
     // A send that might have crossed the external boundary remains uncertain.
     tx.execute("UPDATE final_replies SET state=CASE WHEN state='sending' THEN 'uncertain' ELSE 'cancelled' END,claim_hash=NULL,claim_until=NULL,updated_at=?1 WHERE state IN ('pending','claimed','sending') AND NOT EXISTS(SELECT 1 FROM current_final_replies c WHERE c.id=final_replies.id)",[now])?;
+    super::notice_custody::retire(tx)?;
     Ok(())
 }
 fn membership(

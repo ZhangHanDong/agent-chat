@@ -63,8 +63,8 @@ pub(super) fn add_notice(
         let route = super::matrix_routes::route(tx, &task.session_id)?;
         let digest = canonical::digest(&json!([&value, &route, root.event_id]))?;
         tx.execute(
-            "UPDATE task_notices SET verified_route=?2,content_digest=?3 WHERE id=?1",
-            params![id, serialize(&route)?, digest],
+            "UPDATE task_notices SET verified_route=?2,content_digest=?3,task_epoch=?4,source_event_id=?5 WHERE id=?1",
+            params![id, serialize(&route)?, digest, task.execution_epoch, root.event_id],
         )?;
     }
     Ok(value)
@@ -659,6 +659,13 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if tx.query_row(
+            "SELECT verified_route IS NOT NULL FROM task_notices WHERE id=?1",
+            [id],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(Error::RunnerAuthority);
+        }
         let (state, hash, deadline): (String, Option<String>, Option<u64>) = tx
             .query_row(
                 "SELECT state,claim_hash,claim_until FROM task_notices WHERE id=?1",
@@ -682,6 +689,13 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if tx.query_row(
+            "SELECT verified_route IS NOT NULL FROM task_notices WHERE id=?1",
+            [id],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Err(Error::RunnerAuthority);
+        }
         let n = notice(&tx, id)?;
         execution::matrix_admission_session(&tx, &n.session_id)?;
         if tx.execute("UPDATE task_notices SET state='pending',error_code=NULL,not_before=?2 WHERE id=?1 AND state='failed'",params![id,now])?!=1 {return Err(Error::State);}

@@ -158,6 +158,13 @@ async fn native_runner_http_verified_ingress() {
             encrypted: direct,
         };
         domain
+            .begin_verified_task_notice_send(
+                claim.claim.notice.id.clone(),
+                claim.claim.token.clone(),
+            )
+            .await
+            .unwrap();
+        domain
             .deliver_verified_task_notice(claim.claim.notice.id, claim.claim.token, observation)
             .await
             .unwrap();
@@ -183,6 +190,9 @@ async fn native_runner_http_verified_ingress() {
             "task-intents",
             "task-notices/claim",
             "task-notices/deliver",
+            "task-notices/begin",
+            "task-notices/inspect",
+            "task-notices/cancel",
         ] {
             assert_eq!(auth(TestClient::post(format!("{BASE}/runner/{path}")),&cap).json(&json!({"verified":true,"wake":true,"session_id":"main","room_id":room,"device_id":"DEVICE"})).send(&service).await.status_code,Some(StatusCode::NOT_FOUND));
         }

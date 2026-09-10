@@ -1425,3 +1425,15 @@ wasm-bindgen-futures 0.4.78 from cached registry metadata. A locked offline chec
 confirms the restored graph. Live deployment, host credential persistence,
 authenticated Matrix observations, domain admission, current catalog/status
 observation and Agent retirement HTTP parity remain separate migration gates.
+
+Native verified notice custody (2026-09-10, ADR-045): schema14 replaces direct
+claim-to-ACK activation with a one-shot Sending boundary. The same notice row
+freezes task epoch, source event, body and complete route; claim secret and lease
+must remain current at begin. Possible sends become Uncertain on expiry/restart,
+while unstarted claims can requeue. Exact fenced host inspection retains late
+accepted events as history without activating retired or cancelled work. NotSent
+cannot revive explicit cancellation. Generic fail/retry refuses verified notices.
+Old development claims lack epoch/send-start proof and migrate conservatively;
+never adopt current task or room state for old output. The actual Matrix adapter
+still needs current membership/encryption recipient and cancellation coordination
+before IO; durable intent state alone cannot retract an accepted event.

@@ -1,4 +1,6 @@
 mod common;
+#[path = "verified_ingress/notice_custody.rs"]
+mod notice_custody;
 use common::*;
 use hagency_core::{ingress::*, messages::*, replies::*, task_intents::*, tasks::*};
 use hagency_store::{DomainRepository, EffectOutcome, Error};
@@ -142,6 +144,9 @@ impl Fixture {
             .db
             .claim_verified_task_notice(at, 1000)
             .unwrap()
+            .unwrap();
+        self.db
+            .begin_verified_task_notice_send(&claim.claim.notice.id, &claim.claim.token, at)
             .unwrap();
         let task = self
             .db
@@ -362,6 +367,8 @@ fn native_verified_ingress_task_activation() {
             if direct { None } else { Some("$root".into()) }
         );
         assert_eq!(claim.route.thread_root, claim.claim.notice.thread_root);
+        f.db.begin_verified_task_notice_send(&claim.claim.notice.id, &claim.claim.token, 1015)
+            .unwrap();
         for field in ["sender", "device", "digest", "room", "encryption"] {
             let mut bad = notice_delivery(&claim);
             match field {
@@ -414,7 +421,7 @@ fn native_verified_ingress_task_activation() {
                 |r| r.get::<_, String>(0)
             )
             .unwrap(),
-            "claimed"
+            "sending"
         );
         sql.execute_batch("DROP TRIGGER fail_activation").unwrap();
         f.db.deliver_verified_task_notice(
@@ -947,6 +954,8 @@ fn native_verified_ingress_recovery() {
         old.claim.notice.transaction_id
     );
     assert_ne!(next.claim.token, old.claim.token);
+    f.db.begin_verified_task_notice_send(&next.claim.notice.id, &next.claim.token, 2005)
+        .unwrap();
     f.db.deliver_verified_task_notice(
         &next.claim.notice.id,
         &next.claim.token,

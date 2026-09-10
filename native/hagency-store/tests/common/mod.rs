@@ -126,6 +126,7 @@ pub fn remove_ingress_schema(db: &rusqlite::Connection) {
 
 /// Reconstruct schema 12 without backfilling owner approval authority.
 pub fn remove_approval_schema(db: &rusqlite::Connection) {
+    remove_notice_schema(db);
     db.execute_batch("DROP TRIGGER approval_room_retire_grants; DROP TRIGGER approval_project_retire; DROP TRIGGER approval_registration_retire; DROP TRIGGER approval_engagement_retire; DROP TRIGGER approval_task_retire; DROP VIEW current_approval_bindings; DROP TABLE approval_verdict_receipts; DROP TABLE approval_grants; DROP TABLE owner_approvals; DROP TABLE approval_contexts; DROP TABLE approval_bindings; DROP TABLE approval_rooms;").unwrap();
 }
 
@@ -134,4 +135,14 @@ pub fn reply_route_view(routes: &str) -> &str {
     let start = routes.find("CREATE VIEW current_matrix_routes AS").unwrap();
     let end = routes.find("CREATE TABLE final_replies").unwrap();
     &routes[start..end]
+}
+
+/// Rebuild the actual schema13 notice shape; a pre-custody sender could hold a claim.
+pub fn remove_notice_schema(db: &rusqlite::Connection) {
+    db.execute_batch("DROP TABLE notice_send_inspections; DROP INDEX task_notice_ready; ALTER TABLE task_notices RENAME TO task_notices_newer;").unwrap();
+    let schema = include_str!("../../src/migrations/005-task-intents.sql");
+    let start = schema.find("CREATE TABLE task_notices").unwrap();
+    let end = schema.find("-- One predicate").unwrap();
+    db.execute_batch(&schema[start..end]).unwrap();
+    db.execute_batch("ALTER TABLE task_notices ADD COLUMN verified_route TEXT CHECK(verified_route IS NULL OR json_valid(verified_route)); ALTER TABLE task_notices ADD COLUMN content_digest TEXT; INSERT INTO task_notices(id,task_id,config,state,claim_hash,claim_until,delivery,error_code,not_before,verified_route,content_digest) SELECT id,task_id,config,CASE WHEN state IN ('sending','uncertain') THEN 'claimed' ELSE state END,claim_hash,claim_until,delivery,error_code,not_before,verified_route,content_digest FROM task_notices_newer; DROP TABLE task_notices_newer;").unwrap();
 }

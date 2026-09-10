@@ -99,12 +99,34 @@ impl VerifiedTaskRequest {
         self.definition.validate()
     }
 }
-/// Host scheduling result, not permission for live transport. M5 must add
-/// begin-send/uncertain custody before transmitting this frozen private route.
+/// Host scheduling result. Only a successful one-shot begin authorizes an
+/// adapter attempt; these fields alone never authorize a Matrix transmission.
 #[derive(Clone, Serialize)]
 pub struct VerifiedNoticeClaim {
     pub claim: NoticeClaim,
     pub route: ReplyRoute,
     pub source_event_id: String,
     pub digest: String,
+}
+
+/// Returned once after Sending commits. The host still coordinates current
+/// Matrix membership, encryption recipients and cancellation before external IO.
+#[derive(Clone, Serialize)]
+pub struct VerifiedNoticeSend {
+    pub notice: TaskNotice,
+    pub route: ReplyRoute,
+    pub source_event_id: String,
+    pub digest: String,
+    pub fence: u64,
+}
+
+/// No private room, body, sender/device or claim secret in this projection.
+#[derive(Clone, Serialize)]
+pub struct VerifiedNoticeReceipt {
+    pub id: String,
+    pub task_id: String,
+    pub state: String,
+    pub fence: u64,
+    pub cancel_requested: bool,
+    pub replayed: bool,
 }

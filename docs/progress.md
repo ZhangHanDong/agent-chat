@@ -2754,3 +2754,35 @@ the repository. No changes were pushed, merged or deployed from this worktree.
   SDK event/member proof, idempotent domain handoff, Agent retirement endpoint,
   continuous retention/capacity maintenance, platform CI and live UX. This does
   not declare M5 or the full migration complete. No model or deployment was run.
+
+## 2026-09-10 — Task notice send custody and integrated outbound/approval checks
+
+- Integrated private owner decisions as 36366bb and outbound HTTP as c52a97c.
+  Root reviewed exact ACK recovery, TLS/configuration bounds, independent lanes,
+  scope matching and one-shot approval application. Append-only coordination
+  conflicts preserve both histories; existing lock packages remain pinned.
+- Added schema14 and ADR045: verified notices commit Sending once before host
+  send data is returned, freeze the canonical epoch/source, and retain possible
+  sends as Uncertain. Promotion, revocation and explicit cancellation fence old
+  output; late delivery can record history without activating retired work.
+  Exact fenced inspection receipts and rollback protect activation. Generic
+  legacy failure/retry cannot bypass this path. Older development notices are
+  conservatively fenced because their original epoch/send-start was not recorded.
+- Four new repository test groups cover direct/group activation, one-shot begin,
+  rollback, wrong secrets, expiry/restart, explicit cancellation, late delivery,
+  inspection conflict, epoch change and old-schema migration. Existing verified
+  ingress and actual scoped HTTP fixtures now call begin before delivery.
+- First combined run exposed one stale graph schema expectation (13 versus 14);
+  it was corrected. Final combined workspace passed 204 tests, zero failures or
+  ignored tests, plus the HTTP proxy fixture's isolated child invocation.
+  Workspace Clippy/fmt pass; all 139 native selectors resolve. Logs use prefix
+  combined-notice-http-approval-* in the local migration validation cache.
+  Integrated lifecycle passed notice custody 5/5, owner approvals 7/7 and
+  outbound HTTP 6/6, all with explicit boundaries and zero skipped/uncertain.
+- Native CI d66b4e9 (34516408230) passed Linux and macOS. Windows passed the
+  corrected execution-vector check, then exposed CRLF SQL fixture slicing and
+  missing SystemRoot in the isolated task-client process. The fixture fixes are
+  committed as 5c3d764 and 45f4a62; actual Windows rerun remains required.
+- Actual Matrix sends, crypto/recipient handling, runtime approval application
+  and Windows owned pipes remain in progress. No deployed service, credential
+  or original dirty checkout changed; no migration phase is declared complete.
