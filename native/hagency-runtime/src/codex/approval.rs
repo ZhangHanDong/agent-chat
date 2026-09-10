@@ -372,6 +372,39 @@ mod tests {
         c
     }
     #[test]
+    fn native_codex_approval_mapping_one_response_until_resolution() {
+        let request = parse(params()).unwrap();
+        let mut c = ready();
+        let line = encode(Message::Request {
+            id: request.id().clone(),
+            method: request.method().into(),
+            params: Some(params()),
+            trace: None,
+        })
+        .unwrap();
+        c.receive(&line, 3).unwrap();
+        let response: Value =
+            serde_json::from_slice(&c.respond_approval(request.response(true), 4).unwrap())
+                .unwrap();
+        assert_eq!(response, json!({"id":7,"result":{"decision":"accept"}}));
+        assert!(matches!(
+            c.reject_server_request(request.id(), 5),
+            Err(crate::codex::Error::Identity)
+        ));
+        assert!(matches!(
+            c.respond_approval(request.response(false), 6),
+            Err(crate::codex::Error::Identity)
+        ));
+        assert_eq!(c.pending_server_count(), 1);
+        let resolved = encode(Message::Notification {
+            method: "serverRequest/resolved".into(),
+            params: Some(json!({"threadId":"thread","requestId":7})),
+        })
+        .unwrap();
+        assert!(c.receive(&resolved, 7).unwrap().1.is_some());
+        assert_eq!(c.pending_server_count(), 0);
+    }
+    #[test]
     fn native_codex_approval_mapping_connection_fences() {
         let request = parse(params()).unwrap();
         let mut c = ready();

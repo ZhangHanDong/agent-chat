@@ -289,7 +289,11 @@ impl Connection {
     /// Refuse requests when no typed host coordinator is attached.
     pub fn reject_server_request(&mut self, id: &RequestId, now_ms: u64) -> Result<Vec<u8>, Error> {
         self.tick(now_ms)?;
-        if !self.server_pending.contains_key(id) {
+        if self
+            .server_pending
+            .get(id)
+            .is_none_or(|pending| pending.responded)
+        {
             return Err(Error::Identity);
         }
         let bytes = encode(Message::Error {

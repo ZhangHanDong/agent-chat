@@ -2946,3 +2946,13 @@ This local result is not a rerun of the failed GitHub macOS job.
   cannot resend and reopen as Uncertain. The initial lifecycle boundary failure
   was the root-manifest path spelling; explicit `./Cargo.toml` and `./Cargo.lock`
   now match the already authorized files.
+
+### 2026-09-10 — Codex approval one-response follow-up
+
+- Generic server-request rejection now refuses a request that already emitted its
+  typed approval response. Its original pending correlation remains intact until
+  upstream resolution; a second typed response is likewise refused.
+- A real Connection regression covers allow, rejected generic/typed duplicates,
+  and accepted original resolution. Focused approval tests, runtime Clippy,
+  rustfmt and task lifecycle pass (four scenarios plus boundary, no skips).
+  Evidence: `codex-approval-one-response{,-clippy,-lifecycle}.log` in the external cache.
