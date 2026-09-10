@@ -11,6 +11,7 @@ pub mod project;
 pub mod qualification;
 pub mod task_intents;
 pub mod tasks;
+pub mod workflows;
 
 pub const JSON_SAFE_MAX: u64 = 9_007_199_254_740_991;
 

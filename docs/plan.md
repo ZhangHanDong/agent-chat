@@ -31,7 +31,11 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    Schema 9 now adds creator-scoped group member changes/closure, fresh rejoin
    sessions and durable host stop intents. Retired started work retains resource
    custody until inspected settlement; canonical tasks and input history remain.
-   Continue durable graph/task linkage and actual runner stop observation.
+   Schema 10 now binds finite task graphs to canonical node tasks, immutable
+   assignment inputs and completed-epoch results. Current capabilities and
+   inspected report grants remain distinct. Cancellation and scope retirement
+   retain unknown leases and concurrency until host inspection. Continue final
+   reply privacy/delivery, graph tool adapters and actual runner stop observation.
    The initial hagency-platform proof now launches explicit native probes: Windows
    atomic Job Object assignment and POSIX unreaped-leader group cancellation.
    Continue native Windows CI validation, POSIX guardian/detached-child ownership,

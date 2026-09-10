@@ -9,6 +9,7 @@ use hagency_core::{
 };
 use hagency_store::{DomainStore, Error};
 use salvo::prelude::*;
+mod workflows;
 
 #[derive(Clone)]
 struct Context {
@@ -29,6 +30,7 @@ pub(super) fn router() -> Router {
         .push(Router::with_path("inbox").get(inbox))
         .push(Router::with_path("peer-messages").post(send_peer))
         .push(Router::with_path("peer-inbox").get(peer_inbox))
+        .push(workflows::router())
 }
 #[handler]
 async fn change_conversation(req: &mut Request, depot: &mut Depot, res: &mut Response) {

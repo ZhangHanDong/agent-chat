@@ -434,6 +434,14 @@ impl Graph {
         Ok(())
     }
     pub fn advance(&self) -> Result<Transition, InvalidInput> {
+        self.advance_inner(false)
+    }
+    /// Durable dispatch stores immutable result references. Avoid multiplying
+    /// every large dependency value into each assignment in a wide graph.
+    pub fn advance_references(&self) -> Result<Transition, InvalidInput> {
+        self.advance_inner(true)
+    }
+    fn advance_inner(&self, references: bool) -> Result<Transition, InvalidInput> {
         self.validate()?;
         let mut next = self.clone();
         let mut assignments = Vec::new();
@@ -496,7 +504,11 @@ impl Graph {
                                 .expect("validated dependency")
                                 .assignee
                                 .clone(),
-                            result: next.progress[dep].result.clone(),
+                            result: if references {
+                                Value::Null
+                            } else {
+                                next.progress[dep].result.clone()
+                            },
                         })
                         .collect();
                     assignments.push(Assignment {
@@ -509,7 +521,16 @@ impl Graph {
                 let p = next.progress.get_mut(&node.id).expect("validated node");
                 p.status = status;
                 if !failed.is_empty() {
-                    p.error = Some(format!("dependency failed: {}", failed.join(", ")));
+                    let mut error = format!("dependency failed: {}", failed.join(", "));
+                    if error.len() > 4000 {
+                        let mut end = 3997;
+                        while !error.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        error.truncate(end);
+                        error.push_str("...");
+                    }
+                    p.error = Some(error);
                 }
                 changed = true;
             }

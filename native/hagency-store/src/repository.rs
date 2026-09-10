@@ -27,7 +27,9 @@ impl Repository {
                 version: VERSION,
                 migrations: &[],
                 sql: include_str!("schema.sql"),
-                verify: "SELECT id,lane,binding,generation,digest,payload,receipt FROM inbox LIMIT 0",
+                verify: &[
+                    "SELECT id,lane,binding,generation,digest,payload,receipt FROM inbox LIMIT 0",
+                ],
             },
         )?;
         Ok(Self {

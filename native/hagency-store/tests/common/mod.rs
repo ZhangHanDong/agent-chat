@@ -91,3 +91,16 @@ pub fn proof(request: &ProjectRequest) -> VerifiedRequest {
 pub fn value<T: serde::Serialize>(value: T) -> Value {
     serde_json::to_value(value).unwrap()
 }
+/// Reconstruct pre-graph native schema for older migration regression fixtures.
+pub fn remove_graph_schema(db: &rusqlite::Connection) {
+    let original: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='view' AND name='conversation_peer_inputs'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP VIEW admissible_dispatch_peer_inputs; DROP VIEW graph_dispatch_scope; DROP VIEW graph_dispatch_ready; DROP VIEW current_graph_scopes; DROP VIEW live_peer_inputs; DROP VIEW conversation_peer_inputs; DROP TABLE graph_dependencies; DROP TABLE graph_commands; DROP TABLE graph_nodes; DROP TABLE task_graphs;").unwrap();
+    db.execute_batch(&original.replacen("conversation_peer_inputs", "live_peer_inputs", 1))
+        .unwrap();
+}

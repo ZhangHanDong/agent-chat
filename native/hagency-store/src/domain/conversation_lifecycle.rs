@@ -51,7 +51,12 @@ fn release_inputs(tx: &Transaction<'_>, id: &str) -> Result<(), Error> {
     tx.execute("UPDATE peer_session_inputs SET dispatch_id=NULL WHERE dispatch_id=?1 AND processed_at IS NULL",[id])?;
     Ok(())
 }
-fn fence_dispatch(tx: &Transaction<'_>, id: &str, reason: &str, now: u64) -> Result<(), Error> {
+pub(super) fn fence_dispatch(
+    tx: &Transaction<'_>,
+    id: &str,
+    reason: &str,
+    now: u64,
+) -> Result<(), Error> {
     let (state, fence, session): (String, u64, String) = tx.query_row(
         "SELECT state,fence,session_id FROM runner_dispatches WHERE id=?1",
         [id],
@@ -140,6 +145,7 @@ fn retire(
             close(tx, &mut conversations::read(tx, &child)?, &mut queue, now)?;
         }
     }
+    super::graphs::reconcile(tx, now)?;
     Ok(())
 }
 impl DomainRepository {

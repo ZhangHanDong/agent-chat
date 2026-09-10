@@ -115,6 +115,7 @@ pub(super) fn authorize(
         &d.session_id,
         d.task_id.as_deref().or(d.report_task.as_deref()),
     )?;
+    super::graphs::check_dispatch(db, &cap.dispatch_id, &d)?;
     Ok(d)
 }
 /// Work creation must not inherit a completed-result report's read permission.
@@ -196,8 +197,11 @@ fn lose(tx: &Transaction<'_>, id: &str) -> Result<(), Error> {
             [&d.session_id],
         )?;
         tx.execute("UPDATE workspace_resources SET dirty=1 WHERE id IN (SELECT resource_id FROM dispatch_resources WHERE dispatch_id=?1 AND exclusive=1)",[id])?;
+    } else {
+        // Only an unstarted attempt can relinquish custody without inspection.
+        // Unknown shared readers must still exclude a new exclusive writer.
+        tx.execute("DELETE FROM resource_leases WHERE dispatch_id=?1", [id])?;
     }
-    tx.execute("DELETE FROM resource_leases WHERE dispatch_id=?1", [id])?;
     tx.execute("UPDATE runner_dispatches SET state=?2,capability_hash=NULL,lease_until=NULL,capability_until=NULL WHERE id=?1",params![id,next])?;
     Ok(())
 }
@@ -273,6 +277,17 @@ pub(super) fn create_task(
     Ok(t)
 }
 pub(super) fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(), Error> {
+    if super::graphs::is_graph_task(tx, input.task_id.as_deref())? {
+        return Err(Error::RunnerAuthority);
+    }
+    enqueue_scoped(tx, input, None)
+}
+pub(super) fn enqueue_peers(
+    tx: &Transaction<'_>,
+    input: &DispatchInput,
+    sequences: &[u64],
+) -> Result<(), Error> {
+    super::graphs::admit_inputs(tx, input, sequences)?;
     enqueue_scoped(tx, input, None)
 }
 fn enqueue_scoped(
@@ -461,9 +476,10 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        super::graphs::reconcile(&tx, now)?;
         expire(&tx, now)?;
         let live: u32 = tx.query_row(
-            "SELECT COUNT(*) FROM runner_dispatches d WHERE state IN ('leased','started','parked') OR EXISTS(SELECT 1 FROM dispatch_stops s WHERE s.dispatch_id=d.id AND s.settled_at IS NULL)",
+            "SELECT COUNT(*) FROM runner_dispatches d WHERE state IN ('leased','started','parked') OR EXISTS(SELECT 1 FROM unresolved_dispatches u WHERE u.id=d.id)",
             [],
             |r| r.get(0),
         )?;
@@ -471,7 +487,7 @@ impl DomainRepository {
             tx.commit()?;
             return Ok(None);
         }
-        let id:Option<String>=tx.query_row("SELECT d.id FROM runner_dispatches d JOIN runner_sessions s ON s.id=d.session_id JOIN engagements e ON e.id=s.engagement_id JOIN registrations g ON g.fleet_id=e.fleet_id WHERE d.state='queued' AND d.not_before<=?1 AND (d.task_id IS NULL OR EXISTS(SELECT 1 FROM canonical_tasks t WHERE t.id=d.task_id AND (json_extract(t.config,'$.status')<>'done' OR EXISTS(SELECT 1 FROM task_followup_ready followup WHERE followup.dispatch_id=d.id AND followup.task_id=t.id)) AND NOT EXISTS(SELECT 1 FROM task_intents ti WHERE ti.task_id=t.id AND (ti.state<>'active' OR NOT EXISTS(SELECT 1 FROM task_dispatch_input_ready ready WHERE ready.dispatch_id=d.id AND ready.task_id=t.id))))) AND NOT EXISTS(SELECT 1 FROM task_intents current_task WHERE current_task.session_id=d.session_id AND (current_task.state<>'active' OR (current_task.task_id IS NOT d.task_id AND NOT EXISTS(SELECT 1 FROM current_recovery_reports cr WHERE cr.dispatch_id=d.id AND cr.task_id=current_task.task_id)))) AND (json_extract(s.binding,'$.kind') IS NULL OR (json_extract(s.binding,'$.kind')='internal' AND EXISTS(SELECT 1 FROM internal_participants ip JOIN internal_conversations ic ON ic.id=ip.conversation_id WHERE ip.session_id=s.id AND ip.engagement_id=e.id AND ip.conversation_id=json_extract(s.binding,'$.conversation_id') AND ic.state='active' AND ic.fleet_id=e.fleet_id AND ic.project_id=e.project_id AND ic.generation=e.generation))) AND NOT EXISTS(SELECT 1 FROM peer_dispatch_inputs pi WHERE pi.dispatch_id=d.id AND NOT EXISTS(SELECT 1 FROM live_peer_inputs li WHERE li.session_id=d.session_id AND li.message_sequence=pi.message_sequence)) AND NOT EXISTS(SELECT 1 FROM dispatch_recovery_reports rr WHERE rr.dispatch_id=d.id AND NOT EXISTS(SELECT 1 FROM current_recovery_reports cr WHERE cr.dispatch_id=d.id)) AND s.quarantined=0 AND e.state='active' AND e.generation=g.generation AND NOT EXISTS(SELECT 1 FROM runner_dispatches live WHERE live.session_id=d.session_id AND live.state IN ('leased','started','parked')) AND NOT EXISTS(SELECT 1 FROM dispatch_resources dr JOIN workspace_resources w ON w.id=dr.resource_id WHERE dr.dispatch_id=d.id AND (w.dirty=1 OR EXISTS(SELECT 1 FROM resource_leases l WHERE l.resource_id=dr.resource_id AND (l.exclusive=1 OR dr.exclusive=1)))) ORDER BY d.rowid LIMIT 1",[now],|r|r.get(0)).optional()?;
+        let id:Option<String>=tx.query_row("SELECT d.id FROM runner_dispatches d JOIN runner_sessions s ON s.id=d.session_id JOIN engagements e ON e.id=s.engagement_id JOIN registrations g ON g.fleet_id=e.fleet_id WHERE d.state='queued' AND d.not_before<=?1 AND (d.task_id IS NULL OR EXISTS(SELECT 1 FROM canonical_tasks t WHERE t.id=d.task_id AND (json_extract(t.config,'$.status')<>'done' OR EXISTS(SELECT 1 FROM task_followup_ready followup WHERE followup.dispatch_id=d.id AND followup.task_id=t.id)) AND NOT EXISTS(SELECT 1 FROM task_intents ti WHERE ti.task_id=t.id AND (ti.state<>'active' OR NOT EXISTS(SELECT 1 FROM task_dispatch_input_ready ready WHERE ready.dispatch_id=d.id AND ready.task_id=t.id))))) AND NOT EXISTS(SELECT 1 FROM task_intents current_task WHERE current_task.session_id=d.session_id AND (current_task.state<>'active' OR (current_task.task_id IS NOT d.task_id AND NOT EXISTS(SELECT 1 FROM current_recovery_reports cr WHERE cr.dispatch_id=d.id AND cr.task_id=current_task.task_id)))) AND (json_extract(s.binding,'$.kind') IS NULL OR (json_extract(s.binding,'$.kind')='internal' AND EXISTS(SELECT 1 FROM internal_participants ip JOIN internal_conversations ic ON ic.id=ip.conversation_id WHERE ip.session_id=s.id AND ip.engagement_id=e.id AND ip.conversation_id=json_extract(s.binding,'$.conversation_id') AND ic.state='active' AND ic.fleet_id=e.fleet_id AND ic.project_id=e.project_id AND ic.generation=e.generation))) AND NOT EXISTS(SELECT 1 FROM peer_dispatch_inputs pi WHERE pi.dispatch_id=d.id AND NOT EXISTS(SELECT 1 FROM admissible_dispatch_peer_inputs li WHERE li.dispatch_id=d.id AND li.message_sequence=pi.message_sequence)) AND NOT EXISTS(SELECT 1 FROM graph_nodes gn WHERE gn.task_id=d.task_id AND NOT EXISTS(SELECT 1 FROM graph_dispatch_ready gr WHERE gr.dispatch_id=d.id)) AND NOT EXISTS(SELECT 1 FROM dispatch_recovery_reports rr JOIN graph_nodes gn ON gn.task_id=rr.task_id WHERE rr.dispatch_id=d.id AND NOT EXISTS(SELECT 1 FROM graph_dispatch_scope gs WHERE gs.dispatch_id=d.id)) AND NOT EXISTS(SELECT 1 FROM dispatch_recovery_reports rr WHERE rr.dispatch_id=d.id AND NOT EXISTS(SELECT 1 FROM current_recovery_reports cr WHERE cr.dispatch_id=d.id)) AND s.quarantined=0 AND e.state='active' AND e.generation=g.generation AND NOT EXISTS(SELECT 1 FROM runner_dispatches live WHERE live.session_id=d.session_id AND live.state IN ('leased','started','parked')) AND NOT EXISTS(SELECT 1 FROM dispatch_resources dr JOIN workspace_resources w ON w.id=dr.resource_id WHERE dr.dispatch_id=d.id AND (w.dirty=1 OR EXISTS(SELECT 1 FROM resource_leases l WHERE l.resource_id=dr.resource_id AND (l.exclusive=1 OR dr.exclusive=1)))) ORDER BY d.rowid LIMIT 1",[now],|r|r.get(0)).optional()?;
         let Some(id) = id else {
             tx.commit()?;
             return Ok(None);
@@ -521,6 +537,7 @@ impl DomainRepository {
             "UPDATE runner_dispatches SET state='started' WHERE id=?1",
             [&cap.dispatch_id],
         )?;
+        super::graphs::started(&tx, &cap.dispatch_id)?;
         tx.execute(
             "UPDATE runner_attempts SET outcome='started' WHERE dispatch_id=?1 AND fence=?2",
             params![cap.dispatch_id, cap.fence],
@@ -614,7 +631,8 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        authorize(&tx, cap, now, &["started"])?;
+        let d = authorize(&tx, cap, now, &["started"])?;
+        super::graphs::complete_guard(&tx, &d)?;
         tx.execute(
             "INSERT INTO runner_outputs(dispatch_id,fence,output,accepted) VALUES(?1,?2,?3,1)",
             params![cap.dispatch_id, cap.fence, serialize(output)?],
@@ -742,6 +760,22 @@ impl DomainRepository {
         if another {
             return Err(Error::Quarantined);
         }
+        super::graphs::admit_recovery(
+            &tx,
+            original,
+            report
+                .as_ref()
+                .map(|r| r.task.id.as_str())
+                .or(d.task_id.as_deref()),
+            &d.session_id,
+        )?;
+        // Host inspection closes this attempt's physical custody. The recovery
+        // intent acquires its own leases when claimed, in the same way as other
+        // queued work. Never release a different unresolved reader's lease.
+        tx.execute(
+            "DELETE FROM resource_leases WHERE dispatch_id=?1",
+            [original],
+        )?;
         tx.execute(
             "UPDATE runner_sessions SET quarantined=0 WHERE id=?1",
             [&d.session_id],

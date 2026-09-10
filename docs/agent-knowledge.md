@@ -1161,3 +1161,30 @@ Drain buffered reports before treating EOF as missing output; never reinterpret
 EINVAL as successful cleanup. The Unix unit test name shares the existing
 native_guardian_early_exit selector, which also runs real Windows Job Object
 early-exit coverage without inventing a Windows Unix-socket test.
+
+Native graph custody (2026-09-10): schema 10 pre-creates all canonical node tasks
+inside graph admission. Graph results are separate from done; successful results
+bind the exact completed epoch and immutable digest. Graph views store metadata,
+while workers receive paged pinned dependencies. A completed report grant can
+report its node but cannot create graphs or obtain creator-only views. Failed
+results fence the live capability immediately; creator inspection of stored state
+handles a lost failure response, not a special failed-capability exemption.
+Generic dispatch cannot omit the exact graph task and immutable assignment.
+Cancellation preserves task/input history and unknown process custody.
+
+Count retired graph input as history, not pending capacity. Frozen queued/live/
+unresolved input still counts; never acknowledge history to free quota. Peer
+capacity snapshots borrow exactly one writer transaction and increment per new
+recipient, avoiding a repeated graph/member scan per assignment. Validate distinct
+assignee sessions when a graph assigns many nodes to the same participant. The
+4050-input regression fell from an interrupted 176.89-second run to 4.74 seconds.
+
+Unknown execution includes read custody: lose() must retain shared resource
+leases as well as exclusive ones, and max_live counts all unresolved attempts.
+Otherwise an expired reader and new exclusive writer can overlap. Inspection
+recovery releases only the original leases transactionally; another unknown
+reader remains a blocker. Schema 10 reconstructs missing legacy unknown leases
+from dispatch_resources joined to unresolved_dispatches, excluding already
+inspected recoveries and settled stops. Preparing one giant schema verification
+query with expanded views exceeded SQLite's 64-table limit; prepare every
+independent check before schema version commit, and again during reopen.

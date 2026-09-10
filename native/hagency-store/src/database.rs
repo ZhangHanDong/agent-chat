@@ -14,7 +14,7 @@ pub(crate) struct Schema {
     pub application_id: i32,
     pub version: i32,
     pub sql: &'static str,
-    pub verify: &'static str,
+    pub verify: &'static [&'static str],
     pub migrations: &'static [(i32, &'static str)],
 }
 pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Error> {
@@ -94,11 +94,15 @@ pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Err
             tx.execute_batch(matching[0].1)?;
             current = next;
         }
-        tx.prepare(verify_sql).map_err(|_| Error::Schema)?;
+        for query in verify_sql {
+            tx.prepare(query).map_err(|_| Error::Schema)?;
+        }
         tx.pragma_update(None, "user_version", current)?;
         tx.commit()?;
     } else {
-        db.prepare(verify_sql).map_err(|_| Error::Schema)?;
+        for query in verify_sql {
+            db.prepare(query).map_err(|_| Error::Schema)?;
+        }
     }
     db.pragma_update(None, "journal_mode", "WAL")?;
     db.pragma_update(None, "synchronous", "FULL")?;
@@ -119,7 +123,7 @@ mod tests {
             application_id: 123456,
             version,
             sql: "CREATE TABLE probe(id INTEGER PRIMARY KEY); INSERT INTO probe VALUES(1);",
-            verify: "SELECT id FROM probe LIMIT 0",
+            verify: &["SELECT id FROM probe LIMIT 0"],
             migrations,
         }
     }
@@ -152,8 +156,39 @@ mod tests {
             2,
             "ALTER TABLE probe ADD COLUMN upgraded INTEGER; UPDATE probe SET upgraded=7;",
         )];
+        let mut later_verification_failure = definition(2, success);
+        later_verification_failure.verify = &[
+            "SELECT id, upgraded FROM probe LIMIT 0",
+            "SELECT missing_column FROM probe LIMIT 0",
+        ];
+        assert!(matches!(
+            open(&state, later_verification_failure),
+            Err(Error::Schema)
+        ));
+        // Even after migration SQL and the first verification succeed, a later
+        // invalid statement must roll back the schema and its version together.
+        let db = open(&state, definition(1, &[])).unwrap();
+        assert_eq!(
+            db.connection
+                .pragma_query_value(None, "user_version", |r| r.get::<_, i32>(0))
+                .unwrap(),
+            1
+        );
+        assert!(db.connection.prepare("SELECT upgraded FROM probe").is_err());
+        assert_eq!(
+            db.connection
+                .query_row("SELECT id FROM probe", [], |r| r.get::<_, i32>(0))
+                .unwrap(),
+            1
+        );
+        drop(db);
         for _ in 0..2 {
-            let db = open(&state, definition(2, success)).unwrap();
+            let mut complete_verification = definition(2, success);
+            complete_verification.verify = &[
+                "SELECT id FROM probe LIMIT 0",
+                "SELECT upgraded FROM probe LIMIT 0",
+            ];
+            let db = open(&state, complete_verification).unwrap();
             assert_eq!(
                 db.connection
                     .query_row("SELECT upgraded FROM probe", [], |r| r.get::<_, i32>(0))
@@ -167,6 +202,14 @@ mod tests {
                 2
             );
         }
+        // The already-current path must check every statement too, without
+        // relying on a new migration to discover a malformed schema.
+        let mut invalid_reopen = definition(2, &[]);
+        invalid_reopen.verify = &[
+            "SELECT id FROM probe LIMIT 0",
+            "SELECT missing_column FROM probe LIMIT 0",
+        ];
+        assert!(matches!(open(&state, invalid_reopen), Err(Error::Schema)));
         assert!(matches!(
             open(&state, definition(1, &[])),
             Err(Error::Schema)
@@ -181,7 +224,7 @@ mod tests {
                 application_id: 0x48414732,
                 version: 1,
                 sql: include_str!("domain.sql"),
-                verify: "SELECT id FROM resources LIMIT 0",
+                verify: &["SELECT id FROM resources LIMIT 0"],
                 migrations: &[],
             },
         )

@@ -2182,3 +2182,46 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - This fixes observation of an existing cleanup report. It does not establish
   guardian-death recovery, complete macOS descendant custody or actual native
   Agent execution. Corrected CI is still required; no live service was changed.
+
+## 2026-09-10 — Durable native graphs and unknown execution custody
+
+- Previous head 8aa01af passed Native Rust CI 34488421043 on Ubuntu, macOS and
+  Windows, including release builds, and existing Node CI 34488421013.
+- Schema 10 creates a finite graph and all canonical node tasks atomically, then
+  admits ready immutable peer assignments with pinned dependency results. Exact
+  current internal sessions, project generation and canonical task/assignment
+  binding govern dispatch. Success requires explicit done for the exact task
+  epoch; neither graph terminal state nor model output completes a parent task.
+- Creator graph reads/cancellation and node result/dependency commands use the
+  private runner API and single writer. Inspected result-only recovery can repeat
+  a completed result, even for a terminal graph, without duplicating downstream
+  work. Failed results deliberately fence the failed capability; after a lost
+  response the creator reads the committed failure. There is no failed-capability
+  exemption or runtime inspection endpoint.
+- Result values remain outside graph views and assignment payloads. Metadata and
+  bounded dependency references avoid repeated 64 KiB values across fan-out.
+  Fractional conditions, ordering, skips and failure propagation retain the pure
+  policy. Broad Unicode dependency failures remain valid within 4000 bytes.
+- The user requested more parallel agents. Independent review reproduced two
+  additional gaps: cancelled input exhausted a current member's pending quota,
+  and expired shared readers lost resource custody before cancellation. Fixed
+  both. All unresolved attempts now retain leases and concurrency slots until
+  inspection. Recovery releases only its original leases transactionally, and
+  schema 10 restores missing pre-fix unknown leases without reviving inspected
+  attempts. Two-reader and late-transaction-failure fixtures verify isolation.
+- The quota regression retains 4050 unacknowledged historical/live inputs, proves
+  the actual 2000-live-input bound still rejects atomically, and permits new work
+  after cancellation. Its initial unoptimized run was interrupted after 176.89
+  seconds and is not passing evidence. Transaction-bound per-recipient counting
+  and distinct assignee checks reduced the complete test to 4.74 seconds.
+- Expanded schema verification initially exceeded SQLite's 64-table join limit.
+  Independent verification queries now all prepare before migration commit and
+  on reopen. A later failed statement rolls back the entire migration.
+- All 94 local native tests passed, zero failed or ignored. Workspace Clippy,
+  rustfmt and diff checks passed. All 81 native spec selectors resolve; seven
+  graph scenarios plus boundary passed under agent-spec 1.4.0. Corrected CI for
+  this new commit remains required. Native runtime protocol work is being
+  developed independently and is not included in these counts.
+- Actual model execution, graph tool adapters, final reply privacy/delivery,
+  Matrix/Palpo transport, sandbox policy and remaining migration gates are open.
+  Original dirty checkout and deployed services remain unchanged.

@@ -61,7 +61,168 @@ fn native_graph_transition_vectors() {
         assert_eq!(value(&c.graph), original); // A proposal never commits itself.
         let replay = next.advance().unwrap();
         assert!(replay.assignments.is_empty());
+        if !c.cancel {
+            let references = c.graph.advance_references().unwrap();
+            let mut expected = c.expected.clone();
+            for assignment in expected["assignments"].as_array_mut().unwrap() {
+                for dependency in assignment["dependency_results"].as_array_mut().unwrap() {
+                    dependency["result"] = Value::Null;
+                }
+            }
+            assert_eq!(
+                json!({"status":references.graph.status,"progress":references.graph.progress,"assignments":references.assignments}),
+                expected,
+                "reference planning: {}",
+                c.name
+            );
+        }
     }
+}
+
+#[test]
+fn native_graph_dependency_outcomes_references_large_results() {
+    let mut nodes = vec![
+        json!({"id":"source","assignee":"小白","description":"Produce a large result"}),
+        json!({"id":"other","assignee":"Edison","description":"Produce a null result"}),
+    ];
+    for index in 0..16 {
+        nodes.push(json!({
+            "id":format!("consumer_{index}"), "assignee":"Reviewer", "description":"Read dependencies",
+            "depends_on":["other","source"],
+            "condition":{"dep":"source","path":"score","eq":0.25}
+        }));
+    }
+    nodes.push(json!({
+        "id":"skipped", "assignee":"Reviewer", "description":"Condition is false",
+        "depends_on":["source"], "condition":{"path":"score","eq":0.5}
+    }));
+    let definition =
+        serde_json::from_value(json!({"label":"Bounded fan-out","nodes":nodes})).unwrap();
+    let initial = Graph::new(definition).unwrap().advance().unwrap();
+    assert_eq!(initial.assignments.len(), 2);
+    let large_result = json!({"score":0.25,"summary":"中".repeat(15_000)});
+    validate_result(&large_result).unwrap();
+    let ready = initial
+        .graph
+        .observe(
+            "source",
+            &NodeObservation::Complete {
+                result: large_result.clone(),
+            },
+        )
+        .unwrap()
+        .observe(
+            "other",
+            &NodeObservation::Complete {
+                result: Value::Null,
+            },
+        )
+        .unwrap();
+    let original = value(&ready);
+    let full = ready.advance().unwrap();
+    let references = ready.advance_references().unwrap();
+    assert_eq!(value(&ready), original);
+    assert_eq!(value(&references.graph), value(&full.graph));
+    assert_eq!(references.graph.progress["source"].result, large_result);
+    assert_eq!(
+        references.graph.progress["skipped"].status,
+        NodeStatus::Skipped
+    );
+    assert_eq!(references.assignments.len(), 16);
+    for (index, assignment) in references.assignments.iter().enumerate() {
+        assert_eq!(assignment.node_id, format!("consumer_{index}"));
+        assert_eq!(assignment.dependency_results.len(), 2);
+        assert_eq!(assignment.dependency_results[0].node_id, "other");
+        assert_eq!(assignment.dependency_results[0].assignee, "Edison");
+        assert_eq!(assignment.dependency_results[1].node_id, "source");
+        assert_eq!(assignment.dependency_results[1].assignee, "小白");
+        assert!(
+            assignment
+                .dependency_results
+                .iter()
+                .all(|d| d.result.is_null())
+        );
+        assert_eq!(
+            full.assignments[index].dependency_results[1].result,
+            large_result
+        );
+    }
+    // The real result remains available to condition evaluation, while dispatch
+    // metadata stays small even when many consumers depend on the same value.
+    assert!(serde_json::to_vec(&full.assignments).unwrap().len() > 700_000);
+    assert!(serde_json::to_vec(&references.assignments).unwrap().len() < 8_000);
+    let restored: Graph = serde_json::from_value(value(&references.graph)).unwrap();
+    restored.validate().unwrap();
+    assert!(
+        restored
+            .advance_references()
+            .unwrap()
+            .assignments
+            .is_empty()
+    );
+}
+
+#[test]
+fn native_graph_dependency_outcomes_wide_utf8_failures() {
+    let ids: Vec<_> = (0..64)
+        .map(|i| format!("{i:02}-{}", "界".repeat(80)))
+        .collect();
+    let mut nodes: Vec<_> = ids
+        .iter()
+        .map(|id| {
+            json!({
+                "id":id,"assignee":"Worker","description":"Independent work"
+            })
+        })
+        .collect();
+    nodes.push(json!({
+        "id":"join","assignee":"Reviewer","description":"Needs all workers","depends_on":ids
+    }));
+    nodes.push(json!({
+        "id":"final","assignee":"Reviewer","description":"Needs the join","depends_on":["join"]
+    }));
+    let definition = serde_json::from_value(json!({"label":"Wide failure","nodes":nodes})).unwrap();
+    let initial = Graph::new(definition).unwrap().advance().unwrap();
+    assert_eq!(initial.assignments.len(), ids.len());
+    let mut graph = initial.graph;
+    for id in &ids {
+        graph = graph
+            .observe(
+                id,
+                &NodeObservation::Failed {
+                    error: "Worker blocked".into(),
+                },
+            )
+            .unwrap();
+    }
+    let original = value(&graph);
+    let transition = graph.advance_references().unwrap();
+    assert_eq!(value(&graph), original);
+    assert!(transition.assignments.is_empty());
+    assert_eq!(transition.graph.status, GraphStatus::Failed);
+    assert_eq!(transition.graph.progress["join"].status, NodeStatus::Failed);
+    assert_eq!(
+        transition.graph.progress["final"].status,
+        NodeStatus::Failed
+    );
+    let error = transition.graph.progress["join"].error.as_ref().unwrap();
+    let unbounded = format!("dependency failed: {}", ids.join(", "));
+    assert!(unbounded.len() > 4_000);
+    assert!((3_998..=4_000).contains(&error.len()));
+    assert!(error.ends_with("..."));
+    assert!(unbounded.starts_with(error.strip_suffix("...").unwrap()));
+    assert_eq!(
+        transition.graph.progress["final"].error.as_deref(),
+        Some("dependency failed: join")
+    );
+    // Persisted transitions must remain valid input to subsequent planning.
+    // An oversized propagated error used to make this re-read fail validation.
+    let restored: Graph =
+        serde_json::from_str(&serde_json::to_string(&transition.graph).unwrap()).unwrap();
+    restored.validate().unwrap();
+    let replay = restored.advance().unwrap();
+    assert_eq!(value(&replay.graph), value(&transition.graph));
+    assert!(replay.assignments.is_empty());
 }
 #[test]
 fn native_graph_validation() {

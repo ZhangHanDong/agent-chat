@@ -87,6 +87,145 @@ pub(super) fn transfer_inputs(tx: &Transaction<'_>, old: &str, next: &str) -> Re
     tx.execute("UPDATE peer_session_inputs SET dispatch_id=NULL WHERE processed_at IS NULL AND dispatch_id IN (SELECT id FROM runner_dispatches WHERE state='superseded' AND session_id=(SELECT session_id FROM runner_dispatches WHERE id=?1))",[old])?;
     Ok(())
 }
+pub(super) struct PeerOrigin<'a> {
+    pub session_id: &'a str,
+    pub dispatch_id: &'a str,
+    pub task_id: Option<&'a str>,
+}
+/// A count snapshot belongs to one writer transaction and admission batch.
+/// Every newly admitted recipient increments it; replay consumes no new slot.
+pub(super) struct PeerCapacity<'tx, 'db> {
+    tx: &'tx Transaction<'db>,
+    pending: std::collections::BTreeMap<String, u64>,
+}
+impl<'tx, 'db> PeerCapacity<'tx, 'db> {
+    pub(super) fn new(tx: &'tx Transaction<'db>) -> Self {
+        Self {
+            tx,
+            pending: Default::default(),
+        }
+    }
+    fn reserve(&mut self, target: &str) -> Result<(), Error> {
+        let pending = match self.pending.get_mut(target) {
+            Some(pending) => pending,
+            None => {
+                // Retired input is immutable history, not pending work. Frozen
+                // input counts until its unresolved process is inspected.
+                let count: u64 = self.tx.query_row(
+                    "SELECT COUNT(*) FROM peer_session_inputs i WHERE i.session_id=?1 AND i.processed_at IS NULL AND (EXISTS(SELECT 1 FROM live_peer_inputs live WHERE live.session_id=i.session_id AND live.message_sequence=i.message_sequence) OR EXISTS(SELECT 1 FROM runner_dispatches d WHERE d.id=i.dispatch_id AND (d.state IN ('queued','leased','started','parked') OR EXISTS(SELECT 1 FROM unresolved_dispatches u WHERE u.id=d.id))))",
+                    [target], |r| r.get(0),
+                )?;
+                self.pending.entry(target.into()).or_insert(count)
+            }
+        };
+        if *pending >= 2000 {
+            return Err(Error::Capacity);
+        }
+        *pending += 1;
+        Ok(())
+    }
+}
+// Only current runtime admission or an authorized finite stored workflow calls
+// this transactional helper. No runtime JSON can supply PeerOrigin or the key.
+pub(super) fn admit(
+    capacity: &mut PeerCapacity<'_, '_>,
+    origin: PeerOrigin<'_>,
+    input: &PeerSend,
+    key: &str,
+    now: u64,
+) -> Result<PeerReceipt, Error> {
+    let tx = capacity.tx;
+    input.validate()?;
+    clock(now)?;
+    let id = key.to_owned();
+    let group = conversations::admission_scope(tx, origin.session_id, &input.conversation_id)?;
+    let recipients: Vec<_> = input
+        .recipient_session_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    for target in &recipients {
+        conversations::recipient(tx, &group, target)?;
+    }
+    let source = execution::admission_session(tx, origin.session_id)?;
+    let digest = canonical::payload_digest(&json!([
+        id,
+        input.conversation_id,
+        recipients,
+        input.kind,
+        input.priority,
+        input.summary,
+        input.body,
+        input.data,
+        origin.session_id.to_owned(),
+        source.engagement_id(),
+        origin.task_id.map(str::to_owned)
+    ]))?;
+    let previous: Option<(u64, String)> = tx
+        .query_row(
+            "SELECT sequence,digest FROM peer_messages WHERE source_key=?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if let Some((sequence, old)) = previous {
+        return if old == digest {
+            Ok(PeerReceipt {
+                id,
+                sequence,
+                replayed: true,
+                recipients: recipients.len(),
+            })
+        } else {
+            Err(Error::Conflict)
+        };
+    }
+    bounded_row(tx, "peer_messages", "source_key", &id, 100_000)?;
+    tx.execute(
+        "INSERT INTO peer_messages(source_key,digest,conversation_id,config) VALUES(?1,?2,?3,'{}')",
+        params![id, digest, input.conversation_id],
+    )?;
+    let sequence = u64::try_from(tx.last_insert_rowid()).map_err(|_| Error::Capacity)?;
+    clock(sequence)?;
+    let message = PeerMessage {
+        sequence,
+        id: id.clone(),
+        conversation_id: group.id,
+        source_session_id: origin.session_id.to_owned(),
+        source_engagement_id: source.engagement_id().into(),
+        source_dispatch_id: origin.dispatch_id.to_owned(),
+        source_task_id: origin.task_id.map(str::to_owned),
+        recipient_session_ids: recipients.clone(),
+        kind: input.kind,
+        priority: input.priority,
+        summary: input.summary.clone(),
+        body: input.body.clone(),
+        data: input.data.clone(),
+        received_at: now,
+    };
+    tx.execute(
+        "UPDATE peer_messages SET config=?2 WHERE sequence=?1",
+        params![
+            sequence,
+            canonical::encode_payload(&serde_json::to_value(&message)?)?
+        ],
+    )?;
+    for target in &recipients {
+        capacity.reserve(target)?;
+        tx.execute(
+            "INSERT INTO peer_session_inputs(session_id,message_sequence,wake) VALUES(?1,?2,?3)",
+            params![target, sequence, input.kind.wakes()],
+        )?;
+    }
+    Ok(PeerReceipt {
+        id,
+        sequence,
+        replayed: false,
+        recipients: recipients.len(),
+    })
+}
 impl DomainRepository {
     pub fn send_peer(
         &mut self,
@@ -105,95 +244,24 @@ impl DomainRepository {
         {
             return Err(Error::State);
         }
-        let group = conversations::scoped(&tx, &d.session_id, &input.conversation_id)?;
-        let recipients: Vec<_> = input
-            .recipient_session_ids
-            .iter()
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        for target in &recipients {
-            conversations::recipient(&tx, &group, target)?;
-        }
-        let source = execution::session(&tx, &d.session_id)?;
-        let id = format!(
+        conversations::scoped(&tx, &d.session_id, &input.conversation_id)?;
+        let key = format!(
             "peer_{}",
             canonical::digest(&json!([cap.dispatch_id, input.call_id]))?
         );
-        let digest = canonical::payload_digest(&json!([
-            id,
-            input.conversation_id,
-            recipients,
-            input.kind,
-            input.priority,
-            input.summary,
-            input.body,
-            input.data,
-            d.session_id,
-            source.engagement_id(),
-            d.task_id
-        ]))?;
-        let previous: Option<(u64, String)> = tx
-            .query_row(
-                "SELECT sequence,digest FROM peer_messages WHERE source_key=?1",
-                [&id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        if let Some((sequence, old)) = previous {
-            return if old == digest {
-                Ok(PeerReceipt {
-                    id,
-                    sequence,
-                    replayed: true,
-                    recipients: recipients.len(),
-                })
-            } else {
-                Err(Error::Conflict)
-            };
-        }
-        bounded_row(&tx, "peer_messages", "source_key", &id, 100_000)?;
-        tx.execute("INSERT INTO peer_messages(source_key,digest,conversation_id,config) VALUES(?1,?2,?3,'{}')",params![id,digest,input.conversation_id])?;
-        let sequence = u64::try_from(tx.last_insert_rowid()).map_err(|_| Error::Capacity)?;
-        clock(sequence)?;
-        let message = PeerMessage {
-            sequence,
-            id: id.clone(),
-            conversation_id: group.id,
-            source_session_id: d.session_id,
-            source_engagement_id: source.engagement_id().into(),
-            source_dispatch_id: cap.dispatch_id.clone(),
-            source_task_id: d.task_id,
-            recipient_session_ids: recipients.clone(),
-            kind: input.kind,
-            priority: input.priority,
-            summary: input.summary.clone(),
-            body: input.body.clone(),
-            data: input.data.clone(),
-            received_at: now,
-        };
-        tx.execute(
-            "UPDATE peer_messages SET config=?2 WHERE sequence=?1",
-            params![
-                sequence,
-                canonical::encode_payload(&serde_json::to_value(&message)?)?
-            ],
+        let result = admit(
+            &mut PeerCapacity::new(&tx),
+            PeerOrigin {
+                session_id: &d.session_id,
+                dispatch_id: &cap.dispatch_id,
+                task_id: d.task_id.as_deref(),
+            },
+            input,
+            &key,
+            now,
         )?;
-        for target in &recipients {
-            let pending:u64=tx.query_row("SELECT COUNT(*) FROM peer_session_inputs WHERE session_id=?1 AND processed_at IS NULL",[target],|r|r.get(0))?;
-            if pending >= 2000 {
-                return Err(Error::Capacity);
-            }
-            tx.execute("INSERT INTO peer_session_inputs(session_id,message_sequence,wake) VALUES(?1,?2,?3)",params![target,sequence,input.kind.wakes()])?;
-        }
         tx.commit()?;
-        Ok(PeerReceipt {
-            id,
-            sequence,
-            replayed: false,
-            recipients: recipients.len(),
-        })
+        Ok(result)
     }
     pub fn peer_inbox(
         &self,
@@ -263,7 +331,7 @@ impl DomainRepository {
                 "dispatch payload must be object",
             ))?
             .insert("peerInbox".into(), serde_json::to_value(&selected)?);
-        execution::enqueue(&tx, &frozen)?;
+        execution::enqueue_peers(&tx, &frozen, sequences)?;
         for item in selected {
             tx.execute("INSERT OR IGNORE INTO peer_dispatch_inputs(dispatch_id,message_sequence) VALUES(?1,?2)",params![input.id,item.message.sequence])?;
             tx.execute("UPDATE peer_session_inputs SET dispatch_id=?3 WHERE session_id=?1 AND message_sequence=?2",params![input.session_id,item.message.sequence,input.id])?;

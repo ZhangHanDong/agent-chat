@@ -1,6 +1,8 @@
 mod common;
 #[path = "conversation_lifecycle/mod.rs"]
 mod lifecycle;
+#[path = "workflows/mod.rs"]
+mod workflows;
 use common::*;
 use hagency_core::{conversations::*, messages::*, tasks::*};
 use hagency_store::{DomainRepository, EffectOutcome, Error};
@@ -21,6 +23,16 @@ fn claim(db: &mut DomainRepository, now: u64) -> RunnerCapability {
         .unwrap()
 }
 fn setup() -> (
+    tempfile::TempDir,
+    DomainRepository,
+    Vec<String>,
+    RunnerCapability,
+) {
+    setup_with_parent(false)
+}
+fn setup_with_parent(
+    parent: bool,
+) -> (
     tempfile::TempDir,
     DomainRepository,
     Vec<String>,
@@ -59,7 +71,11 @@ fn setup() -> (
         .unwrap();
         agents.push(e.id);
     }
-    db.enqueue_dispatch(&dispatch("creator", "a", None))
+    if parent {
+        db.create_canonical_task("parent", "a", "Coordinate verified work", 1000)
+            .unwrap();
+    }
+    db.enqueue_dispatch(&dispatch("creator", "a", parent.then_some("parent")))
         .unwrap();
     let cap = claim(&mut db, 1001);
     db.start_dispatch(&cap, 1002).unwrap();
@@ -327,7 +343,7 @@ fn native_internal_matrix_separation() {
         sql(&root)
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        9
+        10
     );
     db.enqueue_dispatch(&dispatch("closed", &internal.id, None))
         .unwrap();

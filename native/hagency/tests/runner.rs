@@ -164,6 +164,226 @@ async fn operation(f: &Fixture, call: &str, operation: Value) -> (StatusCode, Va
 }
 
 #[tokio::test]
+async fn native_runner_http_graphs() {
+    use hagency_core::workflows::WorkflowReceipt;
+    let f = Fixture::new(true).await;
+    let send = |path: &str, cap: &RunnerCapability, body: Value| {
+        auth(TestClient::post(format!("{BASE}/runner/{path}")), cap).json(&body)
+    };
+    let mut response = send(
+        "conversations",
+        &f.cap,
+        json!({"call_id":"group","label":"Graph work","participant_engagements":[f.engagement]}),
+    )
+    .send(&f.service)
+    .await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    let group: Value = response.take_json().await.unwrap();
+    let group = &group["conversation"];
+    let session = group["participants"][0]["id"].as_str().unwrap();
+    let body = json!({"call_id":"graph","conversation_id":group["id"],"definition":{"label":"Implement and verify","nodes":[{"id":"implement","assignee":session,"description":"Implement scoped work"},{"id":"verify","assignee":session,"description":"Verify scoped work","depends_on":["implement"]}]}});
+    for key in [
+        "creator_session_id",
+        "parent_task_id",
+        "owner",
+        "workspace",
+        "inspection",
+    ] {
+        let mut forged = body.clone();
+        forged[key] = json!("forged");
+        assert_eq!(
+            send("graphs", &f.cap, forged)
+                .send(&f.service)
+                .await
+                .status_code,
+            Some(StatusCode::BAD_REQUEST)
+        );
+    }
+    let mut forged = body.clone();
+    forged["definition"]["nodes"][0]["task_id"] = json!("task");
+    assert_eq!(
+        send("graphs", &f.cap, forged)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::BAD_REQUEST)
+    );
+    let mut foreign = body.clone();
+    foreign["definition"]["nodes"][0]["assignee"] = json!("session");
+    assert_eq!(
+        send("graphs", &f.cap, foreign)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    let mut response = send("graphs", &f.cap, body.clone()).send(&f.service).await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    let receipt: WorkflowReceipt = response.take_json().await.unwrap();
+    let w = receipt.workflow;
+    let path = format!("graphs/{}", w.id);
+    assert_eq!(
+        get(&path, &f.cap).send(&f.service).await.status_code,
+        Some(StatusCode::OK)
+    );
+    let mut response = send("graphs", &f.cap, body).send(&f.service).await;
+    assert!(
+        response
+            .take_json::<WorkflowReceipt>()
+            .await
+            .unwrap()
+            .replayed
+    );
+    let mut response = get("graphs?limit=1", &f.cap).send(&f.service).await;
+    let list: Vec<Value> = response.take_json().await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["node_count"], 2);
+    assert!(list[0].get("definition").is_none());
+    let n = &w.nodes[0].binding;
+    f.domain
+        .enqueue_peer_dispatch(
+            DispatchInput {
+                id: "node_dispatch".into(),
+                session_id: n.session_id.clone(),
+                task_id: Some(n.task_id.clone()),
+                resources: vec![],
+                payload: json!({"instruction":"Execute admitted assignment"}),
+            },
+            vec![n.message_sequence.unwrap()],
+        )
+        .await
+        .unwrap();
+    let worker = f
+        .domain
+        .claim_dispatch("node_runner".into(), now(), 60_000, 60_000, 8)
+        .await
+        .unwrap()
+        .unwrap();
+    f.domain
+        .start_dispatch(worker.clone(), now())
+        .await
+        .unwrap();
+    assert_eq!(
+        get(&path, &worker).send(&f.service).await.status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    assert_eq!(
+        send(
+            &format!("{path}/cancel"),
+            &worker,
+            json!({"call_id":"cancel"})
+        )
+        .send(&f.service)
+        .await
+        .status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    let results = format!("{path}/results");
+    let result = json!({"call_id":"result","node_id":"implement","outcome":{"kind":"complete","result":{"score":0.25}}});
+    assert_eq!(
+        send(&results, &f.cap, result.clone())
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    assert_eq!(
+        send(&results, &worker, result.clone())
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::CONFLICT)
+    );
+    let mut forged = result.clone();
+    forged["outcome"]["execution_epoch"] = json!(1);
+    assert_eq!(
+        send(&results, &worker, forged)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::BAD_REQUEST)
+    );
+    assert_eq!(
+        post(
+            &n.task_id,
+            &worker,
+            &json!({"call_id":"done","operation":{"action":"transition","status":"done"}})
+        )
+        .send(&f.service)
+        .await
+        .status_code,
+        Some(StatusCode::OK)
+    );
+    assert_eq!(
+        send(&results, &worker, result.clone())
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::OK)
+    );
+    let mut response = send(&results, &worker, result).send(&f.service).await;
+    assert!(
+        response.take_json::<Value>().await.unwrap()["replayed"]
+            .as_bool()
+            .unwrap()
+    );
+    let dependencies = format!("{path}/dependencies");
+    let mut response = get(&dependencies, &worker).send(&f.service).await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    assert!(response.take_json::<Vec<Value>>().await.unwrap().is_empty());
+    assert_eq!(
+        get(&format!("{dependencies}?limit=33"), &worker)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::BAD_REQUEST)
+    );
+    assert_eq!(
+        send(&dependencies, &worker, json!({"node_id":"implement"}))
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    let mut response = send(&dependencies, &f.cap, json!({"node_id":"implement"}))
+        .send(&f.service)
+        .await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    assert_eq!(
+        response.take_json::<Value>().await.unwrap()["result"],
+        json!({"score":0.25})
+    );
+    assert_eq!(
+        send(
+            &format!("{path}/inspect"),
+            &worker,
+            json!({"evidence":"forged"})
+        )
+        .send(&f.service)
+        .await
+        .status_code,
+        Some(StatusCode::NOT_FOUND)
+    );
+    f.domain
+        .complete_dispatch(worker, json!({"reported":true}), now())
+        .await
+        .unwrap();
+    let mut response = send(
+        &format!("{path}/cancel"),
+        &f.cap,
+        json!({"call_id":"cancel"}),
+    )
+    .send(&f.service)
+    .await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    assert_eq!(
+        response.take_json::<Value>().await.unwrap()["workflow"]["state"],
+        "cancelled"
+    );
+    f.close().await;
+}
+
+#[tokio::test]
 async fn native_runner_http_conversation_lifecycle() {
     let f = Fixture::new(true).await;
     let mut response = auth(

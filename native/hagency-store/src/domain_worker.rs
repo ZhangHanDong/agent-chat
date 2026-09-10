@@ -223,6 +223,27 @@ impl DomainStore {
         self.call(weight(&(&cap, &command))?, move |db| {
             let now = writer_time()?;
             Ok(match command {
+                RunnerCommand::CreateWorkflow(input) => {
+                    serde_json::to_value(db.create_workflow(&cap, &input, now)?)?
+                }
+                RunnerCommand::Workflow { id } => {
+                    serde_json::to_value(db.runner_workflow(&cap, &id, now)?)?
+                }
+                RunnerCommand::Workflows { after, limit } => {
+                    serde_json::to_value(db.runner_workflows(&cap, &after, limit, now)?)?
+                }
+                RunnerCommand::CancelWorkflow { id, input } => {
+                    serde_json::to_value(db.cancel_workflow(&cap, &id, &input, now)?)?
+                }
+                RunnerCommand::WorkflowResult { id, input } => {
+                    serde_json::to_value(db.report_workflow_result(&cap, &id, &input, now)?)?
+                }
+                RunnerCommand::WorkflowDependencies { id, after, limit } => {
+                    serde_json::to_value(db.workflow_dependencies(&cap, &id, after, limit, now)?)?
+                }
+                RunnerCommand::WorkflowDependency { id, node_id } => {
+                    serde_json::to_value(db.workflow_dependency(&cap, &id, &node_id, now)?)?
+                }
                 RunnerCommand::SendPeer(input) => {
                     serde_json::to_value(db.send_peer(&cap, &input, now)?)?
                 }

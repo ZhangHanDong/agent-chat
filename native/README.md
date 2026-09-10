@@ -264,4 +264,32 @@ never marks tasks done or acknowledges input. Pending stops count against runner
 capacity and survive restart. The host methods are deliberately absent from the
 runtime API. See [ADR-030](../knowledge/decisions/adr-030-native-conversation-retirement.md).
 These transactions do not implement Matrix room membership or actual process
-termination; native runner adapters, graph-task linkage and final delivery remain.
+termination; native runner adapters and final delivery remain.
+
+Schema 10 binds durable task graphs to canonical tasks and peer inputs. The private
+runner API accepts `POST /graphs` with a call ID, conversation ID and bounded graph
+definition. Assignees are exact current internal participant session IDs. Creation
+commits all canonical node tasks; dependency planning admits only ready assignment
+messages. Host execution must bind the assigned task and message together. Runtime
+definitions cannot supply owner identity, workspace grants or inspection evidence.
+
+The exact creator can list metadata with `GET /graphs`, read `GET /graphs/{id}`,
+and submit `POST /graphs/{id}/cancel` with a call ID. Bound node runners submit
+`POST /graphs/{id}/results` with call ID, node ID and a typed complete or failed
+outcome. Success requires explicit canonical done state for that exact task epoch;
+failure requires blocked state. Graph state never completes the parent task.
+Command receipts and dependent assignments commit atomically. Inspected report
+recovery can repeat the exact completed result without rerunning the node.
+
+Results stay outside graph views and assignment payloads. Workers page their
+pinned references through `GET /graphs/{id}/dependencies?after=0&limit=32`, then
+read one with `POST /graphs/{id}/dependencies` and `{"node_id":"dependency"}`.
+Only the creator may read other completed node results. Each result is at most
+64 KiB; dependency pages are at most 32 references. Cancellation or scope retirement
+fences execution while retaining uncertain process custody for host inspection.
+Lease expiry and restart retain unknown readers' leases and concurrency slots;
+inspection releases only that attempt's custody. The migration also restores
+missing unknown leases left by earlier native versions. Retired assignment history
+is retained without consuming live queue capacity or fabricating an acknowledgement.
+See [ADR-031](../knowledge/decisions/adr-031-native-task-graph-custody.md). Model
+execution, MCP graph tools, final reply delivery and production parity remain open.

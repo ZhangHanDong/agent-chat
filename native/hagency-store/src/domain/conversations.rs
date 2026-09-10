@@ -25,6 +25,18 @@ pub(super) fn read(db: &Connection, id: &str) -> Result<Conversation, Error> {
 }
 pub(super) fn scoped(db: &Connection, session_id: &str, id: &str) -> Result<Conversation, Error> {
     let session = execution::session(db, session_id)?;
+    with_session(db, &session, id)
+}
+pub(super) fn admission_scope(
+    db: &Connection,
+    session_id: &str,
+    id: &str,
+) -> Result<Conversation, Error> {
+    let session = execution::admission_session(db, session_id)?;
+    with_session(db, &session, id)
+}
+fn with_session(db: &Connection, session: &StoredSession, id: &str) -> Result<Conversation, Error> {
+    let session_id = session.id();
     let (fleet, project_id, generation) = project(db, session.engagement_id())?;
     let creator:String=db.query_row("SELECT creator_session_id FROM internal_conversations WHERE id=?1 AND state='active' AND fleet_id=?2 AND project_id=?3 AND generation=?4",params![id,fleet,project_id,generation],|r|r.get(0)).optional()?.ok_or(Error::RunnerAuthority)?;
     let value = read(db, id)?;
