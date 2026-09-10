@@ -4526,10 +4526,12 @@ export class MatrixBridge {
       }
       console.error(`[bridge] the bot could not be brought up: ${this.botUnavailable}`);
       console.error(
-        '[bridge] CONTINUING WITHOUT IT because this deployment has an appservice path. What is lost: talking '
-        + 'to the operator from HAFleet\'s own homeserver, E2EE anywhere, approval DM rooms, and room/avatar '
-        + 'scanning. What still works: appservice intake, and sends into project-side rooms as the '
-        + 'representative. Fix the bot credential to get the rest back.',
+        '[bridge] CONTINUING WITHOUT IT because this deployment has an appservice path. What is lost: '
+        + 'the local bot\'s operator messaging, E2EE and approval DM rooms, plus room/avatar scanning. '
+        + 'What still works: appservice intake and project-side representative sends. '
+        + 'Project-side plaintext owner approvals require current authenticated publisher, binding, '
+        + 'membership and room-security checks to pass; representative delivery does not support encrypted approvals. '
+        + 'Fix the bot credential to restore its capabilities.',
       );
       /*
        * SYNCHRONOUS, and it has its own try inside. A first version wrote `await …().catch(…)` on the

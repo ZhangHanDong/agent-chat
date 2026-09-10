@@ -34,6 +34,9 @@ polling starts only after ordinary bot login succeeds.
   GET pages return their real empty collection shape and never count as router receipts.
   Exercise their startup and recurring worker polls, then stop owned work and clear
   fake timers during cleanup. Keep the real router startup and delivered metadata checks.
+- Startup diagnostics distinguish unavailable local-bot E2EE and approval rooms from
+  project-side plaintext owner approvals under their normal publisher, binding, membership
+  and room-security checks. The representative path does not support encrypted approvals.
 - Keep live Docker Palpo and Robrix evidence separate from deterministic
   coverage. Report incomplete E2E boundaries explicitly.
 
