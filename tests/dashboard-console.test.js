@@ -38,3 +38,29 @@ describe('Dashboard host probe states', () => {
     expect(html).toContain(locale === 'en' ? 'on PATH but not answering' : '在 PATH 上但无响应');
   });
 });
+
+describe('Dashboard offer publication wording', () => {
+  test.each(['en', 'zh'])('does not describe a withheld offer as published (%s)', async (locale) => {
+    const card = {
+      key: 'implementer', role: { displayName: 'Implementer', defaultTier: 'medium' },
+      able: [], unable: [], overTier: [], excluded: [], families: [], crossFamilyOk: true,
+    };
+    const data = {
+      capability: () => [card], roleCapacity: { roles: {}, tiers: [], families: [] }, agents: [],
+      offers: [{ role: 'implementer', published: false, count: null, budgetCapPerEngagement: null, rateCap: null }],
+      provenance: { offers: 'live' }, refresh: async () => {},
+    };
+    const withheld = await renderDashboard('mockup/app/capability/page.jsx', { locale, data });
+    expect(withheld).toContain(locale === 'en'
+      ? 'not published; contribution limits are not set'
+      : '尚未发布；贡献额度尚未设置');
+    expect(withheld).not.toContain(locale === 'en'
+      ? 'published with no limits set'
+      : '已发布但未设任何上限');
+    data.offers[0].published = true;
+    const published = await renderDashboard('mockup/app/capability/page.jsx', { locale, data });
+    expect(published).toContain(locale === 'en'
+      ? 'published with no limits set'
+      : '已发布但未设任何上限');
+  });
+});

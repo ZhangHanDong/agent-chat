@@ -21,6 +21,10 @@ export function runnerActivityLabel(runner, t) {
 
 /** Readiness is permission to start a fresh process, not a resident process heartbeat. */
 export function runtimeLabel(agent, t) {
+  const dispatch = agent?.dispatchActivity;
+  if (dispatch?.source === 'router-ledger' && dispatch.activity !== 'idle') {
+    return runnerActivityLabel(dispatch, t);
+  }
   if (isOnDemand(agent)) {
     const activity = agent.runner.activity;
     if (activity === 'idle') return runnerAvailabilityLabel(agent.runner, t);

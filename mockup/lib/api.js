@@ -141,6 +141,9 @@ export function mapAgent(a) {
       'mode', 'availability', 'reason', 'framework', 'activity', 'activeDispatchCount',
       'queuedDispatchCount', 'parkedDispatchCount', 'model', 'modelSource',
     ].filter((key) => Object.hasOwn(a.runner, key)).map((key) => [key, a.runner[key]])) : null,
+    dispatchActivity: a.dispatchActivity?.source === 'router-ledger' ? Object.fromEntries([
+      'source', 'activity', 'activeDispatchCount', 'queuedDispatchCount', 'parkedDispatchCount',
+    ].filter((key) => Object.hasOwn(a.dispatchActivity, key)).map((key) => [key, a.dispatchActivity[key]])) : null,
     createdAt: typeof a.createdAt === 'string' || typeof a.createdAt === 'number' ? a.createdAt : null,
     blocked: a.blocked === true,
     blockedReason: a.blockedReason ?? null,

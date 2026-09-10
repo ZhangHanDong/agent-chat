@@ -410,15 +410,18 @@ describe('operator local stop and ephemeral runtime projection', () => {
   });
 
   test('runtime projection follows queued started and parked dispatches rather than tmux telemetry', async () => {
-    queue();
-    expect((await agent()).body).toMatchObject({ transport: 'thread-session', state: 'queued', activeNow: false, online: false, activeDurationSec: null });
+    // This is the disposable-runner projection. Hybrid agents retain their
+    // terminal telemetry and expose dispatchActivity independently.
+    const threadAgent = () => request(context.app).get('/api/agents/other').set(auth());
+    queue('other');
+    expect((await threadAgent()).body).toMatchObject({ transport: 'thread-session', state: 'queued', activeNow: false, online: false, activeDurationSec: null });
     const capability = claim();
-    expect((await agent()).body).toMatchObject({ transport: 'thread-session', state: 'running', activeNow: true, online: true, healthy: true });
+    expect((await threadAgent()).body).toMatchObject({ transport: 'thread-session', state: 'running', activeNow: true, online: true, healthy: true });
     const parked = context.internals.routerStoreForTest.parkForApproval({
       ...capability, approvalId: 'fixture-approval', operationDigest: 'a'.repeat(64),
       ttlMs: 60000, maxParkedRunners: 4,
     });
     expect(parked.ok).toBe(true);
-    expect((await agent()).body).toMatchObject({ state: 'waiting_approval', activeNow: false, online: true, blocked: true, activeDurationSec: null, idleDurationSec: null });
+    expect((await threadAgent()).body).toMatchObject({ state: 'waiting_approval', activeNow: false, online: true, blocked: true, activeDurationSec: null, idleDurationSec: null });
   });
 });

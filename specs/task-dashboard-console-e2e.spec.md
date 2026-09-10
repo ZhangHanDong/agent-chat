@@ -46,6 +46,12 @@ controls that leave the operator believing a change was saved or an agent stoppe
 
 ## Acceptance Criteria
 
+Scenario: Withheld offers do not claim publication
+  Test: does not describe a withheld offer as published
+  Given a real offer with no configured contribution limits
+  When the capability card renders in either locale
+  Then its explanation distinguishes published from withheld offers
+
 Scenario: Configuration opens real forms
   Test: opens resource configuration and project request review through real links
   Given the live configuration page
