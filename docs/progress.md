@@ -3713,3 +3713,33 @@ shutdown after their functional checks, at fixture.rs216 and runner.rs183.
 The failure-only diagnostic's Matrix9 and Palpo13 transport targets pass serially;
 this does not diagnose those different shutdown failures. Logs are retained as
 ci-79b036c-windows.log. No shutdown deadline, retry or final-release claim is changed.
+### Native owned completion handoff (ADR-060 / schema 016)
+
+Implemented explicit canonical Done plus held final text through the real native
+MCP/HTTP boundary. Exact historical receipt replay is isolated from ordinary runner
+commands. The retained owned runner stops before final admission; no protocol text
+or epoch refresh grants execution, marks Done, or releases unrelated custody.
+The writer checks cancellation after queue/lock and rechecks original route,
+completed epoch, attempt and finite deadline before publishing stored content.
+
+Focused evidence: the complete store package passed 115 tests; runtime/execution
+regressions passed 51; native MCP/task-client tests passed 13. Actual local native
+helper finish commits Done and preserves the macOS whole-tree refusal gate. The
+new MCP endpoint rejects foreign task/route/capability, conflicting replay and
+oversized encoded input; identical post-fence replay returns only its receipt.
+Capacity, migration, queue reply loss, cancellation and wrong-scope/route/resource
+fixtures retain canonical and custody invariants. Native and cross-target checks
+and both focused task lifecycles are recorded with this slice's validation.
+
+Native service remains disabled. Actual Linux/Windows positive completion cleanup
+and the complete authenticated Matrix input-to-final-send workflow require the
+combined platform integration/CI; ADR-059 owns the final Matrix sender. Task-only
+Done and ownerless held content still require an explicit future reporting or
+inspection path rather than automatic re-execution.
+
+Final scoped validation: 195 tests across the selected packages and native helper
+integration targets (16 core, 115 store, 51 runtime/execution, 13 helper/client).
+Native and Windows GNU cross-target all-target Clippy pass with warnings denied;
+fmt/diff checks pass. Agent-spec 1.4 package-scoped lifecycles pass all 8 store
+scenarios and 3 native integration scenarios plus both boundaries, quality 100%,
+with zero fail/skip/uncertain. Cross-compilation is not Windows runtime evidence.

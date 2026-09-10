@@ -1,7 +1,7 @@
 #[path = "../../hagency-store/tests/common/mod.rs"]
 mod common;
 use common::*;
-use hagency_core::tasks::*;
+use hagency_core::{replies::*, tasks::*};
 use hagency_execution::{Failure, Host, Limits, Operation, Protocol, Settlement};
 use hagency_runtime::owned::Cleanup;
 use hagency_store::{DomainRepository, DomainStore, EffectOutcome, OwnedObservation};
@@ -66,12 +66,44 @@ impl Fixture {
             },
         )
         .unwrap();
-        db.register_session(&SessionBinding {
-            id: "session".into(),
-            engagement_id: e.id.clone(),
-            room_id: "!project:example.test".into(),
-            thread_root: Some("$thread".into()),
-        })
+        db.observe_matrix_transport(
+            &MatrixTransportObservation {
+                engagement_id: e.id.clone(),
+                registration_generation: 1,
+                generation: 1,
+                sender_mxid: "@worker:example.test".into(),
+                device_id: "DEVICE".into(),
+            },
+            now(),
+        )
+        .unwrap();
+        db.observe_matrix_room(
+            &MatrixRoomObservation {
+                engagement_id: e.id.clone(),
+                registration_generation: 1,
+                transport_generation: 1,
+                room_id: "!project:example.test".into(),
+                generation: 1,
+                privacy: RoomPrivacy::Group {},
+                joined: std::collections::BTreeSet::from([
+                    "@worker:example.test".into(),
+                    "@owner:example.test".into(),
+                ]),
+                invite_only: true,
+                encrypted: false,
+            },
+            now(),
+        )
+        .unwrap();
+        db.resolve_verified_matrix_session(
+            &SessionBinding {
+                id: "session".into(),
+                engagement_id: e.id.clone(),
+                room_id: "!project:example.test".into(),
+                thread_root: Some("$thread".into()),
+            },
+            now(),
+        )
         .unwrap();
         db.register_workspace("work").unwrap();
         db.create_canonical_task("task", "session", "Exact frozen task", now())
@@ -333,4 +365,186 @@ async fn native_owned_mcp_real_heartbeat() {
 #[tokio::test]
 async fn native_owned_mcp_real_done_epoch() {
     roundtrip(true).await;
+}
+
+#[tokio::test]
+async fn native_owned_mcp_real_finish() {
+    let f = Fixture::new().await;
+    let host = f
+        .host("finish", false)
+        .with_task_helper(env!("CARGO_BIN_EXE_hagency").into(), f.address)
+        .unwrap();
+    let mut operation = Operation::start(f.domain.clone(), f.cap.clone(), host, limits()).unwrap();
+    let report = operation.wait().await.unwrap();
+    let task: Task = serde_json::from_str(
+        &f.sql()
+            .query_row(
+                "SELECT config FROM canonical_tasks WHERE id='task'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(task.status, TaskState::Done);
+    assert_eq!(task.execution_epoch, 1);
+    assert_eq!(report.canonical_status, Some(TaskState::Done));
+    assert_eq!(f.count("SELECT COUNT(*) FROM owned_task_completions"), 1);
+    assert!(
+        f.domain
+            .runner_command(f.cap.clone(), RunnerCommand::Check)
+            .await
+            .is_err()
+    );
+    assert!(f.domain.owned_dispatch_scope(f.cap.clone()).await.is_err());
+    let Cleanup::Observed(cleanup) = report.cleanup else {
+        panic!("actual cleanup required")
+    };
+    assert!(cleanup.scope.leader_exited);
+    if cfg!(target_os = "macos") {
+        assert!(!cleanup.scope.whole_tree_stopped);
+        assert_eq!(report.failure, Some(Failure::CleanupUnknown));
+        assert_eq!(f.count("SELECT COUNT(*) FROM final_replies"), 0);
+        assert_eq!(f.count("SELECT COUNT(*) FROM resource_leases"), 1);
+    } else {
+        assert!(cleanup.scope.whole_tree_stopped && cleanup.scope.signals_accepted);
+        assert_eq!(report.failure, None);
+        assert_eq!(report.settlement, Settlement::CanonicalReplyReady);
+        assert_eq!(f.count("SELECT COUNT(*) FROM resource_leases"), 0);
+        let claim = f.domain.claim_final_reply(1000).await.unwrap().unwrap();
+        let send = f.domain.preview_final_reply(claim).await.unwrap();
+        assert_eq!(send.body, "Verified **native MCP final result**");
+        assert_eq!(send.route.room_id, "!project:example.test");
+        assert_eq!(send.route.thread_root, Some("$thread".into()));
+    }
+    // Helper ACK/exit may race the real retirement, unlike the deterministic
+    // heartbeat fixture. Canonical writer receipt is the independent truth.
+    for stage in ["finish-ack", "finish-exit"] {
+        if let Ok(value) = fs::read_to_string(f.work.join(format!("owned-mcp.{stage}"))) {
+            assert!(!value.contains(&f.cap.secret));
+            let value: serde_json::Value = serde_json::from_str(&value).unwrap();
+            assert_eq!(value["completion"]["task_id"], "task");
+            assert_eq!(value["completion"]["execution_epoch"], 1);
+        }
+    }
+    let requests = fs::read_to_string(f.work.join("owned-mcp.requests")).unwrap();
+    assert!(!requests.contains(&f.cap.secret));
+    assert!(!requests.contains("Verified **native MCP final result**"));
+    drop(report);
+    drop(operation);
+    f.close().await;
+}
+
+async fn local_mcp(f: &Fixture) -> hagency::mcp::Session {
+    let c = hagency::task_client::Context::new(f.address, f.cap.clone(), "task".into()).unwrap();
+    mcp_context(c).await
+}
+async fn mcp_context(c: hagency::task_client::Context) -> hagency::mcp::Session {
+    let mut session = hagency::mcp::Session::new(c);
+    session.handle(&serde_json::to_vec(&json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"completion-test","version":"1"}}})).unwrap()).await.unwrap();
+    session
+        .handle(br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+        .await
+        .unwrap();
+    session
+}
+async fn mcp_call(
+    session: &mut hagency::mcp::Session,
+    id: u64,
+    name: &str,
+    args: serde_json::Value,
+) -> serde_json::Value {
+    session.handle(&serde_json::to_vec(&json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":args}})).unwrap()).await.unwrap().unwrap()["result"].clone()
+}
+#[tokio::test]
+async fn native_owned_completion_mcp_scope_replay() {
+    let f = Fixture::new().await;
+    let scope = f.domain.owned_dispatch_scope(f.cap.clone()).await.unwrap();
+    f.domain
+        .start_owned_dispatch(f.cap.clone(), scope.fingerprint().into())
+        .await
+        .unwrap();
+    let mut mcp = local_mcp(&f).await;
+    for (index, args) in [
+        json!({"id":"foreign","call_id":"x","body":"result"}),
+        json!({"id":"task","call_id":"x","body":"result","room_id":"!foreign:example.test"}),
+        json!({"id":"task","call_id":"x","body":""}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let result = mcp_call(&mut mcp, index as u64 + 1, "complete_task_with_reply", args).await;
+        assert_eq!(result["isError"], true);
+    }
+    assert_eq!(f.count("SELECT COUNT(*) FROM owned_task_completions"), 0);
+    // Encoding can exceed the frame bound even when raw body bytes fit. The
+    // actual MCP decoder refuses the entire frame; nothing is truncated/saved.
+    let mut bounded = local_mcp(&f).await;
+    let frame=serde_json::to_vec(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"complete_task_with_reply","arguments":{"id":"task","call_id":"overflow","body":"\"".repeat(17000)}}})).unwrap();
+    assert!(frame.len() > hagency::mcp::FRAME_LIMIT);
+    assert!(bounded.handle(&frame).await.is_err());
+    assert_eq!(f.count("SELECT COUNT(*) FROM owned_task_completions"), 0);
+    let args = json!({"id":"task","call_id":"exact_finish","body":"Exact immutable final"});
+    let first = mcp_call(&mut mcp, 10, "complete_task_with_reply", args.clone()).await;
+    assert_eq!(first["isError"], false);
+    assert_eq!(first["structuredContent"]["state"], "held");
+    // Receipt-only retry crosses the real HTTP boundary after its capability was
+    // retired. Ordinary generic get/task mutation remain refused.
+    let retry = mcp_call(&mut mcp, 11, "complete_task_with_reply", args).await;
+    assert_eq!(retry["isError"], false);
+    assert_eq!(retry["structuredContent"]["replayed"], true);
+    assert_eq!(
+        retry["structuredContent"]["id"],
+        first["structuredContent"]["id"]
+    );
+    let bad = mcp_call(
+        &mut mcp,
+        12,
+        "complete_task_with_reply",
+        json!({"id":"task","call_id":"exact_finish","body":"changed"}),
+    )
+    .await;
+    assert_eq!(bad["isError"], true);
+    assert_eq!(
+        mcp_call(&mut mcp, 13, "get_task", json!({"id":"task"})).await["isError"],
+        true
+    );
+    assert_eq!(
+        mcp_call(
+            &mut mcp,
+            14,
+            "update_task_execution",
+            json!({"id":"task","call_id":"later","heartbeat":true})
+        )
+        .await["isError"],
+        true
+    );
+    assert_eq!(f.count("SELECT COUNT(*) FROM final_replies"), 0);
+    assert_eq!(f.count("SELECT COUNT(*) FROM resource_leases"), 1);
+    assert_eq!(f.count("SELECT COUNT(*) FROM task_operation_receipts"), 1);
+    for field in ["runner", "dispatch", "fence", "secret"] {
+        let mut bad = f.cap.clone();
+        match field {
+            "runner" => bad.runner_id = "foreign".into(),
+            "dispatch" => bad.dispatch_id = "foreign".into(),
+            "fence" => bad.fence += 1,
+            _ => bad.secret = "0".repeat(64),
+        }
+        let mut other =
+            mcp_context(hagency::task_client::Context::new(f.address, bad, "task".into()).unwrap())
+                .await;
+        let result = mcp_call(
+            &mut other,
+            1,
+            "complete_task_with_reply",
+            json!({"id":"task","call_id":"exact_finish","body":"Exact immutable final"}),
+        )
+        .await;
+        assert_eq!(result["isError"], true, "{field}");
+    }
+    let output = first.to_string();
+    assert!(!output.contains(&f.cap.secret));
+    assert!(!output.contains("Exact immutable final"));
+    assert!(!output.contains("!project"));
+    f.close().await;
 }

@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::{net::TcpStream, time::timeout};
 const RESPONSE_LIMIT: usize = 64 * 1024;
 pub(super) enum Operation<'a> {
+    Complete(&'a hagency_core::completions::CompleteTaskWithReply),
     Task {
         operation: Option<&'a TaskMutation>,
         call_id: Option<&'a str>,
@@ -30,6 +31,21 @@ pub(super) async fn request(
         return Err(Error::Invalid);
     }
     let (request, limit) = match operation {
+        Operation::Complete(input) => {
+            input.validate().map_err(|_| Error::Invalid)?;
+            if input.id != context.task_id {
+                return Err(Error::Invalid);
+            }
+            (
+                Prepared {
+                    path: "/api/native/v1/runner/complete-task-with-reply".into(),
+                    body: serde_json::to_vec(input).map_err(|_| Error::Invalid)?,
+                    method: "POST",
+                    mutation: true,
+                },
+                32 * 1024,
+            )
+        }
         Operation::Task { operation, call_id } => {
             let (path, body, method) = if let Some(operation) = operation {
                 let call = call_id.ok_or(Error::Invalid)?;

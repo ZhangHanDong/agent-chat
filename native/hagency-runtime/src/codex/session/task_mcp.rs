@@ -9,7 +9,12 @@ pub const TASK_MCP_ENV: [&str; 3] = [
     "HAGENCY_RUNNER_CAPABILITY",
     "HAGENCY_TASK_ID",
 ];
-pub const TASK_MCP_TOOLS: [&str; 3] = ["get_task", "update_task_execution", "transition_task"];
+pub const TASK_MCP_TOOLS: [&str; 4] = [
+    "get_task",
+    "update_task_execution",
+    "transition_task",
+    "complete_task_with_reply",
+];
 pub struct TaskMcp {
     executable: String,
     task_id: String,
@@ -68,7 +73,7 @@ impl TaskMcp {
     }
     pub(super) fn guidance(&self) -> String {
         format!(
-            "The assigned canonical task ID is {}. Use the hagency_task_writer MCP tools for this exact task. Tool results determine canonical state; a final answer does not complete the task.",
+            "The assigned canonical task ID is {}. Use the hagency_task_writer MCP tools for this exact task. Tool results determine canonical state; a final answer does not complete the task. After independently verifying work for a user reply, call complete_task_with_reply with the exact task ID, stable call_id, and full bounded final body. This explicitly marks Done, retires execution, and holds the body for the original room until owner cleanup. Stop all tools after that call. For task-only work without a user reply, transition_task done remains available.",
             self.task_id
         )
     }

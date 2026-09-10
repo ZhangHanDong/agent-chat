@@ -14,13 +14,37 @@ use serde_json::json;
 
 /// Constructed from the writer's exact authorized snapshot. This is logical
 /// dispatch authority; it does not prove a path's physical directory custody.
+#[derive(Clone)]
 pub struct OwnedDispatchScope {
     input: DispatchInput,
     task: Task,
     resource: Resource,
     fingerprint: String,
+    started: Option<(String, u64, String)>,
 }
 impl OwnedDispatchScope {
+    /// Internal queue accounting includes every captured variable-size field,
+    /// including the private marker. This is never a public scope projection.
+    pub(crate) fn queue_value(&self) -> impl Serialize + '_ {
+        (
+            &self.input,
+            &self.task,
+            &self.resource,
+            &self.fingerprint,
+            &self.started,
+        )
+    }
+
+    pub(super) fn check_started(&self, cap: &RunnerCapability) -> Result<(), Error> {
+        let hash = canonical::digest(&json!(cap.secret))?;
+        if self.input.id != cap.dispatch_id
+            || self.started.as_ref() != Some(&(cap.runner_id.clone(), cap.fence, hash))
+        {
+            return Err(Error::RunnerAuthority);
+        }
+        Ok(())
+    }
+
     pub fn input(&self) -> &DispatchInput {
         &self.input
     }
@@ -57,13 +81,21 @@ pub enum OwnedObservation {
     AlreadySettled,
 }
 
-fn scope(
+pub(super) fn scope(
     db: &Connection,
     cap: &RunnerCapability,
     now: u64,
     states: &[&str],
 ) -> Result<OwnedDispatchScope, Error> {
     let dispatch = execution::authorize(db, cap, now, states)?;
+    projection(db, cap, &dispatch, None)
+}
+pub(super) fn projection(
+    db: &Connection,
+    cap: &RunnerCapability,
+    dispatch: &execution::Dispatch,
+    completed_epoch: Option<u64>,
+) -> Result<OwnedDispatchScope, Error> {
     if dispatch.report_task.is_some() {
         return Err(Error::RunnerAuthority);
     }
@@ -79,7 +111,11 @@ fn scope(
     {
         return Err(Error::RunnerAuthority);
     }
-    let session: StoredSession = execution::session(db, &input.session_id)?;
+    let session: StoredSession = if completed_epoch.is_some() {
+        execution::admission_session(db, &input.session_id)?
+    } else {
+        execution::session(db, &input.session_id)?
+    };
     let engagement = read_engagement(db, session.engagement_id())?;
     let (effect, generation): (String, u64) = db.query_row(
         "SELECT f.payload,e.generation FROM effects f JOIN engagements e ON e.id=f.engagement_id WHERE f.engagement_id=?1 AND f.kind='provision' AND f.state='complete'",
@@ -111,14 +147,18 @@ fn scope(
             "SELECT l.exclusive,d.exclusive,w.dirty FROM resource_leases l JOIN dispatch_resources d ON d.dispatch_id=l.dispatch_id AND d.resource_id=l.resource_id JOIN workspace_resources w ON w.id=l.resource_id WHERE l.dispatch_id=?1 AND l.resource_id=?2",
             params![cap.dispatch_id,expected.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
         ).optional()?;
-        if actual != Some((expected.exclusive, expected.exclusive, false)) {
+        if !actual.is_some_and(|(lease, frozen, dirty)| {
+            lease == expected.exclusive
+                && frozen == expected.exclusive
+                && (!dirty || completed_epoch.is_some())
+        }) {
             return Err(Error::Quarantined);
         }
     }
     // Task status/heartbeat may change through authorized canonical operations;
     // its identity and execution epoch must remain fixed for this attempt.
     let fingerprint = canonical::payload_digest(&json!({
-        "input":input,"task_id":task.id,"task_epoch":task.execution_epoch,
+        "input":input,"task_id":task.id,"task_epoch":completed_epoch.unwrap_or(task.execution_epoch),
         "session":session,"engagement":engagement.id,"generation":generation,
         "resource":resource,"runtime_name":engagement.runtime_name,
     }))?;
@@ -127,6 +167,7 @@ fn scope(
         task,
         resource,
         fingerprint,
+        started: None,
     })
 }
 
@@ -163,10 +204,15 @@ impl DomainRepository {
             return Err(Error::RunnerAuthority);
         }
         execution::start_in_transaction(&tx, cap, now)?;
-        let started = scope(&tx, cap, now, &["started"])?;
+        let mut started = scope(&tx, cap, now, &["started"])?;
         if started.fingerprint != expected {
             return Err(Error::RunnerAuthority);
         }
+        started.started = Some((
+            cap.runner_id.clone(),
+            cap.fence,
+            canonical::digest(&json!(cap.secret))?,
+        ));
         tx.commit()?;
         Ok(started)
     }
@@ -250,6 +296,7 @@ impl DomainRepository {
         if runner != cap.runner_id || !execution::matches_secret(&hash, &cap.secret)? {
             return Err(Error::RunnerAuthority);
         }
+        tx.execute("UPDATE owned_task_completions SET state='cancelled',updated_at=?3 WHERE dispatch_id=?1 AND fence=?2 AND state='held'", params![cap.dispatch_id,cap.fence,now])?;
         let d = execution::dispatch(&tx, &cap.dispatch_id)?;
         let count: usize = tx.query_row(
             "SELECT COUNT(*) FROM runner_outputs WHERE dispatch_id=?1 AND fence=?2",

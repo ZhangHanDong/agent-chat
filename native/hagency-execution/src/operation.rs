@@ -73,6 +73,7 @@ pub enum Protocol {
 pub enum Settlement {
     Pending,
     Completed,
+    CanonicalReplyReady,
     Negative(OwnedObservation),
     Unknown,
 }
@@ -299,7 +300,7 @@ async fn execute(
     cap: &RunnerCapability,
     host: Host,
     limits: Limits,
-    cancel: &AtomicBool,
+    cancel: &Arc<AtomicBool>,
     until: Instant,
     report: &mut Report,
 ) -> Result<(), Failure> {
@@ -430,6 +431,40 @@ async fn execute(
             .and_then(|value| serde_json::from_value::<Task>(value).ok())
             .filter(|task| task.id == scope.task().id && task.session_id == scope.task().session_id)
             .map(|task| task.status);
+    }
+    checkpoint(cancel, until)?;
+    // A matching explicit Done+body is completion custody, not a renewed task
+    // epoch or permission to continue this process. The same runner was stopped
+    // above. Scope is the opaque successful Start response, never admission data.
+    if !matches!(
+        drive,
+        Err(Failure::Cancelled | Failure::Deadline | Failure::UnsupportedApproval)
+    ) && let Some(reference) = domain
+        .observe_owned_completion(cap.clone(), started.clone())
+        .await
+        .map_err(|_| Failure::SettlementUnknown)?
+    {
+        report.canonical_status = Some(TaskState::Done);
+        checkpoint(cancel, until)?;
+        if !stopped(report.cleanup) {
+            return Err(Failure::CleanupUnknown);
+        }
+        // This finite writer commit is not cancellation-raced: after this
+        // checkpoint cancellation cannot undo an already committed final intent.
+        domain
+            .publish_owned_completion(cap.clone(), started, reference, cancel.clone())
+            .await
+            .map_err(|_| {
+                if cancel.load(Ordering::Acquire) {
+                    Failure::Cancelled
+                } else {
+                    Failure::SettlementUnknown
+                }
+            })?;
+        report.settlement = Settlement::CanonicalReplyReady;
+        report.text = None; // Stored explicit content is the sole final body.
+        report.owner.take();
+        return Ok(());
     }
     drive?;
     checkpoint(cancel, until)?;

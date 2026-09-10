@@ -9,6 +9,7 @@ use hagency_core::{
 };
 use hagency_store::{DomainStore, Error};
 use salvo::prelude::*;
+mod completion;
 mod replies;
 mod workflows;
 
@@ -19,20 +20,24 @@ struct Context {
 }
 pub(super) fn router() -> Router {
     Router::with_path("api/native/v1/runner")
-        .hoop(authenticate)
-        .push(Router::with_path("tasks").get(list_tasks))
-        .push(Router::with_path("delegations").post(delegate))
-        .push(Router::with_path("conversations").post(open_conversation))
-        .push(Router::with_path("conversations/{id}").get(conversation))
-        .push(Router::with_path("conversations/{id}/operations").post(change_conversation))
-        .push(Router::with_path("tasks/{id}").get(get_task))
-        .push(Router::with_path("tasks/{id}/comments").get(comments))
-        .push(Router::with_path("tasks/{id}/operations").post(mutate))
-        .push(Router::with_path("inbox").get(inbox))
-        .push(Router::with_path("peer-messages").post(send_peer))
-        .push(Router::with_path("peer-inbox").get(peer_inbox))
-        .push(workflows::router())
-        .push(replies::router())
+        .push(completion::router())
+        .push(
+            Router::new()
+                .hoop(authenticate)
+                .push(Router::with_path("tasks").get(list_tasks))
+                .push(Router::with_path("delegations").post(delegate))
+                .push(Router::with_path("conversations").post(open_conversation))
+                .push(Router::with_path("conversations/{id}").get(conversation))
+                .push(Router::with_path("conversations/{id}/operations").post(change_conversation))
+                .push(Router::with_path("tasks/{id}").get(get_task))
+                .push(Router::with_path("tasks/{id}/comments").get(comments))
+                .push(Router::with_path("tasks/{id}/operations").post(mutate))
+                .push(Router::with_path("inbox").get(inbox))
+                .push(Router::with_path("peer-messages").post(send_peer))
+                .push(Router::with_path("peer-inbox").get(peer_inbox))
+                .push(workflows::router())
+                .push(replies::router()),
+        )
 }
 #[handler]
 async fn change_conversation(req: &mut Request, depot: &mut Depot, res: &mut Response) {

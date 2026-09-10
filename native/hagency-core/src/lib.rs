@@ -24,3 +24,5 @@ pub struct InvalidInput(pub &'static str);
 pub mod ingress;
 
 pub mod approvals;
+
+pub mod completions;

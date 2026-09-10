@@ -428,6 +428,128 @@ pub(super) fn complete_in_transaction(
     Ok(())
 }
 
+pub(super) fn mutate_in_transaction(
+    tx: &Transaction<'_>,
+    cap: &RunnerCapability,
+    id: &str,
+    call_id: &str,
+    mutation: &TaskMutation,
+    digest: &str,
+    now: u64,
+) -> Result<MutationResult, Error> {
+    let d = authorize(tx, cap, now, &["started"])?;
+    let mut t = task(tx, id)?;
+    if d.task_id.as_deref() != Some(id) || t.session_id != d.session_id {
+        return Err(Error::RunnerAuthority);
+    }
+    let prior:Option<(String,String)>=tx.query_row("SELECT digest,response FROM task_operation_receipts WHERE dispatch_id=?1 AND call_id=?2",params![cap.dispatch_id,call_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+    if let Some((old, response)) = prior {
+        if old != digest {
+            return Err(Error::Conflict);
+        }
+        let task = serde_json::from_str(&response)?;
+        return Ok(MutationResult {
+            task,
+            replayed: true,
+        });
+    }
+    if t.status == TaskState::Done {
+        return Err(Error::State);
+    }
+    let kind = match mutation {
+        TaskMutation::Accept => {
+            if !t.status.permits(TaskState::Accepted) {
+                return Err(Error::State);
+            }
+            t.status = TaskState::Accepted;
+            "accepted"
+        }
+        TaskMutation::Transition {
+            status,
+            waiting_reason,
+            waiting_until,
+        } => {
+            if !t.status.permits(*status) {
+                return Err(Error::State);
+            }
+            if *status == TaskState::Blocked {
+                text(waiting_reason.as_deref().unwrap_or(""), 1024)?;
+                text(waiting_until.as_deref().unwrap_or(""), 64)?;
+                t.waiting_reason = waiting_reason.clone();
+                t.waiting_until = waiting_until.clone();
+            } else {
+                t.waiting_reason = None;
+                t.waiting_until = None;
+            }
+            t.status = *status;
+            if *status == TaskState::Done {
+                t.execution_epoch = t
+                    .execution_epoch
+                    .checked_add(1)
+                    .filter(|v| *v <= JSON_SAFE_MAX)
+                    .ok_or(Error::Capacity)?;
+                t.completed_at = Some(now);
+            }
+            "transition"
+        }
+        TaskMutation::Comment { text: body } => {
+            text(body, 8192)?;
+            let count: u32 = tx.query_row(
+                "SELECT COUNT(*) FROM task_comments WHERE task_id=?1",
+                [id],
+                |r| r.get(0),
+            )?;
+            if count >= 1000 {
+                return Err(Error::Capacity);
+            }
+            let binding = session(tx, &d.session_id)?;
+            let agent = read_engagement(tx, binding.engagement_id())?;
+            tx.execute(
+                "INSERT INTO task_comments(task_id,author,body,created_at) VALUES(?1,?2,?3,?4)",
+                params![id, agent.agent_name.as_str(), body, now],
+            )?;
+            "comment"
+        }
+        TaskMutation::Execution {
+            heartbeat,
+            waiting_reason,
+            waiting_until,
+        } => {
+            if let TextPatch::Value(v) = waiting_reason {
+                if let Some(v) = v {
+                    text(v, 1024)?;
+                }
+                t.waiting_reason = v.clone();
+            }
+            if let TextPatch::Value(v) = waiting_until {
+                if let Some(v) = v {
+                    text(v, 64)?;
+                }
+                t.waiting_until = v.clone();
+            }
+            if *heartbeat {
+                t.heartbeat_at = Some(now);
+            }
+            "execution"
+        }
+    };
+    t.updated_at = now;
+    let count: u32 = tx.query_row(
+        "SELECT COUNT(*) FROM task_operation_receipts WHERE dispatch_id=?1",
+        [&cap.dispatch_id],
+        |r| r.get(0),
+    )?;
+    if count >= 4096 {
+        return Err(Error::Capacity);
+    }
+    save_task(tx, &t, kind)?;
+    tx.execute("INSERT INTO task_operation_receipts(dispatch_id,call_id,digest,response) VALUES(?1,?2,?3,?4)",params![cap.dispatch_id,call_id,digest,serialize(&t)?])?;
+    Ok(MutationResult {
+        task: t,
+        replayed: false,
+    })
+}
+
 impl DomainRepository {
     pub fn check_runner(&self, cap: &RunnerCapability, now: u64) -> Result<(), Error> {
         authorize(&self.db, cap, now, &["started"])?;
@@ -875,119 +997,9 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let d = authorize(&tx, cap, now, &["started"])?;
-        let mut t = task(&tx, id)?;
-        if d.task_id.as_deref() != Some(id) || t.session_id != d.session_id {
-            return Err(Error::RunnerAuthority);
-        }
-        let prior:Option<(String,String)>=tx.query_row("SELECT digest,response FROM task_operation_receipts WHERE dispatch_id=?1 AND call_id=?2",params![cap.dispatch_id,call_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-        if let Some((old, response)) = prior {
-            if old != digest {
-                return Err(Error::Conflict);
-            }
-            let task = serde_json::from_str(&response)?;
-            tx.commit()?;
-            return Ok(MutationResult {
-                task,
-                replayed: true,
-            });
-        }
-        if t.status == TaskState::Done {
-            return Err(Error::State);
-        }
-        let kind = match mutation {
-            TaskMutation::Accept => {
-                if !t.status.permits(TaskState::Accepted) {
-                    return Err(Error::State);
-                }
-                t.status = TaskState::Accepted;
-                "accepted"
-            }
-            TaskMutation::Transition {
-                status,
-                waiting_reason,
-                waiting_until,
-            } => {
-                if !t.status.permits(*status) {
-                    return Err(Error::State);
-                }
-                if *status == TaskState::Blocked {
-                    text(waiting_reason.as_deref().unwrap_or(""), 1024)?;
-                    text(waiting_until.as_deref().unwrap_or(""), 64)?;
-                    t.waiting_reason = waiting_reason.clone();
-                    t.waiting_until = waiting_until.clone();
-                } else {
-                    t.waiting_reason = None;
-                    t.waiting_until = None;
-                }
-                t.status = *status;
-                if *status == TaskState::Done {
-                    t.execution_epoch = t
-                        .execution_epoch
-                        .checked_add(1)
-                        .filter(|v| *v <= JSON_SAFE_MAX)
-                        .ok_or(Error::Capacity)?;
-                    t.completed_at = Some(now);
-                }
-                "transition"
-            }
-            TaskMutation::Comment { text: body } => {
-                text(body, 8192)?;
-                let count: u32 = tx.query_row(
-                    "SELECT COUNT(*) FROM task_comments WHERE task_id=?1",
-                    [id],
-                    |r| r.get(0),
-                )?;
-                if count >= 1000 {
-                    return Err(Error::Capacity);
-                }
-                let binding = session(&tx, &d.session_id)?;
-                let agent = read_engagement(&tx, binding.engagement_id())?;
-                tx.execute(
-                    "INSERT INTO task_comments(task_id,author,body,created_at) VALUES(?1,?2,?3,?4)",
-                    params![id, agent.agent_name.as_str(), body, now],
-                )?;
-                "comment"
-            }
-            TaskMutation::Execution {
-                heartbeat,
-                waiting_reason,
-                waiting_until,
-            } => {
-                if let TextPatch::Value(v) = waiting_reason {
-                    if let Some(v) = v {
-                        text(v, 1024)?;
-                    }
-                    t.waiting_reason = v.clone();
-                }
-                if let TextPatch::Value(v) = waiting_until {
-                    if let Some(v) = v {
-                        text(v, 64)?;
-                    }
-                    t.waiting_until = v.clone();
-                }
-                if *heartbeat {
-                    t.heartbeat_at = Some(now);
-                }
-                "execution"
-            }
-        };
-        t.updated_at = now;
-        let count: u32 = tx.query_row(
-            "SELECT COUNT(*) FROM task_operation_receipts WHERE dispatch_id=?1",
-            [&cap.dispatch_id],
-            |r| r.get(0),
-        )?;
-        if count >= 4096 {
-            return Err(Error::Capacity);
-        }
-        save_task(&tx, &t, kind)?;
-        tx.execute("INSERT INTO task_operation_receipts(dispatch_id,call_id,digest,response) VALUES(?1,?2,?3,?4)",params![cap.dispatch_id,call_id,digest,serialize(&t)?])?;
+        let value = mutate_in_transaction(&tx, cap, id, call_id, mutation, &digest, now)?;
         tx.commit()?;
-        Ok(MutationResult {
-            task: t,
-            replayed: false,
-        })
+        Ok(value)
     }
     pub fn runner_comments(
         &self,

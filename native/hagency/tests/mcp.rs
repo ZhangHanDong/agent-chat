@@ -48,7 +48,7 @@ async fn native_mcp_protocol() {
     )
     .await
     .unwrap();
-    assert_eq!(catalog["result"]["tools"].as_array().unwrap().len(), 19);
+    assert_eq!(catalog["result"]["tools"].as_array().unwrap().len(), 20);
     for tool in catalog["result"]["tools"].as_array().unwrap() {
         assert_eq!(tool["inputSchema"]["additionalProperties"], false);
         assert!(!tool.to_string().contains("secret"));

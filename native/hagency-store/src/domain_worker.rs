@@ -57,12 +57,44 @@ mod clock_tests {
             },
         )
         .unwrap();
-        db.register_session(&SessionBinding {
-            id: "session".into(),
-            engagement_id: e.id,
-            room_id: "!project:example.test".into(),
-            thread_root: None,
-        })
+        db.observe_matrix_transport(
+            &hagency_core::replies::MatrixTransportObservation {
+                engagement_id: e.id.clone(),
+                registration_generation: 1,
+                generation: 1,
+                sender_mxid: "@worker:example.test".into(),
+                device_id: "DEVICE".into(),
+            },
+            now(),
+        )
+        .unwrap();
+        db.observe_matrix_room(
+            &hagency_core::replies::MatrixRoomObservation {
+                engagement_id: e.id.clone(),
+                registration_generation: 1,
+                transport_generation: 1,
+                room_id: "!project:example.test".into(),
+                generation: 1,
+                privacy: hagency_core::replies::RoomPrivacy::Group {},
+                joined: std::collections::BTreeSet::from([
+                    "@worker:example.test".into(),
+                    "@owner:example.test".into(),
+                ]),
+                invite_only: true,
+                encrypted: false,
+            },
+            now(),
+        )
+        .unwrap();
+        db.resolve_verified_matrix_session(
+            &SessionBinding {
+                id: "session".into(),
+                engagement_id: e.id,
+                room_id: "!project:example.test".into(),
+                thread_root: None,
+            },
+            now(),
+        )
         .unwrap();
         db.register_workspace("work").unwrap();
         db.create_canonical_task("task", "session", "Receipt loss", now())
@@ -83,6 +115,165 @@ mod clock_tests {
             .unwrap()
             .unwrap();
         (db, cap)
+    }
+
+    #[tokio::test]
+    async fn native_owned_completion_queue_reply_loss() {
+        for committed in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let (mut db, cap) = owned_fixture(root.path());
+            let admission = db.owned_dispatch_scope(&cap, now()).unwrap();
+            let scope = db
+                .start_owned_dispatch(&cap, admission.fingerprint(), now())
+                .unwrap();
+            let input = hagency_core::completions::CompleteTaskWithReply {
+                id: "task".into(),
+                call_id: "finish".into(),
+                body: "Exact held result".into(),
+            };
+            let store = DomainStore::start(db, 16).unwrap();
+            let (entered, ready) = oneshot::channel();
+            let (release, gate) = std::sync::mpsc::channel();
+            let worker = store.clone();
+            let c = cap.clone();
+            let i = input.clone();
+            let withheld = tokio::spawn(async move {
+                worker
+                    .call(1, move |db| {
+                        if committed {
+                            db.complete_task_with_reply(&c, &i, now())?;
+                        }
+                        let _ = entered.send(());
+                        gate.recv_timeout(Duration::from_secs(4))
+                            .map_err(|_| Error::Unavailable)?;
+                        Ok(())
+                    })
+                    .await
+            });
+            ready.await.unwrap();
+            if !committed {
+                assert!(matches!(
+                    store
+                        .runner_command(
+                            cap.clone(),
+                            RunnerCommand::CompleteTaskWithReply(input.clone())
+                        )
+                        .await,
+                    Err(Error::OutcomeUnknown)
+                ));
+            }
+            assert!(matches!(
+                withheld.await.unwrap(),
+                Err(Error::OutcomeUnknown)
+            ));
+            release.send(()).unwrap();
+            let observed = store
+                .observe_owned_completion(cap.clone(), scope)
+                .await
+                .unwrap();
+            assert_eq!(observed.is_some(), committed);
+            let inspect =
+                rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+            let task: Task = serde_json::from_str(
+                &inspect
+                    .query_row(
+                        "SELECT config FROM canonical_tasks WHERE id='task'",
+                        [],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                task.status,
+                if committed {
+                    hagency_core::tasks::TaskState::Done
+                } else {
+                    hagency_core::tasks::TaskState::InProgress
+                }
+            );
+            assert_eq!(
+                inspect
+                    .query_row("SELECT COUNT(*) FROM final_replies", [], |r| r
+                        .get::<_, u64>(0))
+                    .unwrap(),
+                0
+            );
+            if committed {
+                let replay = store
+                    .runner_command(cap, RunnerCommand::CompleteTaskWithReply(input))
+                    .await
+                    .unwrap();
+                assert_eq!(replay["replayed"], true);
+            }
+            drop(inspect);
+            store.shutdown().await.unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn native_owned_completion_queued_cancellation() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut db, cap) = owned_fixture(root.path());
+        let admission = db.owned_dispatch_scope(&cap, now()).unwrap();
+        let scope = db
+            .start_owned_dispatch(&cap, admission.fingerprint(), now())
+            .unwrap();
+        db.complete_task_with_reply(
+            &cap,
+            &hagency_core::completions::CompleteTaskWithReply {
+                id: "task".into(),
+                call_id: "finish".into(),
+                body: "Result".into(),
+            },
+            now(),
+        )
+        .unwrap();
+        let reference = db.observe_owned_completion(&cap, &scope).unwrap().unwrap();
+        let store = DomainStore::start(db, 16).unwrap();
+        let (entered, ready) = oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let worker = store.clone();
+        let hold = tokio::spawn(async move {
+            worker
+                .call(1, move |_| {
+                    let _ = entered.send(());
+                    gate.recv_timeout(Duration::from_secs(1))
+                        .map_err(|_| Error::Unavailable)?;
+                    Ok(())
+                })
+                .await
+        });
+        ready.await.unwrap();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let signal = cancel.clone();
+        let worker = store.clone();
+        let mut queued = Box::pin(worker.publish_owned_completion(cap, scope, reference, signal));
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(queued.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await; // call() has enqueued its command before its first Pending.
+        cancel.store(true, std::sync::atomic::Ordering::Release);
+        release.send(()).unwrap();
+        hold.await.unwrap().unwrap();
+        assert!(matches!(queued.await, Err(Error::State)));
+        let inspect = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        assert_eq!(
+            inspect
+                .query_row("SELECT COUNT(*) FROM final_replies", [], |r| r
+                    .get::<_, u64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            inspect
+                .query_row("SELECT COUNT(*) FROM resource_leases", [], |r| r
+                    .get::<_, u64>(0))
+                .unwrap(),
+            1
+        );
+        drop(inspect);
+        store.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -322,6 +513,37 @@ impl DomainStore {
     ) -> Result<Task, Error> {
         self.call(weight(&(&cap, &expected, &output))?, move |db| {
             db.complete_owned_clock(&cap, &expected, &output, writer_time)
+        })
+        .await
+    }
+    pub async fn observe_owned_completion(
+        &self,
+        cap: RunnerCapability,
+        scope: crate::OwnedDispatchScope,
+    ) -> Result<Option<crate::OwnedCompletion>, Error> {
+        let bytes = weight(&(&cap, scope.queue_value()))?;
+        self.call(bytes, move |db| db.observe_owned_completion(&cap, &scope))
+            .await
+    }
+    /// Caller retains this scope alongside the exact owner and has observed its
+    /// complete stop. No runtime/API accepts this publication command.
+    pub async fn publish_owned_completion(
+        &self,
+        cap: RunnerCapability,
+        scope: crate::OwnedDispatchScope,
+        reference: crate::OwnedCompletion,
+        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<hagency_core::completions::CompletionReceipt, Error> {
+        let bytes = weight(&(&cap, scope.queue_value(), reference.id()))?;
+        self.call(bytes, move |db| {
+            db.publish_completion_clock(&cap, &scope, &reference, || {
+                // Linearizes publication eligibility after writer queue and DB
+                // lock, against the original operation cancellation signal.
+                if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                    return Err(Error::State);
+                }
+                writer_time()
+            })
         })
         .await
     }
@@ -721,6 +943,9 @@ impl DomainStore {
         self.call(weight(&(&cap, &command))?, move |db| {
             let now = writer_time()?;
             Ok(match command {
+                RunnerCommand::CompleteTaskWithReply(input) => {
+                    serde_json::to_value(db.finish_task_clock(&cap, &input, writer_time)?)?
+                }
                 RunnerCommand::SubmitFinalReply(input) => {
                     serde_json::to_value(db.submit_final_reply(&cap, &input, now)?)?
                 }

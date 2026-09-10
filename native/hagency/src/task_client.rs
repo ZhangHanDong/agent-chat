@@ -7,6 +7,7 @@ use hagency_core::{
 use serde::Serialize;
 use std::{net::SocketAddr, time::Duration};
 
+pub(crate) mod completion;
 pub(crate) mod coordination;
 mod transport;
 pub const DEFAULT_DEADLINE: Duration = Duration::from_secs(5);

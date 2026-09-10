@@ -111,6 +111,47 @@ fn bound_task(
     Ok((dispatch.session_id, task))
 }
 
+pub(super) fn insert_intent(
+    tx: &Transaction<'_>,
+    task: &hagency_core::tasks::Task,
+    dispatch_id: &str,
+    route: &ReplyRoute,
+    body: &str,
+    now: u64,
+) -> Result<(String, bool), Error> {
+    let session = &task.session_id;
+    let task_id = &task.id;
+    let epoch = task.execution_epoch;
+    let digest = canonical::payload_digest(&json!(["final_reply", task_id, epoch, route, body]))?;
+    let existing: Option<(String, String)> = tx
+        .query_row(
+            "SELECT id,digest FROM final_replies WHERE task_id=?1 AND execution_epoch=?2",
+            params![task_id, epoch],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let (id, replayed) = if let Some((id, old)) = existing {
+        if old != digest {
+            return Err(Error::Conflict);
+        }
+        (id, true)
+    } else {
+        let id = format!(
+            "reply_{}",
+            &canonical::digest(&json!([task_id, epoch]))?[..32]
+        );
+        bounded_row(tx, "final_replies", "id", &id, 30_000)?;
+        let pending:u64=tx.query_row("SELECT COUNT(*) FROM final_replies WHERE session_id=?1 AND state IN ('pending','claimed','sending','uncertain')",[&session],|r|r.get(0))?;
+        if pending >= 128 {
+            return Err(Error::Capacity);
+        }
+        let transaction = format!("hagency_{id}");
+        tx.execute("INSERT INTO final_replies(id,session_id,task_id,execution_epoch,source_dispatch_id,transaction_id,digest,body,route,state,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'pending',?10,?10)",params![id,session,task_id,epoch,dispatch_id,transaction,digest,body,serialize(&route)?,now])?;
+        (id, false)
+    };
+    Ok((id, replayed))
+}
+
 impl DomainRepository {
     pub fn submit_final_reply(
         &mut self,
@@ -145,32 +186,7 @@ impl DomainRepository {
             }
             return receipt(&tx, &id, true);
         }
-        let existing: Option<(String, String)> = tx
-            .query_row(
-                "SELECT id,digest FROM final_replies WHERE task_id=?1 AND execution_epoch=?2",
-                params![task.id, task.execution_epoch],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        let (id, replayed) = if let Some((id, old)) = existing {
-            if old != digest {
-                return Err(Error::Conflict);
-            }
-            (id, true)
-        } else {
-            let id = format!(
-                "reply_{}",
-                &canonical::digest(&json!([task.id, task.execution_epoch]))?[..32]
-            );
-            bounded_row(&tx, "final_replies", "id", &id, 30_000)?;
-            let pending:u64=tx.query_row("SELECT COUNT(*) FROM final_replies WHERE session_id=?1 AND state IN ('pending','claimed','sending','uncertain')",[&session],|r|r.get(0))?;
-            if pending >= 128 {
-                return Err(Error::Capacity);
-            }
-            let transaction = format!("hagency_{id}");
-            tx.execute("INSERT INTO final_replies(id,session_id,task_id,execution_epoch,source_dispatch_id,transaction_id,digest,body,route,state,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,'pending',?10,?10)",params![id,session,task.id,task.execution_epoch,cap.dispatch_id,transaction,digest,input.body,serialize(&route)?,now])?;
-            (id, false)
-        };
+        let (id, replayed) = insert_intent(&tx, &task, &cap.dispatch_id, &route, &input.body, now)?;
         let own: u64 = tx.query_row(
             "SELECT COUNT(*) FROM final_reply_calls WHERE dispatch_id=?1",
             [&cap.dispatch_id],

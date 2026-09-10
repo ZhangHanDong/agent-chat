@@ -106,7 +106,7 @@ fn receipt(stage: &str, value: Value) -> io::Result<()> {
     fs::write(&temporary, serde_json::to_vec(&value)?)?;
     fs::rename(temporary, target)
 }
-fn helper(params: &Value, done: bool) -> io::Result<()> {
+fn helper(params: &Value, mode: &str) -> io::Result<()> {
     let config = &params["config"];
     let table = &config["mcp_servers.hagency_task_writer"];
     let executable = table["command"].as_str().ok_or_else(invalid)?;
@@ -114,7 +114,13 @@ fn helper(params: &Value, done: bool) -> io::Result<()> {
         || table["args"] != json!(["mcp"])
         || table["cwd"] != params["cwd"]
         || table["env_vars"] != json!(ENV)
-        || table["enabled_tools"] != json!(["get_task", "update_task_execution", "transition_task"])
+        || table["enabled_tools"]
+            != json!([
+                "get_task",
+                "update_task_execution",
+                "transition_task",
+                "complete_task_with_reply"
+            ])
         || table.get("env").is_some()
         || table.get("url").is_some()
         || table.get("default_tools_approval_mode").is_some()
@@ -164,35 +170,59 @@ fn helper(params: &Value, done: bool) -> io::Result<()> {
     if before["id"] != task || before["status"] != "in_progress" {
         return Err(invalid());
     }
-    let updated = if done {
-        tool(
+    let done = mode == "done";
+    let after = if mode == "finish" {
+        let response = rpc(
             &mut input,
             &mut output,
             2,
-            "transition_task",
-            json!({"id":task,"call_id":"owned_done","status":"done"}),
-        )?
+            "tools/call",
+            json!({"name":"complete_task_with_reply","arguments":{"id":task,"call_id":"owned_finish","body":"Verified **native MCP final result**"}}),
+        )?;
+        if response["isError"] != false {
+            return Err(invalid());
+        }
+        let completion = response["structuredContent"].clone();
+        if completion["task_id"] != task
+            || completion["execution_epoch"] != 1
+            || completion["state"] != "held"
+        {
+            return Err(invalid());
+        }
+        receipt("finish-ack", json!({"completion":completion}))?;
+        completion
     } else {
-        tool(
-            &mut input,
-            &mut output,
-            2,
-            "update_task_execution",
-            json!({"id":task,"call_id":"owned_heartbeat","heartbeat":true}),
-        )?
+        let updated = if done {
+            tool(
+                &mut input,
+                &mut output,
+                2,
+                "transition_task",
+                json!({"id":task,"call_id":"owned_done","status":"done"}),
+            )?
+        } else {
+            tool(
+                &mut input,
+                &mut output,
+                2,
+                "update_task_execution",
+                json!({"id":task,"call_id":"owned_heartbeat","heartbeat":true}),
+            )?
+        };
+        receipt("ack", json!({"task": updated}))?;
+        let after = tool(&mut input, &mut output, 3, "get_task", json!({"id":task}))?;
+        let epoch = before["execution_epoch"].as_u64().ok_or_else(invalid)?;
+        if after != updated
+            || after["id"] != task
+            || after["status"] != if done { "done" } else { "in_progress" }
+            || after["execution_epoch"] != epoch + u64::from(done)
+            || (!done && !after["heartbeat_at"].is_u64())
+        {
+            return Err(invalid());
+        }
+        receipt("readback", json!({"task": after}))?;
+        after
     };
-    receipt("ack", json!({"task": updated}))?;
-    let after = tool(&mut input, &mut output, 3, "get_task", json!({"id":task}))?;
-    let epoch = before["execution_epoch"].as_u64().ok_or_else(invalid)?;
-    if after != updated
-        || after["id"] != task
-        || after["status"] != if done { "done" } else { "in_progress" }
-        || after["execution_epoch"] != epoch + u64::from(done)
-        || (!done && !after["heartbeat_at"].is_u64())
-    {
-        return Err(invalid());
-    }
-    receipt("readback", json!({"task": after}))?;
     drop(output);
     drop(input);
     let until = Instant::now() + Duration::from_secs(2);
@@ -215,12 +245,19 @@ fn helper(params: &Value, done: bool) -> io::Result<()> {
     if !diagnostic.is_empty() {
         return Err(invalid());
     }
-    receipt("receipt", json!({"task": after, "helper_exit": true}))?;
+    if mode == "finish" {
+        receipt(
+            "finish-exit",
+            json!({"completion":after,"helper_exit":true}),
+        )?;
+    } else {
+        receipt("receipt", json!({"task": after, "helper_exit": true}))?;
+    }
     Ok(())
 }
 fn fake() -> io::Result<()> {
     let mode = std::env::var("HAGENCY_OFFLINE_MODE").map_err(|_| invalid())?;
-    if !["heartbeat", "done"].contains(&mode.as_str()) {
+    if !["heartbeat", "done", "finish"].contains(&mode.as_str()) {
         return Err(invalid());
     }
     let mut log = fs::File::create("owned-mcp.requests")?;
@@ -254,7 +291,7 @@ fn fake() -> io::Result<()> {
         &mut output,
         json!({"id":turn["id"],"result":{"turn":{"id":"owned-turn","status":"inProgress","items":[]}}}),
     )?;
-    helper(params, mode == "done")?;
+    helper(params, &mode)?;
     if mode == "heartbeat" {
         send(
             &mut output,

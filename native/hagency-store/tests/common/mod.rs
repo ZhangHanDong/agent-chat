@@ -150,6 +150,7 @@ pub fn remove_notice_schema(db: &rusqlite::Connection) {
 
 /// Restore schema14 without weakening its notice-send custody.
 pub fn remove_matrix_transport_schema(db: &rusqlite::Connection) {
+    remove_owned_completion_schema(db);
     db.execute_batch(
         "DROP TRIGGER matrix_transport_retire_approvals; DROP VIEW current_matrix_routes;",
     )
@@ -159,4 +160,10 @@ pub fn remove_matrix_transport_schema(db: &rusqlite::Connection) {
     let end = schema.find("DROP VIEW task_followup_ready;").unwrap();
     db.execute_batch(&schema[start..end]).unwrap();
     db.execute_batch("ALTER TABLE matrix_transports DROP COLUMN available; ALTER TABLE matrix_transports DROP COLUMN invalidation;").unwrap();
+}
+
+/// Restore schema15 without manufacturing completion or owner authority.
+pub fn remove_owned_completion_schema(db: &rusqlite::Connection) {
+    db.execute_batch("DROP TABLE owned_task_completions;")
+        .unwrap();
 }

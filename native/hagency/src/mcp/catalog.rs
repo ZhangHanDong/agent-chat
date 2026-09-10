@@ -5,6 +5,12 @@ pub(super) fn list() -> Value {
     let mut tools = Vec::new();
     for (name, description, extra, required) in [
         (
+            "complete_task_with_reply",
+            "Explicitly mark verified work Done and hold final text for the original room until owner cleanup. This retires execution; stop using tools afterwards. Task-only transition remains available when no user reply is needed.",
+            json!({"body":{"type":"string","minLength":1,"maxLength":32768}}),
+            vec!["body"],
+        ),
+        (
             "get_task",
             "Read the assigned canonical task",
             json!({}),

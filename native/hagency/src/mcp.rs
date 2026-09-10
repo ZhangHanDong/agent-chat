@@ -192,6 +192,36 @@ impl Session {
             Some(_) => return Ok(tool_error("Invalid stable call_id")),
             None => None,
         };
+        if name == "complete_task_with_reply" {
+            let Some(call_id) = call_id else {
+                return Ok(tool_error("Missing stable call_id"));
+            };
+            let input =
+                serde_json::from_value::<hagency_core::completions::CompleteTaskWithReply>(json!({
+                    "id":self.context.task_id(),"call_id":call_id,"body":args.remove("body")
+                }));
+            if !args.is_empty() {
+                return Ok(tool_error("Unsupported completion fields"));
+            }
+            let Ok(input) = input else {
+                return Ok(tool_error("Invalid completion content"));
+            };
+            return Ok(
+                match task_client::completion::run(
+                    &self.context,
+                    &input,
+                    task_client::DEFAULT_DEADLINE,
+                )
+                .await
+                {
+                    Ok(v) => {
+                        let structured = serde_json::to_value(v).map_err(|_| Error::Protocol)?;
+                        json!({"content":[{"type":"text","text":structured.to_string()}],"structuredContent":structured,"isError":false})
+                    }
+                    Err(e) => tool_error(&e.to_string()),
+                },
+            );
+        }
         let action = match name {
             "get_task" if args.is_empty() && call_id.is_none() => None,
             "accept_task" => Some("accept"),
@@ -262,6 +292,7 @@ fn valid_call(params: Option<&Value>) -> bool {
                     | "transition_task"
                     | "comment_task"
                     | "update_task_execution"
+                    | "complete_task_with_reply"
             )
         ))
         && p.keys()

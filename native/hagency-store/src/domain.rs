@@ -23,7 +23,9 @@ mod graphs;
 mod matrix_routes;
 mod messages;
 mod notice_custody;
+mod owned_completion;
 mod owned_dispatch;
+pub use owned_completion::OwnedCompletion;
 pub use owned_dispatch::{OwnedDispatchScope, OwnedFailure, OwnedObservation};
 mod peers;
 mod replies;
@@ -302,7 +304,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 15,
+                version: 16,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -318,9 +320,14 @@ impl DomainRepository {
                     (13, include_str!("migrations/013-owner-approvals.sql")),
                     (14, include_str!("migrations/014-notice-custody.sql")),
                     (15, include_str!("migrations/015-matrix-transport.sql")),
+                    (
+                        16,
+                        include_str!("migrations/016-owned-task-completions.sql"),
+                    ),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT id,fingerprint,deadline,reply_id FROM owned_task_completions LIMIT 0",
                     "SELECT available,invalidation FROM matrix_transports LIMIT 0",
                     "SELECT n.send_fence,n.cancel_requested,n.task_epoch,n.source_event_id,i.digest,i.observation FROM task_notices n CROSS JOIN notice_send_inspections i LIMIT 0",
                     "SELECT r.available,r.config,b.incarnation,c.digest,a.state,g.context_key,v.digest FROM approval_rooms r CROSS JOIN approval_bindings b CROSS JOIN approval_contexts c CROSS JOIN owner_approvals a CROSS JOIN approval_grants g CROSS JOIN approval_verdict_receipts v LIMIT 0",

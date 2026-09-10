@@ -1784,3 +1784,12 @@ directory rename scenario to succeed or weaken those sharing flags. 79b036c's
 four other Windows OutcomeUnknown failures occur specifically in domain.shutdown,
 not the previously failing transport activation operations. Keep those causes
 separate until bounded worker/drop/receipt timing identifies the shutdown delay.
+- ADR-060 adds explicit native `complete_task_with_reply`: one canonical writer
+  transaction commits Done + immutable held final body and retires execution.
+  Only the same retained started owner may publish after all three stop facts,
+  fresh epoch/route/attempt checks and an in-transaction cancellation checkpoint.
+  Plain task-only Done remains report-missing; no epoch refresh or task rerun.
+  Schema 016 completion rows are send custody, bounded to 30k global/128 per session,
+  with a 30 s/original-cap deadline. Ownerless restart and incomplete macOS cleanup
+  keep content unsendable. Native MCP catalog has 20 tools; generated task helper
+  enables only get_task/update_task_execution/transition_task/complete_task_with_reply.
