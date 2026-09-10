@@ -1,0 +1,29 @@
+[package]
+name = "hagency"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hagency-core = { path = "../hagency-core" }
+hagency-store = { path = "../hagency-store" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+salvo = { version = "=0.96.0", default-features = false, features = ["server", "server-handle", "http1", "test"] }
+clap = { version = "4.5.54", features = ["derive"] }
+getrandom = "0.3.4"
+subtle = "2.6.1"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

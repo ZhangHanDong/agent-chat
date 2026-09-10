@@ -1,0 +1,286 @@
+use crate::{Error, private};
+use hagency_core::{
+    JSON_SAFE_MAX,
+    custody::{CustodyState, Delivery, Receipt},
+};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use std::{fs::File, path::Path, time::Duration};
+
+const APPLICATION_ID: i32 = 0x48414731; // HAG1; never accept a JS router or crypto database.
+const VERSION: i32 = 1;
+
+pub struct Repository {
+    db: Connection,
+    max_records: i64,
+    max_payload_bytes: i64,
+    _ownership: File, // Must outlive the connection, including its final checkpoint.
+}
+
+impl Repository {
+    pub fn open(directory: &Path) -> Result<Self, Error> {
+        private::directory(directory)?;
+        let lock_path = directory.join("owner.lock");
+        let lock = match private::open(&lock_path, true) {
+            Ok(lock) => lock,
+            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                private::open(&lock_path, false)?
+            }
+            Err(e) => return Err(e),
+        };
+        lock.try_lock().map_err(|_| Error::Locked)?;
+        let path = directory.join("custody.sqlite3");
+        let new = match private::open(&path, true) {
+            Ok(_) => true,
+            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                private::open(&path, false)?;
+                false
+            }
+            Err(e) => return Err(e),
+        };
+        for suffix in [
+            "custody.sqlite3-wal",
+            "custody.sqlite3-shm",
+            "custody.sqlite3-journal",
+        ] {
+            if directory.join(suffix).symlink_metadata().is_ok() {
+                private::open(&directory.join(suffix), false)?;
+            }
+        }
+        let mut db =
+            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        db.busy_timeout(Duration::from_millis(100))?;
+        if new {
+            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            tx.execute_batch(include_str!("schema.sql"))?;
+            tx.pragma_update(None, "application_id", APPLICATION_ID)?;
+            tx.pragma_update(None, "user_version", VERSION)?;
+            tx.commit()?;
+        } else {
+            let id: i32 = db
+                .pragma_query_value(None, "application_id", |r| r.get(0))
+                .map_err(|_| Error::Schema)?;
+            let version: i32 = db
+                .pragma_query_value(None, "user_version", |r| r.get(0))
+                .map_err(|_| Error::Schema)?;
+            if id != APPLICATION_ID || version != VERSION {
+                return Err(Error::Schema);
+            }
+            let check: String = db
+                .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
+                .map_err(|_| Error::Schema)?;
+            if check != "ok" {
+                return Err(Error::Schema);
+            }
+            db.prepare(
+                "SELECT id,lane,binding,generation,digest,payload,receipt FROM inbox LIMIT 0",
+            )
+            .map_err(|_| Error::Schema)?;
+        }
+        db.pragma_update(None, "journal_mode", "WAL")?;
+        db.pragma_update(None, "synchronous", "FULL")?;
+        db.pragma_update(None, "foreign_keys", "ON")?;
+        Ok(Self {
+            db,
+            max_records: 1024,
+            max_payload_bytes: 16 * 1024 * 1024,
+            _ownership: lock,
+        })
+    }
+
+    pub fn receive(&mut self, delivery: &Delivery, now_ms: u64) -> Result<Receipt, Error> {
+        delivery.validate()?;
+        if now_ms > JSON_SAFE_MAX {
+            return Err(hagency_core::InvalidInput("invalid UTC timestamp").into());
+        }
+        let digest = delivery.content_digest()?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let generation: Option<i64> = tx
+            .query_row(
+                "SELECT generation FROM bindings WHERE id=?1",
+                [&delivery.binding],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if generation.is_some_and(|g| g != delivery.generation as i64) {
+            return Err(Error::Generation);
+        }
+        let previous: Option<(String, String)> = tx
+            .query_row(
+                "SELECT digest,receipt FROM inbox WHERE binding=?1 AND lane=?2 AND id=?3",
+                params![delivery.binding, delivery.lane.as_str(), delivery.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((previous_digest, receipt)) = previous {
+            if digest != previous_digest {
+                return Err(Error::Conflict);
+            }
+            return Ok(serde_json::from_str(&receipt)?);
+        }
+        let payload = serde_json::to_string(&delivery.payload)?;
+        let (count, bytes): (i64, i64) = tx.query_row(
+            "SELECT COUNT(*),COALESCE(SUM(length(CAST(payload AS BLOB))),0) FROM inbox",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if count >= self.max_records || bytes + payload.len() as i64 > self.max_payload_bytes {
+            return Err(Error::Capacity);
+        }
+        let receipt = Receipt {
+            id: delivery.id.clone(),
+            lane: delivery.lane,
+            generation: delivery.generation,
+            digest,
+            received_at_ms: now_ms,
+            state: CustodyState::Received,
+        };
+        tx.execute(
+            "INSERT INTO bindings(id,generation) VALUES(?1,?2) ON CONFLICT(id) DO NOTHING",
+            params![delivery.binding, delivery.generation as i64],
+        )?;
+        tx.execute("INSERT INTO inbox(binding,lane,id,generation,digest,payload,receipt) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![delivery.binding, delivery.lane.as_str(), delivery.id, delivery.generation as i64, receipt.digest,
+                payload, serde_json::to_string(&receipt)?])?;
+        tx.commit()?; // Custody cannot be acknowledged before this boundary.
+        Ok(receipt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hagency_core::custody::{Kind, Lane};
+    use serde_json::json;
+    pub(super) fn delivery() -> Delivery {
+        Delivery {
+            binding: "fixture_registration".into(),
+            generation: 1,
+            id: "request_1".into(),
+            lane: Lane::Work,
+            kind: Kind::Request,
+            payload: json!({"name":"小白", "requestedTokens": 100000}),
+        }
+    }
+    #[test]
+    fn custody_survives_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let receipt = Repository::open(directory.path().join("state").as_path())
+            .unwrap()
+            .receive(&delivery(), 1000)
+            .unwrap();
+        let mut reopened = Repository::open(directory.path().join("state").as_path()).unwrap();
+        assert_eq!(reopened.receive(&delivery(), 2000).unwrap(), receipt);
+        assert_eq!(receipt.state, CustodyState::Received);
+        let payload: String = reopened
+            .db
+            .query_row("SELECT payload FROM inbox", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&payload).unwrap(),
+            delivery().payload
+        );
+    }
+    #[test]
+    fn state_ownership_and_schema_fail_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Repository::open(directory.path().join("state").as_path()).unwrap();
+        assert!(matches!(
+            Repository::open(directory.path().join("state").as_path()),
+            Err(Error::Locked)
+        ));
+        db.db.pragma_update(None, "user_version", 999).unwrap();
+        drop(db);
+        assert!(matches!(
+            Repository::open(directory.path().join("state").as_path()),
+            Err(Error::Schema)
+        ));
+        let connection = Connection::open(
+            directory
+                .path()
+                .join("state")
+                .as_path()
+                .join("custody.sqlite3"),
+        )
+        .unwrap();
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |r| r.get::<_, i32>(0))
+                .unwrap(),
+            999
+        );
+        drop(connection);
+        std::fs::write(
+            directory
+                .path()
+                .join("state")
+                .as_path()
+                .join("custody.sqlite3"),
+            b"corrupted fixture",
+        )
+        .unwrap();
+        assert!(matches!(
+            Repository::open(directory.path().join("state").as_path()),
+            Err(Error::Schema)
+        ));
+    }
+    #[test]
+    fn capacity_never_discards_unprocessed_custody() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Repository::open(&dir.path().join("state")).unwrap();
+        db.max_records = 1;
+        let receipt = db.receive(&delivery(), 1).unwrap();
+        let mut second = delivery();
+        second.id = "second_request".into();
+        assert!(matches!(db.receive(&second, 2), Err(Error::Capacity)));
+        assert_eq!(db.receive(&delivery(), 3).unwrap(), receipt);
+        db.max_records = 10;
+        db.max_payload_bytes = 1;
+        assert!(matches!(db.receive(&second, 4), Err(Error::Capacity)));
+    }
+
+    #[test]
+    fn transaction_failure_rolls_back_binding_and_receipt() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = Repository::open(directory.path().join("state").as_path()).unwrap();
+        db.db.execute_batch("CREATE TRIGGER fail_inbox BEFORE INSERT ON inbox BEGIN SELECT RAISE(ABORT,'fixture disk failure'); END;").unwrap();
+        assert!(db.receive(&delivery(), 0).is_err());
+        assert_eq!(
+            db.db
+                .query_row("SELECT COUNT(*) FROM bindings", [], |r| r.get::<_, i32>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.db
+                .query_row("SELECT COUNT(*) FROM inbox", [], |r| r.get::<_, i32>(0))
+                .unwrap(),
+            0
+        );
+        db.db.execute_batch("DROP TRIGGER fail_inbox;").unwrap();
+        assert!(db.receive(&delivery(), 0).is_ok());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn stale_generation_and_linked_state_are_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = Repository::open(directory.path().join("state").as_path()).unwrap();
+        db.receive(&delivery(), 0).unwrap();
+        let mut newer = delivery();
+        newer.generation = 2;
+        assert!(matches!(db.receive(&newer, 0), Err(Error::Generation)));
+        drop(db);
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::fs::remove_file(directory.path().join("state").as_path().join("owner.lock")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path(),
+            directory.path().join("state").as_path().join("owner.lock"),
+        )
+        .unwrap();
+        assert!(matches!(
+            Repository::open(directory.path().join("state").as_path()),
+            Err(Error::Private)
+        ));
+    }
+}

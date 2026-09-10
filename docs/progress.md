@@ -1684,3 +1684,25 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - Final deployment check exposed an intermittent usage timeout against the
   unchanged 8-second proxy limit. Resource data remains live; the page labels
   usage unavailable. This was not counted as successful live usage verification.
+
+## 2026-09-09 — Start native migration in an isolated worktree
+
+- Created `feat/rust-migration` from merged `5dbef22` in a separate worktree.
+  Copied only the migration draft, requirement and review from the original dirty
+  checkout. The original checkout and running deployments remain independent.
+- Revised the Node-only project contract, added REQ-RUST-MIGRATION-EXECUTION and
+  a bounded Cargo task contract. Implemented native Salvo HTTP/CLI, private state,
+  exclusive custody ownership, schema checks, atomic content-bound receipts,
+  bounded queues/storage, explicit overload and drained shutdown.
+- Added native subprocess crash/restart tests with PATH empty, JavaScript golden
+  vectors, and a fresh encrypted Matrix SDK restart proof with strict cross-signing.
+  M0 discovery records112 entry/helper candidates and201 literal routes. ADR-028
+  documents exact future domain commit boundaries and remaining release gates.
+- This checkpoint does not implement project/resource allocation, Agent execution,
+  connected Matrix/Palpo transport or console parity. No production cutover,
+  live credentials, canonical runtime task update or deployment is claimed.
+- Local verification:13 Rust tests passed, two Vitest spec-binding tests passed,
+  rustfmt/Clippy/ESLint passed, and the Cargo-backed agent-spec lifecycle passed
+  all8 scenarios plus the explicit boundary check (9/9, no skips). Windows GNU
+  cross-compilation/Clippy of the native app/store/tests passed; native OS CI
+  is still required. Production listeners remain PID46398/13202 and PID7238/18194.

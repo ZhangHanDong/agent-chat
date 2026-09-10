@@ -1,0 +1,2737 @@
+{
+  "baseline": "5dbef22dc5ad4e0bb1a886538406ec91a5893f9b",
+  "status": "candidate inventory; dynamic dispatch and build/runtime helper classification still require review",
+  "entries": [
+    {
+      "path": "backend-v2.js",
+      "sha256": "ebf0e471eead6e0d2cfd5662c7a4b4b610c6da3d035a3ac53c55cbf7728ec809",
+      "owner": "salvo-api",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "chmod",
+        "curl",
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/check-mcp",
+      "sha256": "879ebb2bd993fbf84d9fff3acccfb407e15118d8eb32117138f7b1abe522b5b6",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency",
+      "sha256": "a4208e06db3a7c6bba80d8e460571202ee15e51e140376977bb7a6d50565c173",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency-acp-down",
+      "sha256": "994eb888efdee5b977e5d5f7937ca2b1fc02d908e62311720268d9dd76aa5a4e",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-acp-up",
+      "sha256": "54e0d109e3a1bbe02f3173406c0aaba327ff4f338e64cbf2ed077b5127925110",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "chmod",
+        "curl",
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency-appservice-edge",
+      "sha256": "ae957c705a1588100115b2ab6d8ea6ed5892d512000629784357255bbf389b37",
+      "owner": "matrix-transport",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-audit",
+      "sha256": "59ca91d9117914e99de6fc48c96768e913c2556867acd5a0823ced52ef5d154f",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-autostart.sh",
+      "sha256": "ba04524caac82e0e72b148df8e93bafdba860139d5bb90739aeb8660bcdc7c57",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency-benchmark",
+      "sha256": "47696bfbab5491b492048cc669388ae8fac12e3d581e8cb3212afacbca069f13",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-cli",
+      "sha256": "ab18142f28afb0649635693f43c0a74cb54c7346d6f29df9705ee9fb8ddc2992",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency-down",
+      "sha256": "85f64dde486ec7c6a27e5881134bd5626262204931c8d511ab19eb385f4c3e93",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node",
+        "python3",
+        "tmux",
+        "zsh"
+      ]
+    },
+    {
+      "path": "bin/hagency-graph",
+      "sha256": "e3f35f8a6d2e00b6d876b7258104a69a13fb28440785bde0038330936005f989",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-install-progress-hooks",
+      "sha256": "78d4807aa3aa222f3c3583fc8395521f83ab41c000fb385ec481c0c904cf33bf",
+      "owner": "native-helpers",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-legacy",
+      "sha256": "1475b9aad62a3d624679e3ba5fa81ceb91562ad2acf480e8509de2b82fe5532d",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "bin/hagency-ls",
+      "sha256": "001f7fb63c14bc1a8035bf302dc9fc361d885686947a92e9e19d8ae8f14dc2db",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency-maintain",
+      "sha256": "190934ec2c68e4e389bc1045975eefbded415c14d442669be8e75a2e90f25eea",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "chmod"
+      ]
+    },
+    {
+      "path": "bin/hagency-progress",
+      "sha256": "5cb509fc23dd4a93d89841f04170491fbd729e8ba47328c438617b5cc100ed99",
+      "owner": "native-helpers",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-project",
+      "sha256": "9388c0063267ed8c8c5c0504c5cbafff7dfcc859ecb6b101eb70cf3d92265b2d",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-prune-agents",
+      "sha256": "8a68342dc1623f1a0838b3d3cb7f299575351d3b971758bcc76c506b3afa2bea",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency-resume-id",
+      "sha256": "a3a50778c64d1cfac59b52769e73113335f7f4209d018d66087161ad4a048856",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency-send",
+      "sha256": "91afd3dd4f53e5128add6eeffa70008ed8aa398914b8cff9a5333ca59564ae39",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/hagency-service",
+      "sha256": "609ee890fbb7aa8017cd8f000d59f1bda8c15d3e8d201e66570a5ef454e3abaa",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3"
+      ]
+    },
+    {
+      "path": "bin/hagency-supervisor",
+      "sha256": "a0800c4daf61c8065dd4f7c0acb625ff68d2a56fbdd3db0af06e4a7202266eba",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "bin/hagency-sync-skills",
+      "sha256": "307ed22408356ed5666535aabc6acda68d9c3729eebba0f734b08581a1a21786",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "bin/hagency-up",
+      "sha256": "80aa4be31964a399f2c957d0792f3de0f47886dc752126d3488cff6501500cba",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "chmod",
+        "curl",
+        "node",
+        "python3",
+        "tmux",
+        "zsh"
+      ]
+    },
+    {
+      "path": "bin/hagency-up-v1",
+      "sha256": "1516574ec3c0b9b7dd4f717aac40d3b334bf1a589446731aa13a263a254068d1",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node",
+        "python3"
+      ]
+    },
+    {
+      "path": "bin/hagency-update",
+      "sha256": "1bd0a7ba80c89e7b368a1b98577a7dabff6c218d2886158847f37582d8b917af",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "bin/register-agents",
+      "sha256": "0054aff38b262e688f2cef72615b44481560e3467f7a727c61527126222d5d42",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "bin/self-time-reminder",
+      "sha256": "ffac68c7a5fe4c7df21ec28be43fc83311d68a591bb6ccf6fb60361f61c65006",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "bin/verify-remote",
+      "sha256": "dea8d8669f6699b720789d140e67a64a5fddf4adc3a22edda1f0b25bc7cbf8d6",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node"
+      ]
+    },
+    {
+      "path": "bridge-matrix.js",
+      "sha256": "201cc578188799b445712ccab39275025e726009531d52781a96e26c9004a072",
+      "owner": "matrix-transport",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "chmod",
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "mcp-server.js",
+      "sha256": "06c7f363f1c1c9fbe3f8f94e4e3a673266a0e5e44ba739c01e06e4c545020c4a",
+      "owner": "native-helpers",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "push-relay.js",
+      "sha256": "ff0e8e0538520ea8c1e9a0f54503423a3b1550d08ab937b8afc4fc0092008200",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency",
+      "sha256": "4cbcfde8e0834bf515c50ca25e1cc827c58d54c88b5ef7812f338d31589c6972",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-cli",
+      "sha256": "ab18142f28afb0649635693f43c0a74cb54c7346d6f29df9705ee9fb8ddc2992",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-down",
+      "sha256": "85f64dde486ec7c6a27e5881134bd5626262204931c8d511ab19eb385f4c3e93",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node",
+        "python3",
+        "tmux",
+        "zsh"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-legacy",
+      "sha256": "1475b9aad62a3d624679e3ba5fa81ceb91562ad2acf480e8509de2b82fe5532d",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-ls",
+      "sha256": "001f7fb63c14bc1a8035bf302dc9fc361d885686947a92e9e19d8ae8f14dc2db",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-maintain",
+      "sha256": "190934ec2c68e4e389bc1045975eefbded415c14d442669be8e75a2e90f25eea",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "chmod"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-prune-agents",
+      "sha256": "8a68342dc1623f1a0838b3d3cb7f299575351d3b971758bcc76c506b3afa2bea",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-send",
+      "sha256": "91afd3dd4f53e5128add6eeffa70008ed8aa398914b8cff9a5333ca59564ae39",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-service",
+      "sha256": "609ee890fbb7aa8017cd8f000d59f1bda8c15d3e8d201e66570a5ef454e3abaa",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-up",
+      "sha256": "a76759b16041565d04d990f2295e79bcfea6efcc0ab350995d6ce1aa372a8e10",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "chmod",
+        "curl",
+        "node",
+        "python3",
+        "tmux",
+        "zsh"
+      ]
+    },
+    {
+      "path": "remote/bin/hagency-update",
+      "sha256": "1bd0a7ba80c89e7b368a1b98577a7dabff6c218d2886158847f37582d8b917af",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "remote/bin/self-time-reminder",
+      "sha256": "ffac68c7a5fe4c7df21ec28be43fc83311d68a591bb6ccf6fb60361f61c65006",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3",
+        "tmux"
+      ]
+    },
+    {
+      "path": "remote/bin/verify-remote",
+      "sha256": "dea8d8669f6699b720789d140e67a64a5fddf4adc3a22edda1f0b25bc7cbf8d6",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node"
+      ]
+    },
+    {
+      "path": "remote/mcp-server.js",
+      "sha256": "e02a7c36541cb83c051925acabfe70e26c085aac13a914eeb0ee5b1c489977b2",
+      "owner": "native-helpers",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "remote/push-relay.js",
+      "sha256": "251f4521abc087711d228fc500f3208da5d970929bd813dba616434e9abbafb3",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/audit-agent-docs.js",
+      "sha256": "9794fc84e91b1da267d33d3fce2ca2d97336f573393cb71ee023fbd4bb844f53",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "scripts/audit-baseline.mjs",
+      "sha256": "9a157564f53138eee9f704ff0eaa706d37b33ace3fc804dfebcdeaafb8c56e2c",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/audit-deps.sh",
+      "sha256": "096450472bf50b6dc15e6d5c887a3cf21394295278138c48e6435458d156563a",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/benchmark-workflow.js",
+      "sha256": "a71ceacf422f245fa709f3cfd0495322e97314b54f226e1fa2ffedbd06fa487b",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "chmod",
+        "curl",
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "scripts/build-release-package.sh",
+      "sha256": "a87017e1f1e926958924256c1e5c25a2efbf478c91a7e7608d8deee68e837d3d",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/build-remote-package.sh",
+      "sha256": "d23592502940b34c015cbbe1ddb8b2b2a29cf7ba4735b1060c36194b954515a6",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/check-agent-ops-contract.js",
+      "sha256": "109756471e65f60db5e909f69cad9321d83982b0f5898d885a778d4705770fcc",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/check-architecture-boundaries.js",
+      "sha256": "acf788310c9fc5e4d02fc8d63b393a761c9aed6ec06fe0a63cc03576a3d5340c",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/check-cli-contract.js",
+      "sha256": "e69eb478cff06d2074afce72d5e20db918f360b455d7f73f6f48914d999390be",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/check-dep-isolation.sh",
+      "sha256": "aa0f3c331b99920d16bc6e15eb644719b5b7f7cfc2aea8f2e0cb69174059ecc0",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/check-remote-package-smoke.sh",
+      "sha256": "0237c7186ec1e777b72c7c2604086b0b94298daa3e5f4204be58440261d7f213",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "scripts/check-remote-sync.sh",
+      "sha256": "70ca88565d5a047a7cf1354f37fc0a06d3c6c35be38621ca922e2f298c847b5e",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/check-requirement-traceability.mjs",
+      "sha256": "282339b8af1b7c8bed826db7abc874985a9158882e098d73940ec203fdeda4cb",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/check-router-boundary.js",
+      "sha256": "6ab2c3c44c1d4ccf0c4c03d74514362d955b2d4efa5abcc57fd2e58d3713ea5a",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/check-router-build.sh",
+      "sha256": "659e37ea3f08550577eec3ec09bd134002115a0bfaa604d8fcef465dd1f540a0",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/check-spec-bindings.js",
+      "sha256": "695ecd6a3784985039a7a7498af1e41ad301c855ae719cabd2178f256757553c",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/check-syntax.sh",
+      "sha256": "e2c0d4cc19d24626b13ab875743d086e25d76a3f88b5d9b68181980cb4a396a1",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/eslint-globals.js",
+      "sha256": "3fcc82615678c60c8f9a3ccaa55bc9f9ccb3c836465e12b917bc5237c4125f03",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/eye-test-2026-08-14.sh",
+      "sha256": "a97e48aee703fa9b0a8bc01f57cc2e7ba280f248dfffe51eb9c14dd91b5ae640",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "python3"
+      ]
+    },
+    {
+      "path": "scripts/flake-hunt.sh",
+      "sha256": "8e81450a12ec0c4471fea045e6f138204df458a6c7c5fe49ebe5f0ecd16cca74",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/framework-info.js",
+      "sha256": "8e11290bb5f29e4e1cdb3944687bee1a0db1b092918a56a47e6ed073b5fe7a38",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/hagency-acp-agent.mjs",
+      "sha256": "8c61339ab76461230a4c07d514c3487410afc8047bf5f2f0c1de5f7705817084",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "scripts/hagency-dev-autodeploy.sh",
+      "sha256": "e6c9de338ecd1519d98c3212c0bfbddc633536794ee2125dcb974cb6382101ad",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/hagency-graph.js",
+      "sha256": "7fcc33d17b3c3eb196f23e3923d7f62da76bd2b77dfacd86517957499e9b8048",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/hagency-project.js",
+      "sha256": "5236c1d2ee736e7211381a2fa41732f0de9b3eb34afa9e253e7cdffc61e5830c",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/hagency-remote-autodeploy.sh",
+      "sha256": "ec36c72aa19babc8c90163305f9242a2b676416b95fb212b60ac6591d4607267",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/hagency-stable-autodeploy.sh",
+      "sha256": "07edfc4c3622d43401685529be30558b57dea2590704593b8ed2107f9e67388a",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "curl"
+      ]
+    },
+    {
+      "path": "scripts/hagency-supervise-agent.mjs",
+      "sha256": "28891faeb5fb247ee16ade4db61e89d33746c74dc3cd2c7d4b7b612cbc162b67",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "scripts/heap-probe-config.js",
+      "sha256": "948916d104fed699dbceaf0119dde230c1c949fd515e2b98bc411a16dd970b40",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": []
+    },
+    {
+      "path": "scripts/heap-probe-setup.mjs",
+      "sha256": "d1340f4605c86bf9a487dca743c3cc0595803eb320f089925060c36cdb7db0ce",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/probe-task-maintenance.mjs",
+      "sha256": "03f5bd5f28bf83265477717547f72865ec182f90f4f1dcb4344477b650e58e4a",
+      "owner": "native-helpers",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/probe-thread-continuity.mjs",
+      "sha256": "d674343aecf6b0ebf3821992ef6d27d5acb7cedc816d1ccd0b59bee1903b4185",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/provision-team.mjs",
+      "sha256": "b8539ee4fd116da5eef87a9873f385056920c1b0bbd5812a2b3e880882c1ce4b",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/provision-v1-agent-home.js",
+      "sha256": "c7128a9bd1bfbf9776e9d9bf412d09a578dcc6d363abd33cd0ede964ccc1dc90",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/report-ci-env.js",
+      "sha256": "e5da64b411dced59774b4a7aadb94a67c42ab3223022037097b2827b4c0cd861",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/resolve-agent-sandbox-roots.js",
+      "sha256": "161cf65a88eeb4c2eb2dbebd8a3b1e485841e9a91623c593ac79082b32a12ad8",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/run-kernel-tests.sh",
+      "sha256": "f7ff20758c2551df2147db06c373140858e21d57e4dfd7bfbf8ee4bedf846138",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/run-suite-tests.mjs",
+      "sha256": "f04a0499864fca244bcb16dcb71ca2630837c7e46c5f569185a4409df4fb8eba",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/stamp-version.sh",
+      "sha256": "c83042ad78fa8d40ec460018abf74f945a6f0e7fe0d2a7aaf5a35a8e3abe0215",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/supervisor-parity-check.js",
+      "sha256": "2a489e5fc583bbaa7a4f90a5b59340a77186a6a61e26eb3bec0d3c557265f096",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/validate-agent-launch-extra-args.js",
+      "sha256": "d773906d0c51dadac2303ab278a830df9492cbcfc69afc7c554d3fb857356ede",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/verify-agent-e2e.sh",
+      "sha256": "d3712a49829d78b41ad538d318d3ad48311d69970c2152eaf43b1079acdb04d6",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node",
+        "python3"
+      ]
+    },
+    {
+      "path": "scripts/verify-cd-preflight.sh",
+      "sha256": "4e78bb3e9e6c662098c2b89f76796321e41b37cdcc634744f4f2a3fe1bb907cb",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash"
+      ]
+    },
+    {
+      "path": "scripts/verify-ci.sh",
+      "sha256": "8daf4b4b791e539ccb5885067e25ee6a18483e8b8ba5f2e7d14eca7b8e1bad0e",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/verify-multi-side.sh",
+      "sha256": "45da08fa35ed2f15728ab6122c0621f6ad2b4e369b7285a448ba979106ca3b39",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "bash",
+        "curl",
+        "node",
+        "python3"
+      ]
+    },
+    {
+      "path": "scripts/with-timeout.js",
+      "sha256": "a26750b14cda27dd5795ad94981e7e03a6275df25c31f01c15fa20beaa507b7c",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/write-supervisor-state.js",
+      "sha256": "8bbca70609b267b74dd6be83622b8c1d717ddb194bbe48acc56c9467887afe0c",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/write-v1-agent-runtime-profile.js",
+      "sha256": "5f9a6907d717bf0397d4b9b315e17f2484d109f094fce93fc0953c68a397cfd2",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "scripts/write-v1-agent-task.js",
+      "sha256": "2c5b24623c10c58e10256b19fbeff7636912dba861730271223d2a21eec95514",
+      "owner": "build-or-runtime-audit",
+      "disposition": "classify-build-vs-runtime",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "services/configure-standalone-env.mjs",
+      "sha256": "b3525d225c570eee39c2e4dca3dea56736283bfcae4fb22a8303466c357ae344",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "chmod",
+        "node"
+      ]
+    },
+    {
+      "path": "services/hagency-services.mjs",
+      "sha256": "739fc20164554e9407c18903b1c305e81497f2c1e12250742f33bf8c518b7d5e",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "services/prepare-bridge-container.mjs",
+      "sha256": "6c02dcaac4f6105f04f0c872e96ae968caa3a76a2e80dcd72b7055bb65aa1fa7",
+      "owner": "matrix-transport",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "services/run-bridge-container.sh",
+      "sha256": "6014a3afb3e3e779957bc36ca92892312120df232fdf3d7154cd6e9ad854410d",
+      "owner": "matrix-transport",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "services/standalone-doctor.mjs",
+      "sha256": "a379ed423bdd23375765e3c5f4842b97b03f115cd2cac3a6a0d9e71608444a30",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "src/bridge-container-owner.mjs",
+      "sha256": "405a591a83a4f791330c8118ff8c8a0963df60dcb81c09c003128beb1baa681b",
+      "owner": "matrix-transport",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "src/dispatch-lease-store.mjs",
+      "sha256": "ed1a11be422cacb6faf8ea6d5390c45b6228a88d1cf9e9ac905259aa43df0b3e",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "src/health-record.mjs",
+      "sha256": "f90c16e042d6de2aa4dd3b418f487a4ef56e4c945a8d3a8c80c3dfbabe404c5c",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "src/local-service-supervisor.mjs",
+      "sha256": "aee7f78d96e006eeef21d738745dc20bba12d0b3c30198f5762b7b75531527f7",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "src/matrix-dispatch-store.mjs",
+      "sha256": "3b0a0ce4ee399bfa28584d7ae3c75dd1e9cff5f28d7ac99ab3b704f065f78c38",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "src/matrix-event-store.mjs",
+      "sha256": "c58f8b08f47fb5579c1464e401e2b0af7ffe4699a4803a1e1c6893fb28da38cf",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "src/matrix-rate-limit-gate.mjs",
+      "sha256": "83dd8f56778643903685a9f060096a331e974b6efa0ec4e2e8736503e27da067",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": []
+    },
+    {
+      "path": "src/process-identity.mjs",
+      "sha256": "261610e6b4a3a6beeb07c147669a683f49258a19586ff9ab0bd48b7513f2c442",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    },
+    {
+      "path": "src/service-profile.mjs",
+      "sha256": "f47a3f38b4cd3bd39482fd2c570fd5445b2759e7085f1a1ed1b2edc00cd74e30",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node",
+        "tmux"
+      ]
+    },
+    {
+      "path": "src/supervised-service-child.mjs",
+      "sha256": "b1d10140da83c77e3d024b0825a04ff60d55ec65df465fb156dd50be6be3f0b0",
+      "owner": "native-cli-platform",
+      "disposition": "replace-native",
+      "shell_dependencies": [
+        "node"
+      ]
+    }
+  ],
+  "literal_http_routes": [
+    {
+      "source": "backend-v2.js",
+      "line": 7560,
+      "method": "USE",
+      "path": "/api",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7571,
+      "method": "USE",
+      "path": "/api",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7576,
+      "method": "POST",
+      "path": "/api/delivery-events",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7586,
+      "method": "GET",
+      "path": "/health",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7630,
+      "method": "PATCH",
+      "path": "/api/supervisor-state/:target",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7655,
+      "method": "POST",
+      "path": "/api/supervisor-state/:target/heartbeat",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7669,
+      "method": "GET",
+      "path": "/api/supervisor/status",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7673,
+      "method": "GET",
+      "path": "/api/supervisor/agents",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7698,
+      "method": "GET",
+      "path": "/api/supervisor/agents/:name",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7732,
+      "method": "GET",
+      "path": "/api/supervisor/control",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7736,
+      "method": "POST",
+      "path": "/api/supervisor/control",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7768,
+      "method": "POST",
+      "path": "/api/servers/heartbeat",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7814,
+      "method": "POST",
+      "path": "/api/servers/:id/offline",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7859,
+      "method": "POST",
+      "path": "/api/servers/:id/maintenance",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7903,
+      "method": "GET",
+      "path": "/api/servers",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 7923,
+      "method": "GET",
+      "path": "/api/servers/fleet",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8030,
+      "method": "POST",
+      "path": "/api/fleet-control",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8087,
+      "method": "POST",
+      "path": "/api/matrix-work/claim",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8140,
+      "method": "POST",
+      "path": "/api/matrix-work/:id/complete",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8150,
+      "method": "GET",
+      "path": "/api/matrix-work",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8310,
+      "method": "PUT",
+      "path": "/api/agent-ops/v1/operator/device-enrollment",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8335,
+      "method": "POST",
+      "path": "/api/agent-ops/v1/operator/revoke",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8345,
+      "method": "POST",
+      "path": "/api/agent-ops/v1/control/revoke",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8361,
+      "method": "POST",
+      "path": "/api/agent-ops/v1/control/bootstrap",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8410,
+      "method": "POST",
+      "path": "/api/agent-ops/v1/session/exchange",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8455,
+      "method": "GET",
+      "path": "/api/agent-ops/v1/snapshot",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8461,
+      "method": "GET",
+      "path": "/api/agent-ops/v1/invalidation",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8469,
+      "method": "POST",
+      "path": "/api/agent-ops/v1/commands/cancel-dispatch",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8479,
+      "method": "POST",
+      "path": "/api/agent-ops/v1/commands/mark-resource-inspected",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8486,
+      "method": "POST",
+      "path": "/api/agent-ops/v1/commands/begin-outcome-inspection",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8493,
+      "method": "POST",
+      "path": "/api/agent-ops/v1/commands/resolve-outcome",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8546,
+      "method": "POST",
+      "path": "/api/router/session-task",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8585,
+      "method": "POST",
+      "path": "/api/router/files",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8652,
+      "method": "POST",
+      "path": "/api/router/reply-outbox/:id/prepared-file",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8661,
+      "method": "POST",
+      "path": "/api/router/messages",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8698,
+      "method": "POST",
+      "path": "/api/router/tasks",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8743,
+      "method": "POST",
+      "path": "/api/router/task-operations",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8759,
+      "method": "POST",
+      "path": "/api/router/approvals/claude",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8812,
+      "method": "POST",
+      "path": "/api/router/approvals/claude/apply",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8842,
+      "method": "GET",
+      "path": "/api/router/snapshot",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8846,
+      "method": "GET",
+      "path": "/api/router/events",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8852,
+      "method": "POST",
+      "path": "/api/router/dispatches/:id/cancel",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8874,
+      "method": "POST",
+      "path": "/api/router/dispatches/:id/outcome-inspection",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8882,
+      "method": "POST",
+      "path": "/api/router/dispatches/:id/resolve-outcome",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8899,
+      "method": "POST",
+      "path": "/api/router/resources/:id/clear-dirty",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8905,
+      "method": "POST",
+      "path": "/api/router/matrix-outbox/claim",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8911,
+      "method": "POST",
+      "path": "/api/router/matrix-outbox/:id/delivered",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8947,
+      "method": "POST",
+      "path": "/api/router/matrix-outbox/:id/failed",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8957,
+      "method": "POST",
+      "path": "/api/router/reply-outbox/claim",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8963,
+      "method": "POST",
+      "path": "/api/router/reply-outbox/:id/delivered",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8973,
+      "method": "POST",
+      "path": "/api/router/reply-outbox/:id/failed",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 8996,
+      "method": "PUT",
+      "path": "/api/approval-bindings/membership",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9008,
+      "method": "PUT",
+      "path": "/api/approval-bindings",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9033,
+      "method": "DELETE",
+      "path": "/api/approval-bindings/:agent/:roomId",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9052,
+      "method": "GET",
+      "path": "/api/approval-bindings",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9226,
+      "method": "GET",
+      "path": "/api/project-sides",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9284,
+      "method": "DELETE",
+      "path": "/api/agents/:name",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9541,
+      "method": "PUT",
+      "path": "/api/project-sides/:id/allocation",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9567,
+      "method": "GET",
+      "path": "/api/project-sides/:id/budget",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9643,
+      "method": "POST",
+      "path": "/api/matrix/callback-check",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9666,
+      "method": "POST",
+      "path": "/api/matrix/probe",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9698,
+      "method": "GET",
+      "path": "/api/matrix/reach",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9761,
+      "method": "GET",
+      "path": "/api/project-sides/acting-credentials",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9837,
+      "method": "GET",
+      "path": "/api/project-sides/inbound-credentials",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9849,
+      "method": "GET",
+      "path": "/api/project-sides/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9862,
+      "method": "POST",
+      "path": "/api/project-sides",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9881,
+      "method": "PUT",
+      "path": "/api/project-sides/:id/credential",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 9918,
+      "method": "POST",
+      "path": "/api/project-sides/:id/verify",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10031,
+      "method": "POST",
+      "path": "/api/project-sides/:id/registration-file",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10170,
+      "method": "POST",
+      "path": "/api/project-sides/:id/registration",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10264,
+      "method": "POST",
+      "path": "/api/agents/:name/matrix-identity",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10359,
+      "method": "POST",
+      "path": "/api/project-sides/:id/projects",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10375,
+      "method": "POST",
+      "path": "/api/project-sides/:id/projects/:projectId/archive",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10402,
+      "method": "POST",
+      "path": "/api/project-sides/:id/knock",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10464,
+      "method": "POST",
+      "path": "/api/project-sides/:id/deactivate",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10474,
+      "method": "POST",
+      "path": "/api/project-sides/:id/reactivate",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10584,
+      "method": "DELETE",
+      "path": "/api/project-sides/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10813,
+      "method": "PUT",
+      "path": "/api/matrix/pending-invites",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10821,
+      "method": "GET",
+      "path": "/api/matrix/pending-invites",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10834,
+      "method": "POST",
+      "path": "/api/matrix/pending-invites/decide",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10865,
+      "method": "GET",
+      "path": "/api/agents/:name/execution-policy",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10872,
+      "method": "PUT",
+      "path": "/api/agents/:name/execution-policy",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10888,
+      "method": "DELETE",
+      "path": "/api/agents/:name/execution-grants/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10898,
+      "method": "POST",
+      "path": "/api/approvals",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10912,
+      "method": "GET",
+      "path": "/api/approvals/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10922,
+      "method": "GET",
+      "path": "/api/approvals/:id/matrix",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10936,
+      "method": "POST",
+      "path": "/api/approvals/:id/verdict",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10957,
+      "method": "POST",
+      "path": "/api/approvals/:id/delivery-failed",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10968,
+      "method": "POST",
+      "path": "/api/approvals/:id/consume",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 10993,
+      "method": "POST",
+      "path": "/api/agents",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 11435,
+      "method": "PUT",
+      "path": "/api/agents/:name/project-side",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 11484,
+      "method": "PUT",
+      "path": "/api/agents/:name/preset",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 11530,
+      "method": "PATCH",
+      "path": "/api/agents/:name",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 11696,
+      "method": "GET",
+      "path": "/api/agents",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 11924,
+      "method": "GET",
+      "path": "/api/pool",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 11950,
+      "method": "POST",
+      "path": "/api/dispatch",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12087,
+      "method": "POST",
+      "path": "/api/dispatch/renew",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12112,
+      "method": "POST",
+      "path": "/api/dispatch/release",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12155,
+      "method": "GET",
+      "path": "/api/agents/:name",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12165,
+      "method": "DELETE",
+      "path": "/api/agents/:name",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12308,
+      "method": "POST",
+      "path": "/api/agents/:name/undelete",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12319,
+      "method": "POST",
+      "path": "/api/agents/:name/supervisor",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12344,
+      "method": "GET",
+      "path": "/api/agents/:name/launch-env",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12391,
+      "method": "GET",
+      "path": "/api/agents/:name/pane",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12437,
+      "method": "POST",
+      "path": "/api/agents/:name/provision",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12708,
+      "method": "POST",
+      "path": "/api/agents/:name/stop",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12713,
+      "method": "POST",
+      "path": "/api/agents/:name/start",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12803,
+      "method": "POST",
+      "path": "/api/agents/:name/offline",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12833,
+      "method": "POST",
+      "path": "/api/agents/:name/heartbeat",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 12951,
+      "method": "POST",
+      "path": "/api/agents/:name/runtime",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13062,
+      "method": "POST",
+      "path": "/api/runtime/compact",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13124,
+      "method": "POST",
+      "path": "/api/runtime/push-delivered",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13195,
+      "method": "POST",
+      "path": "/api/tasks",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13213,
+      "method": "GET",
+      "path": "/api/tasks",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13234,
+      "method": "GET",
+      "path": "/api/tasks/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13257,
+      "method": "PATCH",
+      "path": "/api/tasks/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13278,
+      "method": "PATCH",
+      "path": "/api/tasks/:id/execution",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13288,
+      "method": "DELETE",
+      "path": "/api/tasks/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13299,
+      "method": "POST",
+      "path": "/api/tasks/:id/accept",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13309,
+      "method": "POST",
+      "path": "/api/tasks/:id/transition",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13322,
+      "method": "POST",
+      "path": "/api/tasks/:id/comments",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13332,
+      "method": "GET",
+      "path": "/api/agents/:name/tasks",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13383,
+      "method": "GET",
+      "path": "/api/frameworks",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13530,
+      "method": "GET",
+      "path": "/api/frameworks/detect",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 13584,
+      "method": "GET",
+      "path": "/api/capability",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 14965,
+      "method": "GET",
+      "path": "/api/engagements",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 14980,
+      "method": "GET",
+      "path": "/api/engagements/audit",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 14994,
+      "method": "POST",
+      "path": "/api/engagements",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15154,
+      "method": "GET",
+      "path": "/api/engagements/:id/candidates",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15161,
+      "method": "POST",
+      "path": "/api/engagements/:id/verdict",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15222,
+      "method": "POST",
+      "path": "/api/engagements/:id/revoke",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15284,
+      "method": "GET",
+      "path": "/api/offer-book",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15330,
+      "method": "GET",
+      "path": "/api/offers",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15345,
+      "method": "PUT",
+      "path": "/api/offers/:role",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15365,
+      "method": "GET",
+      "path": "/api/whitelist",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15369,
+      "method": "POST",
+      "path": "/api/whitelist",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15382,
+      "method": "DELETE",
+      "path": "/api/whitelist/:roomId",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15409,
+      "method": "GET",
+      "path": "/api/contributions",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15434,
+      "method": "GET",
+      "path": "/api/engagements/preview",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15491,
+      "method": "GET",
+      "path": "/api/usage",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15745,
+      "method": "GET",
+      "path": "/api/seats",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15772,
+      "method": "PUT",
+      "path": "/api/seats/:seatId",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15802,
+      "method": "DELETE",
+      "path": "/api/seats/:seatId",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15815,
+      "method": "GET",
+      "path": "/api/framework-presets",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15830,
+      "method": "POST",
+      "path": "/api/framework-presets/:id/agents",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15831,
+      "method": "PUT",
+      "path": "/api/framework-presets/:id/agents/:definitionId",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15832,
+      "method": "DELETE",
+      "path": "/api/framework-presets/:id/agents/:definitionId",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15833,
+      "method": "PUT",
+      "path": "/api/framework-presets/:id/catalog",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15843,
+      "method": "POST",
+      "path": "/api/framework-presets",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15900,
+      "method": "PUT",
+      "path": "/api/framework-presets/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15960,
+      "method": "DELETE",
+      "path": "/api/framework-presets/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15975,
+      "method": "POST",
+      "path": "/api/task-graphs",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15985,
+      "method": "GET",
+      "path": "/api/task-graphs",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 15994,
+      "method": "GET",
+      "path": "/api/task-graphs/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16000,
+      "method": "DELETE",
+      "path": "/api/task-graphs/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16010,
+      "method": "PATCH",
+      "path": "/api/task-graphs/:id/nodes/:nodeId",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16026,
+      "method": "GET",
+      "path": "/api/project-board",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16070,
+      "method": "GET",
+      "path": "/api/alerts",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16082,
+      "method": "GET",
+      "path": "/api/alerts/stats",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16086,
+      "method": "GET",
+      "path": "/api/alerts/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16115,
+      "method": "POST",
+      "path": "/api/alerts/:id/transition",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16130,
+      "method": "POST",
+      "path": "/api/alerts/:id/notes",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16142,
+      "method": "PATCH",
+      "path": "/api/alerts/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16151,
+      "method": "DELETE",
+      "path": "/api/alerts/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16163,
+      "method": "POST",
+      "path": "/api/groups",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16188,
+      "method": "GET",
+      "path": "/api/groups",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16192,
+      "method": "GET",
+      "path": "/api/groups/:name",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16198,
+      "method": "POST",
+      "path": "/api/groups/:name/members",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16260,
+      "method": "DELETE",
+      "path": "/api/groups/:name",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16288,
+      "method": "POST",
+      "path": "/api/matrix/direct-rooms",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16301,
+      "method": "GET",
+      "path": "/api/matrix/direct-agents",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16306,
+      "method": "POST",
+      "path": "/api/matrix/conversations/admissions",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16316,
+      "method": "POST",
+      "path": "/api/matrix/conversations/events",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16354,
+      "method": "POST",
+      "path": "/api/router/conversation",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16361,
+      "method": "POST",
+      "path": "/api/dm/ensure",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16370,
+      "method": "POST",
+      "path": "/api/agents/:name/avatar",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16382,
+      "method": "POST",
+      "path": "/api/system/info",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16408,
+      "method": "POST",
+      "path": "/api/media/stage",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16453,
+      "method": "GET",
+      "path": "/api/media/fetch",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16481,
+      "method": "POST",
+      "path": "/api/messages",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16880,
+      "method": "GET",
+      "path": "/api/dm/:agent/history",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16900,
+      "method": "GET",
+      "path": "/api/messages/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16915,
+      "method": "PUT",
+      "path": "/api/messages/:id/matrix-delivery",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16973,
+      "method": "GET",
+      "path": "/api/messages/:id/delivery",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 16988,
+      "method": "GET",
+      "path": "/api/agents/:name/delivery-events",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 17002,
+      "method": "POST",
+      "path": "/api/messages/:id/suppress",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 17050,
+      "method": "GET",
+      "path": "/msg/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 17128,
+      "method": "GET",
+      "path": "/api/inbox/:agent/unread",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 17142,
+      "method": "GET",
+      "path": "/api/inbox/:agent/unread-list",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 17161,
+      "method": "GET",
+      "path": "/api/inbox/:agent",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 17251,
+      "method": "GET",
+      "path": "/api/groups/:name/messages",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "backend-v2.js",
+      "line": 17354,
+      "method": "GET",
+      "path": "/api/agents/:name/groups",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1607,
+      "method": "POST",
+      "path": "/api/queue",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1617,
+      "method": "GET",
+      "path": "/api/queue",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1620,
+      "method": "DELETE",
+      "path": "/api/queue/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1649,
+      "method": "POST",
+      "path": "/api/queue/:id/send",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1709,
+      "method": "GET",
+      "path": "/api/idle",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1716,
+      "method": "DELETE",
+      "path": "/api/queue/agents/:name/notifications",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1725,
+      "method": "POST",
+      "path": "/api/reminders",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1743,
+      "method": "GET",
+      "path": "/api/reminders",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    },
+    {
+      "source": "lib/delivery-queue.js",
+      "line": 1746,
+      "method": "DELETE",
+      "path": "/api/reminders/:id",
+      "disposition": "port-with-current-authority",
+      "status": "not-ported"
+    }
+  ]
+}

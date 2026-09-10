@@ -942,3 +942,12 @@ See docs/reviews/2026-09-09-open-pr-integration.md for evidence.
   Backend8090 is a separate instance; do not redirect this console to it via a
   default environment. Agent/Matrix services were not restarted. See
   [validation and limitations](reviews/2026-09-09-console-product-presentation.md).
+
+- **Native migration checkpoint:** implementation now lives in the isolated
+  `hagency-rust-migration-20260909` worktree on `feat/rust-migration`, based on
+  merged `5dbef22`. See `native/README.md` and ADR-028. Native init uses fresh private
+  state and the development API defaults to port13300; it never reads `.env` or
+  imports live state. Full Agent/Palpo/console parity is not implemented.
+  Rust spec selectors are checked against the real Cargo catalog in Native Rust
+  CI; Node CI keeps checking the Vitest catalog. Neither catalog counts the other
+  runtime's deferred contracts as verified. Generic fleet identifiers remain.
