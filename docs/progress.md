@@ -3266,3 +3266,30 @@ Final focused validation: 5/5 native tests, 135 unchanged JS oracle cases and
 23/23 existing metering Vitest tests passed. All 177 native selectors resolve.
 Lifecycle passed 6/6, including all 14 changed paths, with no fail/skip/uncertain.
 Cargo added only the local metering package; existing versions remain pinned.
+
+### 2026-09-10 — M6 native progress policy and scoped coalescing (ADR052)
+
+- Added pure `hagency-progress` with fixed verbs, perGroup replacement rules,
+  redacted summary DTOs and one immutable host-run accumulator. Receipt, call,
+  attempt, input and counter bounds are explicit. Ordering, changed replay,
+  time reversal and retired writes fail without adopting old run context.
+- Progress attempts throttle before transport outcome; only the accepted frozen
+  watermark retires a window. Unknown outcomes remain blocked for inspection;
+  newer work and lifetime totals remain. Answer-delivery inspection is a separate
+  typed host count/proof, never inferred from tool activity or progress acceptance.
+- The oracle executes pure policy plus actual CLI/ACP emitter bodies using fake
+  IO/clock/fetch: 275 unchanged cases and 20 documented corrections. These close
+  malformed/inherited rule fallback, inherited verbs, repeated/unfiltered ACP
+  failures, event-filter bypass and final summaries losing prior window totals.
+  Review also found that uncompleted ACP starts looked successful at finish;
+  these now remain explicit unresolved attempts. Initial completed/failed status
+  is respected, with mixed-outcome and pending-notice/completion-race coverage.
+- Final validation: ten focused Rust tests, the 44 original progress-filter
+  Vitest tests, Clippy with warnings denied, formatting, diff and JS oracle checks
+  pass. Agent-spec1.4 lifecycle passes 5/5 with zero fail/skip/uncertain and 100%
+  quality; advisory output-mode/IO/grouping lint messages do not establish live
+  IO coverage. All 163 native selectors bind in this isolated base. Cargo adds
+  only the new workspace package and changes no prior package version.
+- No legacy runtime/hook/Matrix code was edited. Evidence uses external-cache
+  `progress-*` logs. This is not operational status, durable outbox, Matrix
+  display or full ADR026/M6 parity; actual host attachment remains unimplemented.

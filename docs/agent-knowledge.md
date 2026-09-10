@@ -1632,3 +1632,18 @@ overflow. Integer JSON literals are accepted through MAX_SAFE_INTEGER; decimal,
 exponent, coercible and out-of-range values are refused. Cache reads are displayed
 separately and excluded from fresh-token ceiling arithmetic. No ledger or live
 usage reader is wired to this library.
+
+Native progress policy (2026-09-10, ADR052): `hagency-progress` owns only a pure
+filter and one bounded in-memory run projection. RunId/attempt/delivery types are
+host-created, not deserialized runtime authority. Exact input receipts, tool
+exclusion, deduplicated failures and lifetime totals prevent misleading summaries.
+Unknown progress acceptance blocks another claim; accepted progress does not
+prove an answer was delivered. Finish uses optional exact host inspection count
+and proof category and never mutates canonical tasks. There is no global anchor,
+reset/import, hook or Matrix integration. Replay/run identity loss needs a future
+persistent host lifecycle, not recreation of the old RunId. The JS oracle keeps
+known legacy corrections separate from unchanged cases.
+ACP initial status is current state, so completed/failed initial notices matter.
+Pending calls are explicit pending/unresolved attempts and never completed work;
+a later completion remains publishable even after a pending notice was accepted.
+Hooks provide reported PostToolUse activity only, not independent success proof.

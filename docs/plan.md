@@ -88,3 +88,8 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    edits. It is not wired to Matrix sending. Continue host event-size/chunking,
    private-route/crypto integration and actual client round-trip qualification
    before calling this complete M6 formatting or media parity.
+
+6. M6 progress policy/coalescing proof is now isolated in `hagency-progress`
+   (ADR052): fixed redacted summaries, exact JS policy/CLI vectors and bounded
+   host-run receipts. Runtime attachment, persistent uncertain-attempt recovery,
+   editable Matrix status and route/crypto/delivery qualification remain open.
