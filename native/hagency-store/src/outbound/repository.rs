@@ -186,6 +186,11 @@ impl Repository {
                 let id:Option<String>=tx.query_row("SELECT id FROM inbox WHERE binding=?1 AND lane=?2 AND processing_state NOT IN ('done','retired') ORDER BY rowid LIMIT 1",params![s.binding,lane.as_str()],|r|r.get(0)).optional()?;
                 Reply::Head(id.map(|id| view(&tx, &s, lane, &id)).transpose()?)
             }
+            Command::AckHead { scope: s, lane } => {
+                scope(&tx, &s)?;
+                let id:Option<String>=tx.query_row("SELECT id FROM inbox WHERE binding=?1 AND lane=?2 AND lease_generation=?3 AND lease_state IN ('received','unknown') ORDER BY rowid LIMIT 1",params![s.binding,lane.as_str(),s.generation],|r|r.get(0)).optional()?;
+                Reply::Head(id.map(|id| view(&tx, &s, lane, &id)).transpose()?)
+            }
             Command::FreezePublication { scope: s, body } => {
                 freeze(&tx, s, body, self.max_payload_bytes)?
             }

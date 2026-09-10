@@ -1390,3 +1390,38 @@ current dispatch, and generic park(false) checks the same barrier. An old observ
 application may record truth without restoring an expired capability. Scope-grant
 revocation after consumption cannot undo an operation that was already authorized.
 Live runtime mapping, inspection and Matrix transport remain unimplemented gates.
+
+### Native outbound HTTPS adapter (2026-09-10, ADR-042)
+
+`hagency-palpo` now embeds actual host-configured HTTPS polling, exact ACK and
+frozen publication over ADR-037 custody. This is a library, not a deployed loop
+or domain/Matrix authority source. Palpo's literal publication path is `/updates`
+(plural), verified against `server.mjs` and a local in-memory instance of pinned
+Palpo `c7c400e04ab05479a63c30f14679ec0180457d85`. The optional reference script
+forbids homeserver I/O and checks source identity before loading that checkout.
+
+Recover current unconfirmed ACKs with `AckHead`, including done tombstones;
+ordinary Head intentionally omits completed work. Old-generation retired leases
+are not ACK success. Claim's ID is the host attempt identity, not the inbox ID.
+Replaying an unknown Claim can return its existing ticket for inspection, but
+Start still refuses and a fresh attempt cannot bypass the unknown head.
+
+The three joined loops keep Matrix FIFO independent from request and publication
+progress. Use cooperative CancellationToken shutdown so received deliveries and
+known receipts finish their custody write. Sending a success response from the
+server does not imply the client received/committed it; cancelling in that gap
+correctly leaves unknown state. Retry frozen bytes/sequence/observedAt unchanged.
+
+HostConfig has no Deserialize/Debug/web setter. TLS verification stays enabled;
+only literal loopback may use HTTP. Proxies, redirects, hidden retries and
+compression are disabled; DNS/request/body/JSON/backoff budgets are finite. Public
+errors drop dependency causes, remote body text and credential-bearing details.
+The accepted 16 KiB header limit follows Hyper's separate bounded parser buffer;
+serialized JSON limits are not exact heap allocation limits.
+
+Cargo offline can downgrade uncached target-only packages while adding a client.
+This slice preserves every baseline lock version/checksum and uses matching
+wasm-bindgen-futures 0.4.78 from cached registry metadata. A locked offline check
+confirms the restored graph. Live deployment, host credential persistence,
+authenticated Matrix observations, domain admission, current catalog/status
+observation and Agent retirement HTTP parity remain separate migration gates.

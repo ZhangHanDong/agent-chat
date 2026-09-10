@@ -196,6 +196,12 @@ pub enum Command {
         scope: TransportScope,
         lane: Lane,
     },
+    /// Resume a current unconfirmed lease even when its processing tombstone
+    /// is already done; a completed redelivery still needs its remote ACK.
+    AckHead {
+        scope: TransportScope,
+        lane: Lane,
+    },
     /// Freeze a complete host-produced v2 update. Generation, sequence and v are
     /// host generated here; statuses keep their original observedAt verbatim.
     FreezePublication {

@@ -2706,3 +2706,51 @@ the repository. No changes were pushed, merged or deployed from this worktree.
   line before CREATE TABLE, which failed under CRLF checkout. It now locates SQL
   statement text independently of line endings. An in-memory fixture reconstructs
   and prepares the route view under both LF and CRLF; focused test and Clippy pass.
+
+## 2026-09-10 — M5 bounded outbound HTTP client, isolated worktree
+
+- `feat/rust-outbound-http` starts at integrated custody commit `ffaad85` in its
+  own clean worktree. Added `hagency-palpo` with immutable host configuration,
+  pinned verified reqwest/rustls HTTPS, explicit bearer/generation, disabled
+  proxies/redirects/protocol retries and finite DNS/concurrency/header/body/JSON/
+  deadline/backoff budgets. No deployed service or original checkout changed.
+- Matrix/work polling persists full payload before exact ACK. Cancellation,
+  delayed/lost responses and rotation retain work plus explicit uncertainty.
+  Host-only AckHead resumes current unconfirmed leases even for done redelivery
+  tombstones, using existing schema-2 columns. Neither custody nor domain schema
+  changes. FIFO Matrix consumption does not block work or frozen publication.
+- Publication uses Palpo's actual `/updates` path and exact persisted v2 bytes,
+  sequence and observedAt. Machine rotation fences old in-flight responses and
+  credentials; old locally owned work retains its original generation. A simple
+  heartbeat never manufactures Matrix readiness, membership or approval proof.
+- Thirteen actual local HTTP/TLS fixtures passed, including TLS/hostname failure,
+  environment proxies, redirects/status redaction, malformed/duplicate/coalesced/
+  oversized JSON, slow headers/body/ACK, exact ACK-before-consumer ordering,
+  response-loss/restart, done-tombstone ACK, changed replay, stale leases, token
+  rotation, unknown attempts and independent cancellable lanes/backoff.
+- The first fixture run exposed two incorrect test assumptions: retry Claim
+  returns its original unknown capability, whose Start remains refused; a server
+  sending ACK does not mean the client committed it before cancellation. Tests
+  now explicitly verify these boundaries; no production guard was weakened.
+- Additional reference check executed the pinned read-only Palpo commit
+  `c7c400e04ab05479a63c30f14679ec0180457d85`'s real createApp/Outbound with only an
+  in-memory database and forbidden homeserver I/O. The native client completed
+  both lanes' ACK, full payload handoff, empty poll and frozen v1 status in a v2
+  update. Palpo preserved old observedAt and remained pending_connection.
+- Core/store/client integration passed 101 tests, zero failed/ignored (plus one
+  isolated proxy-environment child invocation). All 114 native selectors resolve.
+  Clippy with warnings denied, rustfmt and diff checks passed. Agent-spec 1.4.0
+  parse/lint scored 100%; scoped lifecycle passed five scenarios plus boundary,
+  six pass and zero fail/skip/uncertain. Evidence logs in the local 2026-09-10
+  migration cache use prefix `outbound-http-`: fixtures-final, all-tests, clippy,
+  bindings, lifecycle and palpo-reference.
+- Initial offline dependency resolution downgraded seven uncached WASM/Hermit
+  target packages; those baseline blocks were restored. Matching new
+  wasm-bindgen-futures 0.4.78 comes from cached registry metadata. Every existing
+  lock version/checksum remains unchanged and `cargo check --locked --offline`
+  passes. New dependencies are scoped to the client/TLS fixture; no broad upgrade.
+- ADR-042 and the crate README state remaining gates: secure host configuration
+  persistence, current domain catalog/status observation, authenticated Matrix
+  SDK event/member proof, idempotent domain handoff, Agent retirement endpoint,
+  continuous retention/capacity maintenance, platform CI and live UX. This does
+  not declare M5 or the full migration complete. No model or deployment was run.
