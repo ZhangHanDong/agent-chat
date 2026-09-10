@@ -45,5 +45,6 @@ pub(super) fn list() -> Value {
         fields.extend(required);
         tools.push(json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":fields,"additionalProperties":false},"annotations":{"readOnlyHint":name=="get_task","destructiveHint":name!="get_task","idempotentHint":true,"openWorldHint":false}}));
     }
+    tools.extend(super::coordination_catalog::tools());
     json!({"tools":tools})
 }

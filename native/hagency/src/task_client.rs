@@ -4,29 +4,24 @@ use hagency_core::{
     project::identifier,
     tasks::{MutationResult, RunnerCapability, Task, TaskMutation, TaskState, TextPatch, text},
 };
-use http_body_util::{BodyExt, Full};
-use hyper::{Request, body::Bytes, client::conn::http1};
-use hyper_util::rt::TokioIo;
 use serde::Serialize;
-use serde_json::json;
 use std::{net::SocketAddr, time::Duration};
-use tokio::{net::TcpStream, time::timeout};
 
-const RESPONSE_LIMIT: usize = 64 * 1024;
-const REQUEST_LIMIT: usize = 16 * 1024;
+pub(crate) mod coordination;
+mod transport;
 pub const DEFAULT_DEADLINE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    #[error("invalid native task command or runner context")]
+    #[error("invalid native command or runner context")]
     Invalid,
-    #[error("native task service unavailable before request submission")]
+    #[error("native runner service unavailable")]
     Unavailable,
-    #[error("task operation outcome unknown; inspect or retry identical call ID and content")]
+    #[error("operation outcome unknown; inspect or retry identical call ID and content")]
     Unknown,
-    #[error("native task request was refused (HTTP {0})")]
+    #[error("native runner request was refused (HTTP {0})")]
     Refused(u16),
-    #[error("native task response is invalid or exceeds its limit")]
+    #[error("native runner response is invalid or exceeds its limit")]
     Response,
 }
 
@@ -157,45 +152,15 @@ pub(crate) async fn run_operation(
     call_id: Option<&str>,
     deadline: Duration,
 ) -> Result<Output, Error> {
-    if deadline.is_zero() || deadline > Duration::from_secs(30) {
-        return Err(Error::Invalid);
-    }
-    let (path, body) = if let Some(operation) = &operation {
-        let call = call_id.ok_or(Error::Invalid)?;
-        identifier(call, 512).map_err(|_| Error::Invalid)?;
-        (
-            format!("/api/native/v1/runner/tasks/{}/operations", context.task_id),
-            serde_json::to_vec(&json!({"call_id":call,"operation":operation}))
-                .map_err(|_| Error::Invalid)?,
-        )
-    } else {
-        if call_id.is_some() {
-            return Err(Error::Invalid);
-        }
-        (
-            format!("/api/native/v1/runner/tasks/{}", context.task_id),
-            Vec::new(),
-        )
-    };
-    if body.len() > REQUEST_LIMIT {
-        return Err(Error::Invalid);
-    }
-    let mut submitted = false;
-    let result = timeout(
+    let bytes = transport::request(
+        context,
+        transport::Operation::Task {
+            operation: operation.as_ref(),
+            call_id,
+        },
         deadline,
-        exchange(context, &path, body, operation.is_some(), &mut submitted),
     )
-    .await;
-    let bytes = match result {
-        Ok(v) => v?,
-        Err(_) => {
-            return Err(if submitted && operation.is_some() {
-                Error::Unknown
-            } else {
-                Error::Unavailable
-            });
-        }
-    };
+    .await?;
     let (task, replayed) = if operation.is_some() {
         let result: MutationResult = serde_json::from_slice(&bytes).map_err(|_| Error::Unknown)?;
         (result.task, result.replayed)
@@ -217,107 +182,4 @@ pub(crate) async fn run_operation(
         call_id: call_id.map(str::to_owned),
         replayed,
     })
-}
-
-async fn exchange(
-    context: &Context,
-    path: &str,
-    body: Vec<u8>,
-    mutation: bool,
-    submitted: &mut bool,
-) -> Result<Vec<u8>, Error> {
-    let stream = TcpStream::connect(context.address)
-        .await
-        .map_err(|_| Error::Unavailable)?;
-    let (mut sender, connection) = http1::Builder::new()
-        .max_headers(32)
-        .max_buf_size(16 * 1024)
-        .handshake::<_, Full<Bytes>>(TokioIo::new(stream))
-        .await
-        .map_err(|_| Error::Unavailable)?;
-    let mut authorization =
-        hyper::header::HeaderValue::from_str(&format!("Bearer {}", context.capability.secret))
-            .map_err(|_| Error::Invalid)?;
-    authorization.set_sensitive(true);
-    let request = Request::builder()
-        .method(if mutation { "POST" } else { "GET" })
-        .uri(path)
-        .header("host", context.address.to_string())
-        .header("authorization", authorization)
-        .header("x-hagency-dispatch", &context.capability.dispatch_id)
-        .header("x-hagency-runner", &context.capability.runner_id)
-        .header("x-hagency-fence", context.capability.fence.to_string())
-        .header("content-type", "application/json")
-        .header("accept", "application/json")
-        .header("connection", "close")
-        .body(Full::new(Bytes::from(body)))
-        .map_err(|_| Error::Invalid)?;
-    let failure = if mutation {
-        Error::Unknown
-    } else {
-        Error::Response
-    };
-    *submitted = true;
-    let response = async {
-        let mut response = sender.send_request(request).await.map_err(|_| failure)?;
-        let status = response.status();
-        if !status.is_success() {
-            // Never consume/log private error bodies, follow redirects or retry.
-            return Err(if mutation && status.is_server_error() {
-                Error::Unknown
-            } else {
-                Error::Refused(status.as_u16())
-            });
-        }
-        if status.as_u16() != 200
-            || response.headers().get_all("content-type").iter().count() != 1
-            || response
-                .headers()
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .is_none_or(|s| {
-                    s.split(';')
-                        .next()
-                        .is_none_or(|s| s.trim() != "application/json")
-                })
-            || response.headers().contains_key("content-encoding")
-        {
-            return Err(failure);
-        }
-        if let Some(length) = response.headers().get("content-length") {
-            let length: usize = length
-                .to_str()
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .ok_or(failure)?;
-            if length > RESPONSE_LIMIT {
-                return Err(failure);
-            }
-        }
-        let mut bytes = Vec::new();
-        while let Some(frame) = response.body_mut().frame().await {
-            let frame = frame.map_err(|_| failure)?;
-            let data = frame.into_data().map_err(|_| failure)?;
-            if bytes
-                .len()
-                .checked_add(data.len())
-                .is_none_or(|len| len > RESPONSE_LIMIT)
-            {
-                return Err(failure);
-            }
-            bytes.extend_from_slice(&data);
-        }
-        Ok(bytes)
-    };
-    tokio::pin!(response, connection);
-    // Poll the connection in this operation, without detached tasks. Cancelling
-    // the outer future drops the connection and closes its owned socket.
-    tokio::select! {
-        biased;
-        result = &mut response => result,
-        result = &mut connection => {
-            result.map_err(|_|failure)?;
-            response.await
-        }
-    }
 }
