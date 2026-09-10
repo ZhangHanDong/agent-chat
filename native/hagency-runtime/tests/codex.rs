@@ -106,6 +106,18 @@ fn native_codex_frames_fragmented_and_coalesced() {
             result: Value::Bool(false)
         })
     ));
+    let mut connection = ready();
+    let valid = line(json!({ "method": "warning", "params": { "message": "fixture" } }));
+    let mut mixed = valid.clone();
+    mixed.extend_from_slice(b"private malformed suffix\n");
+    let (consumed, event) = connection.receive(&mixed, 3).unwrap();
+    assert_eq!(consumed, valid.len());
+    assert!(matches!(event, Some(Event::Notification { .. })));
+    assert_eq!(
+        connection.receive(&mixed[consumed..], 3).err(),
+        Some(Error::Envelope)
+    );
+    assert_eq!(connection.phase(), Phase::Closed);
 }
 
 #[test]
@@ -173,6 +185,18 @@ fn native_codex_frames_reject_ambiguous_and_oversized_data() {
         params: Some(Value::String("x".repeat(MAX_FRAME_BYTES))),
     };
     assert_eq!(encode(too_big).err(), Some(Error::Capacity));
+    let mut nested = Value::Null;
+    for _ in 0..65 {
+        nested = Value::Array(vec![nested]);
+    }
+    assert_eq!(
+        encode(Message::Notification {
+            method: "n".into(),
+            params: Some(nested)
+        })
+        .err(),
+        Some(Error::Capacity)
+    );
     // Trace and primitive/null params are accepted by the generated envelope schema.
     assert!(Decoder::default().feed(b"{\"id\":\"a\",\"method\":\"n\",\"params\":null,\"trace\":{\"traceparent\":null}}\n", 0).is_ok());
 }
@@ -227,6 +251,14 @@ fn native_codex_correlation_handshake_and_concurrent_requests() {
 
 #[test]
 fn native_codex_correlation_wrong_types_limits_and_invalid_initialize() {
+    let mut connection = Connection::default();
+    let (id, _) = connection.initialize("0.1", 0, 100).unwrap();
+    assert_eq!(accept(&mut connection, json!({ "id": id, "error": { "code": -32000, "message": "private initialize failure" } }), 1).err(), Some(Error::State));
+    assert_eq!(connection.phase(), Phase::Closed);
+    assert_eq!(
+        connection.initialize("0.1", 2, 100).err(),
+        Some(Error::Closed)
+    );
     for id in [json!("1"), json!(999), json!(-1)] {
         let mut connection = ready();
         connection.request("model/list", json!({}), 3, 100).unwrap();
@@ -280,6 +312,8 @@ fn native_codex_correlation_wrong_types_limits_and_invalid_initialize() {
 #[test]
 fn native_codex_server_requests_tombstones_and_exact_rejections() {
     let mut connection = ready();
+    let (host_id, _) = connection.request("model/list", json!({}), 3, 100).unwrap();
+    assert_eq!(host_id, RequestId::Number(1));
     for id in [json!(1), json!("1")] {
         assert!(matches!(
             accept(
@@ -290,6 +324,13 @@ fn native_codex_server_requests_tombstones_and_exact_rejections() {
             Ok(Event::ServerRequest { .. })
         ));
     }
+    assert_eq!(connection.pending_server_count(), 2);
+    // A peer request may share the exact ID of a host request. Direction and
+    // envelope shape keep the two independent until their respective replies.
+    assert!(matches!(
+        accept(&mut connection, json!({ "id": host_id, "result": {} }), 4),
+        Ok(Event::Response { .. })
+    ));
     assert_eq!(connection.pending_server_count(), 2);
     let rejection: Value = serde_json::from_slice(
         &connection
@@ -487,6 +528,16 @@ fn native_codex_failure_and_interrupt_deadlines_eof_and_sanitization() {
     let mut connection = ready();
     connection.request("turn/start", json!({}), 3, 100).unwrap();
     assert_eq!(connection.eof(), Err(Error::UnexpectedEof));
+    let mut connection = ready();
+    accept(&mut connection, json!({ "id": "waiting", "method": "item/fileChange/requestApproval", "params": { "threadId": "thread-fixture" } }), 3).ok().unwrap();
+    assert_eq!(connection.pending_server_count(), 1);
+    assert_eq!(connection.eof(), Err(Error::UnexpectedEof));
+    assert_eq!(
+        connection
+            .reject_server_request(&RequestId::String("waiting".into()), 4)
+            .err(),
+        Some(Error::Closed)
+    );
     let mut connection = ready();
     assert_eq!(connection.eof(), Ok(()));
     assert_eq!(connection.eof(), Err(Error::Closed));
