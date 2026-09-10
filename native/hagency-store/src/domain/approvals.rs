@@ -482,77 +482,7 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (c, _) = request(&tx, &input.request_id)?;
-        live(&tx, &c, now)?;
-        if !input.encrypted
-            || input.server_name != c.binding.server
-            || input.room_id != c.binding.room
-            || input.sender_mxid != c.binding.owner
-            || input.binding_generation != c.binding.generation
-        {
-            return Err(Error::RunnerAuthority);
-        }
-        let (digest, state, expires, scope, kind): (
-            String,
-            String,
-            u64,
-            Option<String>,
-            Option<String>,
-        ) = tx.query_row(
-            "SELECT digest,state,expires_at,scope_key,scope_kind FROM owner_approvals WHERE id=?1",
-            [&input.request_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-        )?;
-        if digest != input.request_digest || expires <= now {
-            return Err(Error::RunnerAuthority);
-        }
-        let source = canonical::digest(&json!([input.server_name, input.event_id]))?;
-        let digest = canonical::digest(&json!(input))?;
-        let old: Option<String> = tx
-            .query_row(
-                "SELECT digest FROM approval_verdict_receipts WHERE source_key=?1",
-                [&source],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(old) = old {
-            if old != digest {
-                return Err(Error::Conflict);
-            }
-            return summary(&tx, &input.request_id);
-        }
-        if state != "pending" {
-            return Err(Error::RunnerAuthority);
-        }
-        let grant = if matches!(input.choice, ApprovalChoice::Task | ApprovalChoice::Always) {
-            let key = scope.ok_or(Error::RunnerAuthority)?;
-            let kind = kind.ok_or(Error::RunnerAuthority)?;
-            let id = format!(
-                "grant_{}",
-                &canonical::digest(&json!([input.request_id, input.choice]))?[..40]
-            );
-            bounded_row(&tx, "approval_grants", "id", &id, 100_000)?;
-            tx.execute("INSERT INTO approval_grants(id,engagement_id,binding_generation,scope_key,scope_kind,mode,task_id,task_epoch,context_key) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![id,c.binding.engagement,c.binding.generation,key,kind,if input.choice==ApprovalChoice::Always{"always"}else{"task"},if input.choice==ApprovalChoice::Task{Some(&c.task)}else{None},if input.choice==ApprovalChoice::Task{Some(c.epoch)}else{None},grant_context(&c)?])?;
-            Some(id)
-        } else {
-            None
-        };
-        bounded_row(
-            &tx,
-            "approval_verdict_receipts",
-            "source_key",
-            &source,
-            100_000,
-        )?;
-        tx.execute(
-            "INSERT INTO approval_verdict_receipts(source_key,digest,request_id) VALUES(?1,?2,?3)",
-            params![source, digest, input.request_id],
-        )?;
-        tx.execute(
-            "UPDATE owner_approvals SET state='decided',choice=?2,grant_id=?3 WHERE id=?1",
-            params![input.request_id, serialize(&input.choice)?, grant],
-        )?;
-        let result = summary(&tx, &input.request_id)?;
+        let result = decide_verdict(&tx, input, now, None)?;
         tx.commit()?;
         Ok(result)
     }
@@ -711,5 +641,259 @@ impl DomainRepository {
                 })
             })
             .collect()
+    }
+}
+
+fn decide_verdict(
+    tx: &Transaction<'_>,
+    input: &OwnerVerdictObservation,
+    now: u64,
+    source_digest: Option<&str>,
+) -> Result<ApprovalSummary, Error> {
+    let (c, _) = request(tx, &input.request_id)?;
+    live(tx, &c, now)?;
+    if !input.encrypted
+        || input.server_name != c.binding.server
+        || input.room_id != c.binding.room
+        || input.sender_mxid != c.binding.owner
+        || input.binding_generation != c.binding.generation
+    {
+        return Err(Error::RunnerAuthority);
+    }
+    let (digest, state, expires, scope, kind): (
+        String,
+        String,
+        u64,
+        Option<String>,
+        Option<String>,
+    ) = tx.query_row(
+        "SELECT digest,state,expires_at,scope_key,scope_kind FROM owner_approvals WHERE id=?1",
+        [&input.request_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+    )?;
+    if digest != input.request_digest || expires <= now {
+        return Err(Error::RunnerAuthority);
+    }
+    let source = canonical::digest(&json!([input.server_name, input.event_id]))?;
+    let digest = source_digest
+        .map(str::to_owned)
+        .unwrap_or(canonical::digest(&json!(input))?);
+    let old: Option<String> = tx
+        .query_row(
+            "SELECT digest FROM approval_verdict_receipts WHERE source_key=?1",
+            [&source],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(old) = old {
+        if old != digest {
+            return Err(Error::Conflict);
+        }
+        return summary(tx, &input.request_id);
+    }
+    if state != "pending" {
+        return Err(Error::RunnerAuthority);
+    }
+    let grant = if matches!(input.choice, ApprovalChoice::Task | ApprovalChoice::Always) {
+        let key = scope.ok_or(Error::RunnerAuthority)?;
+        let kind = kind.ok_or(Error::RunnerAuthority)?;
+        let id = format!(
+            "grant_{}",
+            &canonical::digest(&json!([input.request_id, input.choice]))?[..40]
+        );
+        bounded_row(tx, "approval_grants", "id", &id, 100_000)?;
+        tx.execute("INSERT INTO approval_grants(id,engagement_id,binding_generation,scope_key,scope_kind,mode,task_id,task_epoch,context_key) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![id,c.binding.engagement,c.binding.generation,key,kind,if input.choice==ApprovalChoice::Always{"always"}else{"task"},if input.choice==ApprovalChoice::Task{Some(&c.task)}else{None},if input.choice==ApprovalChoice::Task{Some(c.epoch)}else{None},grant_context(&c)?])?;
+        Some(id)
+    } else {
+        None
+    };
+    bounded_row(
+        tx,
+        "approval_verdict_receipts",
+        "source_key",
+        &source,
+        100_000,
+    )?;
+    tx.execute(
+        "INSERT INTO approval_verdict_receipts(source_key,digest,request_id) VALUES(?1,?2,?3)",
+        params![source, digest, input.request_id],
+    )?;
+    tx.execute(
+        "UPDATE owner_approvals SET state='decided',choice=?2,grant_id=?3 WHERE id=?1",
+        params![input.request_id, serialize(&input.choice)?, grant],
+    )?;
+    let result = summary(tx, &input.request_id)?;
+    Ok(result)
+}
+
+fn room_authority(db: &Connection, engagement: &str) -> Result<ApprovalRoomAuthority, Error> {
+    identifier(engagement, 128)?;
+    let (encoded, project, owner, room, project_room):(String,String,String,String,String)=db.query_row("SELECT r.config,e.project_id,p.owner_mxid,p.owner_room_id,p.room_id FROM engagements e JOIN registrations r ON r.fleet_id=e.fleet_id AND r.generation=e.generation JOIN projects p ON p.fleet_id=e.fleet_id AND p.id=e.project_id AND p.generation=e.generation WHERE e.id=?1 AND e.state='active'",[engagement],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?.ok_or(Error::RunnerAuthority)?;
+    let reg: Registration = serde_json::from_str(&encoded)?;
+    if room == project_room || room == reg.reception_room_id {
+        return Err(Error::RunnerAuthority);
+    }
+    Ok(ApprovalRoomAuthority {
+        engagement_id: engagement.into(),
+        fleet_id: reg.fleet_id,
+        project_id: project,
+        registration_generation: reg.generation,
+        server_name: reg.server_name,
+        room_id: room,
+        project_room_id: project_room,
+        owner_mxid: owner,
+        bot_mxid: reg.approval_bot_mxid,
+    })
+}
+fn intake_target(db: &Connection, id: &str, now: u64) -> Result<ApprovalIntakeTarget, Error> {
+    identifier(id, 128)?;
+    let (c, _) = request(db, id)?;
+    live(db, &c, now)?;
+    let (digest, expires, state, scope): (String, u64, String, bool) = db.query_row(
+        "SELECT digest,expires_at,state,scope_key IS NOT NULL FROM owner_approvals WHERE id=?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )?;
+    if state != "pending" || expires <= now {
+        return Err(Error::RunnerAuthority);
+    }
+    Ok(ApprovalIntakeTarget {
+        authority: room_authority(db, &c.binding.engagement)?,
+        device_id: c.binding.device,
+        room_generation: c.binding.room_generation,
+        binding_generation: c.binding.generation,
+        request_id: id.into(),
+        request_digest: digest,
+        expires_at: expires,
+        reusable_scope: scope,
+    })
+}
+fn intake_receipt_key(input: &ApprovalVerdictInput) -> Result<(String, String), Error> {
+    let v = &input.verdict;
+    let t = &input.target;
+    if input.source_digest.len() != 64
+        || !input
+            .source_digest
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || v.request_id != t.request_id
+        || v.request_digest != t.request_digest
+        || v.binding_generation != t.binding_generation
+        || v.server_name != t.authority.server_name
+        || v.room_id != t.authority.room_id
+        || v.sender_mxid != t.authority.owner_mxid
+        || !v.encrypted
+        || (!t.reusable_scope && matches!(v.choice, ApprovalChoice::Task | ApprovalChoice::Always))
+    {
+        return Err(Error::RunnerAuthority);
+    }
+    identifier(&v.request_id, 128)?;
+    hagency_core::replies::matrix_event(&v.event_id)?;
+    serde_json::to_writer(EncodedLimit(48 * 1024), input).map_err(|_| Error::Capacity)?;
+    Ok((
+        canonical::digest(&json!([v.server_name, v.event_id]))?,
+        canonical::digest(&json!(input))?,
+    ))
+}
+impl DomainRepository {
+    pub fn approval_room_authority(
+        &self,
+        engagement: &str,
+    ) -> Result<ApprovalRoomAuthority, Error> {
+        room_authority(&self.db, engagement)
+    }
+    pub fn approval_room_capture(
+        &self,
+        authority: &ApprovalRoomAuthority,
+    ) -> Result<Option<ApprovalRoomCapture>, Error> {
+        if room_authority(&self.db, &authority.engagement_id)? != *authority {
+            return Err(Error::RunnerAuthority);
+        }
+        self.db
+            .query_row(
+                "SELECT digest,available,device_id,generation FROM approval_rooms WHERE server_name=?1 AND room_id=?2",
+                params![authority.server_name, authority.room_id],
+                |r| {
+                    Ok(ApprovalRoomCapture {
+                        server_name: authority.server_name.clone(),
+                        room_id: authority.room_id.clone(),
+                        digest: r.get(0)?,
+                        available:r.get(1)?,device_id:r.get(2)?,generation:r.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Error::from)
+    }
+    /// Fence only captured shared state or the exact attempted new observation.
+    /// This covers a committed positive update whose caller lost its response.
+    pub fn fence_approval_room(
+        &mut self,
+        authority: &ApprovalRoomAuthority,
+        device: &str,
+        generation: u64,
+        prior: Option<&ApprovalRoomCapture>,
+    ) -> Result<(), Error> {
+        text(device, 255)?;
+        hagency_core::replies::generation(generation)?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(prior) = prior {
+            if prior.server_name != authority.server_name || prior.room_id != authority.room_id {
+                return Err(Error::RunnerAuthority);
+            }
+            tx.execute("UPDATE approval_rooms SET available=0 WHERE server_name=?1 AND room_id=?2 AND digest=?3",params![prior.server_name,prior.room_id,prior.digest])?;
+        }
+        tx.execute("UPDATE approval_rooms SET available=0 WHERE server_name=?1 AND room_id=?2 AND fleet_id=?3 AND project_id=?4 AND registration_generation=?5 AND owner_mxid=?6 AND bot_mxid=?7 AND device_id=?8 AND generation=?9",params![authority.server_name,authority.room_id,authority.fleet_id,authority.project_id,authority.registration_generation,authority.owner_mxid,authority.bot_mxid,device,generation])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn approval_intake_target(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<ApprovalIntakeTarget, Error> {
+        clock(now)?;
+        intake_target(&self.db, id, now)
+    }
+    /// Historical exact acceptance only: never current authority or a new grant.
+    pub fn approval_verdict_receipt(
+        &self,
+        input: &ApprovalVerdictInput,
+    ) -> Result<Option<ApprovalSummary>, Error> {
+        let (source, digest) = intake_receipt_key(input)?;
+        let prior: Option<(String, String)> = self
+            .db
+            .query_row(
+                "SELECT digest,request_id FROM approval_verdict_receipts WHERE source_key=?1",
+                [source],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        match prior {
+            None => Ok(None),
+            Some((old, request)) if old == digest && request == input.verdict.request_id => {
+                Ok(Some(summary(&self.db, &request)?))
+            }
+            Some(_) => Err(Error::Conflict),
+        }
+    }
+    pub fn admit_approval_verdict(
+        &mut self,
+        input: &ApprovalVerdictInput,
+        now: u64,
+    ) -> Result<ApprovalSummary, Error> {
+        clock(now)?;
+        let (_, digest) = intake_receipt_key(input)?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if intake_target(&tx, &input.verdict.request_id, now)? != input.target {
+            return Err(Error::RunnerAuthority);
+        }
+        let result = decide_verdict(&tx, &input.verdict, now, Some(&digest))?;
+        tx.commit()?;
+        Ok(result)
     }
 }

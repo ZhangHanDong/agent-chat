@@ -3978,3 +3978,38 @@ with zero fail, skip or uncertain. Evidence uses the matrix-rejection prefix in
 the external cache; full integrated OS qualification remains with the parent.
 The amended ADR062 contract separately passes 4/4 (three scenarios and its five
 changed paths), quality 100%, with zero fail, skip or uncertain.
+
+### 2026-09-10 — ADR064 native private Matrix approval intake
+
+An isolated approval collector now uses actual bounded HTTPS and the owned SDK to
+settle existing native owner requests. Its purpose-bound encrypted journal and
+cursor cannot be adopted by Agent chat or outgoing transport. Exact registered
+bot/whoami and full private owner membership precede frozen native target intake;
+verified cross-signed encrypted structured actions feed a transactional current
+request/binding/dispatch/task/resource check. Negative approval evidence retires
+old shared bindings and grants without rotating the Agent transport.
+
+Every timeline source, including ordinary or refused messages, retains an immutable
+wire tombstone. Separate SDK proof and ciphertext digests bind domain receipts.
+Changed-source replay quarantines; a new target plan cannot reinterpret an old
+rejection. Applying interruptions stay inspectable with the original response
+and exact cursor. Lost domain responses and actual SDK SQLite rollback recover
+only historical accepted receipts, even after private-device rotation, and cannot
+mint new grants. Finite 64-batch/256-source limits reject capacity without eviction.
+
+Local full Matrix verification passes 65 tests (56 unit, including 16 new approval
+fixtures, plus 9 transport tests), with zero failures or ignored tests. The 16 store
+approval tests pass, including new scope/expiry, stale-negative CAS and grant/source
+transaction rollback checks. Clippy with warnings denied passes after one initial
+collapsible-if correction; formatting and the task contract parse/lint pass. All
+failed compile/fixture/lint logs remain in the external matrix-approval-* evidence
+cache. No lockfile version, schema, live account, service or deployment changed.
+Agent-spec 1.4 lifecycle passes 6/6, including five exact selectors and all 20
+explicit changed paths; no failed, skipped, uncertain or pending-review result.
+
+Native IDs remain approval_ plus 40 hex characters; legacy Robrix/JavaScript uses
+32. Card delivery/client compatibility, runtime decision application, live key
+provisioning, automatic unknown-SDK recovery, receipt compaction and service cutover
+are explicit gates. Parent integration and three-platform CI remain separate from
+these actual local tests. The existing outgoing target was reused to avoid another
+large SDK build tree; no broad workspace build ran in this isolated worktree.

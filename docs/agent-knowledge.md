@@ -1903,3 +1903,31 @@ full-room/account negatives and domain authority conflicts retain their fences.
 Old filtered receipts without tombstones are inspectable but cannot silently
 start the new mode. ADR062's plaintext-DM fixture now expects healthy transport
 and a rejected count, backed by actual verified encrypted continuation fixtures.
+
+
+### ADR064: private approval bot has its own SDK purpose and cursor
+
+Native approval bot events must not use Agent matrix_transports: that store rejects
+registered approval/representative identities. ApprovalCollector resolves exact
+fleet/project/owner/private-room authority from current domain state, observes the
+bot with whoami/full state, and uses a separate protected purpose-bound SDK store.
+Only actual verified cross-signed owner events with a complete frozen native
+structured request/action may call the typed host admission seam. Cached SDK trust
+is insufficient; fresh signed keys must match SDK-accepted identities and devices,
+including the bot's own published identity. The verifier is shared with ADR059.
+
+Raw wire identity (excluding unsigned) and SDK proof identity are distinct. Keep
+terminal tombstones even for ordinary chat and rejected verdicts: changed keys or
+new request plans may never reinterpret old sources. Source conflicts quarantine;
+SDK Applying uncertainty retains exact raw/targets and has no automatic replay.
+Historical receipt reads settle accepted commits after retirement without creating
+a grant. A failed current-target read may race an exact decision, so recheck the
+historical receipt before recording rejection. Domain Busy is custody, not proof
+of a failed bot/device. An SDK acknowledgment write failure poisons in-memory state
+until reopen and exact historical settlement.
+
+The reader currently stops at 64 completed batches or 256 terminal sources, with
+100 entries per batch and existing protected byte/HTTP bounds. Capacity never
+silently evicts dedup history. Native approval_ IDs have 40 hex characters; legacy
+Robrix's parser expects 32. Native card delivery, compatibility changes, runtime
+application, live key lifecycle and continuous-service retention are not enabled.

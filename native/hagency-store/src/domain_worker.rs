@@ -2,6 +2,10 @@ use crate::{
     DomainRepository, Effect, EffectOutcome, Error, ShutdownOutcome, ShutdownSnapshot,
     shutdown::{Phase, Probe, mark},
 };
+use hagency_core::approvals::{
+    ApprovalIntakeTarget, ApprovalRoomAuthority, ApprovalRoomCapture, ApprovalSummary,
+    ApprovalVerdictInput,
+};
 use hagency_core::{
     allocation::Budget,
     authority::{Registration, VerifiedRequest},
@@ -1834,6 +1838,60 @@ impl DomainStore {
     ) -> Result<Option<crate::UsagePeriod>, Error> {
         self.call(weight(&(&engagement, kind, at))?, move |db| {
             db.usage_period(&engagement, kind, at)
+        })
+        .await
+    }
+    pub async fn approval_room_authority(
+        &self,
+        engagement: String,
+    ) -> Result<ApprovalRoomAuthority, Error> {
+        self.call(weight(&engagement)?, move |db| {
+            db.approval_room_authority(&engagement)
+        })
+        .await
+    }
+    pub async fn approval_room_capture(
+        &self,
+        authority: ApprovalRoomAuthority,
+    ) -> Result<Option<ApprovalRoomCapture>, Error> {
+        self.call(weight(&authority)?, move |db| {
+            db.approval_room_capture(&authority)
+        })
+        .await
+    }
+    pub async fn fence_approval_room(
+        &self,
+        authority: ApprovalRoomAuthority,
+        device: String,
+        generation: u64,
+        prior: Option<ApprovalRoomCapture>,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&authority, &device, &prior))?, move |db| {
+            db.fence_approval_room(&authority, &device, generation, prior.as_ref())
+        })
+        .await
+    }
+    pub async fn approval_intake_target(&self, id: String) -> Result<ApprovalIntakeTarget, Error> {
+        self.call(weight(&id)?, move |db| {
+            db.approval_intake_target(&id, writer_time()?)
+        })
+        .await
+    }
+    pub async fn approval_verdict_receipt(
+        &self,
+        input: ApprovalVerdictInput,
+    ) -> Result<Option<ApprovalSummary>, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.approval_verdict_receipt(&input)
+        })
+        .await
+    }
+    pub async fn admit_approval_verdict(
+        &self,
+        input: ApprovalVerdictInput,
+    ) -> Result<ApprovalSummary, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.admit_approval_verdict(&input, writer_time()?)
         })
         .await
     }

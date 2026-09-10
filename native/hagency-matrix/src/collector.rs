@@ -38,29 +38,11 @@ impl Collector {
     /// Does not trust credentials or create an SDK identity until collect's
     /// authenticated exact whoami succeeds. No public raw-response setter.
     pub fn new(config: HostConfig, domain: DomainStore) -> Result<Self, Error> {
-        let http = Http::new(&config)?;
+        if config.approval {
+            return Err(Error::Config);
+        }
         Ok(Self {
-            inner: Arc::new(Inner {
-                config,
-                http,
-                domain,
-                owner: Mutex::new(None),
-                busy: Arc::new(Semaphore::new(1)),
-                #[cfg(test)]
-                handoff_fault: std::sync::atomic::AtomicU8::new(0),
-                #[cfg(test)]
-                handoff_reached: tokio::sync::Notify::new(),
-                #[cfg(test)]
-                handoff_continue: tokio::sync::Notify::new(),
-                #[cfg(test)]
-                outgoing_fault: std::sync::atomic::AtomicU8::new(0),
-                #[cfg(test)]
-                outgoing_reached: tokio::sync::Notify::new(),
-                #[cfg(test)]
-                outgoing_continue: tokio::sync::Notify::new(),
-                #[cfg(test)]
-                lose_positive_response: std::sync::atomic::AtomicBool::new(false),
-            }),
+            inner: Inner::new(config, domain)?,
         })
     }
     /// One finite owned job, not a detached sync loop. Caller cancellation or
@@ -116,6 +98,31 @@ impl Collector {
     }
 }
 impl Inner {
+    pub(crate) fn new(config: HostConfig, domain: DomainStore) -> Result<Arc<Self>, Error> {
+        let http = Http::new(&config)?;
+        Ok(Arc::new(Self {
+            config,
+            http,
+            domain,
+            owner: Mutex::new(None),
+            busy: Arc::new(Semaphore::new(1)),
+            #[cfg(test)]
+            handoff_fault: std::sync::atomic::AtomicU8::new(0),
+            #[cfg(test)]
+            handoff_reached: tokio::sync::Notify::new(),
+            #[cfg(test)]
+            handoff_continue: tokio::sync::Notify::new(),
+            #[cfg(test)]
+            outgoing_fault: std::sync::atomic::AtomicU8::new(0),
+            #[cfg(test)]
+            outgoing_reached: tokio::sync::Notify::new(),
+            #[cfg(test)]
+            outgoing_continue: tokio::sync::Notify::new(),
+            #[cfg(test)]
+            lose_positive_response: std::sync::atomic::AtomicBool::new(false),
+        }))
+    }
+
     async fn collect(&self, cancel: &CancellationToken) -> Result<ObservationSummary, Error> {
         let t = &self.config.identity.transport;
         let prior = self
@@ -393,7 +400,11 @@ impl Inner {
         }
         count(value, &mut 0, self.config.limits.events)
     }
-    fn room(&self, target: &HostRoom, value: Value) -> Result<MatrixRoomObservation, Error> {
+    pub(crate) fn room(
+        &self,
+        target: &HostRoom,
+        value: Value,
+    ) -> Result<MatrixRoomObservation, Error> {
         let events = value.as_array().ok_or(Error::Wire)?;
         if events.len() > self.config.limits.events {
             return Err(Error::Capacity);

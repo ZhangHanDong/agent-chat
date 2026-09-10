@@ -65,6 +65,7 @@ pub struct HostRoom {
 }
 /// Constructed by the process host only. No Deserialize, Debug or credential setters.
 pub struct HostConfig {
+    pub(crate) approval: bool,
     pub(crate) endpoint: Url,
     pub(crate) authorization: HeaderValue,
     pub(crate) identity: HostIdentity,
@@ -151,6 +152,7 @@ impl HostConfig {
             HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Error::Config)?;
         authorization.set_sensitive(true);
         Ok(Self {
+            approval: false,
             endpoint: url,
             authorization,
             identity,
@@ -171,6 +173,12 @@ impl HostConfig {
     }
     pub(crate) fn binding(&self) -> Result<String, Error> {
         // Neither access token nor changing transport/room observation generation is SDK identity.
-        canonical::transport_digest(&serde_json::json!({"origin":self.endpoint.as_str(),"registration":self.identity.registration_fingerprint,"registration_generation":self.identity.transport.registration_generation,"engagement":self.identity.transport.engagement_id,"server":self.identity.server_name,"account":self.identity.transport.sender_mxid,"device":self.identity.transport.device_id,"rooms":self.rooms.iter().map(|r|&r.room_id).collect::<BTreeSet<_>>()})).map_err(|_|Error::Config)
+        let identity = canonical::transport_digest(&serde_json::json!({"origin":self.endpoint.as_str(),"registration":self.identity.registration_fingerprint,"registration_generation":self.identity.transport.registration_generation,"engagement":self.identity.transport.engagement_id,"server":self.identity.server_name,"account":self.identity.transport.sender_mxid,"device":self.identity.transport.device_id,"rooms":self.rooms.iter().map(|r|&r.room_id).collect::<BTreeSet<_>>()})).map_err(|_|Error::Config)?;
+        if self.approval {
+            canonical::transport_digest(&serde_json::json!(["approval-reader-v1", identity]))
+                .map_err(|_| Error::Config)
+        } else {
+            Ok(identity)
+        }
     }
 }

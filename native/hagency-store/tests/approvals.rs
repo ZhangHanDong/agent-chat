@@ -898,3 +898,6 @@ fn native_matrix_transport_negative_retires_only_own_approval_authority() {
             .is_err()
     );
 }
+
+#[path = "approvals/intake.rs"]
+mod intake;

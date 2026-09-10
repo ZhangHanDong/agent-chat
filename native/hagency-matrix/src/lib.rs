@@ -74,3 +74,11 @@ impl From<hagency_store::Error> for Error {
 
 #[cfg(test)]
 extern crate self as hagency_matrix;
+
+mod approval_batch;
+
+mod approval_intake;
+pub use approval_intake::{
+    ApprovalCollector, ApprovalCustodyStage, ApprovalCustodyStatus, ApprovalIntakeSummary,
+    HostApprovalConfig, HostApprovalPlan,
+};

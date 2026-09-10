@@ -163,3 +163,48 @@ impl ApprovalApplicationObservation {
         text(&self.evidence, 4000)
     }
 }
+
+/// Current registration/project truth for the separate approval-bot transport.
+/// This does not identify or replace an Agent's Matrix transport.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ApprovalRoomAuthority {
+    pub engagement_id: String,
+    pub fleet_id: String,
+    pub project_id: String,
+    pub registration_generation: u64,
+    pub server_name: String,
+    pub room_id: String,
+    pub project_room_id: String,
+    pub owner_mxid: String,
+    pub bot_mxid: String,
+}
+/// Exact shared snapshot captured before host I/O; its digest is a CAS token,
+/// not evidence that a caller supplied Matrix document was authenticated.
+#[derive(Clone, Serialize)]
+pub struct ApprovalRoomCapture {
+    pub available: bool,
+    pub device_id: String,
+    pub generation: u64,
+    pub server_name: String,
+    pub room_id: String,
+    pub digest: String,
+}
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ApprovalIntakeTarget {
+    pub authority: ApprovalRoomAuthority,
+    pub device_id: String,
+    pub room_generation: u64,
+    pub binding_generation: u64,
+    pub request_id: String,
+    pub request_digest: String,
+    pub expires_at: u64,
+    pub reusable_scope: bool,
+}
+/// Authenticated host boundary only. SDK proof remains private to its owner;
+/// no deserializable or runtime-facing JSON can construct this observation.
+#[derive(Clone, Serialize)]
+pub struct ApprovalVerdictInput {
+    pub target: ApprovalIntakeTarget,
+    pub source_digest: String,
+    pub verdict: OwnerVerdictObservation,
+}

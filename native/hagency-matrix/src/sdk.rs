@@ -26,6 +26,8 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot};
 
+mod approval_intake;
+mod keys;
 mod outgoing;
 
 const JOURNAL: &[u8] = b"hagency.observer.sync.v1";
@@ -36,6 +38,12 @@ const MAX_SYNCS: usize = 64;
 const MAX_JOURNAL_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Default, Serialize, Deserialize)]
 struct Journal {
+    #[serde(default)]
+    approval: Option<crate::approval_batch::Batch>,
+    #[serde(default)]
+    approval_receipts: Vec<crate::approval_batch::Receipt>,
+    #[serde(default)]
+    approval_outcomes: Vec<crate::approval_batch::Tombstone>,
     pending: Option<Value>,
     receipts: Vec<(String, String)>,
     #[serde(default)]
@@ -50,6 +58,15 @@ struct Journal {
     outgoing_receipts: Vec<crate::outgoing::state::Receipt>,
 }
 enum Command {
+    #[cfg(test)]
+    ApprovalCorrupt(u8, oneshot::Sender<()>),
+    #[cfg(test)]
+    ApprovalFixture(Vec<Value>, bool, oneshot::Sender<approval_fixture::Packet>),
+    Approval(
+        crate::approval_batch::Command,
+        oneshot::Sender<Result<crate::approval_batch::View, Error>>,
+    ),
+    ApprovalQuery(Vec<String>, oneshot::Sender<Result<String, Error>>),
     #[cfg(test)]
     OutgoingFixture(bool, oneshot::Sender<outgoing_fixture::Peer>),
     #[cfg(test)]
@@ -90,6 +107,7 @@ pub(crate) struct Owner {
     timeout: Duration,
 }
 struct Init {
+    approval: bool,
     existing: bool,
     root: PathBuf,
     key: [u8; 32],
@@ -106,6 +124,7 @@ impl Owner {
     }
     async fn open_mode(config: &HostConfig, existing: bool) -> Result<Self, Error> {
         let init = Init {
+            approval: config.approval,
             existing,
             root: config.root.clone(),
             key: config.key,
@@ -152,6 +171,24 @@ impl Owner {
                     }
                     while let Some(command) = rx.recv().await {
                         match command {
+                            #[cfg(test)]
+                            Command::ApprovalCorrupt(variant, reply) => {
+                                approval_fixture::corrupt(&mut sdk, variant).await;
+                                let _ = reply.send(());
+                            }
+                            #[cfg(test)]
+                            Command::ApprovalFixture(contents, verified, reply) => {
+                                let _ = reply.send(
+                                    approval_fixture::prepare(&sdk, contents, verified).await,
+                                );
+                            }
+
+                            Command::Approval(command, reply) => {
+                                let _ = reply.send(sdk.approval(command).await);
+                            }
+                            Command::ApprovalQuery(users, reply) => {
+                                let _ = reply.send(sdk.approval_query(users).await);
+                            }
                             #[cfg(test)]
                             Command::OutgoingFixture(verified, reply) => {
                                 let _ = reply.send(outgoing_fixture::prepare(&sdk, verified).await);
@@ -497,6 +534,8 @@ fn prepare(init: &Init) -> Result<(File, bool), Error> {
     Ok((lock, fresh))
 }
 struct Sdk {
+    approval: bool,
+    approval_poisoned: bool,
     outgoing_poisoned: bool,
     #[cfg(test)]
     outgoing_reply_loss: bool,
@@ -588,6 +627,13 @@ impl Sdk {
                 None if fresh => Journal::default(),
                 None => return Err(Error::Storage),
             };
+            approval_intake::validate_journal(
+                &journal,
+                init.approval,
+                &identity,
+                &init.user,
+                &init.device,
+            )?;
             if journal.outgoing_receipts.len() > crate::outgoing::state::MAX_RECEIPTS {
                 return Err(Error::Storage);
             }
@@ -636,7 +682,9 @@ impl Sdk {
             }) {
                 return Err(Error::Storage);
             }
-            if let Some(batch) = &journal.intake {
+            if init.approval {
+                approval_intake::validate_cursor(&journal, sdk_cursor.as_deref())?;
+            } else if let Some(batch) = &journal.intake {
                 batch.validate_restored(&identity, &init.user, &init.device)?;
                 let expected = match batch.phase {
                     Phase::Prepared => committed,
@@ -681,6 +729,8 @@ impl Sdk {
         .await;
         match result {
             Ok(journal) => Ok(Self {
+                approval: init.approval,
+                approval_poisoned: false,
                 outgoing_poisoned: false,
                 #[cfg(test)]
                 outgoing_reply_loss: false,
@@ -729,6 +779,9 @@ impl Sdk {
         Ok(())
     }
     async fn intake_start(&mut self, value: Value, targets: Vec<ReplyRoute>) -> Result<(), Error> {
+        if self.approval {
+            return Err(Error::Generation);
+        }
         if self.journal.pending.is_some() || self.journal.intake.is_some() {
             return Err(Error::OutcomeUnknown);
         }
@@ -883,6 +936,9 @@ impl Sdk {
         self.persist().await
     }
     async fn sync(&mut self, value: Value) -> Result<(), Error> {
+        if self.approval {
+            return Err(Error::Generation);
+        }
         if self.journal.intake_enabled {
             return Err(Error::Busy);
         }
@@ -1197,5 +1253,30 @@ impl Owner {
             .try_send(Command::OutgoingReplyFault(send))
             .unwrap_or_else(|_| panic!("fixture queue"));
         reply.await.unwrap();
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/approval_intake/crypto_fixture.rs"]
+mod approval_fixture;
+#[cfg(test)]
+impl Owner {
+    pub(crate) async fn corrupt_approval(&self, variant: u8) {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::ApprovalCorrupt(variant, send))
+            .unwrap_or_else(|_| panic!("fixture queue"));
+        reply.await.unwrap();
+    }
+    pub(crate) async fn approval_fixture(
+        &self,
+        contents: Vec<Value>,
+        verified: bool,
+    ) -> approval_fixture::Packet {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::ApprovalFixture(contents, verified, send))
+            .unwrap_or_else(|_| panic!("fixture queue"));
+        reply.await.unwrap()
     }
 }
