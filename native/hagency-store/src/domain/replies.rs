@@ -232,6 +232,23 @@ impl DomainRepository {
         tx.commit()?;
         Ok(Some(ReplyClaim { id, fence, secret }))
     }
+    /// Host-only routing preview. This neither changes state nor authorizes IO;
+    /// the caller must still commit begin-send and validate before each write.
+    pub fn preview_final_reply(&self, claim: &ReplyClaim, now: u64) -> Result<ReplySend, Error> {
+        if claim_state(&self.db, claim, now)? != "claimed" {
+            return Err(Error::State);
+        }
+        current(&self.db, &claim.id)?;
+        snapshot(&self.db, &claim.id)
+    }
+    /// Recheck the exact still-current Sending claim immediately before a host
+    /// transport write. It is not an atomic fence on a remote homeserver.
+    pub fn validate_final_reply_send(&self, claim: &ReplyClaim, now: u64) -> Result<(), Error> {
+        if claim_state(&self.db, claim, now)? != "sending" {
+            return Err(Error::State);
+        }
+        current(&self.db, &claim.id)
+    }
     /// Commit send-start before touching Matrix. Losing this response is uncertain;
     /// the host must inspect rather than execute the same begin command twice.
     pub fn begin_final_reply_send(
@@ -338,7 +355,12 @@ impl DomainRepository {
             [id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        if state != "uncertain" || current_fence != fence {
+        // An authenticated inspector may have journaled an accepted response
+        // before losing the sender's claim secret. That is positive delivery
+        // evidence, not evidence that a send never happened.
+        let inspectable = state == "uncertain"
+            || (state == "sending" && matches!(input, ReplyReconciliation::Delivered(_)));
+        if !inspectable || current_fence != fence {
             return Err(Error::RunnerAuthority);
         }
         let own: u64 = tx.query_row(

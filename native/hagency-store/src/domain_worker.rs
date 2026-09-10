@@ -588,6 +588,20 @@ impl DomainStore {
         self.call(1, move |db| db.claim_final_reply(writer_time()?, lease_ms))
             .await
     }
+    pub async fn preview_final_reply(&self, claim: ReplyClaim) -> Result<ReplySend, Error> {
+        self.call(
+            weight(&(&claim.id, claim.fence, &claim.secret))?,
+            move |db| db.preview_final_reply(&claim, writer_time()?),
+        )
+        .await
+    }
+    pub async fn validate_final_reply_send(&self, claim: ReplyClaim) -> Result<(), Error> {
+        self.call(
+            weight(&(&claim.id, claim.fence, &claim.secret))?,
+            move |db| db.validate_final_reply_send(&claim, writer_time()?),
+        )
+        .await
+    }
     pub async fn begin_final_reply_send(&self, claim: ReplyClaim) -> Result<ReplySend, Error> {
         self.call(weight(&(&claim.id, &claim.secret))?, move |db| {
             db.begin_final_reply_send(&claim, writer_time()?)

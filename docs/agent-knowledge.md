@@ -1769,3 +1769,10 @@ sender; only authenticated encrypted-event provenance can supply that trust.
 The legacy Node Matrix binding0.4 requires a postinstall native download, so its
 interop oracle belongs after ordinary npm ci in Node CI, not the scripts-disabled
 Rust job. Fixed public fixture keys are never runtime credentials.
+### Native send checkpoints (2026-09-10)
+
+`preview_final_reply` is a private Claimed-route read, not send permission.
+`validate_final_reply_send` rechecks only the current Sending claim before host IO.
+A positive authenticated delivery journal may reconcile Sending with its exact fence
+and immutable observation even if the sender lost the claim secret. NotSent still
+requires Uncertain; receipt loss must never fabricate permission to resend.

@@ -101,3 +101,19 @@ This slice intentionally has these limits:
   immutable file/media delivery, console projections, process cancellation and
   live end-to-end testing are not implemented here. No model or live Matrix
   service was used or changed. M3 and the overall native migration remain open.
+
+### 2026-09-10: Native sender admission and journal reconciliation
+
+The host can preview only an exact current Claimed reply to match its private
+account/room collector before committing Sending. Preview does not change state
+or authorize network IO. Before each transport write, a separate host-only check
+requires the exact secret/fence, unexpired Sending claim and current frozen route.
+These are local authorization checkpoints, not an atomic lock on Matrix.
+
+A host inspector may reconcile a still-Sending row directly as Delivered when a
+journaled authenticated response matches the immutable transaction, digest,
+server/room, sender/device, encryption and current send fence. Losing the claim
+secret does not erase that delivery evidence. Existing durable inspection digests
+keep retries idempotent. NotSent remains restricted to Uncertain and cannot turn
+an in-flight send into a resend permission. No runner/public endpoint receives
+preview, validation or inspection authority.

@@ -3689,3 +3689,8 @@ non-passing: despite its requested lint/boundary layers it launched Cargo for a
 Node selector and was stopped; the Node-directory attempt then reported missing
 Cargo execution. Neither is a passing boundary or behavioral result. Only the
 owned generated target is cleaned; source and all original logs are preserved.
+## 2026-09-10 — Native final-reply send checkpoints (ADR-033 amendment)
+
+- Added host-only claimed preview and current Sending validation, so the native Matrix sender can match its private transport account before send-start and recheck exact current scope before IO. Neither method performs network IO or changes reply state.
+- A journaled exact Delivered observation can now reconcile Sending directly after sender receipt/secret loss. NotSent remains Uncertain-only; immutable body/route, send fence and durable inspection digest still determine acceptance and replay. No runner endpoints or native schema changes.
+- Focused reply repository suite covers wrong secrets/fences/IDs, expiry, null-root DM promotion, substituted delivery fields, NotSent refusal and exact positive replay. All 16 focused reply tests and Store Clippy passed. The scoped agent-spec 1.4 lifecycle passed 3/3 with no failed/skipped/uncertain scenarios using the store package as its code root; ADR059 owns actual Matrix sender consumption separately.

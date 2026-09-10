@@ -1177,3 +1177,112 @@ fn native_matrix_transport_migration_missing_structure_and_rollback() {
         );
     }
 }
+
+#[test]
+fn native_reply_send_readiness() {
+    let mut f = Fixture::new(true, None);
+    f.done();
+    let intent = f.reply();
+    let claim = f.db.claim_final_reply(1010, 100).unwrap().unwrap();
+    let preview = f.db.preview_final_reply(&claim, 1011).unwrap();
+    assert_eq!(preview.id, intent.id);
+    assert_eq!(preview.body, content().body);
+    assert_eq!(f.state(&intent.id), "claimed");
+    assert!(f.db.validate_final_reply_send(&claim, 1011).is_err());
+    for bad in [
+        ReplyClaim {
+            secret: "0".repeat(64),
+            ..claim.clone()
+        },
+        ReplyClaim {
+            fence: claim.fence + 1,
+            ..claim.clone()
+        },
+        ReplyClaim {
+            id: "other".into(),
+            ..claim.clone()
+        },
+    ] {
+        assert!(f.db.preview_final_reply(&bad, 1011).is_err());
+        assert!(f.db.validate_final_reply_send(&bad, 1011).is_err());
+    }
+    assert!(f.db.preview_final_reply(&claim, 1110).is_err());
+    let send = f.db.begin_final_reply_send(&claim, 1012).unwrap();
+    assert_eq!(send.digest, preview.digest);
+    assert!(send.route == preview.route);
+    assert_eq!(f.state(&intent.id), "sending");
+    assert!(f.db.preview_final_reply(&claim, 1013).is_err());
+    f.db.validate_final_reply_send(&claim, 1013).unwrap();
+    assert!(f.db.validate_final_reply_send(&claim, 1110).is_err());
+    f.room.generation += 1;
+    f.room.privacy = RoomPrivacy::Group {};
+    f.db.observe_matrix_room(&f.room, 1014).unwrap();
+    assert!(f.db.validate_final_reply_send(&claim, 1015).is_err());
+    assert_eq!(f.state(&intent.id), "uncertain");
+}
+#[test]
+fn native_reply_sending_inspection() {
+    let mut f = Fixture::new(true, Some("$root"));
+    f.done();
+    let intent = f.reply();
+    let claim = f.db.claim_final_reply(1010, 100).unwrap().unwrap();
+    let send = f.db.begin_final_reply_send(&claim, 1011).unwrap();
+    let not_sent = ReplyReconciliation::NotSent {
+        evidence: "inspection receipt".into(),
+    };
+    assert!(
+        f.db.reconcile_final_reply(&intent.id, claim.fence, &not_sent, 1012)
+            .is_err()
+    );
+    let observation = delivered(&send);
+    for changed in ["digest", "room", "device", "transaction", "encryption"] {
+        let mut bad = observation.clone();
+        match changed {
+            "digest" => bad.digest = "a".repeat(64),
+            "room" => bad.room_id = "!other:example.test".into(),
+            "device" => bad.device_id = "OTHER".into(),
+            "transaction" => bad.transaction_id = "other".into(),
+            _ => bad.encrypted = false,
+        }
+        assert!(
+            f.db.reconcile_final_reply(
+                &intent.id,
+                claim.fence,
+                &ReplyReconciliation::Delivered(bad),
+                1012
+            )
+            .is_err()
+        );
+    }
+    assert!(
+        f.db.reconcile_final_reply(
+            &intent.id,
+            claim.fence + 1,
+            &ReplyReconciliation::Delivered(observation.clone()),
+            1012
+        )
+        .is_err()
+    );
+    assert_eq!(f.state(&intent.id), "sending");
+    assert_eq!(count(&f.sql(), "final_reply_inspections"), 0);
+    // The positive journal describes the old send even after its claim expires;
+    // no claim secret or new send permission is manufactured by reconciliation.
+    let proof = ReplyReconciliation::Delivered(observation);
+    assert_eq!(
+        f.db.reconcile_final_reply(&intent.id, claim.fence, &proof, 2000)
+            .unwrap()
+            .state,
+        ReplyState::Delivered
+    );
+    assert!(
+        f.db.reconcile_final_reply(&intent.id, claim.fence, &proof, 2001)
+            .unwrap()
+            .replayed
+    );
+    assert!(
+        f.db.reconcile_final_reply(&intent.id, claim.fence, &not_sent, 2002)
+            .is_err()
+    );
+    assert_eq!(count(&f.sql(), "final_reply_inspections"), 1);
+    assert!(f.db.validate_final_reply_send(&claim, 2003).is_err());
+}

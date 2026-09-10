@@ -84,6 +84,18 @@ Scenario: Private HTTP exposes content-only reply commands
   When final intent submission and receipt reads use the private API
   Then only scoped content commands reach the single writer and host authority remains inaccessible
 
+Scenario: Host preview and write validation retain exact send custody
+  Test: native_reply_send_readiness
+  Given an exact current claimed reply or a stale substituted or retired claim
+  When the host previews routing or checks a Sending claim before IO
+  Then preview leaves state unchanged and only current Sending custody validates
+
+Scenario: Journaled delivery can reconcile a still Sending reply
+  Test: native_reply_sending_inspection
+  Given an authenticated host delivery observation and the exact send fence
+  When the sender lost its claim secret before recording the response
+  Then matching delivery is idempotent while NotSent and substituted observations are refused
+
 ## Out of Scope
 
 Matrix SDK authentication and encryption, network sends, effective process cleanup,
