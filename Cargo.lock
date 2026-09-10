@@ -1042,6 +1042,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "hagency-execution"
+version = "0.1.0"
+dependencies = [
+ "hagency-core",
+ "hagency-platform",
+ "hagency-runtime",
+ "hagency-store",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "hagency-matrix"
 version = "0.1.0"
 dependencies = [

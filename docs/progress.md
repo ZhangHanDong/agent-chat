@@ -3333,3 +3333,37 @@ fail/skip/uncertain. Evidence is recorded in matrix-room-fixture-* under the
 2026-09-10 migration cache. Fresh Linux execution remains an integration check. The first local new-test run caught a double-slash fixture
 URL and was corrected before the final nine-test run. Concurrent ADR-054 intake
 work remains uncommitted and is excluded from this fixture commit.
+
+## 2026-09-10 — Host-only owned dispatch integration (ADR053)
+
+Implemented in an isolated worktree from 727fdb4. A new hagency-execution crate
+connects exact DomainStore scope to the existing owned child launcher and typed
+Codex pipes. Started is durable before child effects; model/effort come from the
+frozen provision effect and prompt identity/path fields remain data. Cancellation
+retains one worker, owner and negative reconciliation until a private result;
+unknown cleanup/replies preserve historical fencing, quarantine and leases.
+Completed protocol text does not create canonical Done or Matrix replies.
+
+Fresh macOS fixtures passed six execution tests, two store scope/fence tests,
+one real writer queued/committed reply-loss test, six existing task tests and
+six existing owned-pipe tests. Actual fixed native subprocesses cover protocol
+completion, failed spawn, EOF, wrong thread, unsupported approvals, cancellation,
+expiry/revocation and absolute deadline. The lost-receipt coordinator seam only
+discards an actual committed start response and is absent in normal builds.
+SQLite's existing 100 ms busy timeout stays unchanged; a lock-failure fixture
+verifies explicit retained negative retry after lock release. Focused macOS and
+Windows GNU all-target Clippy passed. Cross-compilation is not Windows execution;
+this new coordinator's Linux/Windows CI remains pending integration.
+
+A separate read-only reviewer found no blocker in the declared slice. ADR053
+records one-thread/result bounds, the conservative 60-second library wait/join
+allowance, physical-directory and sandbox gaps, commit cancellation checkpoint,
+macOS partial-cleanup handling and all service enablement gates. No live model,
+credential, production Matrix or cgroup change was made. Final lifecycle evidence
+is recorded in the operator cache under codex-protocol/owned-dispatch-*.
+Final agent-spec 1.4 lifecycle passed 10/10 (nine scenarios plus the explicit
+20-file boundary), quality 94%, with no failed/skipped/uncertain scenarios.
+The initial lifecycle's only failure was the known root-file path parser issue;
+explicit ./Cargo.toml and ./Cargo.lock corrected it without broadening scope.
+All 175 native selectors were present with zero missing bindings. Inherited
+project-wide trace warnings remain separate from this bounded M4 qualification.

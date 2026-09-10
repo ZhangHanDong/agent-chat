@@ -1,0 +1,31 @@
+[package]
+name = "hagency-execution"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hagency-core = { path = "../hagency-core" }
+hagency-store = { path = "../hagency-store" }
+hagency-runtime = { path = "../hagency-runtime" }
+hagency-platform = { path = "../hagency-platform" }
+tokio = { workspace = true, features = ["io-util", "net"] }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading"] }
+
+[dev-dependencies]
+serde.workspace = true
+tempfile.workspace = true
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+
+[[bin]]
+name = "hagency-execution-probe"
+path = "../hagency-runtime/src/bin/hagency-runtime-probe.rs"
+
+[lints]
+workspace = true

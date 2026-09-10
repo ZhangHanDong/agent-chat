@@ -41,7 +41,8 @@ pub struct Launch {
     pub require_crash_containment: bool,
 }
 impl Launch {
-    fn validate(&self) -> io::Result<()> {
+    /// Checks bounded host configuration, not physical directory or sandbox custody.
+    pub fn validate(&self) -> io::Result<()> {
         if !self.executable.is_absolute()
             || !self.directory.is_absolute()
             || !self.directory.is_dir()

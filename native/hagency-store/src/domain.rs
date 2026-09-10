@@ -23,6 +23,8 @@ mod graphs;
 mod matrix_routes;
 mod messages;
 mod notice_custody;
+mod owned_dispatch;
+pub use owned_dispatch::{OwnedDispatchScope, OwnedFailure, OwnedObservation};
 mod peers;
 mod replies;
 mod task_intents;

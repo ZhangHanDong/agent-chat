@@ -82,15 +82,15 @@ pub(super) struct Dispatch {
     pub(super) session_id: String,
     pub(super) task_id: Option<String>,
     pub(super) report_task: Option<String>,
-    state: String,
-    fence: u64,
+    pub(super) state: String,
+    pub(super) fence: u64,
     runner: Option<String>,
     hash: Option<String>,
     lease: u64,
     expiry: u64,
-    input: String,
+    pub(super) input: String,
 }
-fn dispatch(db: &Connection, id: &str) -> Result<Dispatch, Error> {
+pub(super) fn dispatch(db: &Connection, id: &str) -> Result<Dispatch, Error> {
     db.query_row("SELECT session_id,task_id,state,fence,runner_id,capability_hash,COALESCE(lease_until,0),COALESCE(capability_until,0),input FROM runner_dispatches WHERE id=?1",[id],|r|Ok(Dispatch {
         session_id:r.get(0)?,task_id:r.get(1)?,report_task:None,state:r.get(2)?,fence:r.get(3)?,runner:r.get(4)?,hash:r.get(5)?,lease:r.get(6)?,expiry:r.get(7)?,input:r.get(8)?,
     })).optional()?.ok_or(Error::NotFound)
@@ -366,6 +366,68 @@ fn visible(t: &Task, d: &Dispatch) -> bool {
     }
     d.task_id.as_deref() == Some(&t.id) || t.creator_session_id.as_deref() == Some(&d.session_id)
 }
+pub(super) fn start_in_transaction(
+    tx: &Transaction<'_>,
+    cap: &RunnerCapability,
+    now: u64,
+) -> Result<Value, Error> {
+    let d = authorize(tx, cap, now, &["leased"])?;
+    super::peers::validate_dispatch(tx, &cap.dispatch_id, &d.session_id)?;
+    if let Some(id) = &d.task_id {
+        let mut t = task(tx, id)?;
+        if t.session_id != d.session_id {
+            return Err(Error::RunnerAuthority);
+        }
+        super::task_intents::start_task(tx, &mut t, &cap.dispatch_id, now)?;
+        if matches!(t.status, TaskState::Created | TaskState::Accepted) {
+            t.status = TaskState::InProgress;
+            t.updated_at = now;
+            t.started_at.get_or_insert(now);
+            save_task(tx, &t, "started")?;
+        }
+    }
+    tx.execute(
+        "UPDATE runner_dispatches SET state='started' WHERE id=?1",
+        [&cap.dispatch_id],
+    )?;
+    super::graphs::started(tx, &cap.dispatch_id)?;
+    tx.execute(
+        "UPDATE runner_attempts SET outcome='started' WHERE dispatch_id=?1 AND fence=?2",
+        params![cap.dispatch_id, cap.fence],
+    )?;
+    let input: DispatchInput = serde_json::from_str(&d.input)?;
+    Ok(input.payload)
+}
+
+pub(super) fn complete_in_transaction(
+    tx: &Transaction<'_>,
+    cap: &RunnerCapability,
+    output: &Value,
+    now: u64,
+) -> Result<(), Error> {
+    if serialize(output)?.len() > 32 * 1024 {
+        return Err(hagency_core::InvalidInput("output exceeds 32 KiB").into());
+    }
+    let d = authorize(tx, cap, now, &["started"])?;
+    super::graphs::complete_guard(tx, &d)?;
+    tx.execute(
+        "INSERT INTO runner_outputs(dispatch_id,fence,output,accepted) VALUES(?1,?2,?3,1)",
+        params![cap.dispatch_id, cap.fence, serialize(output)?],
+    )?;
+    tx.execute(
+        "UPDATE runner_attempts SET outcome='completed' WHERE dispatch_id=?1 AND fence=?2",
+        params![cap.dispatch_id, cap.fence],
+    )?;
+    tx.execute("UPDATE runner_dispatches SET state='completed',capability_hash=NULL,lease_until=NULL,capability_until=NULL WHERE id=?1",[&cap.dispatch_id])?;
+    super::messages::complete_inputs(tx, &cap.dispatch_id, now)?;
+    super::peers::complete_inputs(tx, &cap.dispatch_id, now)?;
+    tx.execute(
+        "DELETE FROM resource_leases WHERE dispatch_id=?1",
+        [&cap.dispatch_id],
+    )?;
+    Ok(())
+}
+
 impl DomainRepository {
     pub fn check_runner(&self, cap: &RunnerCapability, now: u64) -> Result<(), Error> {
         authorize(&self.db, cap, now, &["started"])?;
@@ -527,33 +589,9 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let d = authorize(&tx, cap, now, &["leased"])?;
-        super::peers::validate_dispatch(&tx, &cap.dispatch_id, &d.session_id)?;
-        if let Some(id) = &d.task_id {
-            let mut t = task(&tx, id)?;
-            if t.session_id != d.session_id {
-                return Err(Error::RunnerAuthority);
-            }
-            super::task_intents::start_task(&tx, &mut t, &cap.dispatch_id, now)?;
-            if matches!(t.status, TaskState::Created | TaskState::Accepted) {
-                t.status = TaskState::InProgress;
-                t.updated_at = now;
-                t.started_at.get_or_insert(now);
-                save_task(&tx, &t, "started")?;
-            }
-        }
-        tx.execute(
-            "UPDATE runner_dispatches SET state='started' WHERE id=?1",
-            [&cap.dispatch_id],
-        )?;
-        super::graphs::started(&tx, &cap.dispatch_id)?;
-        tx.execute(
-            "UPDATE runner_attempts SET outcome='started' WHERE dispatch_id=?1 AND fence=?2",
-            params![cap.dispatch_id, cap.fence],
-        )?;
-        let input: DispatchInput = serde_json::from_str(&d.input)?;
+        let payload = start_in_transaction(&tx, cap, now)?;
         tx.commit()?;
-        Ok(input.payload)
+        Ok(payload)
     }
     pub fn park_dispatch(
         &mut self,
@@ -637,29 +675,14 @@ impl DomainRepository {
         output: &Value,
         now: u64,
     ) -> Result<(), Error> {
+        // Preserve this API's existing validation before taking the writer lock.
         if serialize(output)?.len() > 32 * 1024 {
             return Err(hagency_core::InvalidInput("output exceeds 32 KiB").into());
         }
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let d = authorize(&tx, cap, now, &["started"])?;
-        super::graphs::complete_guard(&tx, &d)?;
-        tx.execute(
-            "INSERT INTO runner_outputs(dispatch_id,fence,output,accepted) VALUES(?1,?2,?3,1)",
-            params![cap.dispatch_id, cap.fence, serialize(output)?],
-        )?;
-        tx.execute(
-            "UPDATE runner_attempts SET outcome='completed' WHERE dispatch_id=?1 AND fence=?2",
-            params![cap.dispatch_id, cap.fence],
-        )?;
-        tx.execute("UPDATE runner_dispatches SET state='completed',capability_hash=NULL,lease_until=NULL,capability_until=NULL WHERE id=?1",[&cap.dispatch_id])?;
-        super::messages::complete_inputs(&tx, &cap.dispatch_id, now)?;
-        super::peers::complete_inputs(&tx, &cap.dispatch_id, now)?;
-        tx.execute(
-            "DELETE FROM resource_leases WHERE dispatch_id=?1",
-            [&cap.dispatch_id],
-        )?;
+        complete_in_transaction(&tx, cap, output, now)?;
         tx.commit()?;
         Ok(())
     }

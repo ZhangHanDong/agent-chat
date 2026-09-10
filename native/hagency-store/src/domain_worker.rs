@@ -40,6 +40,139 @@ mod clock_tests {
             .as_millis() as u64
     }
 
+    fn owned_fixture(root: &std::path::Path) -> (DomainRepository, RunnerCapability) {
+        let mut db = DomainRepository::open(&root.join("state")).unwrap();
+        db.register(&registration()).unwrap();
+        let pool = resource("pool", "seat", 100);
+        db.put_resource(&pool).unwrap();
+        let proof = proof(&request("request", "Worker", &pool, 10));
+        let e = db.admit(&proof, 1000).unwrap();
+        db.approve("approve", &proof, 1000).unwrap();
+        let effect = db.claim_effect().unwrap().unwrap();
+        db.observe_effect(
+            &effect.id,
+            effect.fence,
+            &EffectOutcome::Applied {
+                receipt: "offline".into(),
+            },
+        )
+        .unwrap();
+        db.register_session(&SessionBinding {
+            id: "session".into(),
+            engagement_id: e.id,
+            room_id: "!project:example.test".into(),
+            thread_root: None,
+        })
+        .unwrap();
+        db.register_workspace("work").unwrap();
+        db.create_canonical_task("task", "session", "Receipt loss", now())
+            .unwrap();
+        db.enqueue_dispatch(&DispatchInput {
+            id: "dispatch".into(),
+            session_id: "session".into(),
+            task_id: Some("task".into()),
+            resources: vec![hagency_core::tasks::ResourceLease {
+                id: "work".into(),
+                exclusive: true,
+            }],
+            payload: json!({"instruction":"offline"}),
+        })
+        .unwrap();
+        let cap = db
+            .claim_dispatch("host", now(), 60_000, 60_000, 1)
+            .unwrap()
+            .unwrap();
+        (db, cap)
+    }
+
+    #[tokio::test]
+    async fn native_owned_dispatch_queue_reply_loss() {
+        // The writer remains real. Only its receipt is withheld; every gate has
+        // a finite bound, and no cancelled or timed-out future is polled again.
+        for started in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let (db, cap) = owned_fixture(root.path());
+            let fingerprint = db
+                .owned_dispatch_scope(&cap, now())
+                .unwrap()
+                .fingerprint()
+                .to_owned();
+            let store = DomainStore::start(db, 16).unwrap();
+            let (entered, entered_rx) = oneshot::channel();
+            let (release, release_rx) = std::sync::mpsc::channel::<()>();
+            let worker = store.clone();
+            let held_cap = cap.clone();
+            let held_fingerprint = fingerprint.clone();
+            let withheld = tokio::spawn(async move {
+                worker
+                    .call(1, move |db| {
+                        if started {
+                            db.start_owned_dispatch(&held_cap, &held_fingerprint, now())?;
+                        }
+                        let _ = entered.send(());
+                        release_rx
+                            .recv_timeout(Duration::from_secs(4))
+                            .map_err(|_| Error::Unavailable)?;
+                        Ok(())
+                    })
+                    .await
+            });
+            entered_rx.await.unwrap();
+            if !started {
+                // This exact start command enters the queue but its receiver
+                // expires before the writer can execute it.
+                assert!(matches!(
+                    store.start_owned_dispatch(cap.clone(), fingerprint).await,
+                    Err(Error::OutcomeUnknown)
+                ));
+            }
+            assert!(matches!(
+                withheld.await.unwrap(),
+                Err(Error::OutcomeUnknown)
+            ));
+            release.send(()).unwrap();
+            // The next command is also a barrier behind the withheld operation.
+            let observed = store
+                .observe_owned_failure(cap, crate::OwnedFailure::StartUnknown)
+                .await
+                .unwrap();
+            assert_eq!(
+                observed,
+                if started {
+                    crate::OwnedObservation::Fenced
+                } else {
+                    crate::OwnedObservation::Unstarted
+                }
+            );
+            let inspect =
+                rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+            let state: String = inspect
+                .query_row("SELECT state FROM runner_dispatches", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(
+                state,
+                if started {
+                    "outcome_unknown"
+                } else {
+                    "superseded"
+                }
+            );
+            let leases: u64 = inspect
+                .query_row("SELECT COUNT(*) FROM resource_leases", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(leases, u64::from(started));
+            let task: String = inspect
+                .query_row(
+                    "SELECT json_extract(config,'$.status') FROM canonical_tasks",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(task, if started { "in_progress" } else { "created" });
+            store.shutdown().await.unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn native_runner_clock_after_queue() {
         let root = tempfile::tempdir().unwrap();
@@ -138,6 +271,70 @@ fn writer_time() -> Result<u64, Error> {
         .ok_or(Error::Unavailable)
 }
 impl DomainStore {
+    /// Host-only logical scope. No runtime command or HTTP projection exposes it.
+    pub async fn owned_dispatch_scope(
+        &self,
+        cap: RunnerCapability,
+    ) -> Result<crate::OwnedDispatchScope, Error> {
+        self.call(weight(&cap)?, move |db| {
+            db.owned_dispatch_scope(&cap, writer_time()?)
+        })
+        .await
+    }
+    pub async fn start_owned_dispatch(
+        &self,
+        cap: RunnerCapability,
+        expected: String,
+    ) -> Result<crate::OwnedDispatchScope, Error> {
+        self.call(weight(&(&cap, &expected))?, move |db| {
+            db.start_owned_clock(&cap, &expected, writer_time)
+        })
+        .await
+    }
+    pub async fn check_owned_dispatch(
+        &self,
+        cap: RunnerCapability,
+        expected: String,
+    ) -> Result<Task, Error> {
+        self.call(weight(&(&cap, &expected))?, move |db| {
+            db.check_owned_dispatch(&cap, &expected, writer_time()?)
+        })
+        .await
+    }
+    pub async fn renew_owned_dispatch(
+        &self,
+        cap: RunnerCapability,
+        expected: String,
+        lease_ms: u64,
+    ) -> Result<Task, Error> {
+        self.call(weight(&(&cap, &expected))?, move |db| {
+            db.renew_owned_clock(&cap, &expected, lease_ms, writer_time)
+        })
+        .await
+    }
+    /// The caller must hold an actually stopped owner. This host API does not
+    /// manufacture that process observation and has no runner HTTP equivalent.
+    pub async fn complete_owned_dispatch(
+        &self,
+        cap: RunnerCapability,
+        expected: String,
+        output: serde_json::Value,
+    ) -> Result<Task, Error> {
+        self.call(weight(&(&cap, &expected, &output))?, move |db| {
+            db.complete_owned_clock(&cap, &expected, &output, writer_time)
+        })
+        .await
+    }
+    pub async fn observe_owned_failure(
+        &self,
+        cap: RunnerCapability,
+        failure: crate::OwnedFailure,
+    ) -> Result<crate::OwnedObservation, Error> {
+        self.call(weight(&(&cap, &failure))?, move |db| {
+            db.observe_owned_failure(&cap, failure, writer_time()?)
+        })
+        .await
+    }
     pub async fn observe_approval_room(
         &self,
         input: hagency_core::approvals::ApprovalRoomObservation,

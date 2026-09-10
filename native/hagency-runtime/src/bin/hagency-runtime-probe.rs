@@ -193,6 +193,19 @@ fn fake(mode: &str, marker: &Path) -> io::Result<()> {
         &request,
         json!({ "turn": { "id": "owned-turn", "status": "inProgress", "items": [] } }),
     )?;
+    if mode == "approval" {
+        send(
+            json!({"id":"approval","method":"item/commandExecution/requestApproval","params":{"threadId":"owned-thread","turnId":"owned-turn","itemId":"command","command":"fixture","cwd":std::env::current_dir()?.to_string_lossy()}}),
+        )?;
+        return pulse(marker);
+    }
+    if mode == "wrong-scope" {
+        note(
+            "thread/status/changed",
+            json!({"threadId":"impostor-thread","status":{"type":"idle"}}),
+        )?;
+        return pulse(marker);
+    }
     note(
         "item/started",
         json!({ "threadId": "owned-thread", "turnId": "owned-turn", "startedAtMs": 1, "item": { "id": "answer", "type": "agentMessage", "phase": "final_answer", "text": "" } }),
@@ -226,6 +239,12 @@ fn main() -> io::Result<()> {
         return hagency_platform::run_guardian();
     }
     match args.as_slice() {
+        [command] if command == "app-server" => {
+            // Fixed host installation entrypoint for offline dispatch fixtures.
+            // The environment is explicitly supplied by that test host only.
+            let mode = std::env::var("HAGENCY_OFFLINE_MODE").map_err(io::Error::other)?;
+            fake(&mode, &std::env::current_dir()?.join("owned-dispatch"))
+        }
         #[cfg(windows)]
         [mode, marker] if mode == "owner-crash" => owner_crash(Path::new(marker)),
         [mode, marker] if mode == "pulse" => pulse(Path::new(marker)),

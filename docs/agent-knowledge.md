@@ -1655,3 +1655,17 @@ ACP initial status is current state, so completed/failed initial notices matter.
 Pending calls are explicit pending/unresolved attempts and never completed work;
 a later completion remains publishable even after a pending notice was accepted.
 Hooks provide reported PostToolUse activity only, not independent success proof.
+
+Owned dispatch foundation (2026-09-10): ADR053 adds a host-only execution crate,
+not a service runner. DomainStore constructs exact frozen input/current task/
+provisioned profile/resource-lease scope and commits Started with writer time
+read after queue and SQLite lock delay. Unknown start receipt never spawns.
+One retained worker owns actual child pipes through cancellation and negative
+historical-attempt reconciliation; a failed negative receipt has a retained
+retry handle. Protocol completion cannot imply canonical Done or Matrix reply.
+Successful dispatch settlement additionally requires known full owner stop and
+fresh exact authority; macOS cleanup remains partial and therefore quarantined.
+Canonicalized resource paths do not prove physical directory/ancestor custody.
+Production workspace/sandbox qualification, helper launch and approval application
+remain gates, and native availability stays false. Operation/report Drop may
+block for bounded retained cleanup; keep it off latency-sensitive HTTP/UI workers.
