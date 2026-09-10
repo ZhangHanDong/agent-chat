@@ -4,6 +4,7 @@ import { useState } from 'react';
 import AgentAllocationChoice from '@/components/AgentAllocationChoice';
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
+import TechnicalDetails from '@/components/TechnicalDetails';
 import { Toast, useToast } from '@/components/Toast';
 import { Blank } from '@/components/Blank';
 import { useT } from '@/components/Prefs';
@@ -169,8 +170,8 @@ function ProjectSides({ t }) {
               {sides.map((side) => (
                 <tr key={side.id}>
                   <td>
-                    <span className="mono">{side.id}</span>
-                    {side.label && <span className="dim">{side.label}</span>}
+                    <strong>{side.label || side.id}</strong>
+                    {side.label && <TechnicalDetails><code>{side.id}</code></TechnicalDetails>}
                     {!side.active && <span className="dim">{t('en.sideInactive')}</span>}
                   </td>
                   <td>
@@ -180,22 +181,18 @@ function ProjectSides({ t }) {
                     {/* The namespace is the point of an appservice: every future agent is already
                         covered by it, so nothing has to be registered one at a time. */}
                     {side.namespace && (
-                      <>
-                        <span className="dim mono">{side.namespace}</span>
-                        <span className="dim">{t('en.nsNote')}</span>
-                      </>
+                      <TechnicalDetails><code>{side.namespace}</code><p>{t('en.nsNote')}</p></TechnicalDetails>
                     )}
                   </td>
                   <td>
                     {side.credentialKind
-                      ? <span className="mono">{side.credentialKind}</span>
+                      ? <span>{t(side.credentialKind === 'appservice' ? 'en.credentialAppservice' : side.credentialKind === 'registrationToken' ? 'en.credentialToken' : 'en.colCred')}</span>
                       : <span className="stranded">{t('en.credNone')}</span>}
                     {/* Entering one was a curl-only act until now (ADR-016 decision 8). The form can
                         write a credential it can never read back — the read side stays closed. */}
-                    {side.connectionMode === 'outbound' && <p className="why-inline">
-                      纯出站 · Hagency 主动连接 Palpo
-                      <span className="mono"> {side.outboundEndpoint}</span>
-                    </p>}
+                    {side.connectionMode === 'outbound' && <TechnicalDetails label={t('en.outbound')}>
+                      <code>{side.outboundEndpoint}</code>
+                    </TechnicalDetails>}
                     <CredentialForm
                       side={side}
                       live={provenance.projectSides === 'live'}
@@ -237,7 +234,7 @@ function ProjectSides({ t }) {
                         <span className={pr.archived ? 'dim' : ''}>{pr.name}</span>
                         {pr.archived && <span className="dim">{t('en.projArchived')}</span>}
                         {pr.roomId
-                          ? <span className="dim mono">{pr.roomId}</span>
+                          ? <TechnicalDetails><code>{pr.roomId}</code></TechnicalDetails>
                           : <span className="dim">{t('en.projNoRoom')}</span>}
                         {pr.agents.length === 0
                           ? (pr.awaitingBind?.length

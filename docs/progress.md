@@ -1666,3 +1666,21 @@ PRs. Their merge receipts joined the local integration at f8c82c4 without
 changing the verified tree. Local review/workflow history and conflict fixes
 remain unpublished. Website coordination edits are preserved separately;
 no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md.
+
+## 2026-09-09 — Console debugging-text cleanup
+
+- Implemented concise bilingual presentation and closed diagnostic details across
+  the provider console on `fix/console-product-copy`. Status, sample/unavailable
+  data, execution permissions and budget limitations remain explicit.
+- Fixed the Resources toast-hook mismatch and a null provider label found during
+  visual inspection. 84 Vitest tests and 16 controlled browser cases passed; the
+  production build passed. Legacy invariant failures remain identical to the
+  baseline; native agent-spec lifecycle has four unsupported, non-passing skips.
+- Replaced only the local web UI at port13202 with the verified build. Backend
+  PID7238/port18194 and Agent/Matrix processes remain running. Six live pages and
+  both deployed UI languages were checked read-only. No live requests were approved.
+- Source is not committed. Prior documentation edits were preserved. See
+  [review and deployment evidence](reviews/2026-09-09-console-product-presentation.md).
+- Final deployment check exposed an intermittent usage timeout against the
+  unchanged 8-second proxy limit. Resource data remains live; the page labels
+  usage unavailable. This was not counted as successful live usage verification.

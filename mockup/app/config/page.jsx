@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
+import TechnicalDetails from '@/components/TechnicalDetails';
 import { Toast, useToast } from '@/components/Toast';
 import { Blank } from '@/components/Blank';
 import { useT } from '@/components/Prefs';
@@ -102,7 +103,7 @@ export default function ConfigPage() {
                   <td><Link href={`/agents/${a.name}`}>{a.name}</Link></td>
                   <td>
                     {det?.credentialHome
-                      ? <code style={{ fontSize: 11.5 }}>{det.credentialHome}</code>
+                      ? <TechnicalDetails><code>{det.credentialHome}</code></TechnicalDetails>
                       : <Blank why="cf.why.noProbe" t={t} />}
                   </td>
                   <td>
@@ -128,9 +129,8 @@ export default function ConfigPage() {
           </tbody>
         </table>
       </div>
-      <p className="dim" style={{ fontSize: 12, marginTop: 10 }}>
-        {t('cf.ownSecrets')}
-      </p>
+      <TechnicalDetails label={t('cf.credentialHelp')}>
+      <p>{t('cf.ownSecrets')}</p>
       {/*
         * A SECOND CLASS OF SECRET, with the OPPOSITE rule — ADR-016 decision 8 recorded it as
         * unclassified, and an unclassified secret class is one whose handling nobody can check. The
@@ -141,6 +141,7 @@ export default function ConfigPage() {
       <p className="dim" style={{ fontSize: 12, marginTop: 10 }}>
         {t('cf.sideSecrets')}
       </p>
+      </TechnicalDetails>
 
       <h2 className="sec">
         {t('cf.lifecycle')}

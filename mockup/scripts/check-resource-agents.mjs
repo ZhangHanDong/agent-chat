@@ -46,8 +46,8 @@ try {
       const medium = page.getByTestId('resource-agents-medium');
       assert.equal(await page.getByRole('button', { name: locale === 'zh' ? '定义 Agent' : 'Define Agent', exact: true }).count(), 0);
       assert.equal(await page.getByTestId('resource-agents-strong').count(), 1);
-      await medium.getByRole('button', { name: locale === 'zh' ? '发布资源到 Palpo' : 'Publish resource in Palpo', exact: true }).click();
-      await medium.getByRole('button', { name: locale === 'zh' ? '从目录撤下资源' : 'Withdraw resource from catalog', exact: true }).waitFor();
+      await medium.getByRole('button', { name: locale === 'zh' ? '发布到 Palpo' : 'Publish in Palpo', exact: true }).click();
+      await medium.getByRole('button', { name: locale === 'zh' ? '从 Palpo 撤下' : 'Withdraw from Palpo', exact: true }).waitFor();
       assert.equal(presets[1].catalogPublished, true);
       await page.goto(base + '/engagements'); await page.getByTestId('prov-live').waitFor();
       await page.getByRole('button', { name: locale === 'zh' ? '批准' : 'Approve', exact: true }).click();

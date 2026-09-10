@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
+import TechnicalDetails, { UnavailableUsage } from '@/components/TechnicalDetails';
 import { Blank } from '@/components/Blank';
 import Meter from '@/components/Meter';
 import { CeilingBars, AllocationDonut, TaskBars, MissingSeries } from '@/components/Charts';
@@ -154,7 +155,8 @@ export default function UsagePage() {
                   * specific to this deployment and is the actionable half. Otherwise the
                   * localized description of where a measured figure comes from.
                   */}
-                <span className="dim">{sig?.available ? t(srcKey) : (sig?.reason ?? t(srcKey))}</span>
+                <span className="dim">{t(srcKey)}</span>
+                {!sig?.available && sig?.reason && <TechnicalDetails><p>{sig.reason}</p></TechnicalDetails>}
               </div>
             ))}
           </div>
@@ -252,7 +254,7 @@ export default function UsagePage() {
                       */}
                     <td>
                       {r.tokensUsed === null
-                        ? <Blank why="us.why.meterReason" t={t} vars={{ r: r.tokensReason || t('us.why.noMeter') }} />
+                        ? <UnavailableUsage reason={r.tokensReason || t('us.why.noMeter')} />
                         : (
                           <>
                             {/*
@@ -526,7 +528,7 @@ export default function UsagePage() {
                     */}
                   <td>
                     {live?.tokensUsed == null
-                      ? <Blank why="us.why.meterReason" t={t} vars={{ r: live?.tokensReason || t('us.why.noMeter') }} />
+                      ? <UnavailableUsage reason={live?.tokensReason || t('us.why.noMeter')} />
                       : (
                         <>
                           {/* Drawn, so this column is comparable to the 额度上限 beside it. */}

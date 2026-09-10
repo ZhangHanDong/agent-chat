@@ -44,6 +44,8 @@ try {
     const row = await section.locator('li').boundingBox();
     const content = await section.locator('li > div').boundingBox();
     assert.ok(content.width > row.width * 0.8, 'The connection must span the row, not the narrow step-number column');
+    assert.equal(await section.getByText(`Order-taker: ${connected.representative.mxid}`, { exact: true }).isVisible(), false);
+    await section.locator('summary').click();
     assert.ok((await section.innerText()).includes(connected.representative.mxid));
     assert.equal(await section.getByRole('link', { name: 'Manage connection and allocation' }).getAttribute('href'), '/engagements');
     await page.getByText('No invitation is waiting.', { exact: true }).waitFor();
@@ -66,7 +68,7 @@ try {
     assert.equal(await section.locator('li').count(), 0);
   });
   await check('a failed registration read stays unavailable rather than empty', [], async (_page, section) => {
-    await section.getByText('The project-side record did not answer. This is not "registered with nobody" — it is unknown.', { exact: true }).waitFor();
+    await section.getByText('Cannot load project server connections. Try again when Hagency is reachable.', { exact: true }).waitFor();
     assert.equal(await section.getByText('No project side is registered yet. Start with “Take on a project side”.', { exact: true }).count(), 0);
   }, { failure: true });
 } finally { await browser.close(); }

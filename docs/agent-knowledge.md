@@ -933,3 +933,12 @@ runtime fields. Approval router origin and reusable execution authorization
 share the trusted backend options object; neither replaces the other. Canonical
 side lookup must retain the representative needed by outbound Matrix handling.
 See docs/reviews/2026-09-09-open-pr-integration.md for evidence.
+
+- **Console product presentation, 2026-09-09:** Diagnostic details are collapsed
+  using native disclosures, while non-live data and execution policy remain
+  explicit. Keep backend identities unchanged; raw stored Agent names are not
+  display-name guesses. Local console13202 now uses this checkout's `mockup/`
+  build `.next-console-cleanup-build`, PID46398, with deployed backend18194.
+  Backend8090 is a separate instance; do not redirect this console to it via a
+  default environment. Agent/Matrix services were not restarted. See
+  [validation and limitations](reviews/2026-09-09-console-product-presentation.md).

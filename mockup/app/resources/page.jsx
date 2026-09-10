@@ -6,6 +6,7 @@ import { ResourceExecutionPermissions } from '@/components/ExecutionPermissions'
 
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
+import TechnicalDetails, { UnavailableUsage } from '@/components/TechnicalDetails';
 import { Blank } from '@/components/Blank';
 import Meter from '@/components/Meter';
 import { useT } from '@/components/Prefs';
@@ -53,7 +54,7 @@ export default function ResourcesPage() {
     seats = [], seatKeyed, refresh, provenance, usageLive = [],
   } = useData();
 
-  const toast = useToast();
+  const [toast, say] = useToast();
   const [busy, setBusy] = useState(null);
 
   const configured = agents.filter((a) => a.presetId);
@@ -76,7 +77,8 @@ export default function ResourcesPage() {
 
       <Provenance slices={['agents', 'presets', 'ceilings', 'seats', 'engagements', 'usage']} />
 
-      <div className="notice">{t('rs.workflow')}</div>
+      <p className="dim">{t('rs.workflow')}</p>
+      <TechnicalDetails label={t('rs.howRequestsWork')}><p>{t('rs.definitionHelp')}</p><p>{t('rs.catalogHelp')} <Link href="/capability">{t('rs.publishRoles')}</Link></p></TechnicalDetails>
 
       <section aria-labelledby="resource-configurations">
       <h2 id="resource-configurations" className="sec">{t('rs.presets')}<span className="note">{t('rs.presetsNote')}</span></h2>
@@ -98,7 +100,7 @@ export default function ResourcesPage() {
               const users = agents.filter((a) => a.presetId === p.id);
               return (
                 <Fragment key={p.id}><tr>
-                  <td>{p.name}<span className="dim">{p.id}</span></td>
+                  <td>{p.name}<TechnicalDetails><code>{p.id}</code></TechnicalDetails></td>
                   <td>{p.framework}</td>
                   <td className="mono-s">{p.model}</td>
                   <td>{p.reasoning ?? <Blank why="rs.why.noReasoning" t={t} />}</td>
@@ -163,14 +165,14 @@ export default function ResourcesPage() {
                           method: 'PUT', body: { presetId },
                         });
                         setBusy(null);
-                        if (!res.ok) { toast.show(res.error, 'bad'); return; }
+                        if (!res.ok) { say('fail', res.error); return; }
                         /*
                          * The ceiling is reported back rather than assumed: binding a preset that
                          * declares no ceiling leaves the agent exactly as unlendable, and a bare
                          * "saved" would hide that.
                          */
                         const c = res.body?.ceilingTokens;
-                        toast.show(c ? t('rs.bindOkCeiling', { n: fmtTokens(c) }) : t('rs.bindOkNoCeiling'), c ? 'ok' : 'warn');
+                        say(c ? 'ok' : 'warn', c ? t('rs.bindOkCeiling', { n: fmtTokens(c) }) : t('rs.bindOkNoCeiling'));
                         if (typeof window !== 'undefined') window.location.reload();
                       }}
                     >
@@ -254,7 +256,7 @@ export default function ResourcesPage() {
                       <>
                         <div className="mono-s">{p.model}</div>
                         <span className="dim">
-                          {p.reasoning ? `${p.provider} · ${t('col.reasoning')} ${p.reasoning}` : p.provider}
+                          {[p.provider, p.reasoning && `${t('col.reasoning')} ${p.reasoning}`].filter(Boolean).join(' · ')}
                         </span>
                       </>
                     ) : <Blank why="rs.why.noPreset" t={t} />}
@@ -296,7 +298,7 @@ export default function ResourcesPage() {
                   <td>{Number.isFinite(drawn)
                     ? <span className="amount">{fmtTokens(drawn)}</span>
                     : consumption?.tokensReason
-                      ? <span className="dim">{consumption.tokensReason}</span>
+                      ? <UnavailableUsage reason={consumption.tokensReason} />
                       : <Blank why="rs.why.notMetered" t={t} />}</td>
                   <td><span className="dim">{runtimeLabel(a, t)}</span></td>
                 </tr>
@@ -334,7 +336,7 @@ export default function ResourcesPage() {
         * over-subscribed" would be the reassuring half of a coin nobody flipped.
         */}
       <h2 className="sec">{t('rs.seats')}<span className="note">{t('rs.seatsNote')}</span></h2>
-      <div className="notice">{t('rs.seatWhy')}</div>
+      <p className="dim">{t('rs.seatWhy')}</p>
       {seats.length === 0 ? (
         <div className="notice">
           {t('rs.seatsEmpty')}
@@ -342,10 +344,7 @@ export default function ResourcesPage() {
       ) : (
         <>
           {seatKeyed === false && (
-            <div className="notice warn">
-              <div><b>{t('rs.seatUnkeyed')}</b></div>
-              <div>{t('rs.seatUnkeyedWhy')}</div>
-            </div>
+            <TechnicalDetails label={t('rs.seatSecurity')}><p>{t('rs.seatUnkeyed')}</p><p>{t('rs.seatUnkeyedWhy')}</p></TechnicalDetails>
           )}
           <div className="tbl-wrap">
             <table className="tbl">
@@ -363,7 +362,7 @@ export default function ResourcesPage() {
                   <tr key={s.seatId}>
                     <td>
                       <div className="mono-s">{s.framework}</div>
-                      <span className="dim">{s.seatId}</span>
+                      <TechnicalDetails><code>{s.seatId}</code></TechnicalDetails>
                     </td>
                     <td>
                       <span className={s.authMode === 'api-key' ? 'badge' : 'badge attention'}>{s.authMode}</span>

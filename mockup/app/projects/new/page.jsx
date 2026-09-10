@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
+import TechnicalDetails from '@/components/TechnicalDetails';
 import { Toast, useToast } from '@/components/Toast';
 import { send } from '@/lib/api';
 import { registrationCallback, verificationState } from '@/lib/console-workflow';
@@ -348,7 +349,7 @@ export default function NewProjectSide() {
       {credKind === 'registrationToken' && (
         <div className="notice">
           <span className="pill ok-text">注册令牌 · 出站接收</span>{' '}
-          <span className="dim">凭据验证通过后，接单员通过 Matrix /sync 接收项目消息；不需要 Appservice 入站端口。</span>
+          <span className="dim">验证凭据后即可接收项目消息，无需公网地址。</span>
         </div>
       )}
       {credKind === 'appservice' && asMethod === 'generate' && appservice?.inboundVia === 'edge' && (
@@ -399,7 +400,7 @@ export default function NewProjectSide() {
                   <div>
                     <span className="mono-s">{s.serverName ?? '(没有服务器名)'}</span>{' '}
                     <span className={s.probe?.reachable ? 'pill ok-text' : 'pill warn-text'}>
-                      {s.probe?.reachable ? `可达 · ${(s.probe.versions ?? []).join(' ')}` : '不可达'}
+                      {s.probe?.reachable ? '可达' : '不可达'}
                     </span>
                     {s.alreadyASide && !s.hasCredential && (
                       <span className="pill warn-text"> 已建立但没有凭据，可以接着做</span>
@@ -408,9 +409,10 @@ export default function NewProjectSide() {
                       <span className="pill dim"> 已完成（再来一次会换掉现有凭据）</span>
                     )}
                     <div className="why-inline">
-                      {s.url ?? '没有可探测的地址'} — {s.source}
+                      {s.url ?? '没有可探测的地址'}
                       {!s.probe?.reachable && s.probe?.reason ? `；${s.probe.reason}` : ''}
                     </div>
+                    <TechnicalDetails><p>{s.source}</p><p>{(s.probe?.versions ?? []).join(' · ')}</p></TechnicalDetails>
                   </div>
                 </li>
               );
@@ -432,10 +434,7 @@ export default function NewProjectSide() {
             />
           </div>
           <p className="why-inline">
-            地址会自己查出来：Matrix 规定了怎么把服务器名解析成地址
-            （<span className="mono-s">/.well-known/matrix/client</span>），每个 Matrix 客户端登录时做的就是这件事。
-            所以 <span className="mono-s">chinasoft.example</span> 的 homeserver 就算实际住在
-            <span className="mono-s"> matrix.chinasoft.example</span>，你也不用知道。
+            填写项目方的 Matrix 服务器名。支持自动发现时，无需另填地址。
           </p>
           <div className="field-row">
             <label htmlFor="draft-url">地址（可留空）</label>
@@ -448,8 +447,7 @@ export default function NewProjectSide() {
             />
           </div>
           <p className="why-inline">
-            只有在对方没有配 well-known 时才需要填——私有部署、或者带端口的名字，常常是这种情况。
-            填了就以你填的为准，不会被发现结果悄悄替换掉。
+            无法自动发现时，填写完整地址（含端口）。将优先使用此地址。
           </p>
           <div className="btn-row">
             <button type="button" className="btn" disabled={probing} onClick={probeManual}>
@@ -676,7 +674,7 @@ export default function NewProjectSide() {
                     && cbCheck.results?.find((r) => r.url === c.url)?.reachableFromHomeserver === false && (
                     <span className="pill warn-text"> 里面打不通</span>
                   )}
-                  <div className="why-inline">{c.why}</div>
+                  <TechnicalDetails><p>{c.why}</p></TechnicalDetails>
                   <div className="why-inline">{c.confidence}</div>
                 </div>
               </li>
@@ -695,7 +693,7 @@ export default function NewProjectSide() {
                 {cbCheck.recommended ? '已从你的 homeserver 里面验证' : '容器里一个都打不通'}
               </span>{' '}
               {cbCheck.reason}
-              <p className="why-inline">{cbCheck.checkedFrom}</p>
+              <TechnicalDetails><p>{cbCheck.checkedFrom}</p></TechnicalDetails>
             </div>
           )}
           {cbCheck && !cbCheck.applicable && (

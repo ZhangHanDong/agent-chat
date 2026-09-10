@@ -42,6 +42,7 @@ try {
     });
     try {
       await page.goto(base + '/resources'); await page.getByTestId('prov-live').waitFor();
+      await page.getByText(locale === 'zh' ? '新 Agent：保留沙箱 · 额外权限需审批' : 'New Agents: sandbox · approval for extra permissions', { exact: true }).click();
       const saveLabel = locale === 'zh' ? '保存执行权限' : 'Save execution permissions';
       assert.equal(await page.getByLabel('YOLO', { exact: true }).isChecked(), false);
       await page.getByLabel('YOLO', { exact: true }).check(); await page.getByRole('button', { name: saveLabel, exact: true }).click();

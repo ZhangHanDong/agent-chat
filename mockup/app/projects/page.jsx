@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import PageHead from '@/components/PageHead';
+import TechnicalDetails from '@/components/TechnicalDetails';
 import { Toast, useToast } from '@/components/Toast';
 import { Blank } from '@/components/Blank';
 import { useT } from '@/components/Prefs';
@@ -153,9 +154,10 @@ export default function ProjectsPage() {
                         {t(`pr.connection.${status}`)}
                       </span>
                       {side.awaitingInstall && <span className="pill warn-text">{t('pr.connection.staged')}</span>}
-                      <p className="mono-s">{side.id}</p>
+                      <TechnicalDetails><p className="mono-s">{side.id}</p>
                       <p className="dim">{t('en.colCred')}: {side.credentialKind || t('en.credNone')}</p>
                       {side.representative && <p className="mono-s">{t('en.repHead')}: {side.representative}</p>}
+                      </TechnicalDetails>
                       <Link className="btn" href="/engagements">{t('pr.manageConnection')}</Link>
                     </div>
                   </li>;

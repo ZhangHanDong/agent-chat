@@ -40,7 +40,7 @@ const notoSansSC = Noto_Sans_SC({
  * language switch; a metadata title would compete with it and win during hydration.
  */
 export const metadata = {
-  description: 'Clickable mockup of the left-rail relayout. Mock data only; no backend.',
+  description: 'Manage Hagency resources, project requests, agents and usage.',
 };
 
 export default function RootLayout({ children }) {
