@@ -7,6 +7,7 @@ pub(crate) struct Database {
     pub connection: Connection,
     pub ownership: File,
 }
+
 pub(crate) struct Schema {
     pub name: &'static str,
     pub lock: &'static str,
@@ -14,6 +15,7 @@ pub(crate) struct Schema {
     pub version: i32,
     pub sql: &'static str,
     pub verify: &'static str,
+    pub migrations: &'static [(i32, &'static str)],
 }
 pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Error> {
     let Schema {
@@ -23,6 +25,7 @@ pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Err
         version: expected_version,
         sql: schema,
         verify: verify_sql,
+        migrations,
     } = definition;
     private::directory(directory)?;
     let lock_path = directory.join(lock_name);
@@ -51,12 +54,8 @@ pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Err
     }
     let mut db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     db.busy_timeout(Duration::from_millis(100))?;
-    if new {
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute_batch(schema)?;
-        tx.pragma_update(None, "application_id", application_id)?;
-        tx.pragma_update(None, "user_version", expected_version)?;
-        tx.commit()?;
+    let version = if new {
+        0
     } else {
         let id: i32 = db
             .pragma_query_value(None, "application_id", |r| r.get(0))
@@ -64,7 +63,7 @@ pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Err
         let version: i32 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(|_| Error::Schema)?;
-        if id != application_id || version != expected_version {
+        if id != application_id || version < 1 || version > expected_version {
             return Err(Error::Schema);
         }
         let check: String = db
@@ -73,6 +72,32 @@ pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Err
         if check != "ok" {
             return Err(Error::Schema);
         }
+        version
+    };
+    if version < expected_version {
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut current = version;
+        if new {
+            tx.execute_batch(schema)?;
+            tx.pragma_update(None, "application_id", application_id)?;
+            current = 1;
+        }
+        while current < expected_version {
+            let next = current + 1;
+            let matching: Vec<_> = migrations
+                .iter()
+                .filter(|(version, _)| *version == next)
+                .collect();
+            if matching.len() != 1 {
+                return Err(Error::Schema);
+            }
+            tx.execute_batch(matching[0].1)?;
+            current = next;
+        }
+        tx.prepare(verify_sql).map_err(|_| Error::Schema)?;
+        tx.pragma_update(None, "user_version", current)?;
+        tx.commit()?;
+    } else {
         db.prepare(verify_sql).map_err(|_| Error::Schema)?;
     }
     db.pragma_update(None, "journal_mode", "WAL")?;
@@ -82,4 +107,108 @@ pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Err
         connection: db,
         ownership: lock,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn definition(version: i32, migrations: &'static [(i32, &'static str)]) -> Schema {
+        Schema {
+            name: "fixture.sqlite3",
+            lock: "fixture.lock",
+            application_id: 123456,
+            version,
+            sql: "CREATE TABLE probe(id INTEGER PRIMARY KEY); INSERT INTO probe VALUES(1);",
+            verify: "SELECT id FROM probe LIMIT 0",
+            migrations,
+        }
+    }
+    #[test]
+    fn native_schema_migrations_are_atomic() {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        drop(open(&state, definition(1, &[])).unwrap());
+        let failing = &[(
+            2,
+            "ALTER TABLE probe ADD COLUMN upgraded INTEGER; INSERT INTO missing_table VALUES(1);",
+        )];
+        assert!(open(&state, definition(2, failing)).is_err());
+        let db = open(&state, definition(1, &[])).unwrap();
+        assert_eq!(
+            db.connection
+                .pragma_query_value(None, "user_version", |r| r.get::<_, i32>(0))
+                .unwrap(),
+            1
+        );
+        assert!(db.connection.prepare("SELECT upgraded FROM probe").is_err());
+        assert_eq!(
+            db.connection
+                .query_row("SELECT COUNT(*) FROM probe", [], |r| r.get::<_, i32>(0))
+                .unwrap(),
+            1
+        );
+        drop(db);
+        let success = &[(
+            2,
+            "ALTER TABLE probe ADD COLUMN upgraded INTEGER; UPDATE probe SET upgraded=7;",
+        )];
+        for _ in 0..2 {
+            let db = open(&state, definition(2, success)).unwrap();
+            assert_eq!(
+                db.connection
+                    .query_row("SELECT upgraded FROM probe", [], |r| r.get::<_, i32>(0))
+                    .unwrap(),
+                7
+            );
+            assert_eq!(
+                db.connection
+                    .pragma_query_value(None, "user_version", |r| r.get::<_, i32>(0))
+                    .unwrap(),
+                2
+            );
+        }
+        assert!(matches!(
+            open(&state, definition(1, &[])),
+            Err(Error::Schema)
+        ));
+        // Exercise the actual domain1 -> domain2 migration with an existing pool.
+        let old = root.path().join("old-domain");
+        let database = open(
+            &old,
+            Schema {
+                name: "domain.sqlite3",
+                lock: "domain.lock",
+                application_id: 0x48414732,
+                version: 1,
+                sql: include_str!("domain.sql"),
+                verify: "SELECT id FROM resources LIMIT 0",
+                migrations: &[],
+            },
+        )
+        .unwrap();
+        let config = r#"{"presetId":"pool","seatId":"seat","framework":"codex","model":"gpt-5.6-sol","reasoning":"medium","roles":["architect"],"ceiling":{"tokens":100},"published":true}"#;
+        database
+            .connection
+            .execute(
+                "INSERT INTO resources(id,preset_id,config) VALUES(?1,'pool',?2)",
+                rusqlite::params![hagency_core::project::public_resource_id("pool"), config],
+            )
+            .unwrap();
+        drop(database);
+        let mut domain = crate::DomainRepository::open(&old).unwrap();
+        let catalog = domain.catalog("", 100).unwrap();
+        assert_eq!(catalog.len(), 1);
+        assert!(catalog[0].roles.contains(&"coding".into()));
+        assert!(!catalog[0].roles.contains(&"architect".into()));
+        domain.set_role_publication("coding", false).unwrap();
+        drop(domain);
+        assert!(
+            !crate::DomainRepository::open(&old)
+                .unwrap()
+                .catalog("", 100)
+                .unwrap()[0]
+                .roles
+                .contains(&"coding".into())
+        );
+    }
 }

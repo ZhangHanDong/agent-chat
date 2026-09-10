@@ -4,6 +4,7 @@ pub mod authority;
 pub mod canonical;
 pub mod custody;
 pub mod project;
+pub mod qualification;
 
 pub const JSON_SAFE_MAX: u64 = 9_007_199_254_740_991;
 

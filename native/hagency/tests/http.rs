@@ -23,7 +23,31 @@ async fn native_resource_management_is_authenticated() {
     .unwrap()
     .with_domain(domain.clone());
     let service = Service::new(app.router());
-    let resource = json!({"presetId":"private_preset","seatId":"private_seat","framework":"codex","model":"fixture","roles":["coding"],"ceiling":{"tokens":100}});
+    let mut roles = TestClient::get(format!("{BASE}/api/native/v1/roles"))
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .send(&service)
+        .await;
+    assert!(
+        roles
+            .take_json::<Value>()
+            .await
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["available"] == false)
+    );
+    let resource = json!({"presetId":"private_preset","seatId":"private_seat","framework":"codex","model":"gpt-5.6-sol","reasoning":"medium","ceiling":{"tokens":100}});
+    let mut supplied_roles = resource.clone();
+    supplied_roles["roles"] = json!(["architect"]);
+    let denied = TestClient::post(format!("{BASE}/api/native/v1/resources"))
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .json(&supplied_roles)
+        .send(&service)
+        .await;
+    assert_eq!(denied.status_code, Some(StatusCode::BAD_REQUEST));
     let denied = TestClient::post(format!("{BASE}/api/native/v1/resources"))
         .add_header("host", "127.0.0.1:13300", true)
         .json(&resource)
@@ -49,12 +73,48 @@ async fn native_resource_management_is_authenticated() {
     assert!(created["id"].as_str().unwrap().starts_with("resource_"));
     assert!(created.get("presetId").is_none());
     assert!(created.get("seatId").is_none());
+    assert!(
+        created["roles"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("coding"))
+    );
+    assert!(
+        !created["roles"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("architect"))
+    );
     let mut listed = TestClient::get(format!("{BASE}/api/native/v1/resources"))
         .add_header("host", "127.0.0.1:13300", true)
         .bearer_auth(TOKEN)
         .send(&service)
         .await;
     assert_eq!(listed.take_json::<Value>().await.unwrap(), json!([created]));
+    let unpublished = TestClient::post(format!("{BASE}/api/native/v1/roles/coding/publication"))
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .json(&json!({"published":false}))
+        .send(&service)
+        .await;
+    assert_eq!(unpublished.status_code, Some(StatusCode::OK));
+    let mut listed = TestClient::get(format!("{BASE}/api/native/v1/resources"))
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .send(&service)
+        .await;
+    assert!(
+        !listed.take_json::<Value>().await.unwrap()[0]["roles"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("coding"))
+    );
+    TestClient::post(format!("{BASE}/api/native/v1/roles/coding/publication"))
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .json(&json!({"published":true}))
+        .send(&service)
+        .await;
     let mut budget = TestClient::get(format!(
         "{BASE}/api/native/v1/resources/{}/budget",
         created["id"].as_str().unwrap()

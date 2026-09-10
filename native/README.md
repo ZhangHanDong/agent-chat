@@ -39,6 +39,8 @@ Operator-only development resource endpoints under `/api/native/v1`:
 | `GET resources/{id}/budget` | Selected pool/shared-seat commitments; unknown quota remains null |
 | `GET/POST seats` | Paged quota declarations or save a declaration; no credentials are exposed |
 | `GET engagements` | Paged request/allocation projection without private owner-room evidence |
+| `GET roles` | Derived eligibility with explicit publication choices and cross-family requirements |
+| `POST roles/{role}/publication` | Save `{ "published": false }` to withdraw a role, or true to restore it |
 
 List endpoints accept `after` (last returned ID) and `limit` (1–100). These routes
 share the operator bearer and exact-host/origin checks. They are not the existing
@@ -54,6 +56,7 @@ cargo test --workspace --all-targets --locked
 node native/scripts/canonical-vectors.mjs --check
 node native/scripts/allocation-vectors.mjs --check
 node native/scripts/project-vectors.mjs --check
+node native/scripts/qualification-vectors.mjs --check
 node native/scripts/check-rust-spec-bindings.mjs
 ```
 
@@ -92,8 +95,13 @@ retirement requires explicit retry. These are tested with fixture observations,
 not actual Matrix account/process creation. No effect worker executes externally.
 
 Resource budgets match29 JavaScript vectors; Unicode names, public IDs and runtime
-identity derivation match38 identity vectors. Native qualification currently uses
-provider-supplied eligible roles; framework detection, cross-family qualification,
-global role withdrawals, legacy role-only allocations, safe generation-rotation
+identity derivation match38 identity vectors. Native qualification embeds the existing
+`lib/role-capacity.json` and compares99 model profiles plus18 ranking cases against
+JavaScript. Resource input specifies framework/model/provider/reasoning, and the
+API rejects supplied role lists. Catalog roles are derived, explicit role withdrawal
+persists, and cross-family review requires active Agents on the same registration.
+Changing the model/provider/reasoning of an allocated pool is refused. Native schema2
+adds role publication through an atomic migration; older role caches grant nothing.
+Framework detection, legacy role-only allocations, safe generation-rotation
 reconciliation and continuous retention remain open implementation work. See the
 [checkpoint review](../docs/reviews/2026-09-10-native-domain-checkpoint.md).

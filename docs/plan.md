@@ -11,7 +11,8 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    versions and measured device budgets. Run early process-tree/sandbox proofs.
 4. M2 selected-resource domain checkpoint now implements verified-observation
    admission, one-transaction reservations/outbox and uncertain-effect recovery.
-   Complete qualification/legacy/project-side/rotation integration; next port the
+   Model qualification, derived catalogs and scoped cross-family checks now use
+   the shared policy. Complete legacy/project-side/rotation integration; next port the
    M3 canonical task and dispatch kernel into the same domain database.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

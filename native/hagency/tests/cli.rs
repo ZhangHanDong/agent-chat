@@ -80,7 +80,7 @@ fn resource_call(address: SocketAddr, token: &str, create: bool) -> serde_json::
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     let body = if create {
-        r#"{"presetId":"restart_pool","seatId":"fixture_seat","framework":"codex","model":"fixture","roles":["coding"],"ceiling":{"tokens":100}}"#
+        r#"{"presetId":"restart_pool","seatId":"fixture_seat","framework":"codex","model":"gpt-5.6-sol","reasoning":"medium","ceiling":{"tokens":100}}"#
     } else {
         ""
     };

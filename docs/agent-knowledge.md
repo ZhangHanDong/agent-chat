@@ -961,3 +961,10 @@ See docs/reviews/2026-09-09-open-pr-integration.md for evidence.
   Resource edits that omit publication preserve explicit withdrawal. Public catalog
   IDs and Unicode runtime naming remain bound to the existing JS golden vectors.
   Native M2 does not yet contain live Matrix IO, full qualification or legacy intake.
+
+- **Native qualification:** uses the unchanged `lib/role-capacity.json` through
+  an embedded Rust policy and actual-JS vectors. `roles` in stored configurations
+  is a derived cache, never a grant. HTTP rejects role lists on resource input.
+  Explicit role withdrawal is schema2 state. Only active same-registration model
+  families satisfy cross-family review; resource configurations alone do not.
+  Shared native schema upgrades are ordered and atomic; custody remains version1.

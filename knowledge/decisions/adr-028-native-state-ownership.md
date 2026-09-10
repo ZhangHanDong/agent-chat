@@ -53,6 +53,14 @@ until the authenticated transport/credential saga exists. Local explicit revocat
 can still persist its fence and pending cleanup. An old-generation cleanup must
 not be reported completed merely because the registration changed.
 
+Native schema2 adds explicit role publication with an ordered SQL migration.
+Fresh schema creation and all needed upgrades share one transaction; a failed
+migration preserves the previous version and rows. Downgrades and foreign stores
+remain refused. Resource role caches are never authority: eligibility is computed
+from the existing embedded role-capacity policy and current provider/reasoning
+fields. Review counts active allocated model families on the same registration;
+unprovisioned configurations and another registration cannot satisfy that guard.
+
 ## Latency and storage
 
 SQLite commands run on a dedicated thread. Defaults: 16 queued commands, 16 MiB

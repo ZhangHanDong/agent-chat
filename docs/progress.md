@@ -1740,3 +1740,23 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   exclusion plus a fixture proving ordinary extensionless scripts remain scanned.
   The documentation and Node spec-binding checks now pass all9 tests. No runtime
   behavior or assertion was bypassed to hide this migration/build interaction.
+
+## 2026-09-10 — Native model qualification checkpoint
+
+- Embedded the existing role-capacity policy without changing its model table.
+  Native model/provider/reasoning qualification matches 99 JavaScript profile
+  cases and 18 resource ordering cases. Catalog roles are derived; supplied role
+  grants are rejected. Explicit withdrawal persists, and review qualification
+  counts only active model families on the requesting registration.
+- Admission and first reservation recheck current qualification while exact
+  replays and already reserved effect identities remain recoverable. Native
+  domain schema 2 uses ordered transactional migration files; injected failures,
+  old cached roles, repeated startup and downgrade rejection are covered.
+- Local validation: 25 Cargo tests passed with no failures or ignored tests;
+  rustfmt, Clippy, qualification golden check and generator ESLint passed.
+  Native spec bindings resolve all 20 selectors. The qualification lifecycle
+  passed all 3 scenarios plus the boundary check, with no skip or uncertainty.
+- Prior commit 5c08ad9 passed Linux/macOS/Windows native CI and Node CI
+  (4,281 passed, one platform skip). That CI result does not validate this
+  checkpoint until its own committed head runs. Full M0–M9 migration remains
+  active; task/dispatch authority and recovery are the next bounded implementation.

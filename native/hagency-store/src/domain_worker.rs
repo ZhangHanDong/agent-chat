@@ -104,6 +104,26 @@ impl DomainStore {
         self.call(weight(&seat)?, move |db| db.put_seat(&seat))
             .await
     }
+    pub async fn set_role_publication(&self, role: String, published: bool) -> Result<(), Error> {
+        self.call(weight(&role)?, move |db| {
+            db.set_role_publication(&role, published)
+        })
+        .await
+    }
+    pub async fn role_publications(&self) -> Result<Vec<serde_json::Value>, Error> {
+        self.call(1, |db| db.role_publications()).await
+    }
+    pub async fn catalog_for(
+        &self,
+        fleet: String,
+        after: String,
+        limit: usize,
+    ) -> Result<Vec<CatalogResource>, Error> {
+        self.call(weight(&(&fleet, &after))?, move |db| {
+            db.catalog_for(Some(&fleet), &after, limit)
+        })
+        .await
+    }
     pub async fn edit_resource(
         &self,
         resource: Resource,

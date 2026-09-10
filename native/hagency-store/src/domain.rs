@@ -9,6 +9,7 @@ use hagency_core::{
         self, CatalogResource, CleanupState, ConfiguredResource, Engagement, EngagementState,
         Resource, Seat,
     },
+    qualification,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -91,6 +92,40 @@ fn read_resource(db: &Connection, id: &str) -> Result<Resource, Error> {
         .optional()?
         .ok_or(Error::NotFound)?;
     Ok(serde_json::from_str(&value)?)
+}
+fn role_available(db: &Connection, role: &str, fleet: Option<&str>) -> Result<bool, Error> {
+    qualification::check_role(role)?;
+    let publication: Option<bool> = db
+        .query_row(
+            "SELECT published FROM role_publications WHERE role=?1",
+            [role],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if publication == Some(false) {
+        return Ok(false);
+    }
+    if !qualification::cross_family(role) {
+        return Ok(true);
+    }
+    let mut query=db.prepare("SELECT json_extract(f.payload,'$.resource') FROM engagements e JOIN registrations r ON r.fleet_id=e.fleet_id JOIN effects f ON f.engagement_id=e.id AND f.kind='provision' WHERE e.state='active' AND e.generation=r.generation AND (?1 IS NULL OR e.fleet_id=?1)")?;
+    let rows = query.query_map([fleet], |r| r.get::<_, String>(0))?;
+    let mut families = std::collections::BTreeSet::new();
+    let need =
+        qualification::default_tier(role).ok_or(hagency_core::InvalidInput("unknown role"))?;
+    for row in rows {
+        let resource: Resource = serde_json::from_str(&row?)?;
+        let (tier, family) = qualification::model(&resource.profile());
+        if tier.is_some_and(|got| got >= need)
+            && let Some(family) = family
+        {
+            families.insert(family);
+        }
+        if families.len() >= 2 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 fn authority(db: &Connection, proof: &VerifiedRequest, now: u64) -> Result<(), Error> {
     proof.check_fresh(now)?;
@@ -227,6 +262,25 @@ fn budget(db: &Connection, resource: &Resource) -> Result<Budget, Error> {
 }
 
 impl DomainRepository {
+    pub fn set_role_publication(&mut self, role: &str, published: bool) -> Result<(), Error> {
+        qualification::check_role(role)?;
+        self.db.execute("INSERT INTO role_publications(role,published) VALUES(?1,?2) ON CONFLICT(role) DO UPDATE SET published=excluded.published",params![role,published])?;
+        Ok(())
+    }
+    pub fn role_publications(&self) -> Result<Vec<Value>, Error> {
+        let mut query = self
+            .db
+            .prepare("SELECT config FROM resources WHERE json_extract(config,'$.published')=1")?;
+        let resources: Vec<Resource> = query
+            .query_map([], |r| r.get::<_, String>(0))?
+            .map(|row| Ok(serde_json::from_str(&row?)?))
+            .collect::<Result<_, Error>>()?;
+        qualification::roles().map(|role| {
+            let explicit:Option<bool>=self.db.query_row("SELECT published FROM role_publications WHERE role=?1",[role],|r|r.get(0)).optional()?;
+            let available=role_available(&self.db,role,None)? && resources.iter().any(|r|r.qualifies(role));
+            Ok(json!({"role":role,"explicitPublication":explicit,"available":available,"crossFamily":qualification::cross_family(role),"defaultTier":qualification::default_tier(role)}))
+        }).collect()
+    }
     pub fn open(directory: &Path) -> Result<Self, Error> {
         let mut database = database::open(
             directory,
@@ -234,9 +288,10 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 1,
+                version: 2,
+                migrations: &[(2, include_str!("migrations/002-role-publication.sql"))],
                 sql: include_str!("domain.sql"),
-                verify: "SELECT e.id,e.context,e.evidence,e.projection,f.payload,p.owner_mxid,r.config,s.config,d.result,g.config FROM engagements e LEFT JOIN effects f ON f.engagement_id=e.id CROSS JOIN projects p CROSS JOIN resources r CROSS JOIN seats s CROSS JOIN decisions d CROSS JOIN registrations g LIMIT 0",
+                verify: "SELECT e.id,e.context,e.evidence,e.projection,f.payload,p.owner_mxid,r.config,s.config,d.result,g.config,rp.role FROM engagements e LEFT JOIN effects f ON f.engagement_id=e.id CROSS JOIN projects p CROSS JOIN resources r CROSS JOIN seats s CROSS JOIN decisions d CROSS JOIN registrations g CROSS JOIN role_publications rp LIMIT 0",
             },
         )?;
         // A previous owner died after an intent became externally executable. Inspection,
@@ -315,13 +370,16 @@ impl DomainRepository {
         if let Some(old) = previous
             && (old.seat_id != resource.seat_id
                 || old.framework != resource.framework
-                || old.model != resource.model)
+                || old.model != resource.model
+                || old.provider != resource.provider
+                || old.reasoning != resource.reasoning)
         {
             let count:i64=tx.query_row("SELECT COUNT(*) FROM engagements WHERE resource_id=?1 AND state IN ('reserved','active')",[resource.id()],|r|r.get(0))?;
             if count != 0 {
                 return Err(Error::State);
             }
         }
+        resource.roles = resource.eligible_roles();
         tx.execute("INSERT INTO resources(id,preset_id,config) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET config=excluded.config",params![resource.id(),resource.preset_id,serialize(&resource)?])?;
         tx.commit()?;
         Ok(resource.catalog())
@@ -337,13 +395,41 @@ impl DomainRepository {
         Ok(())
     }
     pub fn catalog(&self, after: &str, limit: usize) -> Result<Vec<CatalogResource>, Error> {
+        self.catalog_for(None, after, limit)
+    }
+    pub fn catalog_for(
+        &self,
+        fleet: Option<&str>,
+        after: &str,
+        limit: usize,
+    ) -> Result<Vec<CatalogResource>, Error> {
         if limit == 0 || limit > 100 {
             return Err(InvalidInput("page limit must be 1..100").into());
         }
-        let mut query = self.db.prepare("SELECT config FROM resources WHERE id>?1 AND json_extract(config,'$.published')=1 AND json_array_length(config,'$.roles')>0 ORDER BY id LIMIT ?2")?;
-        let rows = query.query_map(params![after, limit as i64], |r| r.get::<_, String>(0))?;
-        rows.map(|s| Ok(serde_json::from_str::<Resource>(&s?)?.catalog()))
-            .collect()
+        // At most 2,048 configurations exist. Iterate until enough *qualified*
+        // rows are found; filtering a short SQL page would incorrectly hide later IDs.
+        let mut query = self.db.prepare("SELECT config FROM resources WHERE id>?1 AND json_extract(config,'$.published')=1 ORDER BY id")?;
+        let rows = query.query_map([after], |r| r.get::<_, String>(0))?;
+        let allowed: std::collections::BTreeSet<_> = qualification::roles()
+            .filter_map(|role| match role_available(&self.db, role, fleet) {
+                Ok(true) => Some(Ok(role)),
+                Ok(false) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect::<Result<_, _>>()?;
+        let mut output = Vec::new();
+        for row in rows {
+            let resource: Resource = serde_json::from_str(&row?)?;
+            let mut public = resource.catalog();
+            public.roles.retain(|role| allowed.contains(role.as_str()));
+            if !public.roles.is_empty() {
+                output.push(public);
+            }
+            if output.len() == limit {
+                break;
+            }
+        }
+        Ok(output)
     }
     pub fn resource_configurations(
         &self,
@@ -362,10 +448,9 @@ impl DomainRepository {
             })?
             .map(|row| {
                 let (id, config) = row?;
-                Ok(ConfiguredResource {
-                    id,
-                    config: serde_json::from_str(&config)?,
-                })
+                let mut config: Resource = serde_json::from_str(&config)?;
+                config.roles = config.eligible_roles();
+                Ok(ConfiguredResource { id, config })
             })
             .collect()
     }
@@ -422,7 +507,9 @@ impl DomainRepository {
         }
         bounded_row(&tx, "engagements", "id", &id, 10_000)?;
         let resource = read_resource(&tx, &request.agent_definition.resource_id)?;
-        if !resource.qualifies(&request.role) {
+        if !resource.qualifies(&request.role)
+            || !role_available(&tx, &request.role, Some(&request.fleet_id))?
+        {
             return Err(Error::Unqualified);
         }
         let collision: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM engagements WHERE fleet_id=?1 AND project_id=?2 AND name=?3 AND state IN ('pending','reserved','active'))",
@@ -494,7 +581,9 @@ impl DomainRepository {
             return Err(Error::State);
         }
         let resource = read_resource(&tx, &value.resource_id)?;
-        if !resource.qualifies(&value.role) {
+        if !resource.qualifies(&value.role)
+            || !role_available(&tx, &value.role, Some(&request.fleet_id))?
+        {
             return Err(Error::Unqualified);
         }
         let remaining = budget(&tx, &resource)?

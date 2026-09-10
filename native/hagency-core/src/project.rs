@@ -120,8 +120,7 @@ impl AgentDefinition {
     }
 }
 
-/// Provider configuration. `roles` records eligibility granted by the local
-/// qualification adapter, not roles claimed by a project request. Execution
+/// Provider configuration. `roles` is a derived cache, never an eligibility grant. Execution
 /// adapters must independently verify runtime readiness before provisioning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -130,6 +129,9 @@ pub struct Resource {
     pub seat_id: String,
     pub framework: String,
     pub model: String,
+    pub provider: Option<String>,
+    pub reasoning: Option<String>,
+    #[serde(default)]
     pub roles: Vec<String>,
     pub ceiling: Option<Ceiling>,
     #[serde(default = "yes")]
@@ -153,20 +155,48 @@ impl Resource {
         for r in &self.roles {
             role(r)?;
         }
+        for field in [&self.provider, &self.reasoning].into_iter().flatten() {
+            if field.len() > 128 || field.chars().any(char::is_control) {
+                return Err(InvalidInput("invalid model profile"));
+            }
+        }
         Ok(())
     }
     pub fn id(&self) -> String {
         public_resource_id(&self.preset_id)
     }
     pub fn qualifies(&self, requested_role: &str) -> bool {
-        self.published && self.roles.iter().any(|r| r == requested_role)
+        self.published
+            && self.provisionable()
+            && self.ceiling.as_ref().and_then(|c| c.tokens).is_some()
+            && crate::qualification::qualifies(&self.profile(), requested_role, None)
+    }
+    pub fn profile(&self) -> crate::qualification::ModelProfile {
+        crate::qualification::ModelProfile {
+            framework: self.framework.clone(),
+            model: self.model.clone(),
+            provider: self.provider.clone(),
+            reasoning: self.reasoning.clone(),
+        }
+    }
+    pub fn provisionable(&self) -> bool {
+        matches!(self.framework.as_str(), "claude" | "codex")
+    }
+    pub fn eligible_roles(&self) -> Vec<String> {
+        crate::qualification::roles()
+            .filter(|role| self.qualifies(role))
+            .map(str::to_owned)
+            .collect()
     }
     pub fn catalog(&self) -> CatalogResource {
         CatalogResource {
             id: self.id(),
             framework: self.framework.clone(),
             model: self.model.clone(),
-            roles: self.roles.clone(),
+            provider: self.provider.clone(),
+            reasoning: self.reasoning.clone(),
+            tier: crate::qualification::model(&self.profile()).0,
+            roles: self.eligible_roles(),
             ceiling: self.ceiling.clone(),
         }
     }
@@ -177,6 +207,9 @@ pub struct CatalogResource {
     pub id: String,
     pub framework: String,
     pub model: String,
+    pub provider: Option<String>,
+    pub reasoning: Option<String>,
+    pub tier: Option<crate::qualification::Tier>,
     pub roles: Vec<String>,
     pub ceiling: Option<Ceiling>,
 }

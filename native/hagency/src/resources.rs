@@ -18,6 +18,8 @@ pub(crate) fn router() -> Router {
         .push(Router::with_path("resource-configurations").get(configurations))
         .push(Router::with_path("seats").get(seats).post(put_seat))
         .push(Router::with_path("engagements").get(engagements))
+        .push(Router::with_path("roles").get(role_publications))
+        .push(Router::with_path("roles/{role}/publication").post(publish_role))
 }
 fn domain(depot: &Depot, res: &mut Response) -> Option<DomainStore> {
     let store = depot.get_typed::<App>().ok().and_then(|a| a.domain.clone());
@@ -89,6 +91,10 @@ async fn put_resource(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let Some(input) = body::<serde_json::Value>(req, depot, res).await else {
         return;
     };
+    if input.get("roles").is_some() {
+        refusal(res, StatusCode::BAD_REQUEST, "roles_are_model_derived");
+        return;
+    }
     let publication = input.get("published").and_then(|v| v.as_bool());
     let value = match serde_json::from_value::<Resource>(input) {
         Ok(value) => value,
@@ -159,6 +165,38 @@ async fn configurations(req: &mut Request, depot: &mut Depot, res: &mut Response
     };
     match store.resource_configurations(after, limit).await {
         Ok(value) => res.render(Json(value)),
+        Err(error) => failure(res, error),
+    }
+}
+#[handler]
+async fn role_publications(depot: &mut Depot, res: &mut Response) {
+    let Some(store) = domain(depot, res) else {
+        return;
+    };
+    match store.role_publications().await {
+        Ok(value) => res.render(Json(value)),
+        Err(error) => failure(res, error),
+    }
+}
+#[handler]
+async fn publish_role(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Publication {
+        published: bool,
+    }
+    let Some(store) = domain(depot, res) else {
+        return;
+    };
+    let Some(role) = req.param::<String>("role") else {
+        refusal(res, StatusCode::BAD_REQUEST, "role_required");
+        return;
+    };
+    let Some(input) = body::<Publication>(req, depot, res).await else {
+        return;
+    };
+    match store.set_role_publication(role, input.published).await {
+        Ok(()) => res.render(Json(serde_json::json!({"saved":true}))),
         Err(error) => failure(res, error),
     }
 }

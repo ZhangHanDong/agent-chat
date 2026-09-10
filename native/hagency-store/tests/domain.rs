@@ -57,14 +57,14 @@ fn domain_request_replay_and_publication() {
         Err(Error::Unqualified)
     ));
     pool.published = true;
-    pool.roles = vec!["research".into()];
+    pool.reasoning = Some("low".into());
     db.put_resource(&pool).unwrap();
     assert!(matches!(
         db.approve("approve", &proof(&a), 1000),
         Err(Error::Unqualified)
     ));
     db.reject("reject", &original.id).unwrap();
-    pool.roles = vec!["coding".into()];
+    pool.reasoning = Some("medium".into());
     db.put_resource(&pool).unwrap();
     db.admit(&proof(&request("replacement", "Édison", &pool, 1)), 1000)
         .unwrap();

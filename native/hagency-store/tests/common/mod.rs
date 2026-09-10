@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub fn resource(preset: &str, seat: &str, tokens: u64) -> Resource {
     serde_json::from_value(
-        json!({"presetId":preset,"seatId":seat,"framework":"codex","model":"fixture",
-        "roles":["coding"],"ceiling":{"tokens":tokens,"period":"monthly"}}),
+        json!({"presetId":preset,"seatId":seat,"framework":"codex","model":"gpt-5.6-sol","reasoning":"medium",
+        "ceiling":{"tokens":tokens,"period":"monthly"}}),
     )
     .unwrap()
 }

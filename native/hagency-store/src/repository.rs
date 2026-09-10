@@ -25,6 +25,7 @@ impl Repository {
                 lock: "owner.lock",
                 application_id: APPLICATION_ID,
                 version: VERSION,
+                migrations: &[],
                 sql: include_str!("schema.sql"),
                 verify: "SELECT id,lane,binding,generation,digest,payload,receipt FROM inbox LIMIT 0",
             },
