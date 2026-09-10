@@ -8615,6 +8615,20 @@ app.post('/api/approval-bindings/matrix/markers/reconcile-retirements', requireA
   }
 });
 
+app.get('/api/approval-bindings/matrix/rooms', requireApprovalBridgeSecret, (req, res) => {
+  try {
+    const limit = req.query?.limit === undefined ? 20 : Number(req.query.limit);
+    const rooms = approvalStore.listMarkerRooms({ limit, after: req.query?.after });
+    return res.json({
+      ok: true,
+      rooms,
+      next: rooms.length === Math.min(limit, 200) ? rooms[rooms.length - 1].cursor : null,
+    });
+  } catch (error) {
+    return respondApprovalStoreError(res, error, 'failed to list approval reconciliation rooms');
+  }
+});
+
 app.get('/api/approval-bindings/matrix/markers', requireApprovalBridgeSecret, (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 200);
