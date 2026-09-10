@@ -103,6 +103,8 @@ describe('approval projection bridge API', () => {
     const listed = await bridge('get', '/api/approvals/matrix/projections?limit=200');
     expect(listed.status).toBe(200);
     expect(listed.body.projections).toContainEqual(expect.objectContaining({ request_id: approvalId, revision: 1 }));
+    expect(listed.body.projections.find((item) => item.request_id === approvalId
+      && item.channel === 'private_request')).toMatchObject({ publisher_scope: 'local_bot' });
     const createdSecond = await request(context.app).post('/api/approvals')
       .set('X-Agent-Token', AGENT_TOKEN)
       .send({ agent: 'worker', runtime: 'codex', project: 'p', project_room_id: '!p:test', upstream_request_id: 'u-page-2', tool_name: 'Bash', input_preview: 'pwd' });
@@ -355,6 +357,7 @@ describe('approval projection bridge API', () => {
       });
       const listed = await api('get', '/api/approvals/matrix/projections?limit=20');
       const row = listed.body.projections.find((item) => item.request_id === created.body.approval.id && item.channel === 'private_request');
+      expect(row.publisher_scope).toBe('side-representative:same.test');
       expect((await api('put', '/api/approvals/matrix/publishers').send({
         scope: 'local_bot', publisher_mxid: '@bot:same.test', homeserver: 'same.test',
         credential_kind: 'local_bot', credential_generation: 'wrong',

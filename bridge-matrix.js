@@ -3403,11 +3403,21 @@ export class MatrixBridge {
     matrixDeliveryJournal = null,
     pendingEncryptedEventStore = null,
     approvalDmMode = APPROVAL_DM_MODE,
+    approvalProjectionIntervalMs = 5_000,
+    eventSourceFactory = (url) => new EventSource(url),
   } = {}) {
     this.botClient = null;
     this.botUserId = null;
     this.approvalDmMode = approvalDmMode;
     this.approvalBotPublisherReady = null;
+    this.approvalProjectionIntervalMs = approvalProjectionIntervalMs;
+    this._approvalProjectionTimer = null;
+    this._approvalProjectionDrainPromise = null;
+    this._approvalProjectionWakeQueued = false;
+    this._approvalProjectionCursor = null;
+    this._approvalProjectionStopped = true;
+    this._approvalProjectionEpoch = 0;
+    this._eventSourceFactory = eventSourceFactory;
     this.knownAgents = new Set(); // names of known agents
     this.knownAgentIndex = new Map(); // lower-case name -> canonical name
     this.knownAgentSides = new Map(); // lower-case name -> backend-authoritative projectSide
@@ -4423,6 +4433,7 @@ export class MatrixBridge {
     this.writeHealthRecord();
     setInterval(() => this.writeHealthRecord(), BRIDGE_HEALTH_WRITE_INTERVAL_MS);
     this.installApprovalBotPublisherReady(this.botClient, this.botUserId, state.botCredentialGeneration);
+    this.wakeApprovalProjectionWorker();
   }
 
   async start() {
@@ -4488,6 +4499,7 @@ export class MatrixBridge {
      * itself opens, so start() never carries its own reading of "is there an inbound path".
      */
     const hasInboundPath = hasConfiguredInboundPath(process.env);
+    this.startApprovalProjectionWorker();
     try {
       await this.startBotSide();
     } catch (error) {
@@ -7847,7 +7859,8 @@ export class MatrixBridge {
 
     const connect = () => {
       if (currentEs) { try { currentEs.close(); } catch (_) {} currentEs = null; }
-      const es = new EventSource(url);
+      void this.wakeApprovalProjectionWorker();
+      const es = this._eventSourceFactory(url);
       currentEs = es;
       es.on('message', (data) => {
         try {
@@ -8011,6 +8024,16 @@ export class MatrixBridge {
           });
         } catch (e) {
           console.warn(`Failed to parse SSE approval_requested event: ${e.message}`);
+        }
+      });
+      es.on('approval_changed', (data) => {
+        try {
+          const event = JSON.parse(data);
+          if (event?.request_id && Number.isFinite(Number(event?.revision))) {
+            void this.wakeApprovalProjectionWorker();
+          }
+        } catch (e) {
+          console.warn(`Failed to parse SSE approval_changed event: ${e.message}`);
         }
       });
       es.on('error', () => {
@@ -8649,113 +8672,119 @@ export class MatrixBridge {
     }
   }
 
+  async drainApprovalProjectionsOnce() {
+    if (this._approvalProjectionStopped) return { stopped: true, selected: 0 };
+    const query = new URLSearchParams({ limit: '20' });
+    if (this._approvalProjectionCursor) query.set('after', this._approvalProjectionCursor);
+    const page = await this.callBackendApi(
+      'GET', `/api/approvals/matrix/projections?${query}`, null, 'context=approval-projection:list',
+    );
+    const rows = Array.isArray(page?.projections) ? page.projections : [];
+    if (rows.length === 0) {
+      this._approvalProjectionCursor = null;
+      return { stopped: false, selected: 0 };
+    }
+    this._approvalProjectionCursor = rows[rows.length - 1]?.cursor || null;
+    const selected = [];
+    const requestIds = new Set();
+    for (const row of rows) {
+      if (!row?.request_id || requestIds.has(row.request_id)) continue;
+      requestIds.add(row.request_id);
+      selected.push(row);
+    }
+    const epoch = this._approvalProjectionEpoch;
+    const settled = new Array(selected.length);
+    let next = 0;
+    const runWorker = async () => {
+      while (next < selected.length) {
+        const index = next;
+        next += 1;
+        if (this._approvalProjectionStopped || epoch !== this._approvalProjectionEpoch) {
+          settled[index] = { status: 'fulfilled', value: { stopped: true } };
+          continue;
+        }
+        try {
+          settled[index] = { status: 'fulfilled', value: await this.publishApprovalProjectionRow(selected[index], epoch) };
+        } catch (reason) {
+          settled[index] = { status: 'rejected', reason };
+        }
+      }
+    };
+    await Promise.all([runWorker(), runWorker()]);
+    for (let index = 0; index < settled.length; index += 1) {
+      const outcome = settled[index];
+      if (outcome.status === 'rejected') {
+        console.warn(`[approval-projection] request=${selected[index].request_id} deferred: ${outcome.reason?.message || outcome.reason}`);
+      }
+    }
+    return { stopped: false, selected: selected.length, settled };
+  }
+
+  async publishApprovalProjectionRow(row, epoch = null) {
+    const result = await publishApprovalProjection(row, approvalProjectionIo(this, epoch));
+    if (result?.ok && row.channel === 'private_request'
+      && !this._approvalProjectionStopped
+      && (epoch === null || epoch === this._approvalProjectionEpoch)) {
+      const room = String(row.target_room_id || '');
+      const server = room.includes(':') ? room.slice(room.indexOf(':') + 1).toLowerCase() : '';
+      await this.warnIfOwnerCannotSeeApprovalRoom(row.approval, server);
+    }
+    return result;
+  }
+
+  wakeApprovalProjectionWorker() {
+    if (this._approvalProjectionStopped) return Promise.resolve({ stopped: true });
+    if (this._approvalProjectionDrainPromise) {
+      this._approvalProjectionWakeQueued = true;
+      return this._approvalProjectionDrainPromise;
+    }
+    const run = async () => {
+      let result;
+      try {
+        result = await this.drainApprovalProjectionsOnce();
+      } catch (error) {
+        console.warn(`[approval-projection] drain deferred: ${error?.message || error}`);
+        result = { stopped: false, error };
+      }
+      const followUp = this._approvalProjectionWakeQueued && !this._approvalProjectionStopped;
+      this._approvalProjectionWakeQueued = false;
+      if (followUp) {
+        try { await this.drainApprovalProjectionsOnce(); } catch (error) {
+          console.warn(`[approval-projection] coalesced drain deferred: ${error?.message || error}`);
+        }
+      }
+      return result;
+    };
+    this._approvalProjectionDrainPromise = run().finally(() => {
+      this._approvalProjectionDrainPromise = null;
+      this._approvalProjectionWakeQueued = false;
+    });
+    return this._approvalProjectionDrainPromise;
+  }
+
+  startApprovalProjectionWorker() {
+    if (this._approvalProjectionTimer) return this._approvalProjectionDrainPromise;
+    this._approvalProjectionStopped = false;
+    this._approvalProjectionEpoch += 1;
+    this._approvalProjectionTimer = setInterval(() => {
+      void this.wakeApprovalProjectionWorker();
+    }, this.approvalProjectionIntervalMs);
+    return this.wakeApprovalProjectionWorker();
+  }
+
+  stopApprovalProjectionWorker() {
+    this._approvalProjectionStopped = true;
+    this._approvalProjectionEpoch += 1;
+    this._approvalProjectionWakeQueued = false;
+    if (this._approvalProjectionTimer) clearInterval(this._approvalProjectionTimer);
+    this._approvalProjectionTimer = null;
+  }
+
   async onApprovalRequested(event) {
     const requestId = typeof event?.request_id === 'string' ? event.request_id.trim() : '';
     if (!requestId) return { ok: false, reason: 'missing_request_id' };
-    let approval = null;
-    try {
-      const response = await this.callBackendApi(
-        'GET',
-        `/api/approvals/${encodeURIComponent(requestId)}/matrix`,
-        null,
-        `context=approval:publish request=${requestId}`,
-      );
-      approval = response?.approval || null;
-      if (!approval || approval.status !== 'pending') return { ok: false, reason: 'request_not_pending' };
-
-      /*
-       * THE PRIVATE REQUEST GOES WHERE ITS ROOM IS, and only the bot's own rooms are on our server.
-       *
-       * `botClient.sendMessage` cannot reach a room on a project side — the bot holds an account on one
-       * homeserver (ADR-014 decision 4). So a room whose origin is not ours is sent by the
-       * REPRESENTATIVE instead, with that side's acting credential.
-       *
-       * `ensureApprovalDmSecurity` is skipped on that branch rather than made to fail: it asserts the
-       * room is encrypted, and a representative-created room is structurally plaintext because the
-       * representative holds no crypto store. Calling it would refuse a room this deployment
-       * deliberately created that way.
-       */
-      const dmServer = String(approval.owner_dm_room_id || '')
-        .slice(String(approval.owner_dm_room_id || '').indexOf(':') + 1).toLowerCase();
-      let privateEventId;
-      if (dmServer && dmServer !== MATRIX_SERVER_NAME) {
-        const acting = this.actingSideFor(dmServer);
-        if (!acting) {
-          throw new Error(
-            `approval room ${approval.owner_dm_room_id} is on ${dmServer} and this deployment holds no `
-            + 'acting credential for that project side',
-          );
-        }
-        /*
-         * The transaction seed is the REQUEST ID, so a retry of this publish reuses it. Matrix
-         * deduplicates on the derived transaction id, and a clock-derived one would post the approval
-         * request twice — to a human who then has two sets of buttons for one decision.
-         */
-        const sent = await sendToRoomOnSide({
-          ...acting,
-          roomId: approval.owner_dm_room_id,
-          content: buildOwnerApprovalRequest(approval),
-          txnSeed: `approval-private:${requestId}`,
-        });
-        if (!sent.sent) throw new Error(`private approval delivery failed: ${sent.reason}`);
-        privateEventId = sent.eventId;
-      } else {
-        await this.ensureApprovalDmSecurity(approval.owner_dm_room_id);
-        privateEventId = await this.botClient.sendMessage(
-          approval.owner_dm_room_id,
-          buildOwnerApprovalRequest(approval),
-        );
-      }
-      if (privateEventId) this.rememberMatrixEvent(privateEventId, requestId);
-      await this.warnIfOwnerCannotSeeApprovalRoom(approval, dmServer);
-
-      /*
-       * `agentSenderFor`, NOT `getAgentToken` — and this was the difference between the approval feature
-       * working and not existing on the only topology this product ships for customers.
-       *
-       * An appservice project side mints NO per-agent token: the namespace makes the agent ours to act
-       * for, which is the whole reason a project-side agent needs no registration. So `getAgentToken`
-       * answers null for exactly the agents HAFleet dispatches, and the throw here refused the public
-       * notice before it was attempted. Both surfaces or neither, so the whole approval then failed
-       * closed and was DENIED for delivery failure. Walked on the rig: an approval for `soaker` in its
-       * own project room logged `missing Matrix token for approval agent soaker` and came back
-       * `status: denied` — a request its owner was never asked about, refused on the requester's behalf.
-       *
-       * `agentSenderFor` is what every other agent send already resolves through, and it answers the
-       * question the room asks rather than the one the credential inventory answers: a room on a project
-       * side is spoken into by THAT side's appservice masquerading as the agent. It also fixes the milder
-       * half in the same line — a token is valid on one homeserver, and handing it to a room on another
-       * is `M_NOT_FOUND` at best. `sendAsAgentContent` has accepted either shape since that split.
-       */
-      const sender = this.agentSenderFor(approval.agent, approval.project_room_id);
-      if (!sender) {
-        throw new Error(
-          `no way for ${approval.agent} to speak in ${approval.project_room_id}: it holds no Matrix `
-          + 'token and the room is on no project side we have an appservice credential for',
-        );
-      }
-      const publicEventId = await this.sendAsAgentContent(
-        sender,
-        approval.project_room_id,
-        buildPublicApprovalNotice(approval),
-        requestId,
-      );
-      if (!publicEventId) throw new Error('public approval status delivery failed');
-      return { ok: true, requestId, privateEventId, publicEventId };
-    } catch (error) {
-      console.error(`Approval publish failed for ${requestId}: ${error.message}`);
-      try {
-        await this.callBackendApi(
-          'POST',
-          `/api/approvals/${encodeURIComponent(requestId)}/delivery-failed`,
-          { reason: 'matrix_approval_delivery_failed' },
-          `context=approval:delivery-failed request=${requestId}`,
-        );
-      } catch (denyError) {
-        console.error(`Approval fail-closed update failed for ${requestId}: ${denyError.message}`);
-      }
-      return { ok: false, reason: error.message, approval };
-    }
+    void this.wakeApprovalProjectionWorker();
+    return { ok: true, requestId, queued: true };
   }
 
   async onAgentBlocked(event) {
@@ -10262,7 +10291,8 @@ export class MatrixBridge {
           throw masqueradeError;
         }
       }
-      const res = await fetch(url.toString(), {
+      const sendFetch = typeof delivery?.fetchImpl === 'function' ? delivery.fetchImpl : fetch;
+      const res = await sendFetch(url.toString(), {
         method: 'PUT',
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(content),
@@ -10996,20 +11026,22 @@ function projectionActorForBridge(bridge, row) {
       sender: normalized, agent: approval.agent, side_id: server };
   }
   const originalScope = row.channel === 'private_status' ? row.publisher?.scope : null;
+  const requiredScope = row.publisher_scope || originalScope;
   if (row.channel === 'private_status' && !originalScope) return null;
+  const ready = bridge.approvalBotPublisherReady;
+  const localReady = server === MATRIX_SERVER_NAME && ready?.client && ready.client === bridge.botClient
+    && ready.mxid === bridge.botUserId && ready.credentialGeneration
+    && ready.credentialGeneration === state.botCredentialGeneration;
   const acting = typeof bridge.actingSideFor === 'function' ? bridge.actingSideFor(server) : null;
-  if (acting?.credential && (!originalScope || originalScope === `side-representative:${server}`)) {
+  if (acting?.credential && requiredScope === `side-representative:${server}`) {
     const publisher = acting.credential.kind === 'appservice'
       ? `@${acting.credential.senderLocalpart}:${server}`.toLowerCase() : acting.side?.representative?.mxid;
     return { scope: `side-representative:${server}`, publisher_mxid: publisher, homeserver: server,
       credential_kind: acting.credential.kind, credential_generation: acting.credential.outboundGeneration,
       sender: { kind: 'side-representative', ...acting }, side_id: server };
   }
-  const ready = bridge.approvalBotPublisherReady;
-  if (originalScope && originalScope !== 'local_bot') return null;
-  if (server !== MATRIX_SERVER_NAME || !ready?.client || ready.client !== bridge.botClient
-    || ready.mxid !== bridge.botUserId || !ready.credentialGeneration
-    || ready.credentialGeneration !== state.botCredentialGeneration) return null;
+  if (requiredScope !== 'local_bot') return null;
+  if (!localReady) return null;
   return { scope: 'local_bot', publisher_mxid: ready.mxid, homeserver: server,
     credential_kind: 'local_bot', credential_generation: ready.credentialGeneration,
     sender: { kind: 'local_bot', client: ready.client } };
@@ -11037,7 +11069,7 @@ function canonicalPrivateProjectionContent(row, actor, content) {
   } };
 }
 
-async function assertSideApprovalPlaintext(bridge, actor, row) {
+async function assertSideApprovalPlaintext(bridge, actor, row, assertWorkerActive = () => {}) {
   const roomId = row.target_room_id;
   const { side, credential } = actor.sender;
   const token = credential.kind === 'appservice' ? credential.asToken : credential.representativeToken;
@@ -11048,6 +11080,7 @@ async function assertSideApprovalPlaintext(bridge, actor, row) {
   if (!rateLimitGate.beforeRequest()) {
     throw new Error('project-side approval security check rate limited');
   }
+  assertWorkerActive();
   const url = new URL(`${String(side.apiBaseUrl).replace(/\/+$/, '')}/_matrix/client/v3/rooms/`
     + `${encodeURIComponent(roomId)}/state/m.room.encryption/`);
   if (credential.kind === 'appservice') url.searchParams.set('user_id', actor.publisher_mxid);
@@ -11078,28 +11111,79 @@ async function assertSideApprovalPlaintext(bridge, actor, row) {
   }
 }
 
-function approvalProjectionIo(bridge) {
+function approvalProjectionFetch(bridge, validateContext) {
+  return async (url, options = {}) => {
+    validateContext();
+    const controller = new AbortController();
+    const timeoutMs = Number.isFinite(bridge.approvalProjectionSendTimeoutMs)
+      ? Math.max(1, bridge.approvalProjectionSendTimeoutMs) : 25_000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetch(url, { ...options, signal: controller.signal });
+      controller.signal.throwIfAborted();
+    } catch (error) {
+      controller.abort();
+      clearTimeout(timeout);
+      throw error;
+    }
+    const consume = async (method) => {
+      try {
+        const value = await response[method]();
+        controller.signal.throwIfAborted();
+        return value;
+      } finally {
+        controller.abort();
+        clearTimeout(timeout);
+      }
+    };
+    return {
+      get ok() { controller.signal.throwIfAborted(); return response.ok; },
+      get status() { controller.signal.throwIfAborted(); return response.status; },
+      headers: response.headers,
+      json: () => consume('json'),
+      text: () => consume('text'),
+    };
+  };
+}
+
+function approvalProjectionIo(bridge, workerEpoch = null) {
+  const assertWorkerActive = () => {
+    if (workerEpoch !== null && (bridge._approvalProjectionStopped
+      || workerEpoch !== bridge._approvalProjectionEpoch)) {
+      throw new Error('approval projection worker stopped');
+    }
+  };
   const post = (row, operation, body) => bridge.callBackendApi('POST',
     `/api/approvals/${encodeURIComponent(row.request_id)}/matrix/projections/${row.revision}/${operation}`,
     body, `context=approval-projection:${operation}`);
   return {
-    resolveActor: async row => projectionActorForBridge(bridge, row),
-    registerPublisher: actor => bridge.callBackendApi('PUT', '/api/approvals/matrix/publishers', {
+    resolveActor: async row => {
+      assertWorkerActive();
+      return projectionActorForBridge(bridge, row);
+    },
+    registerPublisher: actor => {
+      assertWorkerActive();
+      return bridge.callBackendApi('PUT', '/api/approvals/matrix/publishers', {
       scope: actor.scope, publisher_mxid: actor.publisher_mxid, homeserver: actor.homeserver,
       credential_kind: actor.credential_kind, credential_generation: actor.credential_generation,
       ...(actor.agent ? { agent: actor.agent } : {}), ...(actor.side_id ? { side_id: actor.side_id } : {}),
-    }, 'context=approval-projection:publisher'),
+      }, 'context=approval-projection:publisher');
+    },
     prepareContent: async (row, actor) => {
+      assertWorkerActive();
       let message = row.channel === 'private_request' ? buildOwnerApprovalRequest(row.approval)
         : row.channel === 'private_status' ? buildOwnerApprovalStatus(row.approval)
           : buildPublicApprovalNotice(row.approval);
       if (row.channel !== 'public_notice') message = canonicalPrivateProjectionContent(row, actor, message);
       if (actor.sender.kind === 'side-representative') {
-        await assertSideApprovalPlaintext(bridge, actor, row);
+        await assertSideApprovalPlaintext(bridge, actor, row, assertWorkerActive);
+        assertWorkerActive();
         return { event_type: 'm.room.message', content: message };
       }
       if (actor.sender.kind !== 'local_bot') return { event_type: 'm.room.message', content: message };
       await bridge.ensureApprovalDmSecurity(row.target_room_id);
+      assertWorkerActive();
       if (bridge.approvalDmMode === 'plaintext-test') return { event_type: 'm.room.message', content: message };
       if (!bridge.botClient?.crypto || !(await bridge.botClient.crypto.isRoomEncrypted(row.target_room_id))) {
         throw new Error('owner approval room encryption is unavailable after security setup');
@@ -11107,14 +11191,22 @@ function approvalProjectionIo(bridge) {
       return { event_type: 'm.room.encrypted',
         content: await bridge.botClient.crypto.encryptRoomEvent(row.target_room_id, 'm.room.message', message) };
     },
-    prepare: (body, row) => post(row, 'prepare', body),
-    begin: (body, row) => post(row, 'begin-send', body),
+    prepare: (body, row) => { assertWorkerActive(); return post(row, 'prepare', body); },
+    begin: (body, row) => { assertWorkerActive(); return post(row, 'begin-send', body); },
     receipt: (body, eventId, row) => post(row, 'receipt', { ...body, event_id: eventId }),
     retry: (body, error, row) => post(row, 'retry', { ...body,
       error_code: String(error?.code || 'matrix_send_failed').slice(0, 128) }),
     send: async (plan, actor, row) => {
+      assertWorkerActive();
+      const validateActor = () => {
+        assertWorkerActive();
+        if (!sameProjectionActor(actor, projectionActorForBridge(bridge, row))) {
+          throw new Error('approval projection publisher changed before Matrix request');
+        }
+      };
       if (actor.sender.kind === 'local_bot') {
         await bridge.ensureApprovalDmSecurity(row.target_room_id);
+        assertWorkerActive();
         if (plan.prepared_event_type === 'm.room.message' && bridge.approvalDmMode !== 'plaintext-test') {
           throw new Error('stored plaintext approval cannot be sent to an encrypted owner room');
         }
@@ -11127,13 +11219,15 @@ function approvalProjectionIo(bridge) {
         return response?.event_id || null;
       }
       if (actor.sender.kind === 'side-representative') {
-        await assertSideApprovalPlaintext(bridge, actor, row);
+        await assertSideApprovalPlaintext(bridge, actor, row, assertWorkerActive);
+        assertWorkerActive();
         if (!sameProjectionActor(actor, projectionActorForBridge(bridge, row))) {
           throw new Error('approval projection publisher changed after side security check');
         }
         const result = await sendToRoomOnSide({ side: actor.sender.side, credential: actor.sender.credential,
           roomId: row.target_room_id, content: plan.prepared_payload, finalTxnId: plan.transaction_id,
-          preparedEventType: plan.prepared_event_type, expectedPublisherMxid: plan.publisher_mxid });
+          preparedEventType: plan.prepared_event_type, expectedPublisherMxid: plan.publisher_mxid,
+          fetchImpl: approvalProjectionFetch(bridge, validateActor) });
         if (!result.sent) throw new Error(result.reason || 'side approval projection send failed');
         return result.eventId;
       }
@@ -11141,6 +11235,8 @@ function approvalProjectionIo(bridge) {
         transactionId: plan.transaction_id, preparedEventType: plan.prepared_event_type,
         expectedPublisherMxid: plan.publisher_mxid,
         expectedCredentialGeneration: plan.credential_generation, throwOnFailure: true,
+        validateSendContext: async () => validateActor(),
+        fetchImpl: approvalProjectionFetch(bridge, validateActor),
       });
     },
   };
@@ -11228,7 +11324,9 @@ function legacyApprovalProjectionIo(bridge) {
   };
 }
 
-export function approvalProjectionIoForTest(bridge) { return approvalProjectionIo(bridge); }
+export function approvalProjectionIoForTest(bridge, workerEpoch = null) {
+  return approvalProjectionIo(bridge, workerEpoch);
+}
 export async function publishApprovalProjectionWithBridgeForTest(bridge, row) {
   if (row.migration_kind === 'legacy_v1') return bridge.publishLegacyApprovalProjection(row);
   return publishApprovalProjection(row, approvalProjectionIo(bridge));

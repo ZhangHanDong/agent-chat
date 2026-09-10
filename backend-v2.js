@@ -10401,9 +10401,17 @@ app.get('/api/approvals/matrix/projections', requireApprovalBridgeSecret, (req, 
     const projections = approvalStore.listDueProjections({ limit, after: req.query?.after }).map((projection) => {
       const original = projection.channel === 'private_status'
         ? approvalStore.privateRequestPublisher(projection.request_id) : null;
+      const approval = approvalStore.getProjectionRequest(projection.request_id);
+      const room = String(projection.target_room_id || '');
+      const server = room.includes(':') ? room.slice(room.indexOf(':') + 1).toLowerCase() : '';
+      const localServer = String(process.env.MATRIX_SERVER_NAME || '').trim().toLowerCase();
+      const publisherScope = projection.channel === 'private_status' ? original?.scope
+        : projection.channel === 'public_notice' ? `agent:${approval?.agent || ''}:${server}`
+          : (server === localServer && MATRIX_BOT_MXID_FOR_PROBE ? 'local_bot' : `side-representative:${server}`);
       return {
         ...projection,
-        approval: approvalStore.getProjectionRequest(projection.request_id),
+        approval,
+        publisher_scope: publisherScope || null,
         ...(projection.channel === 'private_status' ? { publisher: original ? {
           scope: original.scope, publisher_mxid: original.publisherMxid, homeserver: original.homeserver,
           credential_kind: original.credentialKind, credential_generation: original.credentialGeneration,

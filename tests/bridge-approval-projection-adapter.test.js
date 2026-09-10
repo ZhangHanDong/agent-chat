@@ -49,7 +49,8 @@ describe('approval projection production request adapter', () => {
     const approval = { agent: 'worker', project: 'adapter' };
     await expect(io.resolveActor({ channel: 'public_notice', target_room_id: `!project:${server}`, approval }))
       .resolves.toMatchObject({ scope: `agent:worker:${server}`, publisher_mxid: `@ac_worker:${server}` });
-    await expect(io.resolveActor({ channel: 'private_request', target_room_id: `!owner:${server}`, approval }))
+    await expect(io.resolveActor({ channel: 'private_request', publisher_scope: `side-representative:${server}`,
+      target_room_id: `!owner:${server}`, approval }))
       .resolves.toMatchObject({ scope: `side-representative:${server}`, publisher_mxid: `@hafleet:${server}` });
   });
 
@@ -58,7 +59,8 @@ describe('approval projection production request adapter', () => {
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
         outboundGeneration: 'side-generation' } };
     const io = approvalProjectionIoForTest({ actingSideFor: () => side });
-    const row = { request_id: 'approval_side', revision: 1, channel: 'private_request', state: 'pending',
+    const row = { request_id: 'approval_side', revision: 1, channel: 'private_request',
+      publisher_scope: `side-representative:${server}`, state: 'pending',
       migration_kind: 'native_v2', target_room_id: `!owner:${server}`,
       approval: { agent: 'worker', project: 'adapter', project_room_id: `!project:${server}`,
         owner_mxid: `@owner:${server}`, input_digest: 'b'.repeat(64), expires_at: Date.now() + 1000 } };
@@ -82,7 +84,8 @@ describe('approval projection production request adapter', () => {
     credential: { kind: 'registrationToken', representativeToken: 'representative-secret',
       representativeMxid: `@representative:${server}`, outboundGeneration: 'registration-generation' } };
     const io = approvalProjectionIoForTest({ actingSideFor: () => side });
-    const row = { request_id: 'approval_registration', revision: 1, channel: 'private_request', state: 'pending',
+    const row = { request_id: 'approval_registration', revision: 1, channel: 'private_request',
+      publisher_scope: `side-representative:${server}`, state: 'pending',
       migration_kind: 'native_v2', target_room_id: `!owner:${server}`,
       approval: { agent: 'worker', project: 'adapter', expires_at: Date.now() + 1000 } };
     vi.stubGlobal('fetch', vi.fn(async () => ({ status: 404, ok: false,
@@ -101,7 +104,8 @@ describe('approval projection production request adapter', () => {
         outboundGeneration: 'side-generation' } };
     const bridge = { actingSideFor: () => side, approvalProjectionSecurityTimeoutMs: 25 };
     const io = approvalProjectionIoForTest(bridge);
-    const row = { request_id: 'approval_timeout', revision: 1, channel: 'private_request', state: 'pending',
+    const row = { request_id: 'approval_timeout', revision: 1, channel: 'private_request',
+      publisher_scope: `side-representative:${server}`, state: 'pending',
       migration_kind: 'native_v2', target_room_id: `!owner:${server}`,
       approval: { agent: 'worker', project: 'adapter', expires_at: Date.now() + 1000 } };
     vi.unstubAllGlobals();
@@ -141,6 +145,7 @@ describe('approval projection production request adapter', () => {
     const io = approvalProjectionIoForTest({ actingSideFor: () => side,
       approvalProjectionSecurityTimeoutMs: accepted ? 1000 : 100 });
     const row = { request_id: 'approval_body_deadline', revision: 1, channel: 'private_request',
+      publisher_scope: `side-representative:${server}`,
       state: 'pending', migration_kind: 'native_v2', target_room_id: `!owner:${server}`,
       approval: { agent: 'worker', project: 'adapter', expires_at: Date.now() + 1000 } };
     vi.unstubAllGlobals();
@@ -171,7 +176,7 @@ describe('approval projection production request adapter', () => {
     bridge.approvalBotPublisherReady = { client: bridge.botClient, mxid: bridge.botUserId,
       credentialGeneration: 'adapter-bot-generation' };
     const io = approvalProjectionIoForTest(bridge);
-    const row = { channel: 'private_request', target_room_id: `!owner:${server}`,
+    const row = { channel: 'private_request', publisher_scope: 'local_bot', target_room_id: `!owner:${server}`,
       approval: { id: 'approval_x', agent: 'worker', project: 'adapter', expires_at: Date.now() + 1000 } };
     const actor = await io.resolveActor(row);
     await expect(io.prepareContent(row, actor)).rejects.toThrow(/encryption is unavailable/);
@@ -225,7 +230,7 @@ describe('approval projection production request adapter', () => {
     bridge.approvalBotPublisherReady = { client, mxid: bridge.botUserId,
       credentialGeneration: 'adapter-bot-generation' };
     const io = approvalProjectionIoForTest(bridge);
-    const row = { request_id: 'approval_plain', revision: 1, channel: 'private_request',
+    const row = { request_id: 'approval_plain', revision: 1, channel: 'private_request', publisher_scope: 'local_bot',
       target_room_id: `!owner:${server}`, approval: { agent: 'worker' } };
     const actor = await io.resolveActor(row);
     await expect(io.send({ prepared_event_type: 'm.room.message', prepared_payload: { body: 'old' },
@@ -280,14 +285,17 @@ describe('approval projection production request adapter', () => {
       },
       botUserId: `@bot:${server}`,
       approvalDmMode: 'encrypted',
-      actingSideFor: () => null,
+      // Both contexts exist. The protected due row's backend-owned scope must select local_bot.
+      actingSideFor: () => ({ side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
+        credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'side-secret',
+          outboundGeneration: 'side-generation' } }),
       ensureApprovalDmEncrypted: MatrixBridge.prototype.ensureApprovalDmEncrypted,
       ensureApprovalDmSecurity: MatrixBridge.prototype.ensureApprovalDmSecurity,
       callBackendApi: async (method, url, body) => {
         order.push(url.endsWith('/prepare') ? 'prepare' : url.endsWith('/begin-send') ? 'begin'
           : url.endsWith('/receipt') ? 'receipt' : 'api');
         const response = await bridgeRequest(method, url, body);
-        if (response.status >= 400) throw new Error(`backend ${response.status}`);
+        if (response.status >= 400) throw new Error(`backend ${response.status}: ${JSON.stringify(response.body)}`);
         return response.body;
       },
     };
@@ -314,17 +322,111 @@ describe('approval projection production request adapter', () => {
       && item.channel === row.channel)).toBe(false);
   });
 
+  test('production worker drains a real canonical row through the adapter', async () => {
+    await bridgeRequest('put', '/api/approval-bindings', {
+      agent: 'worker', project: 'adapter-worker', project_room_id: `!worker-project:${server}`,
+      owner_mxid: `@owner:${server}`, owner_dm_room_id: `!worker-owner:${server}`,
+    });
+    const created = await request(context.app).post('/api/approvals').set('X-Agent-Token', AGENT_TOKEN).send({
+      agent: 'worker', runtime: 'codex', project: 'adapter-worker', project_room_id: `!worker-project:${server}`,
+      upstream_request_id: `adapter-worker-native-${Date.now()}`, tool_name: 'Bash', input_preview: 'pwd',
+    });
+    expect(created.status).toBe(201);
+    const client = { crypto: {}, doRequest: vi.fn(async () => ({ event_id: '$worker-event' })) };
+    const side = { side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
+      credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
+        outboundGeneration: 'side-generation' } };
+    const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
+      botClient: client, botUserId: `@bot:${server}`, approvalDmMode: 'plaintext-test',
+      approvalBotPublisherReady: { client, mxid: `@bot:${server}`,
+        credentialGeneration: 'adapter-bot-generation' },
+      agentWork: new Map(),
+      recentMatrixEvents: new Map(),
+      actingSideFor: () => side,
+      ensureApprovalDmSecurity: vi.fn(async () => {}),
+      warnIfOwnerCannotSeeApprovalRoom: vi.fn(async () => {}),
+      _approvalProjectionStopped: false, _approvalProjectionCursor: null,
+      callBackendApi: async (method, url, body) => {
+        const response = await bridgeRequest(method, url, body);
+        if (response.status >= 400) throw new Error(`backend ${response.status}`);
+        return response.body;
+      },
+    });
+    try {
+      const result = await bridge.drainApprovalProjectionsOnce();
+      expect(result.selected).toBeGreaterThan(0);
+      expect(client.doRequest).toHaveBeenCalled();
+      expect(bridge.warnIfOwnerCannotSeeApprovalRoom).toHaveBeenCalledWith(
+        expect.objectContaining({ owner_mxid: `@owner:${server}` }), server,
+      );
+      const remaining = (await bridgeRequest('get', '/api/approvals/matrix/projections?limit=200')).body.projections;
+      expect(remaining.some(row => row.request_id === created.body.approval.id
+        && row.channel === 'private_request')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   test('side security 429 performs one bounded request and defers publication', async () => {
     const side = { side: { serverName: server, apiBaseUrl: 'https://side.invalid' },
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
         outboundGeneration: 'side-generation' } };
     const io = approvalProjectionIoForTest({ actingSideFor: () => side });
-    const row = { request_id: 'approval_limited', revision: 1, channel: 'private_request', state: 'pending',
+    const row = { request_id: 'approval_limited', revision: 1, channel: 'private_request',
+      publisher_scope: `side-representative:${server}`, state: 'pending',
       migration_kind: 'native_v2', target_room_id: `!owner:${server}`,
       approval: { agent: 'worker', project: 'adapter', expires_at: Date.now() + 1000 } };
     vi.stubGlobal('fetch', vi.fn(async () => ({ status: 429, ok: false,
       clone: () => ({ json: async () => ({ errcode: 'M_LIMIT_EXCEEDED', retry_after_ms: 1 }) }) })));
     await expect(io.prepareContent(row, await io.resolveActor(row))).rejects.toThrow(/rate limited/);
     expect(fetch).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+    matrixRateLimitGateForTest.reset();
   });
+
+  test.each(['side-representative', 'public-agent'])(
+    '%s final PUT aborts a stalled response body within the owned deadline', async (kind) => {
+      vi.unstubAllGlobals();
+      matrixRateLimitGateForTest.reset();
+      const socket = createServer((req, res) => {
+        if (req.url.includes('/state/m.room.encryption/')) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ errcode: 'M_NOT_FOUND' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.flushHeaders();
+      });
+      await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
+      const address = socket.address();
+      const side = { side: { serverName: server, apiBaseUrl: `http://127.0.0.1:${address.port}` },
+        credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
+          outboundGeneration: 'side-generation', namespace: '@ac_.*' } };
+      const sender = { kind: 'appservice', ...side, agentUserId: `@ac_worker:${server}`, agentName: 'worker' };
+      const bridge = Object.assign(Object.create(MatrixBridge.prototype), {
+        approvalProjectionSendTimeoutMs: 25,
+        actingSideFor: () => side,
+        agentSenderFor: () => sender,
+        isKnownAgentMxid: () => true,
+        postWarning: vi.fn(),
+        endAgentWork: vi.fn(),
+      });
+      const row = { request_id: 'approval_stalled', revision: 1,
+        channel: kind === 'side-representative' ? 'private_request' : 'public_notice',
+        publisher_scope: kind === 'side-representative' ? `side-representative:${server}` : `agent:worker:${server}`,
+        target_room_id: `!room:${server}`, state: 'pending', migration_kind: 'native_v2',
+        approval: { agent: 'worker', project: 'adapter', project_room_id: `!room:${server}` } };
+      const actor = await approvalProjectionIoForTest(bridge).resolveActor(row);
+      const plan = { publisher_mxid: actor.publisher_mxid,
+        credential_generation: actor.credential_generation, prepared_event_type: 'm.room.message',
+        prepared_payload: { body: 'fixed' }, transaction_id: 'final-stalled' };
+      try {
+        await expect(approvalProjectionIoForTest(bridge).send(plan, actor, row))
+          .rejects.toThrow(/abort/i);
+      } finally {
+        socket.closeAllConnections();
+        await new Promise(resolve => socket.close(resolve));
+      }
+    },
+  );
 });
