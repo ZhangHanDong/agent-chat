@@ -1621,3 +1621,18 @@ impl DomainStore {
         .await
     }
 }
+
+impl DomainStore {
+    /// Host-only current notice attempt check; absent from RunnerCommand.
+    pub async fn validate_verified_task_notice_send(
+        &self,
+        id: String,
+        token: String,
+        fence: u64,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&id, &token))?, move |db| {
+            db.validate_verified_task_notice_send(&id, &token, fence, writer_time()?)
+        })
+        .await
+    }
+}

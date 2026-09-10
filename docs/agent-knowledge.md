@@ -1802,3 +1802,30 @@ separate until bounded worker/drop/receipt timing identifies the shutdown delay.
   with a 30 s/original-cap deadline. Ownerless restart and incomplete macOS cleanup
   keep content unsendable. Native MCP catalog has 20 tools; generated task helper
   enables only get_task/update_task_execution/transition_task/complete_task_with_reply.
+### Native Matrix outgoing custody — ADR059 (2026-09-10)
+
+The bounded collector now consumes existing host notice/final claims and performs
+actual authenticated HTTP writes. Frozen current route plus whoami/full room
+state gates each possible write; Sending precedes key sharing, and a second
+current-claim check follows the durable Possible marker immediately before IO.
+Formatting/content digest and SDK ciphertext/key-share digests are separate from
+the domain intent digest. No externally supplied path, content or crypto proof
+can become send authority.
+
+Encrypted sends require an already provisioned verified SDK identity and Olm
+sessions, exact fresh cross-signing/device authority including this published
+device, and a new outbound group session with OnlyTrustedDevices per attempt.
+The SDK may ignore malformed raw key-query entries while keeping cached trust;
+fresh authority fields must also match what the SDK accepted. Missing trust,
+keys or sessions never fall back to plaintext or start live bootstrap.
+
+Accepted responses live in the protected SDK journal before domain handoff.
+Complete can settle after Busy, lost response/restart or claim-secret loss with
+its original fence; late notice delivery cannot activate retired tasks. Unknown
+begin/SDK/PUT work remains inspect-only and blocks new attempts. Resume never
+sends HTTP or recreates identity. Failed journal persistence poisons in-memory
+outgoing state until reopen. Restore validates phase/index/prior key-share
+responses as well as exact identity, route and content digests. The 64-receipt
+hard stop never evicts dedup history; continuous production operation needs a
+separate retention/recovery lifecycle. Live key provisioning, media and native
+service cutover remain gates.

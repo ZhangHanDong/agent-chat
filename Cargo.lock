@@ -1135,6 +1135,7 @@ name = "hagency-matrix"
 version = "0.1.0"
 dependencies = [
  "hagency-core",
+ "hagency-matrix-format",
  "hagency-store",
  "http",
  "matrix-sdk-base",
@@ -1147,6 +1148,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",

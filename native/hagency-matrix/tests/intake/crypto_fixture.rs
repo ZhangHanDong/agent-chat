@@ -52,7 +52,10 @@ async fn public_keys(machine: &OlmMachine) -> get_keys::v3::Response {
     response
 }
 
-pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool) -> Value {
+pub(super) async fn verified_pair(
+    sdk: &Sdk,
+    verified: bool,
+) -> (OlmMachine, get_keys::v3::Response) {
     let guard = sdk.client.olm_machine().await;
     let receiver = guard.as_ref().unwrap();
     let human = OlmMachine::new(user_id!("@owner:example.test"), device_id!("HUMAN")).await;
@@ -101,6 +104,13 @@ pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool) -> Value {
                 .is_verified()
         );
     }
+    (human, query)
+}
+
+pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool) -> Value {
+    let (human, _) = verified_pair(sdk, verified).await;
+    let guard = sdk.client.olm_machine().await;
+    let receiver = guard.as_ref().unwrap();
     let outgoing = receiver.outgoing_requests().await.unwrap();
     let key = outgoing
         .iter()

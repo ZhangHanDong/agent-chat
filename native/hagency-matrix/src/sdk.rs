@@ -26,6 +26,8 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot};
 
+mod outgoing;
+
 const JOURNAL: &[u8] = b"hagency.observer.sync.v1";
 const DATABASES: [&str; 2] = ["matrix-sdk-state.sqlite3", "matrix-sdk-crypto.sqlite3"];
 const MAX_SYNCS: usize = 64;
@@ -42,8 +44,22 @@ struct Journal {
     intake: Option<Batch>,
     #[serde(default)]
     intake_receipts: Vec<Receipt>,
+    #[serde(default)]
+    outgoing: Option<crate::outgoing::state::Attempt>,
+    #[serde(default)]
+    outgoing_receipts: Vec<crate::outgoing::state::Receipt>,
 }
 enum Command {
+    #[cfg(test)]
+    OutgoingFixture(bool, oneshot::Sender<outgoing_fixture::Peer>),
+    #[cfg(test)]
+    OutgoingCorruptFixture(u8, oneshot::Sender<()>),
+    #[cfg(test)]
+    OutgoingReplyFault(oneshot::Sender<()>),
+    Outgoing(
+        crate::outgoing::state::Command,
+        oneshot::Sender<Result<crate::outgoing::state::View, Error>>,
+    ),
     #[cfg(test)]
     CryptoFixture(bool, oneshot::Sender<Value>),
     #[cfg(test)]
@@ -72,6 +88,7 @@ pub(crate) struct Owner {
     timeout: Duration,
 }
 struct Init {
+    existing: bool,
     root: PathBuf,
     key: [u8; 32],
     binding: String,
@@ -80,7 +97,14 @@ struct Init {
 }
 impl Owner {
     pub(crate) async fn open(config: &HostConfig) -> Result<Self, Error> {
+        Self::open_mode(config, false).await
+    }
+    pub(crate) async fn open_existing(config: &HostConfig) -> Result<Self, Error> {
+        Self::open_mode(config, true).await
+    }
+    async fn open_mode(config: &HostConfig, existing: bool) -> Result<Self, Error> {
         let init = Init {
+            existing,
             root: config.root.clone(),
             key: config.key,
             binding: config.binding()?,
@@ -126,6 +150,35 @@ impl Owner {
                     }
                     while let Some(command) = rx.recv().await {
                         match command {
+                            #[cfg(test)]
+                            Command::OutgoingFixture(verified, reply) => {
+                                let _ = reply.send(outgoing_fixture::prepare(&sdk, verified).await);
+                            }
+                            #[cfg(test)]
+                            Command::OutgoingCorruptFixture(variant, reply) => {
+                                outgoing_fixture::corrupt(&mut sdk, variant).await;
+                                let _ = reply.send(());
+                            }
+                            #[cfg(test)]
+                            Command::OutgoingReplyFault(reply) => {
+                                sdk.outgoing_reply_loss = true;
+                                let _ = reply.send(());
+                            }
+                            Command::Outgoing(command, reply) => {
+                                #[cfg(test)]
+                                let accept =
+                                    matches!(&command, crate::outgoing::state::Command::Accept(..));
+                                let result = sdk.outgoing(command).await;
+                                #[cfg(test)]
+                                if accept
+                                    && result.is_ok()
+                                    && std::mem::take(&mut sdk.outgoing_reply_loss)
+                                {
+                                    drop(reply);
+                                    continue;
+                                }
+                                let _ = reply.send(result);
+                            }
                             #[cfg(test)]
                             Command::CryptoFixture(verified, reply) => {
                                 let _ = reply
@@ -199,6 +252,35 @@ impl Owner {
             tx,
             timeout: config.limits.sdk,
         })
+    }
+    pub(crate) async fn outgoing(
+        &self,
+        command: crate::outgoing::state::Command,
+    ) -> Result<crate::outgoing::state::View, Error> {
+        // Caller-side budget before queue ownership. HTTP is independently capped.
+        match &command {
+            crate::outgoing::state::Command::Encrypt(value) => {
+                crate::outgoing::state::encode(value, crate::outgoing::state::MAX_QUERY)?;
+            }
+            crate::outgoing::state::Command::Accept(_, value) => {
+                crate::outgoing::state::encode(value, 4096)?;
+            }
+            crate::outgoing::state::Command::Start(value) => {
+                crate::outgoing::state::encode(
+                    &serde_json::to_value(value).map_err(|_| Error::Storage)?,
+                    512 * 1024,
+                )?;
+            }
+            _ => {}
+        }
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::Outgoing(command, send))
+            .map_err(|_| Error::Busy)?;
+        tokio::time::timeout(self.timeout, reply)
+            .await
+            .map_err(|_| Error::OutcomeUnknown)?
+            .map_err(|_| Error::OutcomeUnknown)?
     }
     pub(crate) async fn cursor(&self) -> Result<Option<String>, Error> {
         let (send, reply) = oneshot::channel();
@@ -355,6 +437,11 @@ fn files(root: &Path) -> Result<(), Error> {
     Ok(())
 }
 fn prepare(init: &Init) -> Result<(File, bool), Error> {
+    if init.existing {
+        // Read protected prior identity before any fresh-store creation. Resume
+        // can inspect old acceptance but cannot bootstrap an unauthenticated SDK.
+        read(&init.root.join("identity"), 256)?;
+    }
     private::directory(&init.root).map_err(|_| Error::Storage)?;
     let path = init.root.join("sdk.lock");
     let lock = private::open(&path, !path.try_exists().map_err(|_| Error::Storage)?)
@@ -402,6 +489,9 @@ fn prepare(init: &Init) -> Result<(File, bool), Error> {
     Ok((lock, fresh))
 }
 struct Sdk {
+    outgoing_poisoned: bool,
+    #[cfg(test)]
+    outgoing_reply_loss: bool,
     client: BaseClient,
     root: PathBuf,
     journal: Journal,
@@ -490,6 +580,28 @@ impl Sdk {
                 None if fresh => Journal::default(),
                 None => return Err(Error::Storage),
             };
+            if journal.outgoing_receipts.len() > crate::outgoing::state::MAX_RECEIPTS {
+                return Err(Error::Storage);
+            }
+            if let Some(attempt) = &journal.outgoing {
+                attempt.validate(&identity, &init.user, &init.device)?;
+            }
+            let mut outgoing_ids = std::collections::BTreeSet::new();
+            for receipt in &journal.outgoing_receipts {
+                if receipt.id.is_empty()
+                    || receipt.id.len() > 128
+                    || receipt.fence == 0
+                    || !crate::outgoing::state::digest(&receipt.attempt_digest)
+                    || !outgoing_ids.insert((receipt.id.clone(), receipt.fence))
+                {
+                    return Err(Error::Storage);
+                }
+                if journal.outgoing.as_ref().is_some_and(|a| {
+                    a.kind == receipt.kind && a.id == receipt.id && a.fence == receipt.fence
+                }) {
+                    return Err(Error::Storage);
+                }
+            }
             if journal.pending.is_some() {
                 return Err(Error::OutcomeUnknown);
             }
@@ -560,6 +672,9 @@ impl Sdk {
         .await;
         match result {
             Ok(journal) => Ok(Self {
+                outgoing_poisoned: false,
+                #[cfg(test)]
+                outgoing_reply_loss: false,
                 client,
                 root: init.root.clone(),
                 journal,
@@ -1015,5 +1130,36 @@ impl Owner {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Command::ApplyFault(tx)).await.unwrap();
         rx.await.unwrap()
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/outgoing/crypto_fixture.rs"]
+mod outgoing_fixture;
+#[cfg(test)]
+impl Owner {
+    pub(crate) async fn outgoing_fixture(&self, verified: bool) -> outgoing_fixture::Peer {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::OutgoingFixture(verified, send))
+            .unwrap();
+        tokio::time::timeout(self.timeout, reply)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+    pub(crate) async fn corrupt_outgoing_fixture(&self, variant: u8) {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::OutgoingCorruptFixture(variant, send))
+            .unwrap_or_else(|_| panic!("fixture queue"));
+        reply.await.unwrap();
+    }
+    pub(crate) async fn outgoing_reply_fault(&self) {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::OutgoingReplyFault(send))
+            .unwrap_or_else(|_| panic!("fixture queue"));
+        reply.await.unwrap();
     }
 }

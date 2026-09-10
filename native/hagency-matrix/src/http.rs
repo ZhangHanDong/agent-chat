@@ -100,6 +100,35 @@ impl Http {
         query: Option<&[(&str, &str)]>,
         cancel: &CancellationToken,
     ) -> Result<Response, Error> {
+        self.perform(reqwest::Method::GET, segments, query, None, cancel)
+            .await
+    }
+    pub(crate) async fn post(
+        &self,
+        segments: &[&str],
+        body: String,
+        cancel: &CancellationToken,
+    ) -> Result<Response, Error> {
+        self.perform(reqwest::Method::POST, segments, None, Some(body), cancel)
+            .await
+    }
+    pub(crate) async fn put(
+        &self,
+        segments: &[&str],
+        body: String,
+        cancel: &CancellationToken,
+    ) -> Result<Response, Error> {
+        self.perform(reqwest::Method::PUT, segments, None, Some(body), cancel)
+            .await
+    }
+    async fn perform(
+        &self,
+        method: reqwest::Method,
+        segments: &[&str],
+        query: Option<&[(&str, &str)]>,
+        body: Option<String>,
+        cancel: &CancellationToken,
+    ) -> Result<Response, Error> {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -111,7 +140,15 @@ impl Http {
         if let Some(query) = query {
             url.query_pairs_mut().extend_pairs(query.iter().copied());
         }
-        let request = self.client.get(url);
+        let mut request = self.client.request(method, url);
+        if let Some(body) = body {
+            if body.len() > self.limits.bytes {
+                return Err(Error::BodyTooLarge);
+            }
+            request = request
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(body);
+        }
         let begin = Instant::now();
         let deadline = begin + self.limits.request;
         let mut response = wait(cancel, begin + self.limits.headers, request.send())

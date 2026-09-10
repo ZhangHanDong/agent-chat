@@ -18,6 +18,12 @@ pub(crate) struct Inner {
     #[cfg(test)]
     pub(crate) handoff_continue: tokio::sync::Notify,
     #[cfg(test)]
+    pub(crate) outgoing_fault: std::sync::atomic::AtomicU8,
+    #[cfg(test)]
+    pub(crate) outgoing_reached: tokio::sync::Notify,
+    #[cfg(test)]
+    pub(crate) outgoing_continue: tokio::sync::Notify,
+    #[cfg(test)]
     lose_positive_response: std::sync::atomic::AtomicBool,
 }
 pub struct Collector {
@@ -46,6 +52,12 @@ impl Collector {
                 handoff_reached: tokio::sync::Notify::new(),
                 #[cfg(test)]
                 handoff_continue: tokio::sync::Notify::new(),
+                #[cfg(test)]
+                outgoing_fault: std::sync::atomic::AtomicU8::new(0),
+                #[cfg(test)]
+                outgoing_reached: tokio::sync::Notify::new(),
+                #[cfg(test)]
+                outgoing_continue: tokio::sync::Notify::new(),
                 #[cfg(test)]
                 lose_positive_response: std::sync::atomic::AtomicBool::new(false),
             }),
@@ -240,6 +252,15 @@ impl Inner {
         target: &HostRoom,
         cancel: &CancellationToken,
     ) -> Result<(), Error> {
+        self.collect_room_observation(target, cancel)
+            .await
+            .map(|_| ())
+    }
+    pub(crate) async fn collect_room_observation(
+        &self,
+        target: &HostRoom,
+        cancel: &CancellationToken,
+    ) -> Result<MatrixRoomObservation, Error> {
         let t = &self.config.identity.transport;
         let prior = self
             .domain
@@ -261,7 +282,7 @@ impl Inner {
             if cancel.is_cancelled() {
                 return Err(Error::Cancelled);
             }
-            self.domain.observe_matrix_room(observation).await?;
+            self.domain.observe_matrix_room(observation.clone()).await?;
             let current = self
                 .domain
                 .matrix_room_state(t.engagement_id.clone(), target.room_id.clone())
@@ -269,7 +290,7 @@ impl Inner {
             if !current.is_some_and(|s| s.available && s.generation == target.generation) {
                 return Err(Error::Wire);
             }
-            Ok(())
+            Ok(observation)
         }
         .await;
         if result.is_err()

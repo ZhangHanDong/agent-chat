@@ -170,6 +170,23 @@ impl DomainRepository {
             fence,
         })
     }
+    /// Current live claim check immediately before each adapter write. This is
+    /// not a replay of begin and does not create new send authority.
+    pub fn validate_verified_task_notice_send(
+        &self,
+        id: &str,
+        token: &str,
+        fence: u64,
+        now: u64,
+    ) -> Result<(), Error> {
+        if check_claim(&self.db, id, token, now)? != "sending"
+            || receipt(&self.db, id, false)?.fence != fence
+            || !current(&self.db, id)?
+        {
+            return Err(Error::RunnerAuthority);
+        }
+        Ok(())
+    }
     pub fn deliver_verified_task_notice(
         &mut self,
         id: &str,
@@ -265,7 +282,10 @@ impl DomainRepository {
             return receipt(&tx, id, true);
         }
         let before = receipt(&tx, id, false)?;
-        if before.state != "uncertain" || before.fence != fence {
+        if (before.state != "uncertain"
+            && !(before.state == "sending" && matches!(input, ReplyReconciliation::Delivered(_))))
+            || before.fence != fence
+        {
             return Err(Error::RunnerAuthority);
         }
         let count: u64 = tx.query_row("SELECT COUNT(*) FROM notice_send_inspections", [], |r| {

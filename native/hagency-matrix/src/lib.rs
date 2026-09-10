@@ -1,15 +1,18 @@
 //! Bounded authenticated account/room observations and scoped SDK event intake.
-//! Live key lifecycle, outgoing crypto processing and connected sends remain gated.
+//! Host-owned frozen sends support provisioned verified crypto. Account/key
+//! enrollment, missing-session claims and production service cutover remain gated.
 mod collector;
 mod config;
 mod event_batch;
 mod http;
 mod intake;
+mod outgoing;
 mod sdk;
 mod wire;
 pub use collector::{Collector, ObservationSummary};
 pub use config::{HostConfig, HostIdentity, HostRoom, Limits};
 pub use intake::{HostIntakePlan, IntakeStatus, IntakeSummary};
+pub use outgoing::{OutgoingState, OutgoingSummary};
 pub use tokio_util::sync::CancellationToken;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
@@ -35,6 +38,8 @@ pub enum Error {
     Wire,
     #[error("Matrix authenticated account or device differs from host binding")]
     Identity,
+    #[error("Matrix recipient verification changed or is unavailable")]
+    Recipients,
     #[error("Matrix generation is stale or unavailable")]
     Generation,
     #[error("Matrix authentication refused")]

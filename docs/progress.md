@@ -3761,3 +3761,37 @@ with zero fail/skip/uncertain. Cross-compilation is not Windows runtime evidence
   behaviors plus boundary with no failures, skips or uncertainty. Validation logs
   are external under the shutdown prefix. No full workspace rebuild was run;
   affected MCP/runner suites and Windows qualification belong to integration.
+## 2026-09-10 — Native authenticated Matrix outgoing custody
+
+ADR059 adds actual bounded authenticated notice/final sending to the owned
+Matrix collector, consuming the separately tested ADR033 host send checkpoints.
+The protected outgoing journal preserves original route/fence/formatted bytes,
+SDK key-share/ciphertext writes and accepted HTTP responses. Domain Sending
+precedes key sharing; fresh identity/full-state/recipient checks and current
+claim validation gate each write, including after the awaited Possible marker.
+No claim secret is persisted and uncertain bytes are never automatically resent.
+
+Real local HTTPS fixtures cover plaintext formatted notices/finals and encrypted
+DM/group delivery with strict SDK decryption and new group sessions. Additional
+faults cover malformed fresh cross-signing/device keys despite cached trust,
+retirement during journal persistence, lost HTTP/SDK/domain replies, SQLite
+rollback, late retired notice acceptance, nine corrupted protected history
+shapes on reopen and 64 actual sends followed by capacity refusal without eviction.
+Only exact current notice acceptance activates its task; historical acceptance
+records delivery without restoring authority.
+
+The complete Matrix package passes 49 tests (40 unit including 19 outgoing, plus
+9 transport), with zero failed/ignored tests. Native package Clippy with warnings
+denied passes after correcting two collapsible conditions and boxing the private
+notice Source variant. Cargo.lock changes only the existing package's local
+formatting/SHA dependency metadata; no locked version changes. Earlier compile,
+fixture and Clippy failure logs remain under the external evidence cache's
+matrix-outgoing-* prefix. Full workspace/three-platform integration is reserved
+for the coordinator; no duplicate broad isolated build or live service ran.
+
+The existing notice/store regression suite passes 14/14. Agent-spec 1.4
+lifecycle passes 7/7: six exact selectors and all 18 explicit changed paths,
+with zero failures, skips, pending reviews or uncertain results. Live key upload,
+missing-session claims, trust establishment, automatic uncertain-send recovery,
+receipt compaction, media, production wiring and overall M5 completion remain
+explicit gates. No native availability toggle, domain migration or deployment.
