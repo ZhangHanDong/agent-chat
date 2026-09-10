@@ -74,6 +74,12 @@ Scenario: Rate-limit bodies remain bounded
   When the adapter reads it under the owned deadline
   Then it rejects the oversized response before the shared rate-limit observer can clone or parse it.
 
+Scenario: Matrix state endpoints cannot redirect
+  Test: local marker HTTP refuses redirects without a second state request
+  Given an exact marker state endpoint responds with a redirect
+  When the owned HTTP helper receives that response
+  Then it fails closed after one request without following the alternate endpoint.
+
 Scenario: Lost legacy response is reconciled from observed state
   Test: authenticated nonempty v1 observation queues exact room reconciliation
   Given accepted v2 history and a completed prior retirement

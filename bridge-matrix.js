@@ -10837,7 +10837,7 @@ function boundedMarkerFetch(bridge, expectedActor, row) {
       ? AbortSignal.any([init.signal, controller.signal])
       : controller.signal;
     try {
-      const response = await fetchImpl(url, { ...init, signal });
+      const response = await fetchImpl(url, { ...init, redirect: 'error', signal });
       const limited = await rateLimitGate.observeResponse(response);
       controller.signal.throwIfAborted();
       if (limited) throw new Error('approval marker state request is rate limited');

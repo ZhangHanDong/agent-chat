@@ -253,6 +253,7 @@ describe('approval room marker production adapter', () => {
     expect(new URL(captures[0].url).searchParams.get('user_id'))
       .toBe('@representative:remote.test');
     expect(captures[0].init.headers.Authorization).toBe('Bearer test-as-token');
+    expect(captures[0].init.redirect).toBe('error');
 
     credential = {
       kind: 'registrationToken',
@@ -435,6 +436,29 @@ describe('approval room marker production adapter', () => {
       observeResponse: observed,
     }, 500)).rejects.toThrow(/too large/);
     expect(observed).not.toHaveBeenCalled();
+  });
+
+  test('local marker HTTP refuses redirects without a second state request', async () => {
+    let requests = 0;
+    const server = createServer((req, res) => {
+      requests += 1;
+      if (req.url === '/state') {
+        res.writeHead(302, { Location: '/different-state' });
+        res.end();
+        return;
+      }
+      res.end('{"event_id":"$wrong-endpoint"}');
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    try {
+      await expect(markerOwnedJsonRequest(`http://127.0.0.1:${address.port}/state`, {
+        headers: { Authorization: 'Bearer synthetic-test-token' },
+      }, 500)).rejects.toThrow();
+      expect(requests).toBe(1);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
   });
 
   test('authenticated nonempty v1 observation queues exact room reconciliation', async () => {
