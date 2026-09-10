@@ -11,7 +11,7 @@ const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtur
 
 test('explicit cross-agent thread mention creates an independent acknowledged task', async () => {
   const context = await createBackendTestContext('cross-agent-thread-', {
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'cross-bridge' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'cross-bridge' },
     agents: Object.fromEntries(['edison', 'xiaobai'].map(name => [name, { name, agentId: `agent_${name}`,
       type: 'codex', kind: 'agent', online: true, workdir: process.cwd(), workspaceMode: 'shared' }])),
   });
@@ -75,7 +75,7 @@ test('accepted cross-agent thread input recovers without replacing its source ev
   const receipt = { eventId: msg.sourceEventId, messageId: msg.id, status: 'accepted', message: msg,
     dispatch: { senderIsAgent: false, directTargetKind: 'agent' }, response: { ok: true, id: msg.id }, updatedAt: new Date(100).toISOString() };
   const context = await createBackendTestContext('cross-agent-restart-', {
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'cross-bridge' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'cross-bridge' },
     agents: { xiaobai: { name: 'xiaobai', agentId: 'agent_xiaobai', type: 'codex', kind: 'agent', online: true, workdir: process.cwd() } },
     messages: [msg], msgCounter: 45,
     rawDataFiles: { 'matrix/source-events.jsonl': `${JSON.stringify(receipt)}\n` },
@@ -110,7 +110,7 @@ test('accepted cross-agent thread input recovers without replacing its source ev
 describe('canonical mentionless thread addressing', () => {
   test('thread recipient lookup requires one active bound task for the exact room root and requester', async () => {
     const context = await createBackendTestContext('thread-recipient-', {
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'thread-lookup-bridge' },
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'thread-lookup-bridge' },
       agents: Object.fromEntries(['worker', 'peer'].map(name => [name, { name, agentId: `agent_${name}`,
         type: 'codex', kind: 'agent', workdir: process.cwd(), online: true }])),
     });
@@ -163,7 +163,7 @@ describe('canonical mentionless thread addressing', () => {
 describe('Matrix task display titles', () => {
   async function expectTitle(source, title) {
     const context = await createBackendTestContext('matrix-title-', {
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'title-bridge', API_TOKEN: 'title-operator' },
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'title-bridge', API_TOKEN: 'title-operator' },
       agents: { worker_native: {
         name: 'worker_native', agentId: 'agent_worker_native', type: 'codex', role: 'coding',
         kind: 'agent', workdir: process.cwd(), workspaceMode: 'shared', online: true,
@@ -207,7 +207,7 @@ describe('Matrix task display titles', () => {
 
 test('authenticated Matrix follow-up executes after its prior task completes', async () => {
   const context = await createBackendTestContext('completed-matrix-followup-', {
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'followup-bridge', API_TOKEN: 'followup-operator' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'followup-bridge', API_TOKEN: 'followup-operator' },
     agents: { worker: { name: 'worker', agentId: 'agent_worker', type: 'codex', role: 'coding',
       kind: 'agent', workdir: process.cwd(), workspaceMode: 'shared', online: true } },
   });
@@ -255,12 +255,12 @@ describe('thread-session backend integration', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-router-backend-', {
+    context = await createBackendTestContext('hagency-router-backend-', {
       env: {
-        HAFLEET_THREAD_SESSIONS: '1',
-        HAFLEET_ROUTER_TASK_CUTOVER: '1',
-        HAFLEET_CODEX_RUNNER_BIN: path.join(fixtures, 'fake-codex-app-server.mjs'),
-        HAFLEET_APPROVAL_TTL_MS: '900000',
+        HAGENCY_THREAD_SESSIONS: '1',
+        HAGENCY_ROUTER_TASK_CUTOVER: '1',
+        HAGENCY_CODEX_RUNNER_BIN: path.join(fixtures, 'fake-codex-app-server.mjs'),
+        HAGENCY_APPROVAL_TTL_MS: '900000',
         MATRIX_BRIDGE_SECRET: 'router-bridge-secret',
         API_TOKEN: 'router-api-token',
       },
@@ -330,7 +330,7 @@ describe('thread-session backend integration', () => {
       .set('Authorization', 'Bearer router-api-token')
       .send({
         name: 'config-probe-agent', type: 'codex', workdir: process.cwd(),
-        workspace_mode: 'worktree', worktrees_dir: path.join(process.cwd(), '.hafleet-worktrees'),
+        workspace_mode: 'worktree', worktrees_dir: path.join(process.cwd(), '.hagency-worktrees'),
         worktree_bootstrap: ['/usr/bin/true'],
       });
     expect(created.status).toBe(200);
@@ -504,17 +504,17 @@ describe('thread-session backend integration', () => {
     const partial = await request(context.app)
       .get('/api/inbox/worker')
       .set('X-Agent-Token', 'worker-router-token')
-      .set('X-HAFleet-Dispatch-Id', claim.dispatchId);
+      .set('X-Hagency-Dispatch-Id', claim.dispatchId);
     expect(partial.status).toBe(401);
     expect(partial.body.code).toBe('runner_capability_required');
 
     const scoped = await request(context.app)
       .get('/api/inbox/worker')
       .set('X-Agent-Token', 'worker-router-token')
-      .set('X-HAFleet-Dispatch-Capability', claim.capability)
-      .set('X-HAFleet-Dispatch-Id', claim.dispatchId)
-      .set('X-HAFleet-Runner-Id', claim.runnerId)
-      .set('X-HAFleet-Fence-Generation', String(claim.fenceGeneration));
+      .set('X-Hagency-Dispatch-Capability', claim.capability)
+      .set('X-Hagency-Dispatch-Id', claim.dispatchId)
+      .set('X-Hagency-Runner-Id', claim.runnerId)
+      .set('X-Hagency-Fence-Generation', String(claim.fenceGeneration));
     expect(scoped.status).toBe(200);
     expect(scoped.body.session_scoped).toBe(true);
     expect(scoped.body.dm.map((message) => message.id)).toContain('http-inbox-a');
@@ -699,10 +699,10 @@ describe('thread-session backend integration', () => {
     router.takePayload(claim);
     const capabilityHeaders = {
       'X-Agent-Token': 'coordinator-router-token',
-      'X-HAFleet-Dispatch-Capability': claim.capability,
-      'X-HAFleet-Dispatch-Id': claim.dispatchId,
-      'X-HAFleet-Runner-Id': claim.runnerId,
-      'X-HAFleet-Fence-Generation': String(claim.fenceGeneration),
+      'X-Hagency-Dispatch-Capability': claim.capability,
+      'X-Hagency-Dispatch-Id': claim.dispatchId,
+      'X-Hagency-Runner-Id': claim.runnerId,
+      'X-Hagency-Fence-Generation': String(claim.fenceGeneration),
     };
     const binding = {
       agent: 'coordinator', project: 'robrix2', project_room_id: '!approval:test',
@@ -791,10 +791,10 @@ describe('thread-session backend integration', () => {
     expect(router.takePayload(claim)).toMatchObject({ ok: true });
     const capabilityHeaders = {
       'X-Agent-Token': 'multiroom-coordinator-router-token',
-      'X-HAFleet-Dispatch-Capability': claim.capability,
-      'X-HAFleet-Dispatch-Id': claim.dispatchId,
-      'X-HAFleet-Runner-Id': claim.runnerId,
-      'X-HAFleet-Fence-Generation': String(claim.fenceGeneration),
+      'X-Hagency-Dispatch-Capability': claim.capability,
+      'X-Hagency-Dispatch-Id': claim.dispatchId,
+      'X-Hagency-Runner-Id': claim.runnerId,
+      'X-Hagency-Fence-Generation': String(claim.fenceGeneration),
     };
     const parked = await request(context.app)
       .post('/api/router/approvals/claude')
@@ -854,10 +854,10 @@ describe('thread-session backend integration', () => {
     router.takePayload(claim);
     const headers = {
       'X-Agent-Token': 'coordinator-gap-router-token',
-      'X-HAFleet-Dispatch-Capability': claim.capability,
-      'X-HAFleet-Dispatch-Id': claim.dispatchId,
-      'X-HAFleet-Runner-Id': claim.runnerId,
-      'X-HAFleet-Fence-Generation': String(claim.fenceGeneration),
+      'X-Hagency-Dispatch-Capability': claim.capability,
+      'X-Hagency-Dispatch-Id': claim.dispatchId,
+      'X-Hagency-Runner-Id': claim.runnerId,
+      'X-Hagency-Fence-Generation': String(claim.fenceGeneration),
     };
     await request(context.app)
       .put('/api/approval-bindings')

@@ -981,7 +981,7 @@ export class RouterStore {
           ).run(taskId, messageId, messageId === rootMessageId ? 'root' : 'supplement', now);
         }
         const commandId = `matrix_${randomUUID()}`;
-        const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+        const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
         const commandPayload = {
           roomId,
           threadRootEventId: rootEvent,
@@ -2329,7 +2329,7 @@ export class RouterStore {
               ) VALUES (?, ?, ?, ?)`,
             ).run(session.session_id, replyMessageId, now, now);
             const commandId = `reply_${randomUUID()}`;
-            const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+            const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
             const payloadDigest = digest({
               dispatchId: input.dispatchId,
               roomId: session.room_id,
@@ -2791,7 +2791,7 @@ export class RouterStore {
     body: string;
   }): void {
     const commandId = `notice_${digest(input.dedupeKey).slice(0, 40)}`;
-    const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+    const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
     const payloadDigest = digest({
       dispatchId: input.dispatchId,
       taskId: input.taskId,

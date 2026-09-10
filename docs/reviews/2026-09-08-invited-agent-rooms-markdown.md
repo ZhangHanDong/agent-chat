@@ -2,7 +2,7 @@
 
 The operator could not invite a second allocated Agent into an existing DM, and
 Robrix displayed Agent Markdown as literal text. The sender supplied only `body`;
-Robrix already supports Matrix formatted messages. HAFleet now supplies safe
+Robrix already supports Matrix formatted messages. Hagency now supplies safe
 `org.matrix.custom.html` / `formatted_body` alongside the unchanged plaintext.
 The same send path covers DM, thread, edited content and encrypted messages.
 
@@ -15,7 +15,7 @@ does not wake peers. Departed or revoked bindings do not block another valid
 Agent in that room. Existing command and media handling is retained.
 
 Promotion starts a fresh conversation context range and blocks pending replies
-from the former private task. This limits HAFleet's context delivery; it does not
+from the former private task. This limits Hagency's context delivery; it does not
 change Matrix room history visibility or erase messages already in the room.
 
 Validation from `/Users/yuechen/home/hagency`:
@@ -64,5 +64,5 @@ Private evidence is in
 `invited-rooms-final-verification.json`, `invited-rooms-browser-verified.json`,
 `invited-rooms-thread-browser.png`, `invited-rooms-dm-browser.png`,
 `invited-rooms-deployment.json` and `invited-rooms-lifecycle-final.json`.
-Test rooms are named `HAFleet 验证 · DM 转双 Agent · 0908` and
-`HAFleet 验证 · 普通房间邀请 · 0908`; user-created rooms were preserved.
+Test rooms are named `Hagency 验证 · DM 转双 Agent · 0908` and
+`Hagency 验证 · 普通房间邀请 · 0908`; user-created rooms were preserved.

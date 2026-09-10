@@ -1,9 +1,9 @@
 # Palpo outbound implementation and Mini1 acceptance
 
-Implemented the accepted `REQ-PALPO-OUTBOUND` in isolated HAFleet and Palpo
+Implemented the accepted `REQ-PALPO-OUTBOUND` in isolated Hagency and Palpo
 worktrees and deployed it on September 8, 2026 (September 9 UTC). This completes
 the transport change described in the earlier architectural review; it is not
-a claim that every HAFleet feature or historical UI check passes.
+a claim that every Hagency feature or historical UI check passes.
 
 ## What is running
 
@@ -11,13 +11,13 @@ a claim that every HAFleet feature or historical UI check passes.
 |---|---|
 | Palpo browser and outbound machine API | `https://crew.ominix.io:19444` |
 | Matrix client API, including Robrix homeserver | `https://crew.ominix.io:19443` |
-| Local HAFleet console | `http://127.0.0.1:13202` |
-| HAFleet backend | Local loopback `18194` |
-| HAFleet backend, bridge and console source | `/Users/yuechen/home/hagency-outbound-20260908` |
+| Local Hagency console | `http://127.0.0.1:13202` |
+| Hagency backend | Local loopback `18194` |
+| Hagency backend, bridge and console source | `/Users/yuechen/home/hagency-outbound-20260908` |
 | Server-side Matrix relay | `http://palpo-web-admin-hfux-closure-20260906:8090/api/relay/v2/hf_82042a93a7734deeab65e02226608831` |
 
 The contributor bridge has no inbound Appservice listener. The owned
-`com.hafleet.mini1-tunnel` launch agent is disabled and stopped: laptop ports
+`com.hagency.mini1-tunnel` launch agent is disabled and stopped: laptop ports
 18010/18080/18195 are closed, and Mini1 reverse port 19094 refuses connections.
 Administrative SSH access remains available; it does not carry fleet traffic.
 Mini1's own loopback 18080 remains the web container's reverse-proxy backend.
@@ -28,7 +28,7 @@ removal that laptop address is unavailable. Independent checks did not reproduce
 the reported timeout against the public portal. This is evidence about the
 observed endpoint behavior, not attribution of every earlier timeout.
 
-HAFleet implementation commit: `57d56da`, based on integrated `fa20a7e`, with
+Hagency implementation commit: `57d56da`, based on integrated `fa20a7e`, with
 the cross-Agent thread admission fix `a57ac7e`. Palpo protocol source is
 `9040bbcb` with earlier `ae9e4b58`, `8ac507d2` and URL-CAS `537a1bc3`.
 The live Rust binary uses the minimal URL-CAS backport `b77a71ec` on the existing
@@ -36,15 +36,15 @@ live authentication baseline; this deployment did not substitute the broader
 mainline Rust integration. Exact images and rollback instructions are in Palpo's
 deployment acceptance record.
 
-Follow-up HAFleet commit `4953baf` preserves private-chat devices when the
+Follow-up Hagency commit `4953baf` preserves private-chat devices when the
 configured homeserver address moves from a tunnel to the public endpoint.
 
 ## Behavior and authority
 
-HAFleet publishes resources, heartbeats and observed request results, and
+Hagency publishes resources, heartbeats and observed request results, and
 long-polls separate durable work and Matrix lanes. Palpo serves stored state
 without contacting a contributor callback. Matrix Appservice transactions are
-persisted by the colocated Palpo relay before acknowledgment. HAFleet persists
+persisted by the colocated Palpo relay before acknowledgment. Hagency persists
 its own inbox before ACK and retains an identical, sequenced outbox update until
 its receipt is confirmed. ACK is custody, not approval or fulfillment.
 
@@ -79,15 +79,15 @@ All paths below refer to the checkout actually edited. Evidence directory:
 
 | Check | Actual result |
 |---|---|
-| HAFleet full suite at `57d56da` | 282 files, 4174 passed, one platform skip |
+| Hagency full suite at `57d56da` | 282 files, 4174 passed, one platform skip |
 | Follow-up DM migration and outbound regressions at `4953baf` | Four exact files, 37 passed |
-| HAFleet production console | Next webpack build passed |
+| Hagency production console | Next webpack build passed |
 | New onboarding Chromium regression | Two imports, zero reverse callback checks, zero page errors |
-| HAFleet syntax, ESLint, architecture and spec bindings | Passed; 456 selectors before the DM scenario, 457 after it |
+| Hagency syntax, ESLint, architecture and spec bindings | Passed; 456 selectors before the DM scenario, 457 after it |
 | Palpo Node and browser fixtures | 57 tests and three Chromium suites passed |
 | Rust URL-CAS | Three PostgreSQL tests passed on macOS; three CAS plus the existing dynamic-AS auth test passed on the Linux live backport |
-| Cross-repo actual HTTP fixture | Seven stages, 36 requests, three restarts, one idempotent admission; no HAFleet listener or reverse callback |
-| Real Mini1 browser connection | Admin migration, owner download, HAFleet file import, automatic heartbeat and exact Matrix relay receipt passed |
+| Cross-repo actual HTTP fixture | Seven stages, 36 requests, three restarts, one idempotent admission; no Hagency listener or reverse callback |
+| Real Mini1 browser connection | Admin migration, owner download, Hagency file import, automatic heartbeat and exact Matrix relay receipt passed |
 | After removing all owned forwards | Public APIs and both browser pages passed; advancing heartbeat and three active, usable, verified requests in two rounds |
 
 The cross-repo fixture uses actual transport, persistence, routing and protocol
@@ -101,8 +101,8 @@ passed again at `2026-09-09T01:48:27.443Z` after the private-device repair.
 
 Primary evidence:
 
-- `/tmp/hafleet-outbound-full-final.log`, production build and focused-test logs.
-- `/tmp/hafleet-outbound-ui/result.json` and `outbound-cross-repo-20260909.json`.
+- `/tmp/hagency-outbound-full-final.log`, production build and focused-test logs.
+- `/tmp/hagency-outbound-ui/result.json` and `outbound-cross-repo-20260909.json`.
 - `outbound-live-connect.json` and the corresponding import/ready screenshots.
 - `outbound-no-tunnel-verification.json`, `outbound-independent-no-tunnel.json`
   and both no-tunnel browser screenshots.
@@ -121,8 +121,8 @@ Native agent-spec boundary verification passes, but its seven Node lifecycle
 scenarios remain **Skip** because the installed native lifecycle verifier does
 not execute Vitest. The lifecycle aggregate is not passing. Exact Vitest
 selectors ran separately. Lint diagnostics and lifecycle output remain in
-`/tmp/hafleet-outbound-lifecycle-post-migration.json`. The earlier six-scenario
-record remains in `/tmp/hafleet-outbound-lifecycle-explicit.json`.
+`/tmp/hagency-outbound-lifecycle-post-migration.json`. The earlier six-scenario
+record remains in `/tmp/hagency-outbound-lifecycle-explicit.json`.
 The first follow-up invocation incorrectly included the previously accepted
 cross-Agent thread task's router changes. Its boundary failure is retained in
 the `including-prior-task` log. Rechecking the outbound change set from
@@ -169,15 +169,15 @@ client is outside this repair.
 
 The live launch helper is `rig.py` in the evidence directory. Its source paths
 now point to the outbound worktree, with public Matrix configuration and no
-`HAFLEET_APPSERVICE_PORT`. The production console uses `.next`. Dependency
+`HAGENCY_APPSERVICE_PORT`. The production console uses `.next`. Dependency
 symlinks in that isolated checkout are untracked local runtime dependencies,
 not committed project changes.
 
 Protected local backups under `outbound-rollout-backup/` retain the previous
 launch helper, private configuration, tunnel plist, process identities and
-complete stopped HAFleet runtime. Remote backups retain the previous containers,
+complete stopped Hagency runtime. Remote backups retain the previous containers,
 stopped SQLite volume, PostgreSQL dump and Caddy configuration. A rollback must
-coordinate Appservice URL, web data, HAFleet credentials/runtime and routes as
+coordinate Appservice URL, web data, Hagency credentials/runtime and routes as
 one deployment; do not replace just one side with stale authority. Secrets and
 downloaded configuration remain in protected operational files, outside Git.
 

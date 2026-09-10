@@ -22,7 +22,7 @@ let sseClient;
 beforeEach(async () => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
-  currentMembers = new Set(['@hafleet:side.test', AGENT]);
+  currentMembers = new Set(['@hagency:side.test', AGENT]);
   matrixCalls = [];
   membershipReadable = true;
   pendingSse = [];
@@ -53,7 +53,7 @@ beforeEach(async () => {
   });
   await new Promise((resolve) => matrixServer.listen(0, '127.0.0.1', resolve));
   matrixBase = `http://127.0.0.1:${matrixServer.address().port}`;
-  context = await createBackendTestContext('hafleet-membership-observation-', {
+  context = await createBackendTestContext('hagency-membership-observation-', {
     agents: { worker: { name: 'worker', kind: 'agent', type: 'claude' } },
     groups: { [GROUP]: { name: GROUP, members: ['worker'], createdAt: 1 } },
     env: {
@@ -62,11 +62,11 @@ beforeEach(async () => {
       MATRIX_AGENT_PREFIX: 'ac_',
       MATRIX_HOMESERVER: `${matrixBase}/home`,
       MATRIX_SERVER_NAME: 'home.test',
-      HAFLEET_API: 'http://127.0.0.1:1',
+      HAGENCY_API: 'http://127.0.0.1:1',
     },
   });
   backend = await context.listen();
-  process.env.HAFLEET_API = backend.baseUrl;
+  process.env.HAGENCY_API = backend.baseUrl;
   const bridgeUrl = new URL('../bridge-matrix.js', import.meta.url).href;
   const module = await import(`${bridgeUrl}?membership-observation=${Date.now()}-${Math.random()}`);
   const state = module.bridgeStateForTest();
@@ -82,7 +82,7 @@ beforeEach(async () => {
     knownAgentIndex: new Map([['worker', 'worker']]),
     actingCredentials: new Map([['side.test', {
       kind: 'appservice', serverName: 'side.test', apiBaseUrl: matrixBase,
-      asToken: 'fixture-as-token', senderLocalpart: 'hafleet', namespace: '@ac_.*:side\\.test',
+      asToken: 'fixture-as-token', senderLocalpart: 'hagency', namespace: '@ac_.*:side\\.test',
     }]]),
     postWarning: vi.fn(),
   });
@@ -117,7 +117,7 @@ afterEach(async () => {
 const matrixWrites = () => matrixCalls.filter((call) => call.method === 'POST');
 const event = (membership) => ({
   type: 'm.room.member', event_id: `$${membership}`, state_key: AGENT,
-  sender: membership === 'join' ? AGENT : '@hafleet:side.test',
+  sender: membership === 'join' ? AGENT : '@hagency:side.test',
   content: { membership }, origin_server_ts: 1000,
 });
 async function command(body) {

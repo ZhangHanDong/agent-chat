@@ -20,7 +20,7 @@ const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
  * IMPORTING THE BRIDGE IS NOT FREE — and a first version of this test claimed
  * it was. Module evaluation runs assertRuntimeDir, creates data/media dirs and
  * may MIGRATE (rewrite) bridge-state.json before the main guard is ever
- * consulted; an empty HAFLEET_RUNTIME_DIR falls back to the REPO ROOT, so that
+ * consulted; an empty HAGENCY_RUNTIME_DIR falls back to the REPO ROOT, so that
  * version touched the repository's own untracked runtime state (caught in
  * counter-review, confirmed by the file's mtime). Every subprocess therefore
  * gets its own throwaway runtime dir, and the suite asserts the repo's real
@@ -49,13 +49,13 @@ afterAll(() => {
 describe('real ESM linkage (the loader vitest does not use)', () => {
   for (const entry of ENTRYPOINTS) {
     test(`${entry} loads under real node`, () => {
-      const runtime = mkdtempSync(path.join(tmpdir(), 'hafleet-linkage-'));
+      const runtime = mkdtempSync(path.join(tmpdir(), 'hagency-linkage-'));
       try {
         const out = execFileSync(process.execPath, [
           '--input-type=module',
           '-e',
           `await import(${JSON.stringify(path.join(repo, entry))}); console.log('linked');`,
-        ], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, HAFLEET_RUNTIME_DIR: runtime } });
+        ], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, HAGENCY_RUNTIME_DIR: runtime } });
         expect(out).toContain('linked');
       } finally {
         rmSync(runtime, { recursive: true, force: true });

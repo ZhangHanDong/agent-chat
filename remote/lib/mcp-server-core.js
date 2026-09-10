@@ -18,7 +18,7 @@ function run(cmd) {
 }
 
 function detectAgentName() {
-  // Highest priority: explicit launcher injection (hafleet-up sets this).
+  // Highest priority: explicit launcher injection (hagency-up sets this).
   // This avoids cross-agent identity bleed when tmux client context is ambiguous.
   const envAgent = (process.env.AGENT_NAME || '').trim();
   if (envAgent) return envAgent;
@@ -63,22 +63,22 @@ if (!AGENT_NAME) {
   process.exit(1);
 }
 
-const DEFAULT_BACKEND_PORT_RAW = Number.parseInt(process.env.HAFLEET_BACKEND_PORT || '8090', 10);
+const DEFAULT_BACKEND_PORT_RAW = Number.parseInt(process.env.HAGENCY_BACKEND_PORT || '8090', 10);
 const DEFAULT_BACKEND_PORT = Number.isFinite(DEFAULT_BACKEND_PORT_RAW) && DEFAULT_BACKEND_PORT_RAW > 0
   ? DEFAULT_BACKEND_PORT_RAW
   : 8090;
-const API = process.env.HAFLEET_API || `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`;
+const API = process.env.HAGENCY_API || `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`;
 const API_TOKEN = (process.env.API_TOKEN || '').trim();
-const EPHEMERAL_RUNNER = process.env.HAFLEET_EPHEMERAL_RUNNER === '1';
-const DISPATCH_CAPABILITY = (process.env.HAFLEET_DISPATCH_CAPABILITY || '').trim();
-const DISPATCH_ID = (process.env.HAFLEET_DISPATCH_ID || '').trim();
-const RUNNER_ID = (process.env.HAFLEET_RUNNER_ID || '').trim();
-const FENCE_GENERATION = (process.env.HAFLEET_FENCE_GENERATION || '').trim();
+const EPHEMERAL_RUNNER = process.env.HAGENCY_EPHEMERAL_RUNNER === '1';
+const DISPATCH_CAPABILITY = (process.env.HAGENCY_DISPATCH_CAPABILITY || '').trim();
+const DISPATCH_ID = (process.env.HAGENCY_DISPATCH_ID || '').trim();
+const RUNNER_ID = (process.env.HAGENCY_RUNNER_ID || '').trim();
+const FENCE_GENERATION = (process.env.HAGENCY_FENCE_GENERATION || '').trim();
 const AGENT_SERVER = resolveLocalServerId();
 const AGENT_TOKEN = (() => {
   const injected = (process.env.AGENT_TOKEN || '').trim();
   if (injected) return injected;
-  const stateDir = (process.env.HAFLEET_AGENT_STATE_DIR || '').trim();
+  const stateDir = (process.env.HAGENCY_AGENT_STATE_DIR || '').trim();
   if (!stateDir) return '';
   /*
    * B11 (12-r2): FAIL-CLOSED. A state dir that names no token file is a
@@ -102,13 +102,13 @@ const AGENT_TOKEN = (() => {
   return value;
 })();
 const CLAUDE_PERMISSION_CHANNEL_ENABLED = Boolean(AGENT_TOKEN)
-  && (process.env.HAFLEET_CLAUDE_PERMISSION_CHANNEL || 'true').trim().toLowerCase() !== 'false';
-const APPROVAL_POLL_INTERVAL_MS_RAW = Number.parseInt(process.env.HAFLEET_APPROVAL_POLL_INTERVAL_MS || '1000', 10);
+  && (process.env.HAGENCY_CLAUDE_PERMISSION_CHANNEL || 'true').trim().toLowerCase() !== 'false';
+const APPROVAL_POLL_INTERVAL_MS_RAW = Number.parseInt(process.env.HAGENCY_APPROVAL_POLL_INTERVAL_MS || '1000', 10);
 const APPROVAL_POLL_INTERVAL_MS = Number.isFinite(APPROVAL_POLL_INTERVAL_MS_RAW) && APPROVAL_POLL_INTERVAL_MS_RAW > 0
   ? Math.max(250, APPROVAL_POLL_INTERVAL_MS_RAW)
   : 1000;
-const ATTACHMENT_MAX_BYTES = Number.parseInt(process.env.HAFLEET_ATTACHMENT_MAX_BYTES || String(20 * 1024 * 1024), 10);
-const ATTACHMENT_MAX_ITEMS = Number.parseInt(process.env.HAFLEET_ATTACHMENT_MAX_ITEMS || '8', 10);
+const ATTACHMENT_MAX_BYTES = Number.parseInt(process.env.HAGENCY_ATTACHMENT_MAX_BYTES || String(20 * 1024 * 1024), 10);
+const ATTACHMENT_MAX_ITEMS = Number.parseInt(process.env.HAGENCY_ATTACHMENT_MAX_ITEMS || '8', 10);
 
 function envPath(value) {
   const raw = typeof value === 'string' ? value.trim() : '';
@@ -122,21 +122,21 @@ function safePathSegment(value, fallback = 'agent') {
 }
 
 function defaultAgentchatHome(env = process.env) {
-  return envPath(env.HAFLEET_HOMEDIR) || path.join(os.homedir(), '.hafleet');
+  return envPath(env.HAGENCY_HOMEDIR) || path.join(os.homedir(), '.hagency');
 }
 
 function resolveAgentStateDir(agentName, env = process.env) {
-  const stateDir = (env.HAFLEET_AGENT_STATE_DIR || '').trim();
+  const stateDir = (env.HAGENCY_AGENT_STATE_DIR || '').trim();
   if (stateDir) return stateDir;
   return path.join(defaultAgentchatHome(env), 'agents', `agent_${agentName}`, 'state');
 }
 
 function resolveMediaFetchCacheDir(agentName, env = process.env) {
   const agentSegment = safePathSegment(agentName);
-  const stateDir = envPath(env.HAFLEET_AGENT_STATE_DIR);
+  const stateDir = envPath(env.HAGENCY_AGENT_STATE_DIR);
   if (stateDir) return path.join(stateDir, 'mcp-media-cache');
 
-  const runtimeDir = envPath(env.HAFLEET_RUNTIME_DIR);
+  const runtimeDir = envPath(env.HAGENCY_RUNTIME_DIR);
   if (runtimeDir) return path.join(runtimeDir, 'data', 'mcp-media-cache', agentSegment);
 
   return path.join(defaultAgentchatHome(env), 'data', 'mcp-media-cache', agentSegment);
@@ -145,7 +145,7 @@ function resolveMediaFetchCacheDir(agentName, env = process.env) {
 const MEDIA_FETCH_CACHE_DIR = resolveMediaFetchCacheDir(AGENT_NAME);
 mkdirSync(MEDIA_FETCH_CACHE_DIR, { recursive: true });
 
-if (process.env.HAFLEET_MCP_MEDIA_CACHE_SMOKE === '1') {
+if (process.env.HAGENCY_MCP_MEDIA_CACHE_SMOKE === '1') {
   process.stdout.write(`${MEDIA_FETCH_CACHE_DIR}\n`);
   process.exit(0);
 }
@@ -270,10 +270,10 @@ async function api(method, apiPath, body) {
     opts.headers['X-Agent-Token'] = AGENT_TOKEN;
   }
   if (DISPATCH_CAPABILITY || DISPATCH_ID || RUNNER_ID || FENCE_GENERATION) {
-    opts.headers['X-HAFleet-Dispatch-Capability'] = DISPATCH_CAPABILITY;
-    opts.headers['X-HAFleet-Dispatch-Id'] = DISPATCH_ID;
-    opts.headers['X-HAFleet-Runner-Id'] = RUNNER_ID;
-    opts.headers['X-HAFleet-Fence-Generation'] = FENCE_GENERATION;
+    opts.headers['X-Hagency-Dispatch-Capability'] = DISPATCH_CAPABILITY;
+    opts.headers['X-Hagency-Dispatch-Id'] = DISPATCH_ID;
+    opts.headers['X-Hagency-Runner-Id'] = RUNNER_ID;
+    opts.headers['X-Hagency-Fence-Generation'] = FENCE_GENERATION;
   }
   if (body) {
     opts.headers['Content-Type'] = 'application/json';
@@ -584,7 +584,7 @@ function sanitizeImageSync(filePath, kind, mime) {
     const w = Number(wStr) || 0;
     const h = Number(hStr) || 0;
     if (w <= 0 || h <= 0) {
-      process.stderr.write(`[hafleet] image sanitize: invalid dimensions ${w}x${h} for ${filePath}, downgrading to file\n`);
+      process.stderr.write(`[hagency] image sanitize: invalid dimensions ${w}x${h} for ${filePath}, downgrading to file\n`);
       return { path: filePath, kind: 'file', mime, sanitized: true, warning: `Image has invalid dimensions (${w}x${h}), not viewable as image` };
     }
     const needsResize = w > IMAGE_MAX_DIMENSION || h > IMAGE_MAX_DIMENSION;
@@ -604,10 +604,10 @@ function sanitizeImageSync(filePath, kind, mime) {
     execFileSync('convert', args, { timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'] });
     const newStat = statSync(sanitizedPath);
     const newMime = ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : mime;
-    process.stderr.write(`[hafleet] image sanitized: ${filePath} -> ${sanitizedPath} (${stat.size} -> ${newStat.size})\n`);
+    process.stderr.write(`[hagency] image sanitized: ${filePath} -> ${sanitizedPath} (${stat.size} -> ${newStat.size})\n`);
     return { path: sanitizedPath, kind: 'image', mime: newMime, size: newStat.size, sanitized: true };
   } catch (e) {
-    process.stderr.write(`[hafleet] image sanitize failed for ${filePath}: ${e.message}, downgrading to file\n`);
+    process.stderr.write(`[hagency] image sanitize failed for ${filePath}: ${e.message}, downgrading to file\n`);
     return { path: filePath, kind: 'file', mime, sanitized: true, warning: `Image could not be validated (${e.message}), attached as file instead of image` };
   }
 }
@@ -716,7 +716,7 @@ async function localizeTextLocalPaths(value) {
       lines[i] = `LocalPath: ${localized.path}`;
       extraAttachments.push(localized);
     } catch (e) {
-      process.stderr.write(`[hafleet/${AGENT_NAME}] failed to localize LocalPath ${sourcePath}: ${e.message}\n`);
+      process.stderr.write(`[hagency/${AGENT_NAME}] failed to localize LocalPath ${sourcePath}: ${e.message}\n`);
     }
   }
   return { text: lines.join('\n'), attachments: extraAttachments };
@@ -749,7 +749,7 @@ async function localizeMessageMedia(message) {
       }
       localizedAttachments.push(final);
     } catch (e) {
-      process.stderr.write(`[hafleet/${AGENT_NAME}] failed to localize attachment ${sourcePath}: ${e.message}\n`);
+      process.stderr.write(`[hagency/${AGENT_NAME}] failed to localize attachment ${sourcePath}: ${e.message}\n`);
       localizedAttachments.push(raw);
     }
   }
@@ -787,7 +787,7 @@ async function localizeGroupData(data) {
 
 // ── MCP Server ────────────────────────────────────────────────────────
 const server = new McpServer({
-  name: `hafleet-${AGENT_NAME}`,
+  name: `hagency-${AGENT_NAME}`,
   version: '2.1.0',
 }, claudeChannelServerOptions(CLAUDE_PERMISSION_CHANNEL_ENABLED));
 
@@ -837,8 +837,8 @@ if (CLAUDE_PERMISSION_CHANNEL_ENABLED) {
       const created = await api('POST', '/api/approvals', {
         agent: AGENT_NAME,
         runtime: 'claude',
-        ...((process.env.HAFLEET_PROJECT_ID || '').trim()
-          ? { project: process.env.HAFLEET_PROJECT_ID.trim() }
+        ...((process.env.HAGENCY_PROJECT_ID || '').trim()
+          ? { project: process.env.HAGENCY_PROJECT_ID.trim() }
           : {}),
         upstream_request_id: params.request_id,
         tool_name: params.tool_name,
@@ -1034,7 +1034,7 @@ function hasForeignMessage(data, agentName) {
 /**
  * Remember what this agent was asked, so a progress hook has something to thread under.
  *
- * `bin/hafleet-progress` refuses to post without an anchor — it will not put a step-by-step feed in a
+ * `bin/hagency-progress` refuses to post without an anchor — it will not put a step-by-step feed in a
  * shared room's main timeline — and a `PostToolUse` hook has no way to ask the agent which message it
  * is working on. The inbox read is the one moment where that IS known, so it is recorded here.
  *
@@ -1056,7 +1056,7 @@ function rememberProgressAnchor(data, groupHint = null) {
     /*
      * `unread` IS IN THIS LIST BECAUSE A LIVE RUN SAID SO. The first version read only the inbox
      * buckets, and on the real fleet the anchor was never written: `check_inbox`'s group bucket carries
-     * @mentions, and HAFleet's ordinary way of addressing an agent in a room is `name: question`, which
+     * @mentions, and Hagency's ordinary way of addressing an agent in a room is `name: question`, which
      * is not a mention. That arrives through `check_group`, whose payload is `unread`/`read`. Six unit
      * tests passed while the feature was useless in the deployment it was for.
      */
@@ -1090,7 +1090,7 @@ function rememberProgressAnchor(data, groupHint = null) {
      * protecting state that could vanish for an unrelated reason. `$HOME` is durable and is on the
      * router's inherited-env allowlist, so a dispatched agent can still reach it.
      */
-    const dir = path.join(os.homedir(), '.hafleet', 'progress-anchor');
+    const dir = path.join(os.homedir(), '.hagency', 'progress-anchor');
     const file = path.join(dir, `${String(AGENT_NAME).replace(/[^\w.-]/g, '_')}.json`);
     let state = {};
     try {

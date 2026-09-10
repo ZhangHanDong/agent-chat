@@ -8,7 +8,7 @@ import { loadServiceProfile } from '../src/service-profile.mjs';
 const tempDirs = [];
 
 function fixtureProfile(mutator = (value) => value) {
-  const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'hafleet-service-profile-'));
+  const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'hagency-service-profile-'));
   tempDirs.push(repoRoot);
   for (const script of ['backend.mjs', 'dashboard.mjs', 'bridge.mjs', 'relay.mjs']) {
     writeFileSync(path.join(repoRoot, script), 'setInterval(() => {}, 1000);\n');
@@ -104,7 +104,7 @@ describe('loadServiceProfile', () => {
 
   test('rejects a profile path outside the repository', () => {
     const { repoRoot, profilePath } = fixtureProfile();
-    const outsideDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-profile-outside-'));
+    const outsideDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-profile-outside-'));
     tempDirs.push(outsideDir);
     const outsidePath = path.join(outsideDir, 'profile.json');
     writeFileSync(outsidePath, '{}\n');

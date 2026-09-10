@@ -7,7 +7,7 @@ tags: [active, matrix, outbound, durability]
 
 ## Intent
 
-Operate HAFleet behind NAT without a callback or SSH reverse forwarding, while
+Operate Hagency behind NAT without a callback or SSH reverse forwarding, while
 preserving verified Matrix authority, durable work and private approvals.
 
 ## Constraints

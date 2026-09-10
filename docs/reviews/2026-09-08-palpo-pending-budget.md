@@ -1,7 +1,7 @@
 # Pending Agent definitions and approval budgets
 
 The operator submitted edison on a fresh medium Resource, but an exhausted
-project-side allocation caused request_refused before HAFleet recorded it. Palpo
+project-side allocation caused request_refused before Hagency recorded it. Palpo
 retained the immutable request/event for retry, leaving no provider approval row.
 
 The authenticated fleet protocol always requires manual review. Its request now
@@ -23,7 +23,7 @@ Playwright retried the operator's original request
 were retained. The201 acknowledgement initially tripped an incorrect200-only
 verification assertion; subsequent inspection confirmed success without another
 submission. Engagement `en_mtsfvnyd_16ee86` is pending for edison/integration,
-100000 tokens and the medium Resource. The HAFleet approval form displays it.
+100000 tokens and the medium Resource. The Hagency approval form displays it.
 
 Live verification did not approve it, increase budget or create another runtime.
 Both existing identities, three Resources and18 completed dispatches are unchanged.
@@ -32,5 +32,5 @@ approval prerequisite; it is no longer a request-submission prerequisite.
 
 Evidence under the private Palpo admin E2E cache dated2026-09-06:
 `palpo-pending-live-result.json`, `palpo-pending-deployment.json`,
-`palpo-edison-pending.png`, `hafleet-edison-review.png`,
+`palpo-edison-pending.png`, `hagency-edison-review.png`,
 `palpo-pending-lifecycle.json`. Test logs: `/tmp/palpo-pending-*`.

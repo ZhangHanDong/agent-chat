@@ -1,8 +1,8 @@
 # TASK: bring octos's ACP implementation to parity
 
-**Repo to change:** the octos Rust workspace (not HAFleet). Reference checkout used
+**Repo to change:** the octos Rust workspace (not Hagency). Reference checkout used
 while writing this: `/Users/yuechen/home/octos` @ `34030c2ec`, v2.0.2-rc.13.
-**Independent of:** any HAFleet-side ui-protocol work. Nothing here blocks on that.
+**Independent of:** any Hagency-side ui-protocol work. Nothing here blocks on that.
 **Audience:** an agent who has not seen this investigation.
 
 ---
@@ -64,7 +64,7 @@ Child exited gracefully exit status: 0
 
 **There is no octos code change required.** Two configuration changes fix it:
 
-1. declare HAFleet's MCP server in `~/.config/octos/config.json` under
+1. declare Hagency's MCP server in `~/.config/octos/config.json` under
    `mcp_servers` — ACP ignores `mcpServers` on `session/new` but does load them
    from config (acp.rs:431)
 2. run with `--profile coding-full` so narrowing does not evict them
@@ -77,7 +77,7 @@ MCP tools being silently evicted by profile narrowing is surprising, and the fai
 is invisible — the transport dies with an INFO-level log and the agent simply lacks
 the tools. Worth raising upstream as either "profile narrowing should preserve
 explicitly configured MCP tools" or "warn when narrowing evicts an MCP tool". Not a
-blocker for HAFleet.
+blocker for Hagency.
 
 ## 2. Tier 1 — methods needing no new state
 

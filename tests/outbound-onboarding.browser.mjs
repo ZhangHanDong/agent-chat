@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from '../mockup/node_modules/playwright-core/index.mjs';
 
-const origin = process.env.HAFLEET_TEST_CONSOLE ?? 'http://127.0.0.1:13212';
+const origin = process.env.HAGENCY_TEST_CONSOLE ?? 'http://127.0.0.1:13212';
 const fleetId = `hf_${'d'.repeat(32)}`, serverName = 'outbound.test';
 const config = { fleetId, serverName, credentialVersion: 1, registration: {
   id: fleetId, sender_localpart: `${fleetId}_representative`, url: `http://relay:8090/api/relay/v2/${fleetId}`,
@@ -16,9 +16,9 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1080 } });
 const errors = [], writes = [], callbacks = [];
 page.on('pageerror', error => errors.push(error.message));
-await page.addInitScript(() => globalThis.localStorage.setItem('hafleet.locale', 'zh'));
-await page.route('**/api/hafleet/**', async route => {
-  const request = route.request(), endpoint = new URL(request.url()).pathname.split('/api/hafleet/')[1];
+await page.addInitScript(() => globalThis.localStorage.setItem('hagency.locale', 'zh'));
+await page.route('**/api/hagency/**', async route => {
+  const request = route.request(), endpoint = new URL(request.url()).pathname.split('/api/hagency/')[1];
   let body = { ok: true };
   if (endpoint === 'matrix/reach') body = { homeservers: [{ serverName, url: side.apiBaseUrl, source: 'fixture',
     alreadyASide: true, hasCredential: false, probe: { reachable: true, versions: ['v1.12'] } }],
@@ -45,7 +45,7 @@ try {
   await page.getByRole('button', { name: '接着做（已建立，配置凭据）', exact: true }).click();
   await page.locator('input[name=ck]').nth(1).check();
   await page.locator('#palpo-registration').setInputFiles(upload);
-  await page.getByText('纯出站 · HAFleet 主动连接 Palpo', { exact: true }).waitFor();
+  await page.getByText('纯出站 · Hagency 主动连接 Palpo', { exact: true }).waitFor();
   assert.equal(await page.getByText('没有任何东西会接收入站事务。', { exact: true }).count(), 0);
   assert.equal(callbacks.length, 0, 'Import must not initiate a reverse callback check');
   await page.getByRole('button', { name: '保存并验证', exact: true }).click();
@@ -63,10 +63,10 @@ try {
   await page.locator('.cred-form').getByRole('button', { name: '保存', exact: true }).click();
   await page.locator('.cred-form').waitFor({ state: 'detached' });
   assert.equal(writes.length, 2); assert.deepEqual(writes[1].credential.transport, config.transport);
-  visible = await page.locator('body').innerText(); assert.ok(visible.includes('纯出站 · HAFleet 主动连接 Palpo'));
+  visible = await page.locator('body').innerText(); assert.ok(visible.includes('纯出站 · Hagency 主动连接 Palpo'));
   for (const token of [config.transport.token, config.registration.as_token, config.registration.hs_token]) assert.ok(!visible.includes(token));
   assert.deepEqual(errors, []);
-  const directory = process.env.HAFLEET_TEST_EVIDENCE ?? '/tmp/hafleet-outbound-ui'; await mkdir(directory, { recursive: true });
+  const directory = process.env.HAGENCY_TEST_EVIDENCE ?? '/tmp/hagency-outbound-ui'; await mkdir(directory, { recursive: true });
   await page.screenshot({ path: `${directory}/outbound-import.png`, fullPage: true });
   const result = { passed: true, realBackend: false, browser: 'headless Chromium', imports: writes.length,
     reverseCallbackChecks: callbacks.length, pageErrors: errors };

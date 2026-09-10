@@ -17,7 +17,7 @@ const REPO_ROOT = path.resolve('.');
 const temps = [];
 
 function tempRoot() {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-version-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-version-'));
   temps.push(dir);
   return dir;
 }

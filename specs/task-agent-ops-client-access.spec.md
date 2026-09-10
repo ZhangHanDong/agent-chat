@@ -8,7 +8,7 @@ estimate: 14d
 
 ## Intent
 
-Publish and implement `com.hafleet.agent_ops.v1` as a same-host,
+Publish and implement `com.hagency.agent_ops.v1` as a same-host,
 owner/project/agent-scoped client boundary so Robrix2 can render operational
 state and request a bounded set of router operations without receiving
 backend-wide credentials or becoming a state or approval authority.
@@ -41,9 +41,9 @@ backend-wide credentials or becoming a state or approval authority.
 
 ## Decisions
 
-- Contract id: `com.hafleet.agent_ops.v1`.
+- Contract id: `com.hagency.agent_ops.v1`.
 - Routes: `/api/agent-ops/v1/*`; existing `/api/router/*` remains Dashboard-only.
-- Feature flag: `HAFLEET_AGENT_OPS_CLIENT`, default false.
+- Feature flag: `HAGENCY_AGENT_OPS_CLIENT`, default false.
 - Data plane: exact configured IPv4/IPv6 loopback origin, non-browser requests only.
 - Client PoP and server identity: Ed25519 JWK, unpadded base64url signatures, SHA-256 canonical body digest.
 - Scope identity: SHA-256 digest of owner MXID, owner DM room id, project room id, and stable agent id.
@@ -85,7 +85,7 @@ backend-wide credentials or becoming a state or approval authority.
 Scenario: Existing behavior is unchanged while feature is off
   Tags: critical
   Test: agent_ops_client_feature_off_preserves_existing_backend_contracts
-  Given agent-chat starts without HAFLEET_AGENT_OPS_CLIENT
+  Given agent-chat starts without HAGENCY_AGENT_OPS_CLIENT
   When existing Dashboard Router Matrix approval and runner routes are exercised
   Then their authentication DTOs and state transitions remain unchanged
   And Agent Operations client routes are unavailable

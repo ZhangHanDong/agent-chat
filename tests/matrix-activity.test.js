@@ -8,9 +8,9 @@ import { snapshotEnv, restoreEnv } from './helpers/env.js';
 
 let MatrixBridge, env, directory;
 beforeAll(async () => {
-  directory = mkdtempSync(path.join(os.tmpdir(), 'hafleet-matrix-activity-'));
-  env = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
-  process.env.HAFLEET_RUNTIME_DIR = directory;
+  directory = mkdtempSync(path.join(os.tmpdir(), 'hagency-matrix-activity-'));
+  env = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
+  process.env.HAGENCY_RUNTIME_DIR = directory;
   process.env.MATRIX_AGENT_PREFIX = 'ac_'; process.env.MATRIX_SERVER_NAME = 'test';
   ({ MatrixBridge } = await import('../bridge-matrix.js'));
 });

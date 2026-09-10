@@ -217,7 +217,7 @@ describe('the submit-only credential may read it', () => {
      */
     ctx = await createBackendTestContext('book-token-', {
       ...seed,
-      env: { API_TOKEN: 'operator-token', HAFLEET_REQUESTER_TOKEN: 'requester-token' },
+      env: { API_TOKEN: 'operator-token', HAGENCY_REQUESTER_TOKEN: 'requester-token' },
     });
     await request(ctx.app).put('/api/offers/coding')
       .set('Authorization', 'Bearer operator-token')
@@ -233,7 +233,7 @@ describe('the submit-only credential may read it', () => {
     // The scope is unchanged by adding a read: reading is not deciding.
     ctx = await createBackendTestContext('book-token-scope-', {
       ...seed,
-      env: { API_TOKEN: 'operator-token', HAFLEET_REQUESTER_TOKEN: 'requester-token' },
+      env: { API_TOKEN: 'operator-token', HAGENCY_REQUESTER_TOKEN: 'requester-token' },
     });
     const widen = await request(ctx.app).put('/api/offers/coding')
       .set('Authorization', 'Bearer requester-token')

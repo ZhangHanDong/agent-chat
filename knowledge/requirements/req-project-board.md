@@ -24,7 +24,7 @@ several coding agents collaborate in one project room.
 
 ## Requirements
 
-[REQ-PROJECT-BOARD-BOUNDARY] A project board entry MUST use an hafleet group
+[REQ-PROJECT-BOARD-BOUNDARY] A project board entry MUST use an hagency group
 as its project-room boundary and MUST NOT infer project membership from agent
 names.
 
@@ -133,9 +133,9 @@ Scenario: AtomGit project resources are visible
 
 - decision: ADR-001
 - decision: ADR-009
-- User request on 2026-07-24 for an hafleet project board.
+- User request on 2026-07-24 for an hagency project board.
 - Multica project, issue-board, and usage-dashboard review on 2026-07-24.
-- Existing hafleet group, task, task-graph, agent-runtime, and message APIs.
+- Existing hagency group, task, task-graph, agent-runtime, and message APIs.
 - User request on 2026-07-24 to support AtomGit OpenAPI in addition to GitHub.
 
 ## Open Questions

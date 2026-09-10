@@ -9,7 +9,7 @@ tags: [matrix, threads, bridge, workflow]
 
 ## Problem
 
-hafleet currently discards an inbound Matrix thread root and emits agent
+hagency currently discards an inbound Matrix thread root and emits agent
 replies as unrelated top-level events. The outbound Matrix event id is kept
 only in process memory, so multi-agent hand-offs also lose their reply target
 after a bridge restart.

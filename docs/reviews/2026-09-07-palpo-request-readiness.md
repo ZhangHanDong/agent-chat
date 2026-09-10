@@ -1,9 +1,9 @@
 # Palpo request visibility and expired connection recovery
 
-The operator clicked Send agent request for `octos-code-use` but saw no HAFleet
+The operator clicked Send agent request for `octos-code-use` but saw no Hagency
 engagement. Read-only inspection found no request for the provider session and no
 engagement for this project. Project ownership and its private encrypted approval
-channel were ready, and the configured HAFleet side had a one-million-token
+channel were ready, and the configured Hagency side had a one-million-token
 allocation. Palpo's previous actual-event connection evidence had expired at
 2026-09-07T22:46:07Z. Its request API rejects expired readiness before creating a
 request or sending its source event. The original browser response was not
@@ -44,12 +44,12 @@ the exact pushed event and succeeded at 2026-09-07T22:56:35.610Z, valid until
 Send became enabled. Before/after request lists remained empty: the assistant
 did not infer the operator's quotas, submit a replacement request or approve
 resources. The operator's next action is to submit their original intended values
-and check the inline delivery receipt, then approve in HAFleet Engagements.
+and check the inline delivery receipt, then approve in Hagency Engagements.
 
 Private evidence is under the existing `palpo-admin-e2e/2026-09-06` cache:
 `request-readiness-live.json`, `request-readiness-live-expired.png`,
 `request-readiness-live-recovered.png`, and the request-readiness deployment logs.
-The isolated local HAFleet backend/bridge and the separate manual rig were not
+The isolated local Hagency backend/bridge and the separate manual rig were not
 restarted. Deployment replaces only the labelled Mini1 web-admin container and
 retains its persistent data; browser sessions require a fresh login afterward.
 

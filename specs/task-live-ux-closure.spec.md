@@ -42,8 +42,8 @@ historical failed evidence and distinguish deterministic checks from live result
 - knowledge/**
 - docs/**
 - scripts/**
-- bin/hafleet-up
-- bin/hafleet-down
+- bin/hagency-up
+- bin/hagency-down
 - remote/**
 - ./package.json
 - ./package-lock.json

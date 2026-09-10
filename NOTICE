@@ -1,14 +1,14 @@
-HAFleet
+Hagency
 Copyright 2026 HAgency contributors
 
 This product includes software developed by the HAgency project
-(https://github.com/hagency-org/HAFleet).
+(https://github.com/hagency-org/hagency).
 
 -------------------------------------------------------------------------------
 Upstream provenance
 -------------------------------------------------------------------------------
 
-HAFleet is a fork of agent-chat (https://github.com/shisuiki/agent-chat).
+Hagency is a fork of agent-chat (https://github.com/shisuiki/agent-chat).
 717 of 773 commits in this repository originate upstream, authored by:
 
   shisuiki

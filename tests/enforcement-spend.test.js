@@ -21,7 +21,7 @@ import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 const CEILING = 1_000_000;
 
 const seedWith = (extra = {}) => ({
-  env: { HAFLEET_OWNER_MXID: '@owner:hq.example', HAFLEET_OWNER_DM_ROOM: '!owner-dm:hq.example' },
+  env: { HAGENCY_OWNER_MXID: '@owner:hq.example', HAGENCY_OWNER_DM_ROOM: '!owner-dm:hq.example' },
   agents: {
     a1: {
       name: 'a1', type: 'claude', server: 'local', tmux: null, online: true,

@@ -79,9 +79,9 @@ export async function createBackendTestContext(prefix, seed = {}) {
     if (!savedEnv.has(key)) savedEnv.set(key, process.env[key]);
   };
   for (const key of [
-    'HAFLEET_RUNTIME_DIR',
-    'HAFLEET_SERVER',
-    'HAFLEET_RECORD_LOCAL_SERVER',
+    'HAGENCY_RUNTIME_DIR',
+    'HAGENCY_SERVER',
+    'HAGENCY_RECORD_LOCAL_SERVER',
     'SUPERVISOR_ENABLED',
     'AGENT_SCOPE_MONITOR_ENABLED',
     'AGENT_JSON_WRITE_BATCH_MS',
@@ -96,9 +96,9 @@ export async function createBackendTestContext(prefix, seed = {}) {
     for (const key of Object.keys(seed.env)) rememberEnv(key);
   }
 
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
-  delete process.env.HAFLEET_SERVER;
-  delete process.env.HAFLEET_RECORD_LOCAL_SERVER;
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
+  delete process.env.HAGENCY_SERVER;
+  delete process.env.HAGENCY_RECORD_LOCAL_SERVER;
   process.env.SUPERVISOR_ENABLED = 'false';
   process.env.AGENT_SCOPE_MONITOR_ENABLED = 'false';
   process.env.AGENT_JSON_WRITE_BATCH_MS = '0';
@@ -117,7 +117,7 @@ export async function createBackendTestContext(prefix, seed = {}) {
 
   // Serialise env-set through import.
   //
-  // backend-v2.js reads HAFLEET_RUNTIME_DIR at module-evaluation time and loads
+  // backend-v2.js reads HAGENCY_RUNTIME_DIR at module-evaluation time and loads
   // agents.json from it immediately. process.env is process-global and `await
   // import()` yields, so between setting the variable above and the module body
   // running, any other context doing the same — or any cleanup() restoring the
@@ -131,7 +131,7 @@ export async function createBackendTestContext(prefix, seed = {}) {
   const release = await acquireImportLock();
   let backendModule;
   try {
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     backendModule = await import(`${backendUrl}?test=${cacheBust}`);
   } finally {
     release();
@@ -144,7 +144,7 @@ export async function createBackendTestContext(prefix, seed = {}) {
   if (boundRoot && path.resolve(boundRoot) !== path.resolve(runtimeDir)) {
     throw new Error(
       `backend bound to the wrong runtime dir: expected ${runtimeDir}, got ${boundRoot}. `
-      + 'Another test mutated HAFLEET_RUNTIME_DIR during this import.',
+      + 'Another test mutated HAGENCY_RUNTIME_DIR during this import.',
     );
   }
   /*

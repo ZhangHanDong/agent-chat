@@ -138,7 +138,7 @@ export default function WizardPage() {
                   {/*
                     * NOT INSTALLED is the fact worth warning about. `launchable:false`
                     * is not: every ACP manifest carries it, and each one's reason says
-                    * "start it with hafleet acp-up instead" — a different command, not
+                    * "start it with hagency acp-up instead" — a different command, not
                     * an inability. Warning on it told a contributor their working
                     * framework could not run.
                     */}

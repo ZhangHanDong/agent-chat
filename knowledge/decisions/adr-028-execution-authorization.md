@@ -14,7 +14,7 @@ their lease-imposed confinement. This is the operator-authorized exception to
 ADR-003/ADR-005's mandatory interactive execution approval; default policy and
 control-plane authentication are unchanged.
 
-Task and persistent grants belong to HAFleet's approval store, written atomically
+Task and persistent grants belong to Hagency's approval store, written atomically
 with the authenticated owner verdict. They bind Agent incarnation, project,
 owner/binding generation, runtime environment, workspace, and an explicit scope.
 Task grants additionally bind the canonical task and stop matching at completion.

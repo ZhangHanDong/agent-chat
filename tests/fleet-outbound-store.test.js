@@ -85,7 +85,7 @@ test('outbound observation age survives restart and only a fresh check restores 
   const expired = store.requestSnapshots(observedAt + 90000)[0];
   expect(expired).toEqual({ ...status, ready: false, observedAt: new Date(observedAt).toISOString(),
     fulfillment: { phase: 'verification', incomplete: true,
-      error: 'HAFleet must refresh request verification before this agent is usable.' } });
+      error: 'Hagency must refresh request verification before this agent is usable.' } });
   // Cache reads and republishing cannot rewrite the original observation or
   // alter a frozen update after an uncertain HTTP response.
   expect(store.requestSnapshots(observedAt + 180000)[0]).toEqual(expired);

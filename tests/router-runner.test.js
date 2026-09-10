@@ -11,7 +11,7 @@ const roots = [];
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
 function setup(framework, payload = { prompt: 'do the work' }) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-runner-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-runner-'));
   roots.push(root);
   const router = openRouter({ dbPath: path.join(root, 'router.db') });
   router.ingestMessage({
@@ -38,7 +38,7 @@ function setup(framework, payload = { prompt: 'do the work' }) {
 // A front-desk dispatch: no task, no lease, mayWrite:false. Used to prove the
 // runtime is actually launched read-only, not merely flagged so.
 function setupFrontDesk(framework, payload = { prompt: 'just asking' }) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-runner-fd-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-runner-fd-'));
   roots.push(root);
   const router = openRouter({ dbPath: path.join(root, 'router.db') });
   const ingested = router.ingestMessage({
@@ -188,7 +188,7 @@ describe('structured one-shot runners', () => {
   });
 
   test('runner guardian terminates its runtime when backend ownership disappears', async () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-runner-guardian-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-runner-guardian-'));
     roots.push(root);
     const pidFile = path.join(root, 'runtime.pid');
     const guardian = spawn(process.execPath, [path.join(process.cwd(), 'router', 'dist', 'runner-guardian.js')], {
@@ -197,8 +197,8 @@ describe('structured one-shot runners', () => {
         PATH: process.env.PATH,
         FAKE_CLAUDE_HANG: '1',
         FAKE_CLAUDE_PID_FILE: pidFile,
-        HAFLEET_GUARDIAN_EXECUTABLE: path.join(fixtures, 'fake-claude-runner.mjs'),
-        HAFLEET_GUARDIAN_ARGS_JSON: '[]',
+        HAGENCY_GUARDIAN_EXECUTABLE: path.join(fixtures, 'fake-claude-runner.mjs'),
+        HAGENCY_GUARDIAN_ARGS_JSON: '[]',
       },
       stdio: ['pipe', 'ignore', 'pipe', 'ipc'],
     });
@@ -243,7 +243,7 @@ describe('structured one-shot runners', () => {
       const result = await runCodexDispatch({ router, claim, cwd: root, mayWrite: true,
         executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
         env: { FAKE_CODEX_THREAD_START_LOG: startLog, FAKE_CODEX_APPROVAL_COMMAND: command, FAKE_CODEX_ARGV_LOG: argvLog },
-        mcpServer: { name: 'hafleet', command: process.execPath, args: ['/opt/hafleet/mcp-server.js'], envVars: [] },
+        mcpServer: { name: 'hagency', command: process.execPath, args: ['/opt/hagency/mcp-server.js'], envVars: [] },
         approvalTimeoutMs: 5000, maxParkedRunners: 4,
         requestOwnerApproval: async (request) => {
           requests.push(request);
@@ -258,10 +258,10 @@ describe('structured one-shot runners', () => {
       expect(start.developerInstructions).toContain('./task-writer');
       expect(start.developerInstructions).toContain('Do not request shell network escalation');
       const argv = JSON.parse(readFileSync(argvLog, 'utf8'));
-      expect(argv).toContain('mcp_servers.hafleet.required=true');
+      expect(argv).toContain('mcp_servers.hagency.required=true');
       expect(argv.filter(arg => arg.includes('approval_mode='))).toEqual([
         'list_tasks', 'get_task', 'accept_task', 'transition_task', 'comment_task', 'update_task_execution', 'read_conversation', 'send_file', 'get_file_delivery', 'receive_file',
-      ].map(tool => `mcp_servers.hafleet.tools.${tool}.approval_mode="approve"`));
+      ].map(tool => `mcp_servers.hagency.tools.${tool}.approval_mode="approve"`));
       expect(argv.join(' ')).not.toContain('default_tools_approval_mode');
       expect(requests).toHaveLength(1);
       expect(requests[0].command).toBe(command);
@@ -278,12 +278,12 @@ describe('structured one-shot runners', () => {
       claim,
       cwd: root,
       executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
-      env: { FAKE_CODEX_REQUIRE_MCP_CONFIG: '1', HAFLEET_EPHEMERAL_RUNNER: '1' },
+      env: { FAKE_CODEX_REQUIRE_MCP_CONFIG: '1', HAGENCY_EPHEMERAL_RUNNER: '1' },
       approvalTimeoutMs: 60_000,
       mcpServer: {
-        name: 'hafleet', command: process.execPath,
-        args: ['/opt/hafleet/mcp-server.js'],
-        envVars: ['AGENT_NAME', 'HAFLEET_DISPATCH_CAPABILITY', 'HAFLEET_EPHEMERAL_RUNNER'],
+        name: 'hagency', command: process.execPath,
+        args: ['/opt/hagency/mcp-server.js'],
+        envVars: ['AGENT_NAME', 'HAGENCY_DISPATCH_CAPABILITY', 'HAGENCY_EPHEMERAL_RUNNER'],
       },
       maxParkedRunners: 4,
       requestOwnerApproval: async (request) => {
@@ -314,7 +314,7 @@ describe('structured one-shot runners', () => {
         const completion = await runCodexDispatch({ router, claim, cwd: root,
           executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
           env: { FAKE_CODEX_ELICITATION: 'confirmation', FAKE_CODEX_APPROVAL_LOG: log },
-          mcpServer: { name: 'hafleet', command: process.execPath, args: [], envVars: [] },
+          mcpServer: { name: 'hagency', command: process.execPath, args: [], envVars: [] },
           approvalTimeoutMs: 1000, maxParkedRunners: 1,
           requestOwnerApproval: async (approval) => {
             calls += 1;
@@ -339,7 +339,7 @@ describe('structured one-shot runners', () => {
       const completion = await runCodexDispatch({ router, claim, cwd: root,
         executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
         env: { FAKE_CODEX_ELICITATION: 'confirmation', FAKE_CODEX_RETRY_DENIED_ELICITATION: '1', FAKE_CODEX_APPROVAL_LOG: log },
-        mcpServer: { name: 'hafleet', command: process.execPath, args: [], envVars: [] },
+        mcpServer: { name: 'hagency', command: process.execPath, args: [], envVars: [] },
         approvalTimeoutMs: 1000, maxParkedRunners: 1,
         requestOwnerApproval: async (approval) => {
           ownerRequests.push(approval);
@@ -369,7 +369,7 @@ describe('structured one-shot runners', () => {
       try {
         await expect(runCodexDispatch({ router, claim, cwd: root,
           executable: path.join(fixtures, 'fake-codex-app-server.mjs'), env,
-          mcpServer: { name: 'hafleet', command: process.execPath, args: [], envVars: [] },
+          mcpServer: { name: 'hagency', command: process.execPath, args: [], envVars: [] },
           approvalTimeoutMs: 1000, maxParkedRunners: 1,
           requestOwnerApproval: async () => { calls += 1; return { decisionEventId: 'unexpected', decision: 'allow' }; },
         })).rejects.toThrow(/MCP/);
@@ -440,11 +440,11 @@ describe('structured one-shot runners', () => {
     const prior = {
       API_TOKEN: process.env.API_TOKEN,
       MATRIX_BRIDGE_SECRET: process.env.MATRIX_BRIDGE_SECRET,
-      HAFLEET_DASHBOARD_TOKEN: process.env.HAFLEET_DASHBOARD_TOKEN,
+      HAGENCY_DASHBOARD_TOKEN: process.env.HAGENCY_DASHBOARD_TOKEN,
     };
     process.env.API_TOKEN = 'must-not-reach-runner';
     process.env.MATRIX_BRIDGE_SECRET = 'must-not-reach-runner';
-    process.env.HAFLEET_DASHBOARD_TOKEN = 'must-not-reach-runner';
+    process.env.HAGENCY_DASHBOARD_TOKEN = 'must-not-reach-runner';
     try {
       const completion = await runClaudeDispatch({
         router,
@@ -540,12 +540,12 @@ describe('structured one-shot runners', () => {
       claim,
       cwd: root,
       executable: path.join(fixtures, 'fake-codex-app-server.mjs'),
-      env: { FAKE_CODEX_SANDBOX_LOG: sandboxLog, HAFLEET_EPHEMERAL_RUNNER: '1' },
+      env: { FAKE_CODEX_SANDBOX_LOG: sandboxLog, HAGENCY_EPHEMERAL_RUNNER: '1' },
       approvalTimeoutMs: 60_000,
       mcpServer: {
-        name: 'hafleet', command: process.execPath,
-        args: ['/opt/hafleet/mcp-server.js'],
-        envVars: ['AGENT_NAME', 'HAFLEET_DISPATCH_CAPABILITY', 'HAFLEET_EPHEMERAL_RUNNER'],
+        name: 'hagency', command: process.execPath,
+        args: ['/opt/hagency/mcp-server.js'],
+        envVars: ['AGENT_NAME', 'HAGENCY_DISPATCH_CAPABILITY', 'HAGENCY_EPHEMERAL_RUNNER'],
       },
       maxParkedRunners: 4,
       requestOwnerApproval: async () => ({ decisionEventId: 'd', decision: 'deny' }),

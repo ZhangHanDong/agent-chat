@@ -8,7 +8,7 @@
  * record back to an agent. Without it, consumption can be read but not attributed, so
  * ADR-013's contract 1 has nothing to hang on.
  *
- * HAFleet launched the agent knowing that directory and discarded it: `workspacePath`
+ * Hagency launched the agent knowing that directory and discarded it: `workspacePath`
  * was null on every ACP agent. A tmux agent already reports it through the MCP server
  * (lib/mcp-server-core.js:274); an ACP agent has no such path, because octos ignores
  * `mcpServers` on session/new in v1, so the host must report it directly.

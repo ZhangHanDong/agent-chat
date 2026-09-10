@@ -1,8 +1,8 @@
-# DESIGN: ACP as HAFleet's primary agent transport
+# DESIGN: ACP as Hagency's primary agent transport
 
 Status: **proposal, substantially weakened by review — do not action as written**
 Author: drafted 2026-08-02
-Scope: `lib/runtime/*`, `lib/frameworks/*`, `scripts/hafleet-acp-agent.mjs`
+Scope: `lib/runtime/*`, `lib/frameworks/*`, `scripts/hagency-acp-agent.mjs`
 
 ## Review outcome (2026-08-02, codex-agent)
 
@@ -11,7 +11,7 @@ bottom line, accepted:
 
 > ACP is worth prototyping, but this document does not justify making it the
 > primary transport. It establishes that screen scraping is fragile, not that the
-> proposed ACP routes preserve HAFleet's required behaviour. "All four have an ACP
+> proposed ACP routes preserve Hagency's required behaviour. "All four have an ACP
 > path" is existence evidence, not compatibility or production-readiness evidence.
 
 Four findings that change the plan rather than refine it:
@@ -64,14 +64,14 @@ record):
 - **Phase 3** — one canary framework with explicit acceptance gates.
 - Only then per-framework migration decisions. Each framework independently
   eligible. ACP is not "primary" until it preserves the operator workflows above
-  or HAFleet explicitly drops them.
+  or Hagency explicitly drops them.
 
 The sections below are the original proposal, kept so the review has something to
 refer to. Read them as the argument that was made, not the plan to execute.
 
 ## The problem
 
-HAFleet drives three of its four frameworks by typing into a tmux pane and reading
+Hagency drives three of its four frameworks by typing into a tmux pane and reading
 the rendered screen back. Everything fragile about that has one root: the screen is
 a picture, not data. Observed on real hosts:
 
@@ -94,7 +94,7 @@ The Agent Client Protocol stopped being a Zed project.
   via plugins
 - ACP Registry launched 2026-01-28 with one-click install inside JetBrains IDEs
 
-All four HAFleet frameworks have an ACP path:
+All four Hagency frameworks have an ACP path:
 
 | framework | today | ACP route |
 |---|---|---|
@@ -125,7 +125,7 @@ The last three have no ACP answer. **tmux stays as a fallback, not a default.**
 - Replacing tmux everywhere. Two capabilities above have no protocol equivalent.
 - Adopting octos's `ui_protocol`. It is deeper (99 methods vs 20) but octos-only,
   internal, with no compatibility promise, and much of its depth is octos product
-  surface — cron, voice, visual, profiles — that duplicates HAFleet's own task
+  surface — cron, voice, visual, profiles — that duplicates Hagency's own task
   graph and approvals.
 
 ## Plan
@@ -174,7 +174,7 @@ octos already depends on defines all 20 methods — no version bump.
 | `session/request_permission` | `approval/requested` + `approval/respond` |
 
 Adapter work, not capability work. Do it in octos so every ACP client benefits,
-rather than in HAFleet where only HAFleet does.
+rather than in Hagency where only Hagency does.
 
 Separately, fix the MCP lifetime bug found on mini5: `McpClient::register_tools`
 consumes `self` and drops `self.services` — the field whose own doc comment says it
@@ -186,7 +186,7 @@ server="node" tools=11` then `Child exited gracefully` 1ms later.
 Codex first: its adapter has 440 commits, neutral governance, and supports
 permissions, MCP, subagents and `/compact`. Claude last: its tmux path works, and
 its adapter reportedly lacks Plan Mode, `/compact` and many slash commands, with a
-context-window bug (compacting at 120–200K against 1M on the CLI). HAFleet uses
+context-window bug (compacting at 120–200K against 1M on the CLI). Hagency uses
 `/clear` via `injectSlashClear` and carries `signals.compact`, so those gaps land
 directly on us.
 
@@ -195,15 +195,15 @@ Each migration runs beside tmux on mini5 and is compared before switching.
 ### Phase 5 (optional, may never be needed) — `fs/*` and `terminal/*`
 
 These invert the relationship: the agent asks the harness to read a file or run a
-terminal. That is what makes HAFleet a *harness* rather than a caller.
+terminal. That is what makes Hagency a *harness* rather than a caller.
 
 Deferred because it is the largest chunk (~300 lines), the highest risk, and
 currently speculative — no agent in the fleet calls them. octos does its own file
 and terminal I/O. OpenClaw's own docs record the same gap: their bridge "does not
 call the filesystem methods defined in the ACP specification."
 
-Security floor if built: the agent names a path and HAFleet opens it, with
-HAFleet's privileges rather than the agent's. Nothing in `lib/` does path
+Security floor if built: the agent names a path and Hagency opens it, with
+Hagency's privileges rather than the agent's. Nothing in `lib/` does path
 confinement today.
 
 ## Effort
@@ -237,6 +237,6 @@ state that ACP has no notion of is the main unknown.
 - Is the claude-code-acp gap list still current? Could not confirm.
 - Does `hermes acp` support `session/load`? Its docs claim daemon-held state that
   "outlives any single project", which would be better than octos.
-- Should HAFleet ship its own ACP adapter for agents that lack one, or wait?
+- Should Hagency ship its own ACP adapter for agents that lack one, or wait?
 - `acpx` (openclaw) already does headless multi-agent ACP orchestration explicitly
   to replace PTY scraping. Adopt, vendor, or ignore? It is alpha.

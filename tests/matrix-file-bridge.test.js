@@ -9,8 +9,8 @@ let directory, env;
 afterEach(() => { vi.unstubAllGlobals(); if (env) restoreEnv(env); if (directory) rmSync(directory, { recursive: true, force: true }); });
 async function fixture() {
   directory = mkdtempSync(path.join(os.tmpdir(), 'file-bridge-'));
-  env = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_SERVER_NAME', 'MATRIX_AGENT_PREFIX']);
-  process.env.HAFLEET_RUNTIME_DIR = directory; process.env.MATRIX_SERVER_NAME = 'test'; process.env.MATRIX_AGENT_PREFIX = 'ac_';
+  env = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_SERVER_NAME', 'MATRIX_AGENT_PREFIX']);
+  process.env.HAGENCY_RUNTIME_DIR = directory; process.env.MATRIX_SERVER_NAME = 'test'; process.env.MATRIX_AGENT_PREFIX = 'ac_';
   const { MatrixBridge } = await import('../bridge-matrix.js?files');
   const bridge = new MatrixBridge(); bridge.addKnownAgent('one');
   return bridge;

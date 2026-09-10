@@ -7,7 +7,7 @@ import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 const SIDE = 'palpo.test';
 const ROOM = '!project:palpo.test';
 const OWNER = '@private-owner:palpo.test';
-const ownerEnv = { HAFLEET_OWNER_MXID: OWNER, HAFLEET_OWNER_DM_ROOM: '!private-dm:palpo.test' };
+const ownerEnv = { HAGENCY_OWNER_MXID: OWNER, HAGENCY_OWNER_DM_ROOM: '!private-dm:palpo.test' };
 const preset = { id: 'p1', name: 'coding', framework: 'claude', model: 'claude-opus-5', ceiling: { tokens: 5000, period: 'monthly' } };
 const agent = (name, side = SIDE, extra = {}) => ({ name, type: 'claude', server: 'local', online: true,
   projectSide: side, presetId: 'p1', runtimeProfile: { primary: { framework: 'claude', model: preset.model } }, ...extra });
@@ -54,12 +54,12 @@ async function boot({ agents = { right: agent('right') }, env = ownerEnv, alloca
     await request(ctx.app).post('/api/project-sides').send({ server_name: side, api_base_url: hs?.url || 'http://127.0.0.1:1' }).expect(200);
     await request(ctx.app).put(`/api/project-sides/${side}/allocation`).send({ allocated_tokens: allocation }).expect(200);
   }
-  if (env.HAFLEET_OWNER_MXID && env.HAFLEET_OWNER_DM_ROOM) ctx.internals.approvalStoreForTest.upsertBinding({
+  if (env.HAGENCY_OWNER_MXID && env.HAGENCY_OWNER_DM_ROOM) ctx.internals.approvalStoreForTest.upsertBinding({
     agent: Object.keys(agents)[0] || 'room-bootstrap', project: 'review', project_room_id: ROOM,
-    owner_mxid: env.HAFLEET_OWNER_MXID, owner_dm_room_id: env.HAFLEET_OWNER_DM_ROOM,
+    owner_mxid: env.HAGENCY_OWNER_MXID, owner_dm_room_id: env.HAGENCY_OWNER_DM_ROOM,
   });
   if (hs) await request(ctx.app).put(`/api/project-sides/${SIDE}/credential`).send({ credential: {
-    kind: 'appservice', asToken: 'fixture-as', hsToken: 'fixture-hs', namespace: '@ac_.*', senderLocalpart: 'hafleet',
+    kind: 'appservice', asToken: 'fixture-as', hsToken: 'fixture-hs', namespace: '@ac_.*', senderLocalpart: 'hagency',
   } }).expect(200);
   return ctx.app;
 }
@@ -108,7 +108,7 @@ test('engagement admission preserves seat identity and unknown periods', async (
 });
 
 test('missing engagement owner does not commit active success', async () => {
-  await boot({ env: { HAFLEET_OWNER_MXID: '', HAFLEET_OWNER_DM_ROOM: '' } });
+  await boot({ env: { HAGENCY_OWNER_MXID: '', HAGENCY_OWNER_DM_ROOM: '' } });
   const created = await ask();
   const res = await request(ctx.app).post(`/api/engagements/${created.body.engagement.id}/verdict`).send({ approve: true });
   expect(res.status).toBe(409);
@@ -158,7 +158,7 @@ test('accepted engagement provisions a resource without a preexisting agent', as
 
 test('a new role request provisions a fresh agent after operator Stop without rewriting old admission', async () => {
   await homeserver();
-  await boot({ agents: {}, env: { ...ownerEnv, HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1' } });
+  await boot({ agents: {}, env: { ...ownerEnv, HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1' } });
   ctx.internals.stopRouterPumpForTest();
   const launches = [];
   ctx.internals.setEngagementLauncherForTest(async (row) => { launches.push(row.name); });
@@ -232,7 +232,7 @@ test('partial provisioning retains its allocation and retries the same identity'
 });
 
 test('requester token cannot claim a whitelisted room', async () => {
-  await boot({ env: { ...ownerEnv, HAFLEET_REQUESTER_TOKEN: 'requester-fixture', MATRIX_BRIDGE_SECRET: 'bridge-fixture' } }); await auto();
+  await boot({ env: { ...ownerEnv, HAGENCY_REQUESTER_TOKEN: 'requester-fixture', MATRIX_BRIDGE_SECRET: 'bridge-fixture' } }); await auto();
   const req = await request(ctx.app).post('/api/engagements').set('Authorization', 'Bearer requester-fixture').send(body()).expect(200);
   expect(req.body.engagement).toMatchObject({ state: 'pending', route: 'notWhitelisted', autoJoined: false });
   const verified = await request(ctx.app).post('/api/engagements').set('X-Bridge-Secret', 'bridge-fixture')
@@ -241,7 +241,7 @@ test('requester token cannot claim a whitelisted room', async () => {
 });
 
 test('external budget refusals do not reveal private allocations or raise submit-only alarms', async () => {
-  await boot({ allocation: 987, env: { ...ownerEnv, HAFLEET_REQUESTER_TOKEN: 'requester-fixture', MATRIX_BRIDGE_SECRET: 'bridge-fixture' } });
+  await boot({ allocation: 987, env: { ...ownerEnv, HAGENCY_REQUESTER_TOKEN: 'requester-fixture', MATRIX_BRIDGE_SECRET: 'bridge-fixture' } });
   const pending = await request(ctx.app).post('/api/engagements').set('Authorization', 'Bearer requester-fixture')
     .send(body({ requestedTokens: 1234 })).expect(200);
   expect(pending.body.engagement.state).toBe('pending');
@@ -253,12 +253,12 @@ test('external budget refusals do not reveal private allocations or raise submit
 });
 
 test('requester engagement responses redact private ownership and configuration', async () => {
-  await boot({ env: { ...ownerEnv, HAFLEET_REQUESTER_TOKEN: 'requester-fixture' } }); await auto();
+  await boot({ env: { ...ownerEnv, HAGENCY_REQUESTER_TOKEN: 'requester-fixture' } }); await auto();
   const first = await ask().expect(200);
   expect(first.body.engagement.state).toBe('active');
   const replay = await request(ctx.app).post('/api/engagements').set('Authorization', 'Bearer requester-fixture').send(body()).expect(200);
   expect(replay.body.engagement.id).toBe(first.body.engagement.id);
-  expect(JSON.stringify(replay.body)).not.toMatch(/private-owner|private-dm|HAFLEET_OWNER|boundOwnerMxid|bindError|ownerMxid/);
+  expect(JSON.stringify(replay.body)).not.toMatch(/private-owner|private-dm|HAGENCY_OWNER|boundOwnerMxid|bindError|ownerMxid/);
 });
 
 test('side removal preserves unrelated alerts and withdraws memberships', async () => {

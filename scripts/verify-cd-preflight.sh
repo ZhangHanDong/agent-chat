@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 RUN_CI=true
 ALLOW_DIRTY=false
-EXPECT_BRANCH="${HAFLEET_DEPLOY_BRANCH:-}"
+EXPECT_BRANCH="${HAGENCY_DEPLOY_BRANCH:-}"
 
 usage() {
   cat <<'EOF'
@@ -112,12 +112,12 @@ else
 fi
 
 echo "== post-deploy verification hint =="
-verify_cmd=(hafleet verify-remote --samples 2 --interval 16 --expect-version "$short_commit")
-if [ -n "${HAFLEET_API:-}" ]; then
-  verify_cmd+=(--api "${HAFLEET_API%/}")
+verify_cmd=(hagency verify-remote --samples 2 --interval 16 --expect-version "$short_commit")
+if [ -n "${HAGENCY_API:-}" ]; then
+  verify_cmd+=(--api "${HAGENCY_API%/}")
 fi
-if [ -n "${HAFLEET_SERVER:-}" ]; then
-  verify_cmd+=(--server "$HAFLEET_SERVER")
+if [ -n "${HAGENCY_SERVER:-}" ]; then
+  verify_cmd+=(--server "$HAGENCY_SERVER")
 fi
 if [ -n "${VERIFY_AGENT:-}" ]; then
   verify_cmd+=(--agent "$VERIFY_AGENT")

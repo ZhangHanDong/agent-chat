@@ -6,21 +6,21 @@
  * had watched a restart with events actually in flight.
  *
  * The good news came first: nothing was lost. Twenty messages sent across a `docker restart
- * hafleet-edge` all arrived, including the two sent while the edge was down — the design holds, because
- * the homeserver keeps the transaction until HAFleet acks it.
+ * hagency-edge` all arrived, including the two sent while the edge was down — the design holds, because
+ * the homeserver keeps the transaction until Hagency acks it.
  *
  * THE BAD NEWS WAS IN THE SAME TIMELINE. Twenty messages drew THIRTY-TWO replies, in bursts of six, as
  * the homeserver re-delivered the batches nobody had acked:
  *
  *     9.2s   probe    edge-probe 9/20
  *     9.9s   probe    edge-probe 10/20
- *    10.3s   HAFLEET  Send !help for available commands.
- *    10.4s   HAFLEET  Send !help for available commands.      ← ×6, for two messages
+ *    10.3s   HAGENCY  Send !help for available commands.
+ *    10.4s   HAGENCY  Send !help for available commands.      ← ×6, for two messages
  *
  * `onRoomMessage` has four outcomes and three of them record the event: the command branch calls
  * `rememberMatrixEvent`, `group` and `agent-dm` both `checkpointMatrixEvent`. Non-command text in a bot
  * DM replied and recorded nothing, so every redelivery replied again. A transaction is retried whenever
- * HAFleet does not answer 200 — a restarted edge, a 500, a slow ack — and none of those is unusual.
+ * Hagency does not answer 200 — a restarted edge, a 500, a slow ack — and none of those is unusual.
  *
  * The `!request` case was already safe, which is the difference between an annoyance and an incident:
  * a retried command would have created a second engagement. That branch is asserted here too, so the
@@ -42,10 +42,10 @@ let runtimeDir;
 let envSnapshot;
 
 beforeAll(async () => {
-  envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_SERVER_NAME', 'MATRIX_TRUST_MODE']);
+  envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_SERVER_NAME', 'MATRIX_TRUST_MODE']);
   runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'bot-dm-retry-'));
   mkdirSync(path.join(runtimeDir, 'data', 'matrix'), { recursive: true });
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.MATRIX_SERVER_NAME = 'matrix.test';
   // `audit`, so the trust gate is not what this file is measuring.
   process.env.MATRIX_TRUST_MODE = 'audit';
@@ -87,7 +87,7 @@ describe('plain text in a bot DM', () => {
 
   test('and a redelivery much later is still the same event', async () => {
     /*
-     * The retry window is not bounded by anything HAFleet controls. A homeserver that could not reach us
+     * The retry window is not bounded by anything Hagency controls. A homeserver that could not reach us
      * for a minute delivers the same transaction a minute later, and "we already answered that" has to
      * still be true then.
      */

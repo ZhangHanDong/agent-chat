@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "[DEPRECATED] hagency is deprecated. Use: hagency ..." >&2
+exec "$SCRIPT_DIR/hagency" "$@"

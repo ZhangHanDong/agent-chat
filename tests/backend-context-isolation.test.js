@@ -5,7 +5,7 @@ import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
 // The root cause of a flake that survived three wrong diagnoses.
 //
-// backend-v2.js reads HAFLEET_RUNTIME_DIR at module-evaluation time and loads
+// backend-v2.js reads HAGENCY_RUNTIME_DIR at module-evaluation time and loads
 // agents.json from it immediately. The helper sets that variable and then awaits
 // import(). process.env is process-global and the await yields, so any other
 // context doing the same in that window rebinds this module to a different
@@ -75,7 +75,7 @@ describe('each backend test context binds to its own runtime directory', () => {
 
   test('the helper verifies the binding rather than trusting it', async () => {
     // The lock only covers contexts created through this helper, and twelve files
-    // set HAFLEET_RUNTIME_DIR themselves. If one lands mid-import anyway, the
+    // set HAGENCY_RUNTIME_DIR themselves. If one lands mid-import anyway, the
     // helper must say so at the point of failure instead of leaving a 404 to be
     // discovered several assertions later.
     const context = await createBackendTestContext('ctx-isolation-check-', {

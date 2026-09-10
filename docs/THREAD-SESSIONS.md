@@ -43,7 +43,7 @@ than the wrapper's future child-stdin acknowledgement:
 | Claude | 22134 ms, 19305 ms, 20352 ms | 22134 ms |
 
 The rejected 5000 ms default would falsely fail every measured Claude launch.
-The implementation default is therefore `HAFLEET_RUNNER_ACK_MS=60000`; the
+The implementation default is therefore `HAGENCY_RUNNER_ACK_MS=60000`; the
 wrapper must acknowledge after the verified child accepts the complete stdin
 payload and must not wait for model text.
 
@@ -130,7 +130,7 @@ two-phase park/consume/apply path. Codex uses App Server's native approval
 requests bound to upstream thread, turn, item, request, dispatch, and operation
 digest. The dispatch room selects the exact owner binding when an agent belongs
 to multiple project rooms, and the adapter timeout is derived from
-`HAFLEET_APPROVAL_TTL_MS` plus the bounded delivery margin. A runner parked
+`HAGENCY_APPROVAL_TTL_MS` plus the bounded delivery margin. A runner parked
 for approval keeps its leases. Failure after `started` settles
 `outcome_unknown`, creates an inspection notice, preserves workspace dirty
 state, and is never automatically retried.
@@ -138,7 +138,7 @@ state, and is never automatically retried.
 A process that fails before `takePayload` commits `started` is different: its
 capability and leases are revoked atomically, the original dispatch and message
 assignment remain queued, and the scheduler retries after the durable
-`HAFLEET_RUNNER_LAUNCH_RETRY_MS` delay (default 5000 ms). This prevents a
+`HAGENCY_RUNNER_LAUNCH_RETRY_MS` delay (default 5000 ms). This prevents a
 broken executable or profile from becoming a hot launch loop without relaxing
 the at-most-once rule after `started`.
 
@@ -200,11 +200,11 @@ inherited. The helper also keeps bootstrap cost off the backend event loop.
 
 ### Three-layer task completion
 
-Robrix2 and HAFleet manage the organization and route requests. The
-HAFleet-managed Claude/Codex agent owns decomposition, assignment, monitoring
+Robrix2 and Hagency manage the organization and route requests. The
+Hagency-managed Claude/Codex agent owns decomposition, assignment, monitoring
 and acceptance. Herdr and octoloop control lower execution agents; selecting
-octoscode there does not make it a HAFleet thread runner. The installed
-`hafleet-inner-loop` skill includes a fresh-job monitor and verification
+octoscode there does not make it a Hagency thread runner. The installed
+`hagency-inner-loop` skill includes a fresh-job monitor and verification
 protocol for this middle-to-lower boundary.
 
 A worker dispatch starts with its bound task already `in_progress`. It should
@@ -240,7 +240,7 @@ satisfy a fresh Robrix GUI test or the rebuild-continuity release gate above.
 Codex native MCP consent (`mcpServer/elicitation/request`) is correlated with
 a unique active structured MCP item, its thread/turn/server and exact arguments.
 The backend supplies the existing ADR-005 coordination-tool exception for the
-configured HAFleet server; other supported empty-form tool requests use the
+configured Hagency server; other supported empty-form tool requests use the
 same owner approval, digest, parking and resume path as native commands.
 Unknown shapes, missing identity, ambiguous or completed items fail explicitly.
 Completed item identities remain tombstoned, and an owner decision cannot
@@ -258,17 +258,17 @@ exercised in the Claude and Codex middle-agent runs.
 The task-store cutover and runtime switch are separate and both default off:
 
 ```text
-HAFLEET_ROUTER_TASK_CUTOVER=1
-HAFLEET_THREAD_SESSIONS=1
+HAGENCY_ROUTER_TASK_CUTOVER=1
+HAGENCY_THREAD_SESSIONS=1
 ```
 
 Both the backend and Matrix bridge must receive
-`HAFLEET_THREAD_SESSIONS=1`. The backend refuses thread sessions unless the
+`HAGENCY_THREAD_SESSIONS=1`. The backend refuses thread sessions unless the
 task-store cutover is already enabled. Turning only the thread-session switch
 off immediately restores legacy delivery without switching the migrated task
 writer back to JSON.
 
-Before cutover, `HAFLEET_ROUTER_SHADOW=1` copies eligible local Claude/Codex
+Before cutover, `HAGENCY_ROUTER_SHADOW=1` copies eligible local Claude/Codex
 Matrix inputs into router sessions while leaving task creation, dispatch,
 outboxes, and legacy delivery untouched. Shadow failures are audit-only and do
 not change the legacy delivery result.

@@ -7,11 +7,11 @@ describe('thread-session router shadow mode', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-router-shadow-', {
+    context = await createBackendTestContext('hagency-router-shadow-', {
       env: {
-        HAFLEET_THREAD_SESSIONS: '0',
-        HAFLEET_ROUTER_TASK_CUTOVER: '0',
-        HAFLEET_ROUTER_SHADOW: '1',
+        HAGENCY_THREAD_SESSIONS: '0',
+        HAGENCY_ROUTER_TASK_CUTOVER: '0',
+        HAGENCY_ROUTER_SHADOW: '1',
         MATRIX_BRIDGE_SECRET: 'router-shadow-secret',
       },
       agents: {

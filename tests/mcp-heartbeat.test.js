@@ -144,8 +144,8 @@ function spawnMcpServer(apiBase, extraEnv = {}, coreFile = 'lib/mcp-server-core.
   const env = {
     ...process.env,
     AGENT_NAME: 'alpha',
-    HAFLEET_API: apiBase,
-    HAFLEET_SERVER: 'local',
+    HAGENCY_API: apiBase,
+    HAGENCY_SERVER: 'local',
     API_TOKEN: 'test-token',
     MCP_HEARTBEAT_INTERVAL_MS: '100',
     // 100ms here was a real race, not a slow machine: a local loopback response
@@ -189,7 +189,7 @@ afterEach(async () => {
 // on a loaded machine.
 describe('MCP backend heartbeat', () => {
   test.each(['SIGTERM', 'SIGINT'])('cleans up its pid file when %s arrives during publication', async (signal) => {
-    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'hafleet-mcp-pid-signal-'));
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'hagency-mcp-pid-signal-'));
     tempDirs.add(tempRoot);
     const preload = path.join(tempRoot, 'signal-on-pid-write.mjs');
     // Deliver a real signal at the publication boundary, independent of the
@@ -211,8 +211,8 @@ syncBuiltinESMExports();
       writeFileSync(path.join(stateDir, 'agent-token'), 'hb-token\n');
       const running = await listen(createBackendHandler([]));
       const mcp = spawnMcpServer(`http://127.0.0.1:${running.port}`, {
-        HAFLEET_AGENT_STATE_DIR: stateDir,
-        HAFLEET_HOMEDIR: path.join(tempRoot, 'hafleet-home'),
+        HAGENCY_AGENT_STATE_DIR: stateDir,
+        HAGENCY_HOMEDIR: path.join(tempRoot, 'hagency-home'),
         HOME: path.join(tempRoot, 'os-home'),
       }, coreFile, ['--import', preload]);
       const pidFile = path.join(stateDir, 'mcp-server.pid');
@@ -230,15 +230,15 @@ syncBuiltinESMExports();
   });
 
   test('writes pid file under derived agent state dir when explicit state dir is missing', async () => {
-    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'hafleet-mcp-pid-'));
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'hagency-mcp-pid-'));
     tempDirs.add(tempRoot);
     for (const coreFile of coreFiles) {
-      const homeRoot = path.join(tempRoot, coreFile.replaceAll('/', '-'), 'hafleet-home');
+      const homeRoot = path.join(tempRoot, coreFile.replaceAll('/', '-'), 'hagency-home');
       const calls = [];
       const running = await listen(createBackendHandler(calls));
       const mcp = spawnMcpServer(`http://127.0.0.1:${running.port}`, {
-        HAFLEET_AGENT_STATE_DIR: undefined,
-        HAFLEET_HOMEDIR: homeRoot,
+        HAGENCY_AGENT_STATE_DIR: undefined,
+        HAGENCY_HOMEDIR: homeRoot,
         HOME: path.join(tempRoot, 'os-home'),
       }, coreFile);
       const pidFile = path.join(homeRoot, 'agents', 'agent_alpha', 'state', 'mcp-server.pid');
@@ -256,11 +256,11 @@ syncBuiltinESMExports();
     }
   });
 
-  test('defaults heartbeat server to hostname when HAFLEET_SERVER is unset', async () => {
+  test('defaults heartbeat server to hostname when HAGENCY_SERVER is unset', async () => {
     const calls = [];
     const running = await listen(createBackendHandler(calls));
     const mcp = spawnMcpServer(`http://127.0.0.1:${running.port}`, {
-      HAFLEET_SERVER: undefined,
+      HAGENCY_SERVER: undefined,
     });
 
     await waitFor(() => heartbeatCalls(calls).length > 0, { detail: 'hostname-default heartbeat' });
@@ -272,7 +272,7 @@ syncBuiltinESMExports();
   });
 
   test('writes pid file under explicit agent state dir when provided', async () => {
-    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'hafleet-mcp-pid-'));
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'hagency-mcp-pid-'));
     tempDirs.add(tempRoot);
     for (const coreFile of coreFiles) {
       const stateDir = path.join(tempRoot, coreFile.replaceAll('/', '-'), 'custom-state');
@@ -283,8 +283,8 @@ syncBuiltinESMExports();
       mkdirSync(stateDir, { recursive: true });
       writeFileSync(path.join(stateDir, 'agent-token'), 'hb-token\n');
       const mcp = spawnMcpServer(`http://127.0.0.1:${running.port}`, {
-        HAFLEET_AGENT_STATE_DIR: stateDir,
-        HAFLEET_HOMEDIR: path.join(tempRoot, 'ignored-home'),
+        HAGENCY_AGENT_STATE_DIR: stateDir,
+        HAGENCY_HOMEDIR: path.join(tempRoot, 'ignored-home'),
         HOME: path.join(tempRoot, 'os-home'),
       }, coreFile);
       const pidFile = path.join(stateDir, 'mcp-server.pid');

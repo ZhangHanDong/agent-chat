@@ -28,9 +28,9 @@ const bindings = () => ['coding', 'docs'].map(agent => ({
 }));
 
 beforeAll(async () => {
-  runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-representative-intake-'));
-  env = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_TRUST_MODE', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-representative-intake-'));
+  env = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_TRUST_MODE', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.MATRIX_TRUST_MODE = 'enforce';
   process.env.MATRIX_AGENT_PREFIX = 'ac_';
   process.env.MATRIX_SERVER_NAME = 'fleet.test';

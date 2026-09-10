@@ -18,7 +18,7 @@
  * implementation drifts back into, because the allocation is the part that looks like the
  * point.
  *
- * `HAFLEET_OWNER_MXID` and `HAFLEET_OWNER_DM_ROOM` are read at module evaluation
+ * `HAGENCY_OWNER_MXID` and `HAGENCY_OWNER_DM_ROOM` are read at module evaluation
  * (backend-v2.js:10764), so they are passed through `seed.env` — the harness sets them before
  * its cache-busted import for exactly this reason.
  */
@@ -104,7 +104,7 @@ describe('an approval attaches the agent to the project room', () => {
 
   test('with an owner configured, the verdict binds and says so', async () => {
     ctx = await createBackendTestContext('bind-ok-', seed({
-      HAFLEET_OWNER_MXID: OWNER, HAFLEET_OWNER_DM_ROOM: OWNER_DM,
+      HAGENCY_OWNER_MXID: OWNER, HAGENCY_OWNER_DM_ROOM: OWNER_DM,
     }));
     const e = await pendingEngagement(ctx, '$bind-ok');
     const res = await request(ctx.app).post(`/api/engagements/${e.id}/verdict`)
@@ -125,7 +125,7 @@ describe('an approval attaches the agent to the project room', () => {
      * exists at all is one with an owner — asserted here rather than assumed.
      */
     ctx = await createBackendTestContext('bind-fields-', seed({
-      HAFLEET_OWNER_MXID: OWNER, HAFLEET_OWNER_DM_ROOM: OWNER_DM,
+      HAGENCY_OWNER_MXID: OWNER, HAGENCY_OWNER_DM_ROOM: OWNER_DM,
     }));
     const e = await pendingEngagement(ctx, '$bind-fields');
     await request(ctx.app).post(`/api/engagements/${e.id}/verdict`)
@@ -181,7 +181,7 @@ describe('a verdict that cannot resolve an owner does not report success', () =>
      * would grant exactly the access the rejection was refusing.
      */
     ctx = await createBackendTestContext('bind-reject-', seed({
-      HAFLEET_OWNER_MXID: OWNER, HAFLEET_OWNER_DM_ROOM: OWNER_DM,
+      HAGENCY_OWNER_MXID: OWNER, HAGENCY_OWNER_DM_ROOM: OWNER_DM,
     }));
     const e = await pendingEngagement(ctx, '$bind-reject');
     await request(ctx.app).post(`/api/engagements/${e.id}/verdict`)
@@ -209,7 +209,7 @@ describe('a verdict that cannot resolve an owner does not report success', () =>
      * consequence was one refusal cutting the access six approvals had granted.
      */
     ctx = await createBackendTestContext('bind-keep-', seed({
-      HAFLEET_OWNER_MXID: OWNER, HAFLEET_OWNER_DM_ROOM: OWNER_DM,
+      HAGENCY_OWNER_MXID: OWNER, HAGENCY_OWNER_DM_ROOM: OWNER_DM,
     }));
     const first = await pendingEngagement(ctx, '$bind-keep-1');
     await request(ctx.app).post(`/api/engagements/${first.id}/verdict`)
@@ -234,7 +234,7 @@ describe('a verdict that cannot resolve an owner does not report success', () =>
      * binding must survive a sibling ending and must NOT survive the last one.
      */
     ctx = await createBackendTestContext('bind-last-', seed({
-      HAFLEET_OWNER_MXID: OWNER, HAFLEET_OWNER_DM_ROOM: OWNER_DM,
+      HAGENCY_OWNER_MXID: OWNER, HAGENCY_OWNER_DM_ROOM: OWNER_DM,
     }));
     const only = await pendingEngagement(ctx, '$bind-last-1');
     await request(ctx.app).post(`/api/engagements/${only.id}/verdict`)

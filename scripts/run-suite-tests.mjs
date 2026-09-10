@@ -22,12 +22,12 @@ if (!reportersOnly) {
   // Cache-busting backend fixtures retain module graphs for the lifetime of the
   // process (docs/TESTING.md). Recycle that process between deterministic shards
   // without increasing the 4 GiB ceiling, skipping tests, or retrying failures.
-  const reports = mkdtempSync(path.join(os.tmpdir(), 'hafleet-suite-reports-'));
+  const reports = mkdtempSync(path.join(os.tmpdir(), 'hagency-suite-reports-'));
   let failed = false;
   try {
     for (let shard = 1; shard <= 4; shard += 1) {
       const blob = path.join(reports, `shard-${shard}.json`);
-      console.log(`HAFleet full suite: shard ${shard}/4`);
+      console.log(`Hagency full suite: shard ${shard}/4`);
       const status = run(['run', '--no-file-parallelism', '--maxWorkers=1', `--shard=${shard}/4`,
         '--reporter=default', '--reporter=blob', `--outputFile.blob=${blob}`]);
       if (status !== 0 || !existsSync(blob)) failed = true;

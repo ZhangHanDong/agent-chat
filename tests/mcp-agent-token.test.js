@@ -61,11 +61,11 @@ describe('B11: the MCP server authenticates every backend call with the agent to
     });
     const { child } = spawnCore({
       AGENT_NAME: 'e2e-claude',
-      HAFLEET_API: `http://127.0.0.1:${port}`,
-      HAFLEET_AGENT_STATE_DIR: stateDir,
+      HAGENCY_API: `http://127.0.0.1:${port}`,
+      HAGENCY_AGENT_STATE_DIR: stateDir,
       AGENT_TOKEN: '',        // force the file path
       API_TOKEN: '',
-      HAFLEET_APPROVAL_POLL_INTERVAL_MS: '250',
+      HAGENCY_APPROVAL_POLL_INTERVAL_MS: '250',
     });
     await new Promise((r) => setTimeout(r, 1200));
     child.kill();
@@ -83,11 +83,11 @@ describe('B11: the MCP server authenticates every backend call with the agent to
     const exit = new Promise((resolve) => {
       const proc = spawnCore({
         AGENT_NAME: 'e2e-claude',
-        HAFLEET_API: `http://127.0.0.1:${port}`,
-        HAFLEET_AGENT_STATE_DIR: stateDir,   // dir exists, token file does NOT
+        HAGENCY_API: `http://127.0.0.1:${port}`,
+        HAGENCY_AGENT_STATE_DIR: stateDir,   // dir exists, token file does NOT
         AGENT_TOKEN: '',
         API_TOKEN: '',
-        HAFLEET_APPROVAL_POLL_INTERVAL_MS: '250',
+        HAGENCY_APPROVAL_POLL_INTERVAL_MS: '250',
       });
       proc.child.on('exit', (code) => resolve({ code, err: proc.getStderr() }));
     });
@@ -104,11 +104,11 @@ describe('B11: the MCP server authenticates every backend call with the agent to
     const exit = new Promise((resolve) => {
       const proc = spawnCore({
         AGENT_NAME: 'e2e-claude',
-        HAFLEET_API: `http://127.0.0.1:${port}`,
-        HAFLEET_AGENT_STATE_DIR: stateDir,
+        HAGENCY_API: `http://127.0.0.1:${port}`,
+        HAGENCY_AGENT_STATE_DIR: stateDir,
         AGENT_TOKEN: '',
         API_TOKEN: '',
-        HAFLEET_APPROVAL_POLL_INTERVAL_MS: '250',
+        HAGENCY_APPROVAL_POLL_INTERVAL_MS: '250',
       });
       proc.child.on('exit', (c) => resolve({ code: c, err: proc.getStderr() }));
     });

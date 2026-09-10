@@ -1,13 +1,13 @@
 spec: task
 name: "Project-owned Agent definitions through Palpo requests"
 inherits: project
-satisfies: [ADR-025, REQ-CONTRIBUTION-CONSOLE, REQ-PALPO-HAFLEET-ONBOARDING]
+satisfies: [ADR-025, REQ-CONTRIBUTION-CONSOLE, REQ-PALPO-HAGENCY-ONBOARDING]
 tags: [active, resources, agents, palpo, console]
 ---
 
 ## Intent
 
-Move Agent definition to the Palpo project request flow. HAFleet publishes
+Move Agent definition to the Palpo project request flow. Hagency publishes
 resources, approves the exact requested configuration and provisions it.
 
 ## Constraints

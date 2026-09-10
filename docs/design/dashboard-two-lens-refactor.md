@@ -7,7 +7,7 @@ phases actually cost, and the four defects that only a screenshot caught, are re
 [`dashboard-relayout.md`](dashboard-relayout.md); everything that document says about
 individual pages still stands.
 
-The current console is organised around HAFleet's six functions — 接入 · 分类 · 派遣 ·
+The current console is organised around Hagency's six functions — 接入 · 分类 · 派遣 ·
 在岗管理 · 考核 · 培养 — one rail entry each. That was right about *what the product does*
 and wrong about *how anyone arrives*. Two reviewers have now said the same thing from
 different directions: the reviewer who called the organisation 乱, and the PDT/PDU framing
@@ -19,12 +19,12 @@ that prompted this document.
 
 ### 1.1 The console mirrors a seam in the backend instead of closing it
 
-HAFleet has two subsystems that never join.
+Hagency has two subsystems that never join.
 
 | | **solid line** — delivery | **dotted line** — resource |
 |---|---|---|
 | record | a group (`data/groups.json`), bound to a project by a workflow binding | a pool record: agent + `role` + `capability` |
-| written by | the Matrix bridge — `requireBridgeSecret` on every mutation (`backend-v2.js:10399,10434,10489`) | HAFleet registration — `POST /api/agents` |
+| written by | the Matrix bridge — `requireBridgeSecret` on every mutation (`backend-v2.js:10399,10434,10489`) | Hagency registration — `POST /api/agents` |
 | owner | the customer | the house |
 | read via | `GET /api/project-board` | `GET /api/pool` |
 | knows | members, worktrees, repositories, specs, local + remote issues, change requests, five task lanes, activity, a 15-field summary (`lib/project-board.js:462-545`) | role × tier cells, leases, per-cell dispatch queues |
@@ -472,7 +472,7 @@ sum(costBy('role'))` — one number, two slices, and no way for them to drift.
   vocabularies.
 - `app/projects/[key]/page.jsx` — and this is where the reviewer's *backlog / issues / pr*
   finally lands, as `specs` / `localIssues` + `remoteIssues` / `changeRequests`, which
-  `project-board.js` already computes. Labelled with their source: HAFleet reads them out
+  `project-board.js` already computes. Labelled with their source: Hagency reads them out
   of worktrees, it does not own them, and it must not offer to edit them.
 - `app/org/[role]/page.jsx`.
 
@@ -511,7 +511,7 @@ worker's skills are asserted, so allocation can be reached from either side.
 
 ## 6. Explicitly not in scope
 
-- **No backlog/issue/PR editing.** HAFleet reads those from worktrees and the customer owns
+- **No backlog/issue/PR editing.** Hagency reads those from worktrees and the customer owns
   them in Matrix. Rendering them is right; offering a button is the same error as offering
   to accept delivery.
 - **No skill inference.** Skills are asserted by the manager. Deriving them from agent

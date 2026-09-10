@@ -70,7 +70,7 @@ test('approval scopes preserve exact command and structured permissions without 
 });
 
 test('scoped grants survive restart but never cross task agent project owner or revocation', () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-grants-')); roots.push(root);
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-grants-')); roots.push(root);
   const filename = path.join(root, 'approvals.json');
   const activeTasks = new Set(['task-1', 'task-2']);
   let currentAgentId = 'edison-incarnation-1';
@@ -126,7 +126,7 @@ test('scoped grants survive restart but never cross task agent project owner or 
 });
 
 test('agent supplied scope cannot grant authority and failed persistence leaves no saved authorization', () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-grants-')); roots.push(root);
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-grants-')); roots.push(root);
   const store = new ApprovalStore(path.join(root, 'approvals.json'), { isTaskActive: () => true });
   store.upsertBinding(binding);
   const forged = store.createRequest({ ...body('forged'), execution: command(), reusable_scope: { description: 'anything' } });

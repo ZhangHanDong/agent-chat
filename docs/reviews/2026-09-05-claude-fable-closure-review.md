@@ -2,7 +2,7 @@
 
 # First follow-up
 
-# Cross-review: HAFleet review-closure changes (branch `fix/spec-review-closure`)
+# Cross-review: Hagency review-closure changes (branch `fix/spec-review-closure`)
 
 **Verdict: the fixes for F1–F9 and F14–F17 are substantively correct in shape, and the new provisioning path (F10) is durably designed — but I found one crash-class defect in the new runner approval code, one liveness defect in the guardian/runner cleanup contract, one identity-shape bug that breaks the new roster gate for recorded identities, one permanent deadlock in the new side-removal sweep, and several reservation-accounting gaps.** Details with triggers and remedies below, ordered by severity. This is a static read-only review; nothing was executed.
 

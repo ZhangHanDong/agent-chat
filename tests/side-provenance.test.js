@@ -15,7 +15,7 @@ import { startAppserviceSyncCollector } from '../lib/appservice-sync.js';
 import { startEdgePuller } from '../lib/appservice-puller.js';
 import { ApprovalStore } from '../lib/approval-store.js';
 
-const TMP = process.env.HAFLEET_OUTER_TMP || path.join(tmpdir(), 'hafleet-16impl');
+const TMP = process.env.HAGENCY_OUTER_TMP || path.join(tmpdir(), 'hagency-16impl');
 
 let mod = null;
 let cleanup = [];
@@ -124,7 +124,7 @@ async function intakeTxn(mode, router, { hsToken, txnId, events }) {
     }
     const collector = startAppserviceSyncCollector({
       baseUrl: 'http://fixture.invalid', side: SIDE, router: observedRouter,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken, senderLocalpart: 'hagency' }),
       readCursor: () => 'previous', writeCursor: async (next) => { cursors.push(next); },
       fetchImpl: async (url) => {
         const login = String(url).endsWith('/login');
@@ -181,7 +181,7 @@ describe('16-impl-r9 sync invite bootstrap ordering', () => {
     let cursor = 'r9-before';
     const collector = startAppserviceSyncCollector({
       baseUrl: palpo.url, side: SIDE, router: self.router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hagency' }),
       readCursor: () => cursor, writeCursor: async (next) => { cursor = next; },
       fetchImpl: async (url) => String(url).endsWith('/login')
         ? { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: REP }) }
@@ -224,7 +224,7 @@ describe('16-impl-r9 sync invite bootstrap ordering', () => {
     let polls = 0;
     const collector = startAppserviceSyncCollector({
       baseUrl: palpo.url, side: SIDE, router: self.router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hagency' }),
       readCursor: () => cursor, writeCursor: async (next) => { cursor = next; },
       fetchImpl: (url) => fetch(url), sleep: async () => {},
       shouldContinue: () => ++polls <= 3,
@@ -257,7 +257,7 @@ describe('16-impl-r10 batch membership cache', () => {
     const sleeps = [];
     const collector = startAppserviceSyncCollector({
       baseUrl: palpo.url, side: SIDE, router: self.router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hagency' }),
       readCursor: () => cursor, writeCursor: async (next) => { cursor = next; },
       fetchImpl: (url) => fetch(url), sleep: async (ms) => { sleeps.push(ms); },
       shouldContinue: () => cursor !== 'r10-after',
@@ -301,7 +301,7 @@ afterEach(async () => {
 });
 
 const SIDE = 'palpo.test';
-const REP = '@hafleet:palpo.test';
+const REP = '@hagency:palpo.test';
 const HS = 'hs-1';
 const AS = 'as-1';
 const REG = 'reg-1';
@@ -326,7 +326,7 @@ describe.each(['push', 'edge', 'sync'])('side provenance ingress via %s (spec: t
     const seen = [];
     const collector = startAppserviceSyncCollector({
       baseUrl: palpo.url, side: SIDE, router: self.router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hagency' }),
       readCursor: () => 's0', writeCursor: async () => {},
       fetchImpl: async (u) => {
         seen.push(String(u));
@@ -489,7 +489,7 @@ describe.each(['push', 'edge', 'sync'])('side provenance ingress via %s (spec: t
     // Follow the admitted event into the production verdict parser/bridge method
     // and the real durable approval store. Same-localpart impostors and public
     // room replies must remain unauthorized after the provenance gate passes.
-    const root = mkdtempSync(path.join(tmpdir(), 'hafleet-provenance-owner-'));
+    const root = mkdtempSync(path.join(tmpdir(), 'hagency-provenance-owner-'));
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     const store = new ApprovalStore(path.join(root, 'approvals.json'));
     const dm = '!owner-dm:palpo.test';
@@ -548,10 +548,10 @@ describe.each(['push', 'edge', 'sync'])('side provenance ingress via %s (spec: t
 
   test('side_provenance_two_instances_share_palpo_across_three_adapters', async () => {
     const palpo = await fakePalpo({
-      members: { '!a:palpo.test': ['@hafleet_a:palpo.test'], '!b:palpo.test': ['@hafleet_b:palpo.test'] },
+      members: { '!a:palpo.test': ['@hagency_a:palpo.test'], '!b:palpo.test': ['@hagency_b:palpo.test'] },
     });
-    const A = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsA', asToken: 'asA', registration: 'regA', representativeMxid: '@hafleet_a:palpo.test', palpo });
-    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hafleet_b:palpo.test', palpo });
+    const A = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsA', asToken: 'asA', registration: 'regA', representativeMxid: '@hagency_a:palpo.test', palpo });
+    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hagency_b:palpo.test', palpo });
     const ra = await pushTxn(A.router, { hsToken: 'hsA', txnId: 'a1', events: [msg('!a:palpo.test', '$a1')] });
     const rb = await pushTxn(B.router, { hsToken: 'hsB', txnId: 'b1', events: [msg('!b:palpo.test', '$b1')] });
     expect(ra.status).toBe(200);
@@ -564,17 +564,17 @@ describe.each(['push', 'edge', 'sync'])('side provenance ingress via %s (spec: t
   });
 
   test('side_provenance_two_instances_foreign_token_rejected_before_ingress', async () => {
-    const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] } });
-    const A = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsA', asToken: 'asA', registration: 'regA', representativeMxid: '@hafleet_a:palpo.test', palpo });
-    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hafleet_b:palpo.test', palpo });
+    const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hagency_a:palpo.test'] } });
+    const A = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsA', asToken: 'asA', registration: 'regA', representativeMxid: '@hagency_a:palpo.test', palpo });
+    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hagency_b:palpo.test', palpo });
     const r = await pushTxn(B.router, { hsToken: 'hsA', txnId: 'forge', events: [msg('!a:palpo.test', '$f')] });
     expect(r.status).toBe(403);
     expect(B.typed.messages).toHaveLength(0);
   });
 
   test('side_provenance_two_instances_foreign_room_rejected_with_local_token', async () => {
-    const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] } });
-    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hafleet_b:palpo.test', palpo });
+    const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hagency_a:palpo.test'] } });
+    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hagency_b:palpo.test', palpo });
     // B's OWN token, but the room belongs to A's representative → relation fails for B
     const r = await pushTxn(B.router, { hsToken: 'hsB', txnId: 't1', events: [msg('!a:palpo.test', '$1')] });
     expect(r.status).toBe(200); // terminal mismatch: skipped
@@ -582,10 +582,10 @@ describe.each(['push', 'edge', 'sync'])('side provenance ingress via %s (spec: t
   });
 
   test('side_provenance_two_instances_foreign_representative_cannot_prove_membership_or_bootstrap', async () => {
-    const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] } });
-    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hafleet_b:palpo.test', palpo });
+    const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hagency_a:palpo.test'] } });
+    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hagency_b:palpo.test', palpo });
     // an invite addressed to A's representative, delivered through B's registration
-    const invite = { type: 'm.room.member', room_id: '!a:palpo.test', event_id: '$i', state_key: '@hafleet_a:palpo.test', sender: '@human:palpo.test', content: { membership: 'invite' } };
+    const invite = { type: 'm.room.member', room_id: '!a:palpo.test', event_id: '$i', state_key: '@hagency_a:palpo.test', sender: '@human:palpo.test', content: { membership: 'invite' } };
     const r = await pushTxn(B.router, { hsToken: 'hsB', txnId: 't1', events: [invite] });
     expect(r.status).toBe(200);
     expect(B.typed.memberships).toHaveLength(0);
@@ -593,9 +593,9 @@ describe.each(['push', 'edge', 'sync'])('side provenance ingress via %s (spec: t
 
   test('side_provenance_two_instances_shared_room_checks_each_own_membership', async () => {
     const SHARED = '!shared:palpo.test';
-    const palpo = await fakePalpo({ members: { [SHARED]: ['@hafleet_a:palpo.test'] } }); // only A joined
-    const A = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsA', asToken: 'asA', registration: 'regA', representativeMxid: '@hafleet_a:palpo.test', palpo });
-    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hafleet_b:palpo.test', palpo });
+    const palpo = await fakePalpo({ members: { [SHARED]: ['@hagency_a:palpo.test'] } }); // only A joined
+    const A = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsA', asToken: 'asA', registration: 'regA', representativeMxid: '@hagency_a:palpo.test', palpo });
+    const B = await makeBridgeWithSide({ sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'regB', representativeMxid: '@hagency_b:palpo.test', palpo });
     const ra = await pushTxn(A.router, { hsToken: 'hsA', txnId: 'a1', events: [msg(SHARED, '$a')] });
     const rb = await pushTxn(B.router, { hsToken: 'hsB', txnId: 'b1', events: [msg(SHARED, '$b')] });
     expect(ra.status).toBe(200);
@@ -859,7 +859,7 @@ describe('16-impl-r2 additions: claim lifecycle, key disambiguation, refresh seq
     self.refreshAppserviceSides = m.MatrixBridge.prototype.refreshAppserviceSides.bind(self);
     self.refreshOutboundFleets = m.MatrixBridge.prototype.refreshOutboundFleets.bind(self);
     self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
-    self.backendApiForSides = async () => ({ sides: [{ sideId: SIDE, hsToken: HS, registration: REG, serverName: SIDE, apiBaseUrl: palpo.url, senderLocalpart: 'hafleet', namespace: '@ac_.*' }] });
+    self.backendApiForSides = async () => ({ sides: [{ sideId: SIDE, hsToken: HS, registration: REG, serverName: SIDE, apiBaseUrl: palpo.url, senderLocalpart: 'hagency', namespace: '@ac_.*' }] });
     // sequence 1: success loads A
     await self.refreshAppserviceSides();
     expect(self.appserviceInboundSnapshot.get(SIDE)?.registration).toBe(REG);
@@ -942,12 +942,12 @@ describe('16-impl-r2 E: two REAL instances from makeInstance (isolated runtime/s
     const instA = makeInstance({
       prefix: 'inst-a-', sideId: 'palpo.test', serverName: 'palpo.test',
       registration: 'palpo.test@aaaa0001', hsToken: 'hsA', asToken: 'asA',
-      representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*',
+      representativeMxid: '@hagency_a:palpo.test', namespace: '@ac_a_.*',
     });
     const instB = makeInstance({
       prefix: 'inst-b-', sideId: 'palpo.test', serverName: 'palpo.test',
       registration: 'palpo.test@bbbb0002', hsToken: 'hsB', asToken: 'asB',
-      representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*',
+      representativeMxid: '@hagency_b:palpo.test', namespace: '@ac_b_.*',
     });
     cleanup.push(() => { rmSync(instA.runtimeDir, { recursive: true, force: true }); });
     cleanup.push(() => { rmSync(instB.runtimeDir, { recursive: true, force: true }); });
@@ -956,15 +956,15 @@ describe('16-impl-r2 E: two REAL instances from makeInstance (isolated runtime/s
 
     // drive each through the real router with its own token; claims/cursors stay per-instance
     const palpo = await fakePalpo({
-      members: { '!a:palpo.test': ['@hafleet_a:palpo.test'], '!b:palpo.test': ['@hafleet_b:palpo.test'] },
+      members: { '!a:palpo.test': ['@hagency_a:palpo.test'], '!b:palpo.test': ['@hagency_b:palpo.test'] },
     });
     const A = await makeBridgeWithSide({
       sideId: SIDE, hsToken: 'hsA', asToken: 'asA', registration: 'palpo.test@aaaa0001',
-      representativeMxid: '@hafleet_a:palpo.test', palpo,
+      representativeMxid: '@hagency_a:palpo.test', palpo,
     });
     const B = await makeBridgeWithSide({
       sideId: SIDE, hsToken: 'hsB', asToken: 'asB', registration: 'palpo.test@bbbb0002',
-      representativeMxid: '@hafleet_b:palpo.test', palpo,
+      representativeMxid: '@hagency_b:palpo.test', palpo,
     });
     const ra = await pushTxn(A.router, { hsToken: 'hsA', txnId: 'a1', events: [msg('!a:palpo.test', '$a1')] });
     const rb = await pushTxn(B.router, { hsToken: 'hsB', txnId: 'b1', events: [msg('!b:palpo.test', '$b1')] });
@@ -976,7 +976,7 @@ describe('16-impl-r2 E: two REAL instances from makeInstance (isolated runtime/s
     expect([...A.self.sideProvenanceClaims.keys()].every((k) => k.includes('palpo.test@aaaa0001'))).toBe(true);
     expect([...B.self.sideProvenanceClaims.keys()].every((k) => k.includes('palpo.test@bbbb0002'))).toBe(true);
     // shared room: only the instance whose OWN representative is joined executes
-    palpo.setMembers('!shared:palpo.test', ['@hafleet_a:palpo.test']);
+    palpo.setMembers('!shared:palpo.test', ['@hagency_a:palpo.test']);
     const rsa = await pushTxn(A.router, { hsToken: 'hsA', txnId: 'sa', events: [msg('!shared:palpo.test', '$sa')] });
     const rsb = await pushTxn(B.router, { hsToken: 'hsB', txnId: 'sb', events: [msg('!shared:palpo.test', '$sb')] });
     expect(rsa.status).toBe(200);
@@ -1043,12 +1043,12 @@ describe('16-impl-r3 additions', () => {
     const instA = makeInstance({
       prefix: 'r3-a-', sideId: 'palpo.test', serverName: 'palpo.test',
       registration: 'palpo.test@r3aa001', hsToken: 'hsR3A', asToken: 'asR3A',
-      representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*',
+      representativeMxid: '@hagency_a:palpo.test', namespace: '@ac_a_.*',
     });
     const instB = makeInstance({
       prefix: 'r3-b-', sideId: 'palpo.test', serverName: 'palpo.test',
       registration: 'palpo.test@r3bb002', hsToken: 'hsR3B', asToken: 'asR3B',
-      representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*',
+      representativeMxid: '@hagency_b:palpo.test', namespace: '@ac_b_.*',
     });
     cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
     cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
@@ -1057,8 +1057,8 @@ describe('16-impl-r3 additions', () => {
     const sideA = storeA.getSide('palpo.test');
     const sideB = storeB.getSide('palpo.test');
     // A's registry/credential/representative come from A's STORE, B's from B's
-    expect(sideA.representative.mxid).toBe('@hafleet_a:palpo.test');
-    expect(sideB.representative.mxid).toBe('@hafleet_b:palpo.test');
+    expect(sideA.representative.mxid).toBe('@hagency_a:palpo.test');
+    expect(sideB.representative.mxid).toBe('@hagency_b:palpo.test');
     // credentials come from each side's OWN store (publicSide hides them; credentialFor reads them)
     expect(storeA.credentialFor('palpo.test')?.hsToken).toBe('hsR3A');
     expect(storeB.credentialFor('palpo.test')?.hsToken).toBe('hsR3B');
@@ -1067,10 +1067,10 @@ describe('16-impl-r3 additions', () => {
     expect(storeA.getSide('palpo.test')).toBeNull();
     expect(storeB.getSide('palpo.test')).not.toBeNull();
     // and B's bridge keeps serving from ITS store
-    const palpo = await fakePalpo({ members: { '!b:palpo.test': ['@hafleet_b:palpo.test'] } });
+    const palpo = await fakePalpo({ members: { '!b:palpo.test': ['@hagency_b:palpo.test'] } });
     const B = await makeBridgeWithSide({
       sideId: SIDE, hsToken: 'hsR3B', asToken: 'asR3B', registration: 'palpo.test@r3bb002',
-      representativeMxid: '@hafleet_b:palpo.test', palpo,
+      representativeMxid: '@hagency_b:palpo.test', palpo,
     });
     const rb = await pushTxn(B.router, { hsToken: 'hsR3B', txnId: 'b9', events: [msg('!b:palpo.test', '$b9')] });
     expect(rb.status).toBe(200);
@@ -1091,7 +1091,7 @@ describe('16-impl-r3 additions', () => {
     self.backendApiForSides = async () => ({
       sides: [{
         sideId: SIDE, hsToken: HS, registration: REG, serverName: SIDE, apiBaseUrl: palpo.url,
-        senderLocalpart: 'hafleet', namespace: '@ac_.*',
+        senderLocalpart: 'hagency', namespace: '@ac_.*',
         // 16-impl-r3 ④: the inbound shape carries the representative so a COLD start can prove
         // relations on the first refresh (no prior snapshot to merge from)
         representative: { mxid: REP },
@@ -1178,10 +1178,10 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
   test('r5_E1_two_instances_three_adapters_cross_process', async () => {
     await withSpawn(async (mk) => {
       const { makeInstance } = await import('./helpers/side-provenance-harness.js');
-      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'], '!b:palpo.test': ['@hafleet_b:palpo.test'] } });
+      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hagency_a:palpo.test'], '!b:palpo.test': ['@hagency_b:palpo.test'] } });
       cleanup.push(() => palpo.close());
-      const instA = makeInstance({ prefix: 'r5e1a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*' });
-      const instB = makeInstance({ prefix: 'r5e1b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      const instA = makeInstance({ prefix: 'r5e1a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hagency_a:palpo.test', namespace: '@ac_a_.*' });
+      const instB = makeInstance({ prefix: 'r5e1b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hagency_b:palpo.test', namespace: '@ac_b_.*' });
       cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
       cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
       // A on push (real HTTP listener), B on sync (real collector against the fake Palpo)
@@ -1247,7 +1247,7 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
   test('r5_E1b_edge_adapter_third_leg_with_ack_body', async () => {
     await withSpawn(async (mk) => {
       const { makeInstance } = await import('./helpers/side-provenance-harness.js');
-      const palpo = await fakePalpo({ members: { '!c:palpo.test': ['@hafleet_c:palpo.test'] } });
+      const palpo = await fakePalpo({ members: { '!c:palpo.test': ['@hagency_c:palpo.test'] } });
       cleanup.push(() => palpo.close());
       // the FAKE EDGE the child's real puller will poll; it records the ack bodies
       const ackBodies = [];
@@ -1271,7 +1271,7 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
       await new Promise((r) => edgeSrv.listen(0, '127.0.0.1', r));
       cleanup.push(() => new Promise((r) => edgeSrv.close(r)));
 
-      const instC = makeInstance({ prefix: 'r5e1c-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5C', asToken: 'as5C', representativeMxid: '@hafleet_c:palpo.test', namespace: '@ac_c_.*' });
+      const instC = makeInstance({ prefix: 'r5e1c-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5C', asToken: 'as5C', representativeMxid: '@hagency_c:palpo.test', namespace: '@ac_c_.*' });
       cleanup.push(() => rmSync(instC.runtimeDir, { recursive: true, force: true }));
       const C = mk('C', {
         tag: 'C', runtimeDir: instC.runtimeDir, sideId: SIDE, serverName: SIDE,
@@ -1298,9 +1298,9 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
   test('r5_E2_foreign_token_rejected_cross_process', async () => {
     await withSpawn(async (mk) => {
       const { makeInstance } = await import('./helpers/side-provenance-harness.js');
-      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] } });
+      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hagency_a:palpo.test'] } });
       cleanup.push(() => palpo.close());
-      const instB = makeInstance({ prefix: 'r5e2-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      const instB = makeInstance({ prefix: 'r5e2-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hagency_b:palpo.test', namespace: '@ac_b_.*' });
       cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
       const B = mk('B', { tag: 'B', runtimeDir: instB.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
       B.send({ op: 'start' });
@@ -1320,14 +1320,14 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
   test('r5_E3_foreign_representative_not_relation_cross_process', async () => {
     await withSpawn(async (mk) => {
       const { makeInstance } = await import('./helpers/side-provenance-harness.js');
-      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] } });
+      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hagency_a:palpo.test'] } });
       cleanup.push(() => palpo.close());
-      const instB = makeInstance({ prefix: 'r5e3-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      const instB = makeInstance({ prefix: 'r5e3-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hagency_b:palpo.test', namespace: '@ac_b_.*' });
       cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
       const B = mk('B', { tag: 'B', runtimeDir: instB.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
       B.send({ op: 'start' });
       const lb = await B.wait((l) => l.t === 'listening');
-      const invite = { type: 'm.room.member', room_id: '!a:palpo.test', event_id: '$i5', state_key: '@hafleet_a:palpo.test', sender: '@h:palpo.test', content: { membership: 'invite' } };
+      const invite = { type: 'm.room.member', room_id: '!a:palpo.test', event_id: '$i5', state_key: '@hagency_a:palpo.test', sender: '@h:palpo.test', content: { membership: 'invite' } };
       const r = await fetch(`http://127.0.0.1:${lb.port}/_matrix/app/v1/transactions/e3`, {
         method: 'PUT', headers: { authorization: 'Bearer hs5B', 'Content-Type': 'application/json' },
         body: JSON.stringify({ events: [invite] }),
@@ -1343,12 +1343,12 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
     await withSpawn(async (mk) => {
       const { makeInstance } = await import('./helpers/side-provenance-harness.js');
       const palpo = await fakePalpo({ members: {
-        '!s:palpo.test': ['@hafleet_a:palpo.test', '@hafleet_b:palpo.test'],
-        '!b:palpo.test': ['@hafleet_b:palpo.test'],
+        '!s:palpo.test': ['@hagency_a:palpo.test', '@hagency_b:palpo.test'],
+        '!b:palpo.test': ['@hagency_b:palpo.test'],
       } });
       cleanup.push(() => palpo.close());
-      const instA = makeInstance({ prefix: 'r5e4a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*' });
-      const instB = makeInstance({ prefix: 'r5e4b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      const instA = makeInstance({ prefix: 'r5e4a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hagency_a:palpo.test', namespace: '@ac_a_.*' });
+      const instB = makeInstance({ prefix: 'r5e4b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hagency_b:palpo.test', namespace: '@ac_b_.*' });
       cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
       cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
       /*
@@ -1440,10 +1440,10 @@ describe('16-impl-r5 E: five scenarios through REAL adapters in child processes'
   test('r5_E5_a_removal_leaves_b_cross_process', async () => {
     await withSpawn(async (mk) => {
       const { makeInstance } = await import('./helpers/side-provenance-harness.js');
-      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hafleet_a:palpo.test'], '!b:palpo.test': ['@hafleet_b:palpo.test'] } });
+      const palpo = await fakePalpo({ members: { '!a:palpo.test': ['@hagency_a:palpo.test'], '!b:palpo.test': ['@hagency_b:palpo.test'] } });
       cleanup.push(() => palpo.close());
-      const instA = makeInstance({ prefix: 'r5e5a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hafleet_a:palpo.test', namespace: '@ac_a_.*' });
-      const instB = makeInstance({ prefix: 'r5e5b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hafleet_b:palpo.test', namespace: '@ac_b_.*' });
+      const instA = makeInstance({ prefix: 'r5e5a-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5A', asToken: 'as5A', representativeMxid: '@hagency_a:palpo.test', namespace: '@ac_a_.*' });
+      const instB = makeInstance({ prefix: 'r5e5b-', sideId: SIDE, serverName: SIDE, registration: 'x', hsToken: 'hs5B', asToken: 'as5B', representativeMxid: '@hagency_b:palpo.test', namespace: '@ac_b_.*' });
       cleanup.push(() => rmSync(instA.runtimeDir, { recursive: true, force: true }));
       cleanup.push(() => rmSync(instB.runtimeDir, { recursive: true, force: true }));
       const A = mk('A', { tag: 'A', runtimeDir: instA.runtimeDir, sideId: SIDE, serverName: SIDE, palpoBaseUrl: palpo.url, mode: 'push' });
@@ -1488,9 +1488,9 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
               active: true, projects: {},
               credential: {
                 kind: 'appservice', hsToken: HS, asToken: AS,
-                senderLocalpart: 'hafleet', namespace: '@ac_.*', url: null,
+                senderLocalpart: 'hagency', namespace: '@ac_.*', url: null,
               },
-              representative: { mxid: REP, localpart: 'hafleet', observedAt: 1 },
+              representative: { mxid: REP, localpart: 'hagency', observedAt: 1 },
             },
           },
           audit: [],
@@ -1508,7 +1508,7 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     const palpo = await fakePalpo({ members: { [ROOM]: [REP] } });
     const m = await bridge();
     const self = {
-      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet', namespace: '@ac_.*', registration: side.registration }]]),
+      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hagency', namespace: '@ac_.*', registration: side.registration }]]),
       sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
       actingSideFor(id) { const r = this.actingCredentials.get(String(id).trim().toLowerCase()); return r ? { side: { apiBaseUrl: r.apiBaseUrl, serverName: r.serverName }, credential: r } : null; },
       postWarning() {}, async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
@@ -1545,7 +1545,7 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
       self.backendApiForSides = async () => ({ sides: [{
         sideId: rawId, serverName: SIDE, apiBaseUrl: palpo.url, hsToken: HS, registration: REG,
-        senderLocalpart: 'hafleet', namespace: '@ac_.*', representative: { mxid: REP },
+        senderLocalpart: 'hagency', namespace: '@ac_.*', representative: { mxid: REP },
       }] });
       self.appserviceRouter = {
         setSides(sides) {
@@ -1576,7 +1576,7 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     const newReg = derivedRegistrationId(SIDE, newToken);
     expect(oldReg).not.toBe(newReg);
     const self = {
-      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: newToken, senderLocalpart: 'hafleet', namespace: '@ac_.*', registration: newReg }]]),
+      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: newToken, senderLocalpart: 'hagency', namespace: '@ac_.*', registration: newReg }]]),
       sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
       actingSideFor(id) { const r = this.actingCredentials.get(String(id).trim().toLowerCase()); return r ? { side: { apiBaseUrl: r.apiBaseUrl, serverName: r.serverName }, credential: r } : null; },
       postWarning() {}, async onRoomMessage() {}, async onRoomEvent() {}, async onAppserviceMembership() {},
@@ -1589,7 +1589,7 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     self.reconcileOutboundFleets = m.MatrixBridge.prototype.reconcileOutboundFleets.bind(self);
     self.backendApiForSides = async () => ({ sides: [{
       sideId: SIDE, serverName: SIDE, apiBaseUrl: palpo.url, hsToken: newToken, registration: newReg,
-      senderLocalpart: 'hafleet', namespace: '@ac_.*', representative: { mxid: REP },
+      senderLocalpart: 'hagency', namespace: '@ac_.*', representative: { mxid: REP },
     }] });
     self.appserviceRouter = { setSides() {}, sideIds: () => [] };
     await self.refreshAppserviceSides();
@@ -1634,7 +1634,7 @@ describe('16-impl-r4: production-chain tests (no seams except network)', () => {
     const palpo = await fakePalpo({ members: { [ROOM]: [] } });
     const m = await bridge();
     const self = {
-      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet', namespace: '@ac_.*', registration: REG }]]),
+      actingCredentials: new Map([[SIDE, { apiBaseUrl: palpo.url, serverName: SIDE, kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hagency', namespace: '@ac_.*', registration: REG }]]),
       appserviceInboundSnapshot: new Map([[SIDE, { sideId: SIDE, registration: REG, representative: { mxid: REP } }]]),
       sideProvenanceClaims: new Map(), sideProvenanceClaimOrder: [],
       actingSideFor(id) { const r = this.actingCredentials.get(String(id).trim().toLowerCase()); return r ? { side: { apiBaseUrl: r.apiBaseUrl, serverName: r.serverName }, credential: r } : null; },
@@ -1880,7 +1880,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       },
     },
     side_provenance_two_instances_foreign_room_rejected_with_local_token: {
-      members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] },
+      members: { '!a:palpo.test': ['@hagency_a:palpo.test'] },
       events: () => [msg('!a:palpo.test', '$fr1')],
       then: ({ status, typed, events, self }) => {
         expect(status).toBe(200);                     // terminal mismatch, batch ok
@@ -1889,15 +1889,15 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       },
     },
     side_provenance_two_instances_foreign_representative_cannot_prove_membership_or_bootstrap: {
-      members: { '!a:palpo.test': ['@hafleet_a:palpo.test'] },
-      events: () => [{ type: 'm.room.member', room_id: '!a:palpo.test', event_id: '$fb1', state_key: '@hafleet_a:palpo.test', sender: '@human:palpo.test', content: { membership: 'invite' } }],
+      members: { '!a:palpo.test': ['@hagency_a:palpo.test'] },
+      events: () => [{ type: 'm.room.member', room_id: '!a:palpo.test', event_id: '$fb1', state_key: '@hagency_a:palpo.test', sender: '@human:palpo.test', content: { membership: 'invite' } }],
       then: ({ status, typed }) => {
         expect(status).toBe(200);
         expect(countOf(typed)).toBe(0);               // another rep's invite proves nothing here
       },
     },
     side_provenance_two_instances_shared_room_checks_each_own_membership: {
-      members: { '!s:palpo.test': ['@hafleet_a:palpo.test'] },
+      members: { '!s:palpo.test': ['@hagency_a:palpo.test'] },
       events: () => [msg('!s:palpo.test', '$sr1')],
       then: ({ status, typed, self, events }) => {
         expect(status).toBe(200);
@@ -2179,7 +2179,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
     let rounds = 0;
     const collector = startAppserviceSyncCollector({
       baseUrl: palpo.url, side: SIDE, router: self.router,
-      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hafleet' }),
+      credentialFor: () => ({ kind: 'appservice', asToken: AS, hsToken: HS, senderLocalpart: 'hagency' }),
       readCursor: () => cursor, writeCursor: async (n) => { cursor = n; },
       fetchImpl: async (u) => {
         if (String(u).endsWith('/login')) return { ok: true, status: 200, json: async () => ({ access_token: 't', user_id: REP }) };
@@ -2314,8 +2314,8 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
       sides: { [SIDE]: {
         id: SIDE, serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:1', createdAt: 1, updatedAt: 1,
         active: true, projects: {},
-        credential: { kind: 'appservice', hsToken, asToken, senderLocalpart: 'hafleet', namespace: '@ac_.*', url: null },
-        representative: { mxid: REP, localpart: 'hafleet', observedAt: 1 },
+        credential: { kind: 'appservice', hsToken, asToken, senderLocalpart: 'hagency', namespace: '@ac_.*', url: null },
+        representative: { mxid: REP, localpart: 'hagency', observedAt: 1 },
       } },
       audit: [],
     });
@@ -2372,7 +2372,7 @@ describe('16-impl-r5: matrix, real backfill, rotation convergence', () => {
     const NEW_AS = 'as-r7-rotated';
     const reg2 = derivedRegistrationId(SIDE, NEW_HS);
     await request(ctx.app).put(`/api/project-sides/${SIDE}/credential`).send({
-      credential: { kind: 'appservice', hsToken: NEW_HS, asToken: NEW_AS, senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+      credential: { kind: 'appservice', hsToken: NEW_HS, asToken: NEW_AS, senderLocalpart: 'hagency', namespace: '@ac_.*' },
     }).expect(200);
 
     // INTERLEAVE: inbound refreshed to gen2, acting still gen1 → retryable stale

@@ -7,11 +7,11 @@ describe('operator task resume scheduling', () => {
   let context, errorSpy;
   beforeAll(async () => {
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    context = await createBackendTestContext('hafleet-resume-scheduling-', {
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1',
-        API_TOKEN: 'operator', HAFLEET_AGENT_TOKEN_MODE: 'hard',
-        HAFLEET_CODEX_RUNNER_BIN: path.join(process.cwd(), 'tests/fixtures/runner-does-not-exist'),
-        HAFLEET_RUNNER_LAUNCH_RETRY_MS: '60000' },
+    context = await createBackendTestContext('hagency-resume-scheduling-', {
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1',
+        API_TOKEN: 'operator', HAGENCY_AGENT_TOKEN_MODE: 'hard',
+        HAGENCY_CODEX_RUNNER_BIN: path.join(process.cwd(), 'tests/fixtures/runner-does-not-exist'),
+        HAGENCY_RUNNER_LAUNCH_RETRY_MS: '60000' },
       agents: { worker: { name: 'worker', agentId: 'agent_worker', type: 'codex',
         kind: 'agent', role: 'coding', workdir: process.cwd(), workspaceMode: 'shared', online: true } },
       agentTokens: { worker: 'worker-token' },

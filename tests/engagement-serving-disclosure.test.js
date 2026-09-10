@@ -30,7 +30,7 @@ const agent = (name, model, extra = {}) => ({
 
 /** A fleet with one strong agent and one that cannot reach the coding tier. */
 const seed = {
-  env: { HAFLEET_OWNER_MXID: '@owner:hq.example', HAFLEET_OWNER_DM_ROOM: '!owner-dm:hq.example' },
+  env: { HAGENCY_OWNER_MXID: '@owner:hq.example', HAGENCY_OWNER_DM_ROOM: '!owner-dm:hq.example' },
   agents: {
     'claude-agent': agent('claude-agent', 'claude-opus-5', { reasoning: 'high' }),
     'weak-agent': agent('weak-agent', 'claude-haiku-4-5'),
@@ -139,7 +139,7 @@ describe('the serving configuration is disclosed', () => {
         'claude-agent': {
           ...agent('claude-agent', 'claude-opus-5', { reasoning: 'high', apiKey: 'sk-secret-model-key' }),
           workspacePath: '/Users/someone/private/workspace',
-          tmux: 'hafleet-claude-agent',
+          tmux: 'hagency-claude-agent',
           apiKey: 'sk-secret-agent-token',
         },
       },
@@ -148,7 +148,7 @@ describe('the serving configuration is disclosed', () => {
     const serving = JSON.stringify(res.body.serving);
     expect(serving).not.toContain('sk-secret');
     expect(serving).not.toContain('private/workspace');
-    expect(serving).not.toContain('hafleet-claude-agent');
+    expect(serving).not.toContain('hagency-claude-agent');
     // And the keys are exactly the capability facts, so a later addition is a decision.
     expect(Object.keys(res.body.serving).sort())
       .toEqual(['agent', 'framework', 'model', 'reasoning', 'tier']);

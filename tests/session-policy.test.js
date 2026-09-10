@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { createSessionPolicy, parsePatterns, sessionPolicyFromEnv } from '../lib/session-policy.js';
 
 // Context for these tests: on a real fleet host a fresh install adopted five
-// pre-existing tmux sessions running unrelated work, which made HAFleet able to
+// pre-existing tmux sessions running unrelated work, which made Hagency able to
 // type into them. This module is the gate that prevents that.
 
 describe('parsePatterns', () => {
@@ -40,7 +40,7 @@ describe('default install is unchanged', () => {
   });
 
   test('an empty value is the same as unset', () => {
-    // `HAFLEET_SESSION_ALLOWLIST=` in a .env must not lock the host out.
+    // `HAGENCY_SESSION_ALLOWLIST=` in a .env must not lock the host out.
     const p = createSessionPolicy({ allowlist: '', denylist: '' });
     expect(p.unrestricted).toBe(true);
     expect(p.allows('ps2')).toBe(true);
@@ -175,8 +175,8 @@ describe('filter', () => {
 describe('sessionPolicyFromEnv', () => {
   test('reads both vars from an injected env', () => {
     const policy = sessionPolicyFromEnv({
-      HAFLEET_SESSION_DENYLIST: 'ps2',
-      HAFLEET_SESSION_ALLOWLIST: '',
+      HAGENCY_SESSION_DENYLIST: 'ps2',
+      HAGENCY_SESSION_ALLOWLIST: '',
     });
     expect(policy.allows('ps2')).toBe(false);
     expect(policy.allows('other')).toBe(true);

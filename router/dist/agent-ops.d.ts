@@ -1,5 +1,5 @@
 import type { RouterStore } from './store.js';
-export declare const AGENT_OPS_CONTRACT = "com.hafleet.agent_ops.v1";
+export declare const AGENT_OPS_CONTRACT = "com.hagency.agent_ops.v1";
 export declare const AGENT_OPS_ERROR_CODES: readonly ['bad_request', 'not_found', 'feature_disabled', 'device_enrollment_required', 'device_mismatch', 'scope_mismatch', 'invalid_capability', 'capability_expired', 'capability_consumed', 'auth_fence_stale', 'idempotency_conflict', 'precondition_failed', 'inspection_required', 'inspection_expired', 'invalid_transition', 'loopback_required', 'host_mismatch', 'browser_origin_forbidden', 'internal_error'];
 export declare const AGENT_OPS_LIMITS: Readonly<{
     grant_ttl_ms: number;

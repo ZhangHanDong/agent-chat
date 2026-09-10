@@ -19,11 +19,11 @@ describe('the registry loads and validates its manifests', () => {
     expect(frameworkIds()).toEqual(['claude', 'codex-acp', 'codex', 'hermes', 'octos']);
   });
 
-  test('only the tmux frameworks are hafleet-up launchable', () => {
-    // "Launchable" here means launchable by hafleet-up, which creates a tmux
+  test('only the tmux frameworks are hagency-up launchable', () => {
+    // "Launchable" here means launchable by hagency-up, which creates a tmux
     // session. An ACP agent has no pane, so octos and now hermes are blocked from
-    // that path and started with `hafleet acp-up` instead. hermes moved when its
-    // transport changed; leaving it launchable meant hafleet-up would look for a
+    // that path and started with `hagency acp-up` instead. hermes moved when its
+    // transport changed; leaving it launchable meant hagency-up would look for a
     // ready signal the adapter no longer declares and fail with "no ready signal
     // declared for hermes", which reads as a missing field rather than a
     // deliberate change of transport.
@@ -37,7 +37,7 @@ describe('the registry loads and validates its manifests', () => {
     for (const framework of listFrameworks()) {
       if (framework.transport !== 'acp') continue;
       const reason = launchBlockedReason(framework.id);
-      expect(reason, `${framework.id} is ACP but still hafleet-up launchable`).toBeTruthy();
+      expect(reason, `${framework.id} is ACP but still hagency-up launchable`).toBeTruthy();
       expect(reason).toContain('acp-up');
       expect(reason).toContain(framework.id);
     }
@@ -60,7 +60,7 @@ describe('the registry loads and validates its manifests', () => {
   });
 
   test('each ready pattern agrees with its own grep -F literal', () => {
-    // bin/hafleet-up greps for the literal while the backend uses the regex. If
+    // bin/hagency-up greps for the literal while the backend uses the regex. If
     // they drift, the shell waits for something the manifest no longer means.
     for (const framework of listFrameworks()) {
       for (const signal of framework.signals.ready) {
@@ -155,12 +155,12 @@ describe('which guards apply', () => {
 describe('hermes guards its own bypass flags', () => {
   // `hermes --help` documents --yolo as "Bypass all dangerous command approval
   // prompts" and --accept-hooks as auto-approving unseen shell hooks with no TTY
-  // prompt. Those prompts are exactly what HAFleet scrapes for to notice a
+  // prompt. Those prompts are exactly what Hagency scrapes for to notice a
   // blocked agent, so an agent must not be able to turn them off.
   test.each(['--yolo', '--accept-hooks'])('%s is refused', (flag) => {
     const result = validateLaunchExtraArgs('hermes', flag);
     expect(result.ok).toBe(false);
-    expect(result.reason).toBe(`Hermes approval policy flag is managed by hafleet: ${flag}`);
+    expect(result.reason).toBe(`Hermes approval policy flag is managed by hagency: ${flag}`);
   });
 
   test.each(['--safe-mode', '--ignore-user-config', '--ignore-rules', '--tui', '-m gpt-5'])(
@@ -178,10 +178,10 @@ describe('guardViolation', () => {
   const codex = applicableFrameworks('codex');
 
   test.each([
-    ['--yolo', 'Codex Level 2 policy flag is managed by hafleet: --yolo'],
-    ['--sandbox=danger-full-access', 'Codex Level 2 policy flag is managed by hafleet: --sandbox=danger-full-access'],
-    ['-sfoo', 'Codex Level 2 policy flag is managed by hafleet: -sfoo'],
-    ['--permission-mode', 'Claude permission policy flag is managed by hafleet: --permission-mode'],
+    ['--yolo', 'Codex Level 2 policy flag is managed by hagency: --yolo'],
+    ['--sandbox=danger-full-access', 'Codex Level 2 policy flag is managed by hagency: --sandbox=danger-full-access'],
+    ['-sfoo', 'Codex Level 2 policy flag is managed by hagency: -sfoo'],
+    ['--permission-mode', 'Claude permission policy flag is managed by hagency: --permission-mode'],
   ])('%s is refused with its own message', (token, reason) => {
     expect(guardViolation(token, '', all)).toEqual({ reason });
   });
@@ -193,10 +193,10 @@ describe('guardViolation', () => {
 
   test('config policy is caught in all four spellings', () => {
     expect(guardViolation('-c', 'approval_policy=never', codex).reason)
-      .toBe('Codex Level 2 config is managed by hafleet: approval_policy');
+      .toBe('Codex Level 2 config is managed by hagency: approval_policy');
     for (const token of ['--config=sandbox_mode=danger', '-c=sandbox_mode=danger', '-capproval_policy=never']) {
       expect(guardViolation(token, '', codex), token)
-        .toEqual({ reason: 'Codex Level 2 config is managed by hafleet' });
+        .toEqual({ reason: 'Codex Level 2 config is managed by hagency' });
     }
   });
 
@@ -279,9 +279,9 @@ describe('shell callers read the registry instead of their own list', () => {
     expect(run(['ids']).stdout.trim().split('\n')).toEqual(['claude', 'codex-acp', 'codex', 'hermes', 'octos']);
   });
 
-  test('launchable lists the ones hafleet-up can start', () => {
+  test('launchable lists the ones hagency-up can start', () => {
     // hermes left this list when it moved to ACP; the ACP pair is started by
-    // `hafleet acp-up`, which does not consult this gate.
+    // `hagency acp-up`, which does not consult this gate.
     expect(run(['launchable']).stdout.trim().split('\n')).toEqual(['claude', 'codex']);
   });
 
@@ -300,7 +300,7 @@ describe('shell callers read the registry instead of their own list', () => {
   test('ready-fixed refuses for frameworks with no readiness signal', () => {
     // hermes was the one framework that printed a literal here; on ACP it has no
     // pane and no marker, so it now refuses like the others. Kept as a test rather
-    // than deleted because hafleet-up branches on this exit status — a framework
+    // than deleted because hagency-up branches on this exit status — a framework
     // that starts declaring a ready pattern must start printing one.
     expect(run(['ready-fixed', 'hermes']).code).toBe(1);
     // claude passes its prompt as an argument, so it declares no ready signal.
@@ -313,7 +313,7 @@ describe('shell callers read the registry instead of their own list', () => {
   });
 
   test('bad usage exits 2, distinct from a refusal', () => {
-    // hafleet-up branches on exit status, so "you called me wrong" must not look
+    // hagency-up branches on exit status, so "you called me wrong" must not look
     // like "that framework is not launchable".
     expect(run(['check']).code).toBe(2);
     expect(run(['bogus-command']).code).toBe(2);
@@ -355,8 +355,8 @@ describe('the extra-args validator defers to the registry', () => {
   });
 });
 
-describe('bin/hafleet-up defers to the registry', () => {
-  const source = readFileSync('bin/hafleet-up', 'utf-8');
+describe('bin/hagency-up defers to the registry', () => {
+  const source = readFileSync('bin/hagency-up', 'utf-8');
 
   test('no hardcoded claude|codex list remains in the parser or the gate', () => {
     expect(source).not.toContain('claude|codex)');
@@ -380,12 +380,12 @@ describe('bin/hafleet-up defers to the registry', () => {
     // suite and blocked on its readiness wait until the run timed out.
     let stderr = '';
     try {
-      execFileSync('bash', ['bin/hafleet-up', 'registry-gate-probe', os.tmpdir(), 'octos'],
+      execFileSync('bash', ['bin/hagency-up', 'registry-gate-probe', os.tmpdir(), 'octos'],
         { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
     } catch (error) { stderr = error.stderr || ''; }
     expect(stderr).not.toMatch(/unrecognized argument/);
     expect(stderr).toMatch(/cannot launch type 'octos'/);
-    expect(stderr).toMatch(/hafleet acp-up/);
+    expect(stderr).toMatch(/hagency acp-up/);
     expect(stderr).toMatch(/Launchable types: claude codex/);
   });
 
@@ -411,8 +411,8 @@ describe('bin/hafleet-up defers to the registry', () => {
     test('the skin-dependent marker is overridable', () => {
       // branding.prompt_symbol in hermes_cli/skin_engine.py is a skin setting, so
       // a custom skin would otherwise make launch impossible with no way out.
-      expect(body).toContain('HAFLEET_HERMES_READY_MARKER');
-      expect(body).toContain('HAFLEET_HERMES_READY_TIMEOUT_SEC');
+      expect(body).toContain('HAGENCY_HERMES_READY_MARKER');
+      expect(body).toContain('HAGENCY_HERMES_READY_TIMEOUT_SEC');
     });
 
     test('the failure message tells the operator how to fix it', () => {
@@ -421,7 +421,7 @@ describe('bin/hafleet-up defers to the registry', () => {
     });
 
     test('the timeout override is validated before any arithmetic', () => {
-      // Under `set -u` — which hafleet-up runs with — $(( abc * 2 )) aborts the
+      // Under `set -u` — which hagency-up runs with — $(( abc * 2 )) aborts the
       // whole script with "abc: unbound variable". Measured, not theorised.
       const guard = body.indexOf('*[!0-9]*');
       const arithmetic = body.indexOf('HERMES_READY_TIMEOUT * 2');
@@ -433,7 +433,7 @@ describe('bin/hafleet-up defers to the registry', () => {
     test('hostile timeout overrides fall back instead of aborting or executing', () => {
       const script = `
         set -euo pipefail
-        HERMES_READY_TIMEOUT="\${HAFLEET_HERMES_READY_TIMEOUT_SEC:-60}"
+        HERMES_READY_TIMEOUT="\${HAGENCY_HERMES_READY_TIMEOUT_SEC:-60}"
         case "$HERMES_READY_TIMEOUT" in
           ""|*[!0-9]*) HERMES_READY_TIMEOUT=60 ;;
         esac
@@ -442,22 +442,22 @@ describe('bin/hafleet-up defers to the registry', () => {
       for (const value of ['abc', '-5', '0', '', '7; echo pwned', '9'.repeat(21)]) {
         const out = execFileSync('bash', ['-c', script], {
           encoding: 'utf-8',
-          env: { ...process.env, HAFLEET_HERMES_READY_TIMEOUT_SEC: value },
+          env: { ...process.env, HAGENCY_HERMES_READY_TIMEOUT_SEC: value },
         }).trim();
         expect(out, `override ${JSON.stringify(value)}`).toBe('120');
       }
       // A valid value is still honoured.
       expect(execFileSync('bash', ['-c', script], {
         encoding: 'utf-8',
-        env: { ...process.env, HAFLEET_HERMES_READY_TIMEOUT_SEC: '5' },
+        env: { ...process.env, HAGENCY_HERMES_READY_TIMEOUT_SEC: '5' },
       }).trim()).toBe('10');
     });
   });
 
-  test('KNOWN GAP: bin/hafleet-up-v1 still keeps its own list', () => {
+  test('KNOWN GAP: bin/hagency-up-v1 still keeps its own list', () => {
     // Legacy path, deliberately not migrated. Pinned so it is a visible debt
     // rather than a surprise for whoever adds the next framework.
-    expect(readFileSync('bin/hafleet-up-v1', 'utf-8')).toContain('claude|codex');
+    expect(readFileSync('bin/hagency-up-v1', 'utf-8')).toContain('claude|codex');
   });
 });
 

@@ -55,7 +55,7 @@ refresh, multiple named definitions, private-field removal, expired-connection
 recovery and retained request identity.
 
 Live Playwright verification created a temporary Resource, then used the actual
-HAFleet console proxy to save two Agent definitions and publish the Resource.
+Hagency console proxy to save two Agent definitions and publish the Resource.
 The actual Mini1 Palpo browser displayed both names and medium reasoning. The
 test withdrew the catalog entry and removed only its own definitions/resource;
 an independent before/after comparison confirms the original three Resources,

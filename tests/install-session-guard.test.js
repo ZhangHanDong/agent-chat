@@ -13,7 +13,7 @@ const ROOT = path.resolve('.');
 
 /** A tmux stand-in whose `ls` prints the given session names. */
 function fakeTmuxDir(sessions) {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-faketmux-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-faketmux-'));
   const body = sessions.length
     ? sessions.map((s) => `echo '${s}: 1 windows (created Mon Jan  1 00:00:00 2026)'`).join('\n')
     : 'exit 0';
@@ -22,7 +22,7 @@ function fakeTmuxDir(sessions) {
 }
 
 function runInstaller(args, { sessions = [], envSeed = null } = {}) {
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'hafleet-guard-'));
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'hagency-guard-'));
   const home = path.join(tmp, 'home');
   const systemdDir = path.join(tmp, 'systemd');
   const envFile = path.join(tmp, '.env');
@@ -68,8 +68,8 @@ function runInstaller(args, { sessions = [], envSeed = null } = {}) {
 }
 
 const denylistOf = (env) => {
-  const line = env.split('\n').filter((l) => l.startsWith('HAFLEET_SESSION_DENYLIST='));
-  return { count: line.length, value: line[0]?.slice('HAFLEET_SESSION_DENYLIST='.length) };
+  const line = env.split('\n').filter((l) => l.startsWith('HAGENCY_SESSION_DENYLIST='));
+  return { count: line.length, value: line[0]?.slice('HAGENCY_SESSION_DENYLIST='.length) };
 };
 
 describe('install-full.sh tmux session guard', () => {
@@ -91,7 +91,7 @@ describe('install-full.sh tmux session guard', () => {
   test('--deny-existing-tmux merges with an existing denylist', () => {
     const r = runInstaller(['--deny-existing-tmux'], {
       sessions: ['alpha'],
-      envSeed: 'API_TOKEN=guard-token\nHAFLEET_SESSION_DENYLIST=already-here\n',
+      envSeed: 'API_TOKEN=guard-token\nHAGENCY_SESSION_DENYLIST=already-here\n',
     });
     // Overwriting would silently un-protect whatever the operator had listed.
     expect(denylistOf(r.env)).toEqual({ count: 1, value: 'already-here,alpha' });
@@ -111,7 +111,7 @@ describe('install-full.sh tmux session guard', () => {
 
   test('--dry-run writes nothing even with the flag set', () => {
     const r = runInstaller(['--dry-run', '--deny-existing-tmux'], { sessions: ['alpha'] });
-    expect(r.stdout).toMatch(/\[dry-run\] would set HAFLEET_SESSION_DENYLIST=alpha/);
+    expect(r.stdout).toMatch(/\[dry-run\] would set HAGENCY_SESSION_DENYLIST=alpha/);
     expect(denylistOf(r.env).count).toBe(0);
   });
 
@@ -119,10 +119,10 @@ describe('install-full.sh tmux session guard', () => {
     // .env is sourced by the launchd/systemd wrappers; an unquoted glob or a
     // stray character here breaks startup rather than this test.
     const r = runInstaller(['--deny-existing-tmux'], { sessions: ['alpha', 'beta'] });
-    const tmp = mkdtempSync(path.join(os.tmpdir(), 'hafleet-source-'));
+    const tmp = mkdtempSync(path.join(os.tmpdir(), 'hagency-source-'));
     const envPath = path.join(tmp, 'env');
     writeFileSync(envPath, r.env);
-    const out = execFileSync('bash', ['-c', `set -a; . "${envPath}"; printf '%s' "$HAFLEET_SESSION_DENYLIST"`], { encoding: 'utf-8' });
+    const out = execFileSync('bash', ['-c', `set -a; . "${envPath}"; printf '%s' "$HAGENCY_SESSION_DENYLIST"`], { encoding: 'utf-8' });
     expect(out).toBe('alpha,beta');
   });
 });
@@ -159,7 +159,7 @@ describe('both installers offer the same protection', () => {
     'apply_session_denylist',
     '--deny-existing-tmux',
     '--allow-existing-tmux',
-    'HAFLEET_SESSION_DENYLIST',
+    'HAGENCY_SESSION_DENYLIST',
     'no TTY to confirm',
     'registers tmux sessions as agents',
   ])('%s is present in both', (needle) => {

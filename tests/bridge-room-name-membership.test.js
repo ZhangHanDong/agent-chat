@@ -15,16 +15,16 @@ let runtime;
 let savedRuntimeDir;
 let savedApi;
 beforeAll(async () => {
-  savedRuntimeDir = process.env.HAFLEET_RUNTIME_DIR;
-  savedApi = process.env.HAFLEET_API;
-  runtime = mkdtempSync(path.join(tmpdir(), 'hafleet-room-name-'));
-  process.env.HAFLEET_RUNTIME_DIR = runtime;
-  process.env.HAFLEET_API = 'http://127.0.0.1:1';
+  savedRuntimeDir = process.env.HAGENCY_RUNTIME_DIR;
+  savedApi = process.env.HAGENCY_API;
+  runtime = mkdtempSync(path.join(tmpdir(), 'hagency-room-name-'));
+  process.env.HAGENCY_RUNTIME_DIR = runtime;
+  process.env.HAGENCY_API = 'http://127.0.0.1:1';
   ({ MatrixBridge } = await import('../bridge-matrix.js'));
 });
 afterAll(() => {
   rmSync(runtime, { recursive: true, force: true });
-  for (const [key, value] of [['HAFLEET_RUNTIME_DIR', savedRuntimeDir], ['HAFLEET_API', savedApi]]) {
+  for (const [key, value] of [['HAGENCY_RUNTIME_DIR', savedRuntimeDir], ['HAGENCY_API', savedApi]]) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
 });

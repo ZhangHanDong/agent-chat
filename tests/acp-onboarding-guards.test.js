@@ -25,7 +25,7 @@ const ROOT = path.resolve('.');
 
 function runAcpUp(args, { env = {} } = {}) {
   try {
-    const stdout = execFileSync('bash', [path.join(ROOT, 'bin/hafleet-acp-up'), ...args], {
+    const stdout = execFileSync('bash', [path.join(ROOT, 'bin/hagency-acp-up'), ...args], {
       cwd: ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, ...env }, timeout: 30000,
     });
@@ -74,7 +74,7 @@ describe('the ACP model flag is declared per adapter, not borrowed from the CLI'
   test('the host also refuses, so the CLI is not the only gate', () => {
     const r = (() => {
       try {
-        execFileSync('node', ['scripts/hafleet-acp-agent.mjs', '--name', 'probe',
+        execFileSync('node', ['scripts/hagency-acp-agent.mjs', '--name', 'probe',
           '--workspace', os.tmpdir(), '--framework', 'hermes', '--model', 'x'], {
           cwd: ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000,
         });
@@ -87,7 +87,7 @@ describe('the ACP model flag is declared per adapter, not borrowed from the CLI'
 });
 
 describe('the supervised path verifies the agent came up', () => {
-  const source = execFileSync('cat', [path.join(ROOT, 'bin/hafleet-acp-up')], { encoding: 'utf-8' });
+  const source = execFileSync('cat', [path.join(ROOT, 'bin/hagency-acp-up')], { encoding: 'utf-8' });
 
   test('success is no longer printed unconditionally', () => {
     const supervised = source.slice(source.indexOf('if [ "$SUPERVISED" = true ]'));
@@ -102,7 +102,7 @@ describe('the supervised path verifies the agent came up', () => {
 
   test('a failure names the log and the undo command', () => {
     expect(source).toMatch(/did not stay healthy/);
-    expect(source).toMatch(/hafleet acp-down \$NAME/);
+    expect(source).toMatch(/hagency acp-down \$NAME/);
   });
 
   test('it does not claim health it never measured', () => {
@@ -138,14 +138,14 @@ describe('the supervised path verifies the agent came up', () => {
   test('the success message tells the operator how to remove the agent', () => {
     // acp-down existed and was undiscoverable from the command that creates the
     // thing it removes.
-    expect(source).toMatch(/remove:\s+hafleet acp-down/);
+    expect(source).toMatch(/remove:\s+hagency acp-down/);
   });
 });
 
 describe('one agent cannot get two hosts', () => {
   /** A profile containing one supervised agent entry. */
   function profileWith(name) {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-onboard-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-onboard-'));
     const file = path.join(dir, 'profile.json');
     writeFileSync(file, `${JSON.stringify({
       name: 'services-local',
@@ -156,25 +156,25 @@ describe('one agent cannot get two hosts', () => {
   }
 
   test('an unsupervised start is refused when the supervisor already owns it', () => {
-    const workspace = mkdtempSync(path.join(os.tmpdir(), 'hafleet-ws-'));
+    const workspace = mkdtempSync(path.join(os.tmpdir(), 'hagency-ws-'));
     const r = runAcpUp(['already-supervised', workspace, 'codex-acp',
       '--profile', profileWith('already-supervised')]);
     expect(r.code).not.toBe(0);
     expect(r.stderr).toMatch(/already registered with the supervisor/);
     expect(r.stderr).toMatch(/both would reply/);
-    expect(r.stderr).toMatch(/hafleet acp-down already-supervised/);
+    expect(r.stderr).toMatch(/hagency acp-down already-supervised/);
   });
 
   test('an agent absent from the profile is not blocked by the guard', async () => {
     // The guard must not stop a genuinely new unsupervised agent. Getting past it
-    // means the script goes on to spawn a host, so HAFLEET_HOMEDIR is redirected to
+    // means the script goes on to spawn a host, so HAGENCY_HOMEDIR is redirected to
     // keep the token and state out of the developer's real home, and the framework
     // binary is absent here so the host exits at once rather than leaving an agent
     // running after the test.
-    const workspace = mkdtempSync(path.join(os.tmpdir(), 'hafleet-ws-'));
-    const home = mkdtempSync(path.join(os.tmpdir(), 'hafleet-home-'));
+    const workspace = mkdtempSync(path.join(os.tmpdir(), 'hagency-ws-'));
+    const home = mkdtempSync(path.join(os.tmpdir(), 'hagency-home-'));
     const r = runAcpUp(['a-different-name', workspace, 'codex-acp',
-      '--profile', profileWith('already-supervised')], { env: { HAFLEET_HOMEDIR: home } });
+      '--profile', profileWith('already-supervised')], { env: { HAGENCY_HOMEDIR: home } });
     expect(r.stderr).not.toMatch(/already registered with the supervisor/);
     // Positive evidence that it got past the guard rather than failing earlier.
     expect(`${r.stdout}${r.stderr}`).toMatch(/Provisioned agent token|exited immediately/);
@@ -182,7 +182,7 @@ describe('one agent cannot get two hosts', () => {
 
   test('the reverse direction is still guarded too', () => {
     // Going supervised kills a running unsupervised host. Both directions now.
-    const source = execFileSync('cat', [path.join(ROOT, 'bin/hafleet-acp-up')], { encoding: 'utf-8' });
+    const source = execFileSync('cat', [path.join(ROOT, 'bin/hagency-acp-up')], { encoding: 'utf-8' });
     expect(source).toMatch(/Stopped the unsupervised host/);
     expect(source).toMatch(/already registered with the supervisor/);
   });

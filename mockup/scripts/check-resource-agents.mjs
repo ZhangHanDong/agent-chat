@@ -13,11 +13,11 @@ try {
       requester: '@owner:test', state: 'pending', agent: null, requestContext: { agentDefinition: { name: 'fast-two', resourceId: 'resource_aaaaaaaaaaaaaaaaaaaaaaaa' } }, requestedTokens: 1000, ratePerDay: 100, ownerBindingRequired: false };
     const verdicts = [], errors = [], unexpected = [];
     const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
-    await context.addInitScript(locale => localStorage.setItem('hafleet.locale', locale), locale);
+    await context.addInitScript(locale => localStorage.setItem('hagency.locale', locale), locale);
     const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
     await context.route('**/api/**', async route => {
       const req = route.request(), url = new URL(req.url());
-      const p = url.pathname.replace('/api/hafleet/', '');
+      const p = url.pathname.replace('/api/hagency/', '');
       const reply = data => route.fulfill({ json: data });
       if (req.method() === 'PUT' && p === 'framework-presets/medium/catalog') {
         presets[1].catalogPublished = req.postDataJSON().published; return reply({ ok: true });

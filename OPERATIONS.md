@@ -1,21 +1,21 @@
-# HAFleet Operations Runbook
+# Hagency Operations Runbook
 
-This runbook replaces `agent-doctor` style tooling.  
+This runbook replaces `agent-doctor` style tooling.
 Use these commands directly during incident response.
 
-Primary CLI is now `hafleet`.  
-Legacy commands (`hafleet-update`, `hafleet-audit`, `hafleet-up`, etc.) are deprecated wrappers and still work for compatibility.
+Primary CLI is now `hagency`.
+Legacy commands (`hagency-update`, `hagency-audit`, `hagency-up`, etc.) are deprecated wrappers and still work for compatibility.
 
 ## 1) Remote Service Lifecycle
 
 These commands target the remote relay service on the current host:
-- `hafleet-push-relay`
+- `hagency-push-relay`
 
 They do not stop local agent tmux sessions.
 
 ### Update and keep relay paused (maintenance mode)
 ```bash
-hafleet update --pause-services
+hagency update --pause-services
 ```
 
 Expected:
@@ -25,18 +25,18 @@ Expected:
 
 ### Resume relay
 ```bash
-hafleet update --resume-services
+hagency update --resume-services
 ```
 
 ### Check remote relay service status
 ```bash
-hafleet update --service-status
+hagency update --service-status
 ```
 
 ## 1.1) Stable Branch Auto Deploy (Live)
 
 This watcher runs on the local host and polls `origin/stable` every 30s from the live deploy checkout:
-- `/path/to/hafleet`
+- `/path/to/hagency`
 
 The live deploy checkout is disposable. Do not use it for local edits, scratch files, or manual debugging changes that need to survive deployment. The watcher can discard both tracked and untracked changes in that checkout.
 
@@ -56,26 +56,26 @@ When a new commit appears, it will:
 3. if the deploy checkout is dirty, log the first dirty paths and clean it with `git reset --hard HEAD` plus `git clean -fd`
 4. reset the deploy checkout to `origin/stable` with `git reset --hard origin/stable`
 5. run `npm install --production` only if `package.json` or `package-lock.json` changed
-6. restart `hafleet-backend` first and wait for `/api/agents` health
-7. restart the remaining services from `HAFLEET_DEPLOY_SERVICES` (defaults: `hafleet`, `hafleet-backend`, `bridge-matrix`)
+6. restart `hagency-backend` first and wait for `/api/agents` health
+7. restart the remaining services from `HAGENCY_DEPLOY_SERVICES` (defaults: `hagency`, `hagency-backend`, `bridge-matrix`)
 8. verify all listed services are active
 
 Install/update the service:
 ```bash
-sudo cp /path/to/hafleet/hafleet-stable-autodeploy.service /etc/systemd/system/hafleet-stable-autodeploy.service
+sudo cp /path/to/hagency/hagency-stable-autodeploy.service /etc/systemd/system/hagency-stable-autodeploy.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now hafleet-stable-autodeploy
+sudo systemctl enable --now hagency-stable-autodeploy
 ```
 
 Check status/logs:
 ```bash
-systemctl status hafleet-stable-autodeploy --no-pager
-tail -f /path/to/hafleet/logs/stable-autodeploy.out.log
+systemctl status hagency-stable-autodeploy --no-pager
+tail -f /path/to/hagency/logs/stable-autodeploy.out.log
 ```
 
 After deployment, verify the loaded remote relay version when the deployed commit is expected to reach remote hosts:
 ```bash
-hafleet verify-remote --samples 2 --interval 16 --expect-version <short-sha>
+hagency verify-remote --samples 2 --interval 16 --expect-version <short-sha>
 ```
 
 ## 2) Verify Backend State
@@ -87,8 +87,8 @@ curl -s http://127.0.0.1:8090/api/servers | jq '.[] | {id, online, lastSeen, age
 
 Fleet version inventory:
 ```bash
-hafleet cli fleet --expect-version <short-sha>
-hafleet cli fleet --expect-version <short-sha> --json
+hagency cli fleet --expect-version <short-sha>
+hagency cli fleet --expect-version <short-sha> --json
 curl -s 'http://127.0.0.1:8090/api/servers/fleet?expectVersion=<short-sha>' | jq
 ```
 
@@ -114,15 +114,15 @@ curl -s http://127.0.0.1:8090/api/agents/<agent_name> | jq '{name, online, serve
 ## 3) Known macOS Legacy Label Issue
 
 Legacy launchd label:
-- `com.hafleet.push-relay`
+- `com.hagency.push-relay`
 
 Current label:
-- `hafleet-push-relay`
+- `hagency-push-relay`
 
 If pause still shows backend online, check both:
 ```bash
-launchctl list | rg "hafleet-push-relay|com.hafleet.push-relay"
-pgrep -af "push-relay\\.js|hafleet-push-relay|com\\.hafleet\\.push-relay"
+launchctl list | rg "hagency-push-relay|com.hagency.push-relay"
+pgrep -af "push-relay\\.js|hagency-push-relay|com\\.hagency\\.push-relay"
 ```
 
 ## 4) Offline Delivery Semantics
@@ -149,7 +149,7 @@ When an agent comes back online, the catch-up notification now includes:
 ### Remote relay pause/resume
 
 After pausing the remote relay, verify all three:
-1. relay service stopped (`hafleet update --service-status`)
+1. relay service stopped (`hagency update --service-status`)
 2. no relay process (`pgrep -af "push-relay\\.js"`)
 3. backend server row offline (`/api/servers` shows `online=false` for that remote host)
 
@@ -157,7 +157,7 @@ If any of the three fails, treat relay shutdown as incomplete.
 
 ### Host-local agent shutdown
 
-`hafleet down <agent>` acts on the tmux session for that agent on the current runtime host. The backend is used for name resolution, active-work guard, and offline marking; it is not a global remote shutdown command.
+`hagency down <agent>` acts on the tmux session for that agent on the current runtime host. The backend is used for name resolution, active-work guard, and offline marking; it is not a global remote shutdown command.
 
 After downing a host-local agent, verify:
 1. no tmux session for the agent (`tmux has-session -t <agent>` fails)
@@ -168,7 +168,7 @@ After downing a host-local agent, verify:
 
 ### Full one-shot audit
 ```bash
-hafleet audit
+hagency audit
 ```
 
 Checks include:
@@ -179,28 +179,28 @@ Checks include:
 
 ### Rotate logs + prune stale tmp data
 ```bash
-hafleet maintain
+hagency maintain
 ```
 
 Preview mode:
 ```bash
-hafleet maintain --dry-run
+hagency maintain --dry-run
 ```
 
 ### Sync skill links (~/.codex + ~/.claude)
 ```bash
-hafleet sync-skills
+hagency sync-skills
 ```
 
 Check only:
 ```bash
-hafleet sync-skills --check
+hagency sync-skills --check
 ```
 
 ### Prune stale offline agent records
 ```bash
-hafleet prune-agents --older-than-days 7
-hafleet prune-agents --older-than-days 7 --apply
+hagency prune-agents --older-than-days 7
+hagency prune-agents --older-than-days 7 --apply
 ```
 
 ## 8) Supervisor Focus Audit Checks
@@ -250,18 +250,18 @@ besides.
 ### Check and recover
 
 ```bash
-# Where the store is: $HAFLEET_RUNTIME_DIR/data/matrix/bot-crypto
-#   (RUNTIME_ROOT is HAFLEET_RUNTIME_DIR if set, else the repo root)
-ls -la "${HAFLEET_RUNTIME_DIR:-.}/data/matrix/bot-crypto"
+# Where the store is: $HAGENCY_RUNTIME_DIR/data/matrix/bot-crypto
+#   (RUNTIME_ROOT is HAGENCY_RUNTIME_DIR if set, else the repo root)
+ls -la "${HAGENCY_RUNTIME_DIR:-.}/data/matrix/bot-crypto"
 ```
 
 If the only entries are `bot-sdk.json` and stray files — **no** `matrix-sdk-crypto.sqlite3*` —
 the store holds no key material and removing them is safe:
 
 ```bash
-rm -f "${HAFLEET_RUNTIME_DIR:-.}/data/matrix/bot-crypto/.DS_Store"
+rm -f "${HAGENCY_RUNTIME_DIR:-.}/data/matrix/bot-crypto/.DS_Store"
 # or, equivalently safe in this state:
-rm -rf "${HAFLEET_RUNTIME_DIR:-.}/data/matrix/bot-crypto"
+rm -rf "${HAGENCY_RUNTIME_DIR:-.}/data/matrix/bot-crypto"
 ```
 
 The next start takes the `empty` path and initialises a fresh store for the access token's
@@ -274,7 +274,7 @@ rollback path.
 
 ## 12) Provisioning An Agent's Matrix Credential
 
-Agents no longer get a Matrix password from HAFleet. The bridge used to derive one —
+Agents no longer get a Matrix password from Hagency. The bridge used to derive one —
 `sha256(MATRIX_AGENT_PASSWORD_SECRET + ':' + agentName)` — and that mechanism is deleted
 (ADR-014 decision 3), because the master secret could not be rotated, the credentials it
 produced could not be revoked, and it needed account-creation rights on the homeserver.
@@ -313,7 +313,7 @@ Nothing retries into a fix — that is deliberate, and the reason the log says P
    ```bash
    curl -s -X POST "$MATRIX_HOMESERVER/_matrix/client/v3/login" \
      -H 'Content-Type: application/json' \
-     -d '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"ac_wf_coordinator"},"password":"<the password you just set>","initial_device_display_name":"hafleet-bridge"}' \
+     -d '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"ac_wf_coordinator"},"password":"<the password you just set>","initial_device_display_name":"hagency-bridge"}' \
      | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'
    ```
 

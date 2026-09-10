@@ -1,7 +1,7 @@
 /*
  * WHAT A CUSTOMER SAYS BEFORE WE ARE IN THE ROOM — on a project side, where the bot is not.
  *
- * Walked on two machines and it failed. A customer creates a room, invites HAFleet, and types
+ * Walked on two machines and it failed. A customer creates a room, invites Hagency, and types
  * `!request architect 300000 20000` in the same breath. The representative joined two seconds later and
  * the ask was gone: no engagement, no reply in the room, no error anywhere. The identical ask sent one
  * second AFTER the join worked end to end. Two probes, one difference.
@@ -42,13 +42,13 @@ vi.mock('../lib/matrix-representative.js', async (importOriginal) => {
 });
 
 const SIDE = 'customer.test';
-const REP = `@hafleet:${SIDE}`;
+const REP = `@hagency:${SIDE}`;
 const ROOM = `!market:${SIDE}`;
 const HUMAN = `@lin:${SIDE}`;
 
 const ACTING = {
   side: { serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:8008' },
-  credential: { kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+  credential: { kind: 'appservice', asToken: 'as_secret_never_logged', senderLocalpart: 'hagency', namespace: '@ac_.*' },
 };
 
 /** A message event, with the fields the selector actually reads. */
@@ -68,11 +68,11 @@ let runtimeDir;
 let envSnapshot;
 
 beforeAll(async () => {
-  envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_SERVER_NAME', 'MATRIX_TRUST_MODE']);
+  envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_SERVER_NAME', 'MATRIX_TRUST_MODE']);
   runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'appservice-join-window-'));
   mkdirSync(path.join(runtimeDir, 'data', 'matrix'), { recursive: true });
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
-  process.env.MATRIX_SERVER_NAME = 'hafleet.test';
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
+  process.env.MATRIX_SERVER_NAME = 'hagency.test';
   process.env.MATRIX_TRUST_MODE = 'enforce';
   bridgeModule = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?as-join-window`);
 });

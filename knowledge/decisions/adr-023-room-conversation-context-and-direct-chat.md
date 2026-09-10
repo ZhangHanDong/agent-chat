@@ -67,7 +67,7 @@ promotion. Native room membership and encryption remain authoritative.
 
 Thread and DM replies must carry Matrix formatted HTML derived from Markdown,
 alongside the original plain-text body. Robrix already renders Matrix formatted
-messages; the missing fields are a HAFleet sender defect. Preserve reply relations,
+messages; the missing fields are a Hagency sender defect. Preserve reply relations,
 encryption and idempotent transaction IDs. Disable raw HTML and unsafe link schemes
 in generated formatting; never execute embedded HTML from model output.
 
@@ -89,7 +89,7 @@ output remain context only.
 Offline tests cover archival without wake, exact discussion ranges, pagination,
 cursor success/failure, duplicate delivery, restart, cross-room isolation, direct
 admission/revocation and encrypted device identity. Live acceptance separately
-uses the dedicated local HAFleet and Mini1 Palpo deployment.
+uses the dedicated local Hagency and Mini1 Palpo deployment.
 
 ## September 9 review closure
 

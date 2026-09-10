@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+_resolve_script_dir() {
+  local src="$0"
+  while [ -L "$src" ]; do
+    local dir
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+  done
+  cd -P "$(dirname "$src")" && pwd
+}
+
+SCRIPT_DIR="$(_resolve_script_dir)"
+BASE_DIR="$(dirname "$SCRIPT_DIR")"
+TEMPLATE="$BASE_DIR/skills/hagency/SKILL.md"
+INNER_LOOP_TEMPLATE="$BASE_DIR/skills/hagency-inner-loop"
+CHECK_ONLY=false
+QUIET=false
+
+usage() {
+  cat <<'USAGE'
+Usage: hagency-sync-skills [--check] [--quiet]
+
+Sync ~/.codex and ~/.claude skill links to the repository templates:
+  skills/hagency/SKILL.md
+  skills/hagency-inner-loop/ (including scripts/monitor.mjs)
+
+Options:
+  --check   Verify links only; do not change files
+  --quiet   Reduce output
+  -h, --help
+USAGE
+}
+
+log() {
+  if [ "$QUIET" = false ]; then
+    echo "$@"
+  fi
+}
+
+ensure_link() {
+  local target="$1"
+  local template="$2"
+  local target_dir
+  target_dir="$(dirname "$target")"
+
+  if [ "$CHECK_ONLY" = true ]; then
+    if [ -L "$target" ]; then
+      local current
+      current="$(readlink -f "$target" 2>/dev/null || true)"
+      local want
+      want="$(readlink -f "$template" 2>/dev/null || true)"
+      if [ -n "$want" ] && [ "$current" = "$want" ]; then
+        log "[OK] $target -> $current"
+        return 0
+      fi
+      echo "[FAIL] $target points to $current (expected $want)" >&2
+      return 1
+    fi
+    echo "[FAIL] $target is not a symlink" >&2
+    return 1
+  fi
+
+  mkdir -p "$target_dir"
+  if [ -e "$target" ] && [ ! -L "$target" ]; then
+    local backup="${target}.bak.$(date +%Y%m%d-%H%M%S)"
+    local suffix=0
+    local candidate="$backup"
+    while [ -e "$candidate" ] || [ -L "$candidate" ]; do
+      suffix=$((suffix + 1))
+      candidate="$backup.$suffix"
+    done
+    backup="$candidate"
+    mv "$target" "$backup"
+    log "[BACKUP] $target -> $backup"
+  fi
+
+  ln -sfn "$template" "$target"
+  local resolved
+  resolved="$(readlink -f "$target" 2>/dev/null || true)"
+  log "[LINK] $target -> $resolved"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check)
+      CHECK_ONLY=true
+      ;;
+    --quiet)
+      QUIET=true
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: unknown argument '$1'" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+if [ ! -f "$TEMPLATE" ]; then
+  echo "Error: template not found: $TEMPLATE" >&2
+  exit 1
+fi
+for resource in SKILL.md scripts/monitor.mjs; do
+  if [ ! -f "$INNER_LOOP_TEMPLATE/$resource" ]; then
+    echo "Error: skill resource not found: $INNER_LOOP_TEMPLATE/$resource" >&2
+    exit 1
+  fi
+done
+
+TARGETS=(
+  "$HOME/.codex/skills/hagency/SKILL.md"
+  "$HOME/.claude/skills/hagency/SKILL.md"
+)
+
+failed=0
+for t in "${TARGETS[@]}"; do
+  if ! ensure_link "$t" "$TEMPLATE"; then
+    failed=1
+  fi
+done
+for client in .codex .claude; do
+  if ! ensure_link "$HOME/$client/skills/hagency-inner-loop" "$INNER_LOOP_TEMPLATE"; then
+    failed=1
+  fi
+done
+
+if [ "$failed" -ne 0 ]; then
+  exit 1
+fi
+
+if [ "$CHECK_ONLY" = true ]; then
+  log "Skill link check passed."
+else
+  log "Skill links synced."
+fi

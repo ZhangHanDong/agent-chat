@@ -9,12 +9,12 @@ describe('thread-session runner launch recovery', () => {
 
   beforeAll(async () => {
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    context = await createBackendTestContext('hafleet-router-launch-recovery-', {
+    context = await createBackendTestContext('hagency-router-launch-recovery-', {
       env: {
-        HAFLEET_THREAD_SESSIONS: '1',
-        HAFLEET_ROUTER_TASK_CUTOVER: '1',
-        HAFLEET_CODEX_RUNNER_BIN: path.join(process.cwd(), 'tests', 'fixtures', 'runner-does-not-exist'),
-        HAFLEET_RUNNER_LAUNCH_RETRY_MS: '60000',
+        HAGENCY_THREAD_SESSIONS: '1',
+        HAGENCY_ROUTER_TASK_CUTOVER: '1',
+        HAGENCY_CODEX_RUNNER_BIN: path.join(process.cwd(), 'tests', 'fixtures', 'runner-does-not-exist'),
+        HAGENCY_RUNNER_LAUNCH_RETRY_MS: '60000',
       },
       agents: {
         worker: {

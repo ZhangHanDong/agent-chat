@@ -2,23 +2,23 @@
  * What the setup screen is told about inbound reachability — and specifically WHICH address it hands the
  * customer.
  *
- * THE DEFECT THIS FILE EXISTS FOR, found by building a clean HAFleet on one machine and a clean customer
+ * THE DEFECT THIS FILE EXISTS FOR, found by building a clean Hagency on one machine and a clean customer
  * homeserver on another and following the operator guide click by click.
  *
  * There are two addresses for one edge socket and they are not the same:
  *
- *   HAFLEET_EDGE_URL   how HAFleet COLLECTS from the edge. Outbound, from wherever HAFleet runs.
+ *   HAGENCY_EDGE_URL   how Hagency COLLECTS from the edge. Outbound, from wherever Hagency runs.
  *   registration url   how the HOMESERVER dials the edge. Loopback, because co-located is the point.
  *
  * The console pre-filled the registration with the first one. On the walkthrough that produced
  * `url: "http://69.194.3.128:8097"` in the file installed on the customer's homeserver, while the edge —
  * bound to loopback, as it should be — printed `put this in the registration: url: http://127.0.0.1:8097`.
  * The homeserver never called. And `POST .../verify` answered **accepted**, because verification exercises
- * the OUTBOUND direction only: HAFleet could act as the representative perfectly well. So every screen said
+ * the OUTBOUND direction only: Hagency could act as the representative perfectly well. So every screen said
  * the customer was onboarded while the only way in was dead, and the sole contrary evidence was the edge's
  * own counter reading `transactions from the homeserver: 0`.
  *
- * The fix is ownership: the edge process owns its socket, so it reports the address, and HAFleet asks rather
+ * The fix is ownership: the edge process owns its socket, so it reports the address, and Hagency asks rather
  * than guesses. When it cannot ask, it says so instead of falling back to the guess — which is the whole
  * defect in one line.
  */
@@ -46,7 +46,7 @@ afterEach(async () => {
 async function fakeEdge(handler) {
   const calls = [];
   const server = createServer((req, res) => {
-    calls.push({ path: req.url, link: req.headers['x-hafleet-link'] ?? null });
+    calls.push({ path: req.url, link: req.headers['x-hagency-link'] ?? null });
     const [status, payload] = handler(req.url);
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(payload));
@@ -65,15 +65,15 @@ const reach = async (app) => (await request(app).get('/api/matrix/reach')
   .set('Authorization', `Bearer ${API_TOKEN}`)).body;
 
 describe('the address a co-located edge tells us to put in the registration', () => {
-  test('it comes from the edge, and is NOT the address HAFleet collects from', async () => {
+  test('it comes from the edge, and is NOT the address Hagency collects from', async () => {
     const edge = await fakeEdge(() => [200, {
       transactions: 0,
       registrationUrl: 'http://127.0.0.1:8094',
     }]);
     const body = await reach(await boot({
-      HAFLEET_EDGE_URL: edge.baseUrl,
-      HAFLEET_EDGE_LINK_TOKEN: LINK,
-      HAFLEET_EDGE_SIDE: 'walk.test',
+      HAGENCY_EDGE_URL: edge.baseUrl,
+      HAGENCY_EDGE_LINK_TOKEN: LINK,
+      HAGENCY_EDGE_SIDE: 'walk.test',
     }));
 
     expect(body.appservice.inboundVia).toBe('edge');
@@ -87,15 +87,15 @@ describe('the address a co-located edge tells us to put in the registration', ()
   test('the link token authenticates the ask, and is sent as a header', async () => {
     const edge = await fakeEdge(() => [200, { registrationUrl: 'http://127.0.0.1:8094' }]);
     await reach(await boot({
-      HAFLEET_EDGE_URL: edge.baseUrl,
-      HAFLEET_EDGE_LINK_TOKEN: LINK,
-      HAFLEET_EDGE_SIDE: 'walk.test',
+      HAGENCY_EDGE_URL: edge.baseUrl,
+      HAGENCY_EDGE_LINK_TOKEN: LINK,
+      HAGENCY_EDGE_SIDE: 'walk.test',
     }));
-    expect(edge.calls[0].path).toContain('/_hafleet/edge/status');
+    expect(edge.calls[0].path).toContain('/_hagency/edge/status');
     expect(edge.calls[0].link).toBe(LINK);
   });
 
-  test('an edge HAFleet cannot reach reports the failure and NO address', async () => {
+  test('an edge Hagency cannot reach reports the failure and NO address', async () => {
     /*
      * The heart of it. Falling back to the collect address here is precisely what shipped a registration
      * the homeserver could not dial — so there is no fallback, and the reason names the address that
@@ -103,9 +103,9 @@ describe('the address a co-located edge tells us to put in the registration', ()
      */
     const body = await reach(await boot({
       // Port 9 is discard: nothing listens, so the attempt fails for real rather than being mocked.
-      HAFLEET_EDGE_URL: 'http://127.0.0.1:9',
-      HAFLEET_EDGE_LINK_TOKEN: LINK,
-      HAFLEET_EDGE_SIDE: 'walk.test',
+      HAGENCY_EDGE_URL: 'http://127.0.0.1:9',
+      HAGENCY_EDGE_LINK_TOKEN: LINK,
+      HAGENCY_EDGE_SIDE: 'walk.test',
     }));
 
     expect(body.appservice.inboundVia).toBe('edge');
@@ -119,9 +119,9 @@ describe('the address a co-located edge tells us to put in the registration', ()
     // An older edge predates the field. Saying so beats silently substituting the collect address.
     const edge = await fakeEdge(() => [200, { transactions: 3 }]);
     const body = await reach(await boot({
-      HAFLEET_EDGE_URL: edge.baseUrl,
-      HAFLEET_EDGE_LINK_TOKEN: LINK,
-      HAFLEET_EDGE_SIDE: 'walk.test',
+      HAGENCY_EDGE_URL: edge.baseUrl,
+      HAGENCY_EDGE_LINK_TOKEN: LINK,
+      HAGENCY_EDGE_SIDE: 'walk.test',
     }));
     expect(body.appservice.edgeReachable).toBe(true);
     expect(body.appservice.edgeRegistrationUrl).toBeNull();
@@ -131,9 +131,9 @@ describe('the address a co-located edge tells us to put in the registration', ()
   test('a wrong link token is a failure, not an address', async () => {
     const edge = await fakeEdge(() => [403, { error: 'bad link token' }]);
     const body = await reach(await boot({
-      HAFLEET_EDGE_URL: edge.baseUrl,
-      HAFLEET_EDGE_LINK_TOKEN: LINK,
-      HAFLEET_EDGE_SIDE: 'walk.test',
+      HAGENCY_EDGE_URL: edge.baseUrl,
+      HAGENCY_EDGE_LINK_TOKEN: LINK,
+      HAGENCY_EDGE_SIDE: 'walk.test',
     }));
     expect(body.appservice.edgeReachable).toBe(false);
     expect(body.appservice.edgeRegistrationUrl).toBeNull();
@@ -142,18 +142,18 @@ describe('the address a co-located edge tells us to put in the registration', ()
 
   test('the traffic counters and the diagnosis come back, so a screen can say inbound is dead', async () => {
     /*
-     * THE PAIR THAT MUST BE ANSWERABLE TOGETHER. A side can be `accepted` — HAFleet can act as the
+     * THE PAIR THAT MUST BE ANSWERABLE TOGETHER. A side can be `accepted` — Hagency can act as the
      * representative — while nothing has ever arrived. On the walkthrough those two facts coexisted for an
      * hour and only the second one mattered. `verify` cannot see it; this can.
      */
     const edge = await fakeEdge(() => [200, {
-      transactions: 4, delivered: 0, rejected: 0, hafleetWaiting: false,
+      transactions: 4, delivered: 0, rejected: 0, hagencyWaiting: false,
       registrationUrl: 'http://127.0.0.1:8094',
     }]);
     const body = await reach(await boot({
-      HAFLEET_EDGE_URL: edge.baseUrl,
-      HAFLEET_EDGE_LINK_TOKEN: LINK,
-      HAFLEET_EDGE_SIDE: 'walk.test',
+      HAGENCY_EDGE_URL: edge.baseUrl,
+      HAGENCY_EDGE_LINK_TOKEN: LINK,
+      HAGENCY_EDGE_SIDE: 'walk.test',
     }));
 
     expect(body.appservice.inbound.state).toBe('not-collected');
@@ -165,13 +165,13 @@ describe('the address a co-located edge tells us to put in the registration', ()
 
   test('a healthy edge reports flowing, so the warning means something when it appears', async () => {
     const edge = await fakeEdge(() => [200, {
-      transactions: 7, delivered: 7, rejected: 0, hafleetWaiting: true,
+      transactions: 7, delivered: 7, rejected: 0, hagencyWaiting: true,
       registrationUrl: 'http://127.0.0.1:8094',
     }]);
     const body = await reach(await boot({
-      HAFLEET_EDGE_URL: edge.baseUrl,
-      HAFLEET_EDGE_LINK_TOKEN: LINK,
-      HAFLEET_EDGE_SIDE: 'walk.test',
+      HAGENCY_EDGE_URL: edge.baseUrl,
+      HAGENCY_EDGE_LINK_TOKEN: LINK,
+      HAGENCY_EDGE_SIDE: 'walk.test',
     }));
     expect(body.appservice.inbound.state).toBe('flowing');
     expect(body.appservice.edgeTraffic.collecting).toBe(true);
@@ -181,9 +181,9 @@ describe('the address a co-located edge tells us to put in the registration', ()
     // Two different ignorances: "we asked and nothing is arriving" versus "we could not ask". Reporting the
     // second as the first would send an operator to restart a bridge that is running.
     const body = await reach(await boot({
-      HAFLEET_EDGE_URL: 'http://127.0.0.1:9',
-      HAFLEET_EDGE_LINK_TOKEN: LINK,
-      HAFLEET_EDGE_SIDE: 'walk.test',
+      HAGENCY_EDGE_URL: 'http://127.0.0.1:9',
+      HAGENCY_EDGE_LINK_TOKEN: LINK,
+      HAGENCY_EDGE_SIDE: 'walk.test',
     }));
     expect(body.appservice.inbound.state).toBe('unknown');
   });

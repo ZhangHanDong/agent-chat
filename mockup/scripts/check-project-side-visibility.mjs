@@ -20,7 +20,7 @@ async function check(name, sides, checkPage, { failure = false } = {}) {
     const request = route.request(), url = new URL(request.url());
     if (url.origin !== base.origin || request.method() !== 'GET') { unexpected.push(request.url()); return route.abort(); }
     if (!url.pathname.startsWith('/api/')) return route.continue();
-    const path = url.pathname.replace('/api/hafleet/', '');
+    const path = url.pathname.replace('/api/hagency/', '');
     const reply = (body, status = 200) => route.fulfill({ status, json: body });
     if (path === 'project-sides') return failure ? reply({ error: 'fixture side service unavailable' }, 503) : reply({ sides });
     if (/^project-sides\/[^/]+\/budget$/.test(path)) return reply({ allocated: null, committed: 0, remaining: null });

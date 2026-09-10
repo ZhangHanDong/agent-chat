@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-BASE="${HAFLEET_BACKEND_URL:-http://127.0.0.1:8090}"
+BASE="${HAGENCY_BACKEND_URL:-http://127.0.0.1:8090}"
 [ -f .env ] || { echo "no .env in $(pwd)"; exit 1; }
 set -a; . ./.env; set +a
 : "${API_TOKEN:?API_TOKEN is not set in .env}"

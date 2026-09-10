@@ -11,7 +11,7 @@ import {
 
 import type { RouterStore } from './store.js';
 
-export const AGENT_OPS_CONTRACT = 'com.hafleet.agent_ops.v1';
+export const AGENT_OPS_CONTRACT = 'com.hagency.agent_ops.v1';
 export const AGENT_OPS_ERROR_CODES = [
   'bad_request',
   'not_found',

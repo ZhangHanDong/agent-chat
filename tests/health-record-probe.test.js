@@ -14,7 +14,7 @@ import { readServiceStatus } from '../src/local-service-supervisor.mjs';
 
 const roots = [];
 const tempRoot = () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-healthprobe-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-healthprobe-'));
   roots.push(dir);
   return dir;
 };

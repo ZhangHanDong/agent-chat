@@ -11,8 +11,8 @@ afterEach(() => { if (env) restoreEnv(env); if (directory) rmSync(directory, { r
 
 async function directFixture() {
   directory = mkdtempSync(path.join(os.tmpdir(), 'direct-command-'));
-  env = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
-  process.env.HAFLEET_RUNTIME_DIR = directory; process.env.MATRIX_AGENT_PREFIX = 'ac_'; process.env.MATRIX_SERVER_NAME = 'test';
+  env = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
+  process.env.HAGENCY_RUNTIME_DIR = directory; process.env.MATRIX_AGENT_PREFIX = 'ac_'; process.env.MATRIX_SERVER_NAME = 'test';
   const { MatrixBridge } = await import('../bridge-matrix.js?direct-command-review');
   const bridge = new MatrixBridge();
   bridge.addKnownAgent('one'); bridge.addKnownAgent('two');
@@ -62,8 +62,8 @@ test('a joined Agent without a starting device cannot wedge another direct devic
 
 test('invited group routing wakes only mentioned humans targets and never loops agent output', async () => {
   directory = mkdtempSync(path.join(os.tmpdir(), 'invited-routing-'));
-  env = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
-  process.env.HAFLEET_RUNTIME_DIR = directory; process.env.MATRIX_AGENT_PREFIX = 'ac_'; process.env.MATRIX_SERVER_NAME = 'test';
+  env = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME']);
+  process.env.HAGENCY_RUNTIME_DIR = directory; process.env.MATRIX_AGENT_PREFIX = 'ac_'; process.env.MATRIX_SERVER_NAME = 'test';
   const { MatrixBridge } = await import('../bridge-matrix.js?invited-routing');
   const bridge = new MatrixBridge();
   bridge.addKnownAgent('one'); bridge.addKnownAgent('two');

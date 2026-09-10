@@ -50,7 +50,7 @@ describe('backend agents API', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-agents-test-', {
+    context = await createBackendTestContext('hagency-agents-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -278,7 +278,7 @@ describe('backend agents API', () => {
     expect(second.status).toBe(409);
     expect(second.body.error).toContain('already online');
     expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(spawnMock.mock.calls[0][2].env.HAFLEET_LAUNCH_ENV_READY).toBe('1');
+    expect(spawnMock.mock.calls[0][2].env.HAGENCY_LAUNCH_ENV_READY).toBe('1');
 
     const agent = await request(context.app).get('/api/agents/starter');
     expect(agent.status).toBe(200);
@@ -329,7 +329,7 @@ describe('backend agents API', () => {
      * anything, because the heartbeat is what confirms it. That is fine while the launcher works.
      * It was not fine when the launcher failed: the process was spawned with `stdio: 'ignore'`, the
      * endpoint answered `{ok: true, pid}`, and the record kept claiming a tmux session that did not
-     * exist — an agent that looked alive and merely quiet. Observed for real: `hafleet up-v1` died
+     * exist — an agent that looked alive and merely quiet. Observed for real: `hagency up-v1` died
      * with "FATAL: Failed to fetch launch-env from backend" and /start reported success.
      */
     let exitHandler = null;
@@ -397,7 +397,7 @@ describe('backend agents API persistence failures', () => {
       offlineReason: null,
       state: 'online',
     });
-    context = await createBackendTestContext('hafleet-agents-force-delete-test-', {
+    context = await createBackendTestContext('hagency-agents-force-delete-test-', {
       agents: { forcey: original },
       groups: {},
       agentRuntime: {
@@ -430,7 +430,7 @@ describe('backend agents API persistence failures', () => {
   }
 
   test('POST /api/agents returns 503 and leaves no visible agent when agents persistence fails', async () => {
-    context = await createBackendTestContext('hafleet-agents-persist-test-', {
+    context = await createBackendTestContext('hagency-agents-persist-test-', {
       agents: {},
       groups: {},
     });
@@ -451,7 +451,7 @@ describe('backend agents API persistence failures', () => {
   });
 
   test('POST /api/agents with tmux persists the transitioned agent state', async () => {
-    context = await createBackendTestContext('hafleet-agents-persist-test-', {
+    context = await createBackendTestContext('hagency-agents-persist-test-', {
       agents: {},
       groups: {},
     });
@@ -482,7 +482,7 @@ describe('backend agents API persistence failures', () => {
       name: 'patchy',
       role: 'coding',
     });
-    context = await createBackendTestContext('hafleet-agents-persist-test-', {
+    context = await createBackendTestContext('hagency-agents-persist-test-', {
       agents: { patchy: original },
       groups: {},
     });
@@ -517,7 +517,7 @@ describe('backend agents API persistence failures', () => {
       offlineReason: null,
       state: 'online',
     });
-    context = await createBackendTestContext('hafleet-agents-persist-test-', {
+    context = await createBackendTestContext('hagency-agents-persist-test-', {
       agents: { 'online-agent': original },
       groups: {},
     });
@@ -553,7 +553,7 @@ describe('backend agents API persistence failures', () => {
       offlineReason: null,
       state: 'online',
     });
-    context = await createBackendTestContext('hafleet-agents-persist-test-', {
+    context = await createBackendTestContext('hagency-agents-persist-test-', {
       agents: { registered: original },
       groups: {},
     });
@@ -634,10 +634,10 @@ describe('deleting an agent releases the budget it was holding', () => {
   });
 
   async function bootWithAgent() {
-    ctx = await createBackendTestContext('hafleet-agents-budget-release-', {
+    ctx = await createBackendTestContext('hagency-agents-budget-release-', {
       agents: { [AGENT]: { name: AGENT, type: 'agent', kind: 'agent', capability: 'coding' } },
       env: { API_TOKEN, MATRIX_BRIDGE_SECRET: 'secret-for-withdraw',
-        HAFLEET_OWNER_MXID: '@owner:holder.test', HAFLEET_OWNER_DM_ROOM: '!private-dm:holder.test' },
+        HAGENCY_OWNER_MXID: '@owner:holder.test', HAGENCY_OWNER_DM_ROOM: '!private-dm:holder.test' },
     });
     return ctx.app;
   }
@@ -715,7 +715,7 @@ describe('deleting an agent releases the budget it was holding', () => {
 
   test('a room reached through a historical ENGAGEMENT is withdrawn, with no binding anywhere', async () => {
     // Preserve recovery coverage for records written before owner binding became mandatory.
-    ctx = await createBackendTestContext('hafleet-historical-engagement-', {
+    ctx = await createBackendTestContext('hagency-historical-engagement-', {
       agents: { [AGENT]: { name: AGENT, type: 'claude', kind: 'agent', projectSide: 'gone.test' } },
       env: { API_TOKEN, MATRIX_BRIDGE_SECRET: 'secret-for-withdraw' },
       rawDataFiles: { 'engagements.json': JSON.stringify({ engagements: {
@@ -728,7 +728,7 @@ describe('deleting an agent releases the budget it was holding', () => {
       .send({ server_name: 'gone.test', api_base_url: 'http://127.0.0.1:9' });
     await request(app).put('/api/project-sides/gone.test/credential')
       .set('Authorization', `Bearer ${API_TOKEN}`)
-      .send({ credential: { kind: 'appservice', asToken: 'as_t', hsToken: 'hs_t', namespace: '@ac_.*', senderLocalpart: 'hafleet' } });
+      .send({ credential: { kind: 'appservice', asToken: 'as_t', hsToken: 'hs_t', namespace: '@ac_.*', senderLocalpart: 'hagency' } });
     const res = await request(app).delete(`/api/agents/${AGENT}?force=true`)
       .set('Authorization', `Bearer ${API_TOKEN}`).expect(200);
     const room = (res.body.leftProjectRooms ?? []).find((r) => r.roomId === '!viaengagement:gone.test');
@@ -759,7 +759,7 @@ describe('deleting an agent releases the budget it was holding', () => {
       .send({ server_name: 'gone.test', api_base_url: 'http://127.0.0.1:9' });
     await request(app).put('/api/project-sides/gone.test/credential')
       .set('Authorization', `Bearer ${API_TOKEN}`)
-      .send({ credential: { kind: 'appservice', asToken: 'as_t', hsToken: 'hs_t', namespace: '@ac_.*', senderLocalpart: 'hafleet' } });
+      .send({ credential: { kind: 'appservice', asToken: 'as_t', hsToken: 'hs_t', namespace: '@ac_.*', senderLocalpart: 'hagency' } });
     await request(app).put('/api/approval-bindings')
       .set('X-Bridge-Secret', 'secret-for-withdraw')
       .send({
@@ -778,7 +778,7 @@ describe('deleting an agent releases the budget it was holding', () => {
     expect(room.reason).toBeTruthy();       // it says WHY the seat is still occupied
     expect(room.mxid).toBe(`@ac_${AGENT}:gone.test`);   // and which identity is still sitting there
 
-    // And the agent really is gone from HAFleet.
+    // And the agent really is gone from Hagency.
     expect((await request(app).get(`/api/agents/${AGENT}`)).status).toBe(404);
   });
 

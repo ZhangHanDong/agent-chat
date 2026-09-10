@@ -49,7 +49,7 @@ test('outbound inbox commits before acknowledgement and resumes after restart', 
   const file = fixtureFile(), first = open(file), dispatch = vi.fn(async () => ({ status: 200 }));
   const fetchImpl = vi.fn(async (url, options) => {
     expect(options.headers.Authorization).toBe(`Bearer ${transport.token}`);
-    expect(options.headers['X-HAFleet-Generation']).toBe('1');
+    expect(options.headers['X-Hagency-Generation']).toBe('1');
     if (url.includes('/poll?')) return response({ v: 2, generation: 1, delivery: delivery() });
     // Inspect a separate DB connection before ACK succeeds: durability is the contract.
     const inspection = new FleetOutboundStore(file, binding);

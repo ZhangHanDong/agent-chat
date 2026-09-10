@@ -7,7 +7,7 @@ import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve('.');
 const preflightScript = path.join(repoRoot, 'scripts', 'verify-cd-preflight.sh');
-const dirtyMarker = path.join(repoRoot, '.hafleet-preflight-test-dirty');
+const dirtyMarker = path.join(repoRoot, '.hagency-preflight-test-dirty');
 
 async function runPreflight(args = [], env = {}) {
   return execFileAsync('bash', [preflightScript, ...args], {
@@ -15,9 +15,9 @@ async function runPreflight(args = [], env = {}) {
     timeout: 8000,
     env: {
       ...process.env,
-      HAFLEET_DEPLOY_BRANCH: '',
-      HAFLEET_API: '',
-      HAFLEET_SERVER: '',
+      HAGENCY_DEPLOY_BRANCH: '',
+      HAGENCY_API: '',
+      HAGENCY_SERVER: '',
       VERIFY_AGENT: '',
       API_TOKEN: '',
       ...env,
@@ -39,8 +39,8 @@ describe('verify-cd-preflight script', () => {
     const shortCommit = await git(['rev-parse', '--short', 'HEAD']);
 
     const { stdout } = await runPreflight(['--skip-ci', '--allow-dirty'], {
-      HAFLEET_API: 'https://hafleet.example.test/',
-      HAFLEET_SERVER: 'remote-a',
+      HAGENCY_API: 'https://hagency.example.test/',
+      HAGENCY_SERVER: 'remote-a',
       VERIFY_AGENT: 'salt',
       API_TOKEN: 'secret-token',
     });
@@ -50,7 +50,7 @@ describe('verify-cd-preflight script', () => {
     expect(stdout).toContain('== source/package gate ==');
     expect(stdout).toContain('skipped (--skip-ci)');
     expect(stdout).toContain(
-      `hafleet verify-remote --samples 2 --interval 16 --expect-version ${shortCommit} --api https://hafleet.example.test --server remote-a --agent salt`,
+      `hagency verify-remote --samples 2 --interval 16 --expect-version ${shortCommit} --api https://hagency.example.test --server remote-a --agent salt`,
     );
     expect(stdout).toContain('API_TOKEN: set (not printed)');
     expect(stdout).not.toContain('secret-token');
@@ -60,13 +60,13 @@ describe('verify-cd-preflight script', () => {
     const shortCommit = await git(['rev-parse', '--short', 'HEAD']);
 
     const { stdout } = await runPreflight(['--skip-ci', '--allow-dirty'], {
-      HAFLEET_API: 'https://hafleet.example.test/path?q=one&two=2',
-      HAFLEET_SERVER: 'remote a',
+      HAGENCY_API: 'https://hagency.example.test/path?q=one&two=2',
+      HAGENCY_SERVER: 'remote a',
       VERIFY_AGENT: 'salt;rm -rf /',
     });
 
     expect(stdout).toContain(
-      `hafleet verify-remote --samples 2 --interval 16 --expect-version ${shortCommit} --api https://hafleet.example.test/path\\?q=one\\&two=2 --server remote\\ a --agent salt\\;rm\\ -rf\\ /`,
+      `hagency verify-remote --samples 2 --interval 16 --expect-version ${shortCommit} --api https://hagency.example.test/path\\?q=one\\&two=2 --server remote\\ a --agent salt\\;rm\\ -rf\\ /`,
     );
   });
 

@@ -1,4 +1,4 @@
-# Integrate HAFleet PRs 154, 155, 156 and 158
+# Integrate Hagency PRs 154, 155, 156 and 158
 
 The operator requested repairing the four open PRs that conflicted with local
 master 212de5f after review closure and PR 157. Work runs in the isolated
@@ -51,7 +51,7 @@ the actual Vitest commands and full-suite results are recorded separately.
 
 Raw focused, full-suite, CI, build, native lifecycle and browser logs, screenshots
 and merge receipts are retained outside Git under
-~/Library/Caches/hafleet-review-closure/2026-09-09/open-pr-fixes/.
+~/Library/Caches/hagency-review-closure/2026-09-09/open-pr-fixes/.
 
 ## Merge outcome
 
@@ -66,12 +66,12 @@ branches:
 | 156 | e3f30dd | a78e122 |
 | 158 | ea0e1e1 | 0ab52fe |
 
-HAFleet has no remaining open PRs at this check. GitHub master is 0ab52fe;
+Hagency has no remaining open PRs at this check. GitHub master is 0ab52fe;
 its new post-merge CI run 34423003557 is still running at the time of this
 record. Local conflict resolutions preserve the newer local review/workflow
 history, which remains unpublished. Original PR merges on GitHub do not imply
 that those additional local commits have been pushed.
 
 The primary workspace's independent website coordination changes are preserved
-outside these commits. No live HAFleet, Palpo, Robrix or LLM service is changed
+outside these commits. No live Hagency, Palpo, Robrix or LLM service is changed
 or used as an acceptance fixture by this integration.

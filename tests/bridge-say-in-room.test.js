@@ -2,12 +2,12 @@
  * WHO SPEAKS IN A ROOM — behaviourally, because a source-level assertion could not see the defect.
  *
  * `!offer` typed by a customer on a clean pair of machines reached the dispatcher, was handled, and its
- * answer died with `M_FORBIDDEN: sender's membership is not 'join'`. Replies went out as HAFleet's own bot,
+ * answer died with `M_FORBIDDEN: sender's membership is not 'join'`. Replies went out as Hagency's own bot,
  * and on a project side the bot is not a member — the representative is. The customer saw nothing.
  *
  * THEN THE FIRST FIX WAS NOT ENOUGH, and that is the reason this file exists rather than another regex over
  * the source. Comparing the room's server against `MATRIX_SERVER_NAME` handles a customer on a DIFFERENT
- * homeserver. When a project side runs on the SAME homeserver as HAFleet's bot — an ordinary deployment, and
+ * homeserver. When a project side runs on the SAME homeserver as Hagency's bot — an ordinary deployment, and
  * the one this was walked on — the comparison says "ours", the bot is used, and the bot still is not in the
  * room. Identical silence, one branch over.
  *

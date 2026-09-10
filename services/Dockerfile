@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
 
-WORKDIR /opt/hafleet
+WORKDIR /opt/hagency
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends util-linux \
@@ -14,10 +14,10 @@ COPY --chown=node:node . .
 
 RUN chmod 0755 services/run-bridge-container.sh
 
-RUN mkdir -p /var/lib/hafleet/data /var/lib/hafleet/logs \
-    && chown -R node:node /var/lib/hafleet
+RUN mkdir -p /var/lib/hagency/data /var/lib/hagency/logs \
+    && chown -R node:node /var/lib/hagency
 
 ENV NODE_ENV=production
-ENV HAFLEET_RUNTIME_DIR=/var/lib/hafleet
+ENV HAGENCY_RUNTIME_DIR=/var/lib/hagency
 
 USER node

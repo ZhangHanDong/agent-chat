@@ -28,7 +28,7 @@ import { runtimeLabel, transportLabel } from '@/lib/agent-detail';
  *
  *  - Resources can supply an agent after a request is approved. Existing agents
  *    without a preset retain their configuration-repair controls below.
- *  - **Spend is not measured.** HAFleet meters no tokens at any granularity, so
+ *  - **Spend is not measured.** Hagency meters no tokens at any granularity, so
  *    every consumption figure here is a dash with a reason. A `0` would claim a
  *    measurement nobody takes, which is the difference between "this cost me
  *    nothing" and "I cannot see what this cost me".

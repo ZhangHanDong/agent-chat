@@ -7,13 +7,13 @@ cd "$ROOT_DIR"
 # Raised from 90s: kernel test shards now run at concurrency 1 to avoid a
 # memory-pressure flake in the backend test harness (see docs/TESTING.md), which
 # takes ~171s instead of ~69s. This is a hang guard, not a performance budget.
-VERIFY_CI_TIMEOUT_SEC="${HAFLEET_VERIFY_CI_TIMEOUT_SEC:-300}"
-if [[ "${HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE:-0}" != "1" ]]; then
+VERIFY_CI_TIMEOUT_SEC="${HAGENCY_VERIFY_CI_TIMEOUT_SEC:-300}"
+if [[ "${HAGENCY_VERIFY_CI_TIMEOUT_ACTIVE:-0}" != "1" ]]; then
   if ! [[ "$VERIFY_CI_TIMEOUT_SEC" =~ ^[0-9]+$ ]] || [[ "$VERIFY_CI_TIMEOUT_SEC" -le 0 ]]; then
     echo "verify:ci timeout must be a positive integer number of seconds (got: $VERIFY_CI_TIMEOUT_SEC)" >&2
     exit 2
   fi
-  timeout_bin="${HAFLEET_TIMEOUT_BIN:-}"
+  timeout_bin="${HAGENCY_TIMEOUT_BIN:-}"
   if [[ -z "$timeout_bin" ]]; then
     if command -v timeout >/dev/null 2>&1; then
       timeout_bin="$(command -v timeout)"
@@ -23,9 +23,9 @@ if [[ "${HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE:-0}" != "1" ]]; then
   fi
   set +e
   if [[ -n "$timeout_bin" ]]; then
-    HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE=1 "$timeout_bin" --kill-after=5s "${VERIFY_CI_TIMEOUT_SEC}s" bash "$0" "$@"
+    HAGENCY_VERIFY_CI_TIMEOUT_ACTIVE=1 "$timeout_bin" --kill-after=5s "${VERIFY_CI_TIMEOUT_SEC}s" bash "$0" "$@"
   else
-    HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE=1 node scripts/with-timeout.js "$VERIFY_CI_TIMEOUT_SEC" bash "$0" "$@"
+    HAGENCY_VERIFY_CI_TIMEOUT_ACTIVE=1 node scripts/with-timeout.js "$VERIFY_CI_TIMEOUT_SEC" bash "$0" "$@"
   fi
   status=$?
   set -e
@@ -105,7 +105,7 @@ start_step() {
   local name="$1"
   shift
   local log_file
-  log_file="$(mktemp "${TMPDIR:-/tmp}/hafleet-verify-ci.XXXXXX")"
+  log_file="$(mktemp "${TMPDIR:-/tmp}/hagency-verify-ci.XXXXXX")"
   step_names+=("$name")
   step_logs+=("$log_file")
   set -m
@@ -140,7 +140,7 @@ wait_step() {
   return "$status"
 }
 
-unset HAFLEET_VERIFY_CI_TIMEOUT_ACTIVE
+unset HAGENCY_VERIFY_CI_TIMEOUT_ACTIVE
 
 start_step "environment" npm run report:ci-env
 if ! wait_step 0; then
@@ -162,7 +162,7 @@ start_step "architecture boundaries" npm run check:architecture-boundaries
 # — a send routed to the wrong customer's homeserver, and a removed side's rooms lingering in bridge
 # state — were both invisible to every single-side test in this suite, and both were found by hand.
 start_step "multi-tenancy (skips without a second homeserver)" npm run check:multi-side
-# Skips without HAFLEET_RUNTIME_DIR, which CI does not have — so this is a no-op there and a real check on
+# Skips without HAGENCY_RUNTIME_DIR, which CI does not have — so this is a no-op there and a real check on
 # a developer's machine. Wired in anyway: a step that exists only in someone's shell history is a step
 # nobody runs.
 start_step "agent end-to-end (skips without a runtime)" npm run check:agent-e2e

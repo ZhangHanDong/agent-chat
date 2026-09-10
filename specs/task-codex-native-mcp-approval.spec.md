@@ -7,7 +7,7 @@ tags: [codex, mcp, approval, regression]
 
 ## Intent
 
-Repair a real Codex 0.153.4 dispatch blocked before its first HAFleet MCP call.
+Repair a real Codex 0.153.4 dispatch blocked before its first Hagency MCP call.
 The app-server sends mcpServer/elicitation/request, which the current runner
 silently ignores. Preserve the accepted narrow control-plane exception and
 route other identified tool approvals through the existing owner flow.
@@ -16,7 +16,7 @@ route other identified tool approvals through the existing owner flow.
 
 ### Must
 - Correlate a native MCP request to exactly one unconsumed active tool item in the same thread, turn and server with identical arguments.
-- Reuse the existing HAFleet coordination predicate injected by the backend; preserve the exact whitelist and attachment policy.
+- Reuse the existing Hagency coordination predicate injected by the backend; preserve the exact whitelist and attachment policy.
 - Bind owner decisions to the real correlated item id, native request id and complete operation digest before replying.
 - Return native single-call responses without session or persistent approval grants.
 - Make unsupported, malformed, stale and ambiguous server requests fail closed with a visible reason.
@@ -53,15 +53,15 @@ route other identified tool approvals through the existing owner flow.
 
 ## Acceptance Criteria
 
-Scenario: Exact HAFleet coordination avoids recursive owner approval
-  Test: native HAFleet coordination uses the existing exact predicate and accepts only once
-  Given one current HAFleet tool item matches its native request
+Scenario: Exact Hagency coordination avoids recursive owner approval
+  Test: native Hagency coordination uses the existing exact predicate and accepts only once
+  Given one current Hagency tool item matches its native request
   When the existing predicate identifies a coordination operation without attachments
   Then the exact native request receives accept without parking or persistent grant
 
 Scenario: Other tools remain durably owner gated
   Test: native MCP owner approval binds actual item request and digest before native response
-  Given a current non-exempt MCP call or HAFleet message with attachments
+  Given a current non-exempt MCP call or Hagency message with attachments
   When its owner allows or denies the parked operation
   Then the durable decision is applied before the corresponding accept or decline response
 
@@ -127,6 +127,6 @@ Scenario: Canonical arguments preserve every own property
 
 ## Out of Scope
 
-- Changing the established HAFleet coordination whitelist or task capability authorization.
+- Changing the established Hagency coordination whitelist or task capability authorization.
 - Collecting generic form input, opening authentication URLs, or modifying UI approval schemas.
 - Stopping or replaying the currently blocked real dispatch; the operator owns that recovery.

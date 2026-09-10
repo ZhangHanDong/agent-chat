@@ -15,7 +15,7 @@ Robrix 的 Homeserver URL 使用：
 Mini1 的 `/etc/caddy/Caddyfile` 新增 HTTPS19443站点，复用已有域名证书，
 转发 Matrix client/media API 到 Mini1 本机18010。现有
 `io.ominix.caddy` 系统服务负责启动和证书维护。Palpo 容器和数据库无需重建。
-Palpo 管理后台仍走原18080入口；HAFleet 的 App Service 反向回调仍保留原
+Palpo 管理后台仍走原18080入口；Hagency 的 App Service 反向回调仍保留原
 SSH 通道，本次只更改 Matrix 客户端公网入口。
 
 2026-09-08验证：Chrome通过公网完成真实账号登录，whoami、房间列表、

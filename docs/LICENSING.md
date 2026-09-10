@@ -1,6 +1,6 @@
 # Licensing
 
-**Status: resolved. HAFleet is Apache 2.0 and is distributable.**
+**Status: resolved. Hagency is Apache 2.0 and is distributable.**
 
 Upstream [`shisuiki/agent-chat`](https://github.com/shisuiki/agent-chat) adopted
 the Apache License 2.0 on 2026-07-29 (commit `aa8e5e5`, "Create LICENSE"),
@@ -15,14 +15,14 @@ gh repo view shisuiki/agent-chat --json licenseInfo
 
 ## Why this mattered
 
-HAFleet is a **fork**, and until that commit upstream published no license. A
+Hagency is a **fork**, and until that commit upstream published no license. A
 public repository with no license is *all rights reserved*: GitHub's Terms of
 Service grant the right to view and fork within GitHub and nothing more — no
 right to redistribute or relicense elsewhere.
 
-Since **717 commits** of this tree are inherited from upstream, HAFleet could not
+Since **717 commits** of this tree are inherited from upstream, Hagency could not
 adopt Apache 2.0 for the whole tree on its own. That is no longer the case:
-upstream and HAFleet are now under the same license.
+upstream and Hagency are now under the same license.
 
 ## Provenance, kept for attribution
 
@@ -75,7 +75,7 @@ optional appendix. That is not a conflict.
 
 ## Obligations when distributing
 
-Apache 2.0 §4 applies to HAFleet as it does to anything else. When you ship a
+Apache 2.0 §4 applies to Hagency as it does to anything else. When you ship a
 release, an image, or a fork:
 
 1. include `LICENSE`;

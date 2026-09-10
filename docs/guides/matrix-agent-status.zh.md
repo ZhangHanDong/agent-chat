@@ -5,7 +5,7 @@ Agent 的 Matrix 显示名称与完整 Matrix ID 是两回事。项目方在 Pal
 完整 Matrix ID 保持不变，现有邀请、私聊、授权和历史消息继续有效。
 使用 Palpo 管理员账号进入后台，Agent 卡片的 `Edit display name` 是手动
 修改显示名称的入口；普通项目方账号不能调用这个管理员接口。
-HAFleet 不覆盖已经手工改过的显示名称。
+Hagency 不覆盖已经手工改过的显示名称。
 
 在 DM 中直接发送请求；在多人房间中 @ 要工作的 Agent。每轮请求有一条
 状态消息，后续进展编辑这条消息：
@@ -27,7 +27,7 @@ HAFleet 不覆盖已经手工改过的显示名称。
 私聊和加密发送路径；DM 转多人房间后，旧私聊的状态不能转发到群里。
 状态更新不进入 Agent 的讨论上下文，也不触发另一个 Agent。
 
-2026-09-08 已在本地 HAFleet 和 Mini1 Palpo 上部署。真实 Codex 验证包括
+2026-09-08 已在本地 Hagency 和 Mini1 Palpo 上部署。真实 Codex 验证包括
 一个不带 @ 的 DM，以及两个 Agent 同时工作的 thread；每轮都运行了约
 35 秒的本地命令，观察到回答之前的进度、持续更新和结束状态。
 Playwright 使用 Element Web 验证 Matrix 客户端显示；未把它称作 Robrix2

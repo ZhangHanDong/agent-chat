@@ -27,7 +27,7 @@ async function boot({ ceilingTokens = 1_000_000 } = {}) {
     agents: {
       [AGENT]: { name: AGENT, type: 'agent', kind: 'agent', online: true, role: 'coding' },
     },
-    env: { API_TOKEN: TOKEN, HAFLEET_OWNER_MXID: '@owner:palpo.test', HAFLEET_OWNER_DM_ROOM: '!owner-dm:palpo.test' },
+    env: { API_TOKEN: TOKEN, HAGENCY_OWNER_MXID: '@owner:palpo.test', HAGENCY_OWNER_DM_ROOM: '!owner-dm:palpo.test' },
   });
   const app = context.app;
   /*

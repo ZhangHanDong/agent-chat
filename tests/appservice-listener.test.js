@@ -52,23 +52,23 @@ describe('it is OFF unless a port is set', () => {
      * The whole opt-in. An operator who has not decided to expose anything gets no socket — not a
      * socket on a default port they never chose.
      */
-    for (const env of [{}, { HAFLEET_APPSERVICE_PORT: '' }, { HAFLEET_APPSERVICE_PORT: '   ' }]) {
+    for (const env of [{}, { HAGENCY_APPSERVICE_PORT: '' }, { HAGENCY_APPSERVICE_PORT: '   ' }]) {
       const cfg = resolveAppserviceListenerConfig(env);
       expect(cfg.enabled).toBe(false);
-      expect(cfg.reason).toMatch(/HAFLEET_APPSERVICE_PORT/);
+      expect(cfg.reason).toMatch(/HAGENCY_APPSERVICE_PORT/);
     }
   });
 
   test('an unusable port is refused with the value, not silently defaulted', () => {
     for (const bad of ['abc', '0', '-1', '70000', '8009x']) {
-      const cfg = resolveAppserviceListenerConfig({ HAFLEET_APPSERVICE_PORT: bad });
+      const cfg = resolveAppserviceListenerConfig({ HAGENCY_APPSERVICE_PORT: bad });
       expect(cfg.enabled, bad).toBe(false);
       expect(cfg.reason, bad).toContain(bad);
     }
   });
 
   test('a valid port enables it', () => {
-    const cfg = resolveAppserviceListenerConfig({ HAFLEET_APPSERVICE_PORT: '8009' });
+    const cfg = resolveAppserviceListenerConfig({ HAGENCY_APPSERVICE_PORT: '8009' });
     expect(cfg).toMatchObject({ enabled: true, port: 8009 });
   });
 });
@@ -76,14 +76,14 @@ describe('it is OFF unless a port is set', () => {
 describe('it is LOOPBACK unless explicitly widened', () => {
   test('the default bind is loopback', () => {
     expect(DEFAULT_APPSERVICE_BIND).toBe('127.0.0.1');
-    expect(resolveAppserviceListenerConfig({ HAFLEET_APPSERVICE_PORT: '8009' }).host).toBe('127.0.0.1');
+    expect(resolveAppserviceListenerConfig({ HAGENCY_APPSERVICE_PORT: '8009' }).host).toBe('127.0.0.1');
   });
 
   test('an empty bind value falls back to loopback rather than to every interface', () => {
     // `''` and whitespace are what an unset variable in a shell script looks like. Reading them as
     // "bind everything" is how a surface reaches the LAN by accident.
     for (const bind of ['', '   ']) {
-      expect(resolveAppserviceListenerConfig({ HAFLEET_APPSERVICE_PORT: '8009', HAFLEET_APPSERVICE_BIND: bind }).host)
+      expect(resolveAppserviceListenerConfig({ HAGENCY_APPSERVICE_PORT: '8009', HAGENCY_APPSERVICE_BIND: bind }).host)
         .toBe('127.0.0.1');
     }
   });
@@ -95,7 +95,7 @@ describe('it is LOOPBACK unless explicitly widened', () => {
      * startup, not discovered from a port scan.
      */
     const wide = resolveAppserviceListenerConfig({
-      HAFLEET_APPSERVICE_PORT: '8009', HAFLEET_APPSERVICE_BIND: '0.0.0.0',
+      HAGENCY_APPSERVICE_PORT: '8009', HAGENCY_APPSERVICE_BIND: '0.0.0.0',
     });
     expect(wide.enabled).toBe(true);
     expect(wide.exposedBeyondLoopback).toBe(true);
@@ -104,7 +104,7 @@ describe('it is LOOPBACK unless explicitly widened', () => {
   test('loopback spellings are NOT reported as exposed', () => {
     for (const host of ['127.0.0.1', '::1', 'localhost']) {
       expect(resolveAppserviceListenerConfig({
-        HAFLEET_APPSERVICE_PORT: '8009', HAFLEET_APPSERVICE_BIND: host,
+        HAGENCY_APPSERVICE_PORT: '8009', HAGENCY_APPSERVICE_BIND: host,
       }).exposedBeyondLoopback, host).toBe(false);
     }
   });

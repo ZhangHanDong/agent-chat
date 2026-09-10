@@ -1,8 +1,8 @@
-# HAFleet contribution console
+# Hagency contribution console
 
 A Next.js app implementing the design in
-[`../docs/design/hafleet-as-contribution-console.md`](../docs/design/hafleet-as-contribution-console.md).
-It reads a real backend through a same-origin proxy (`app/api/hafleet/`) and writes to it where a
+[`../docs/design/hagency-as-contribution-console.md`](../docs/design/hagency-as-contribution-console.md).
+It reads a real backend through a same-origin proxy (`app/api/hagency/`) and writes to it where a
 page has a form; every page labels which of its slices came from the backend and which from the
 fixture. With no backend reachable — a static export has no proxy at all — it renders the fixture
 and says so. (This line read "mock data only", which stopped being true when the integration
@@ -11,8 +11,8 @@ landed.)
 ```bash
 cd mockup
 npm ci
-# Set HAFLEET_BACKEND (default http://127.0.0.1:8090) and
-# HAFLEET_API_TOKEN in this server process's environment, or in .env.local.
+# Set HAGENCY_BACKEND (default http://127.0.0.1:8090) and
+# HAGENCY_API_TOKEN in this server process's environment, or in .env.local.
 # Use the operator token for the same local deployment; never use NEXT_PUBLIC_*.
 npm run build && npm start   # http://localhost:3100
 ```
@@ -117,7 +117,7 @@ browser regression is `BASE=http://127.0.0.1:13203 node scripts/check-resource-f
   the chart, values from the table.
 - **A blank is never a zero.** A consumption figure appears only where something measured it;
   everywhere else it is a dash with the reason in place. `0` would claim a measurement nobody
-  took. (This read "nothing in HAFleet meters tokens", which was true when it was written and
+  took. (This read "nothing in Hagency meters tokens", which was true when it was written and
   is now true only per framework and per agent — the rule is unchanged, its reach is not.)
 - **An unenforced ceiling says so beside the number**, or a reader treats a declaration of
   intent as a guard rail.

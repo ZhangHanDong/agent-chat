@@ -51,7 +51,7 @@ const ONLY = process.env.ONLY ? new Set(process.env.ONLY.split(',')) : null;
  * the operator was reading.
  *
  * THE RIGHT FIX IS A DISPOSABLE BACKEND and this is not it. The console resolves
- * `HAFLEET_BACKEND` at module scope, so a running console cannot be repointed, and the backend
+ * `HAGENCY_BACKEND` at module scope, so a running console cannot be repointed, and the backend
  * exposes nothing this script could use to tell a throwaway instance from a live one. Until that
  * exists, the decision belongs to the operator rather than to a default: read-only checks run
  * everywhere, and anything that writes requires saying so.
@@ -500,7 +500,7 @@ suites.wizard = async (page) => {
    * The first version of this check asserted that a `launchable: false` manifest was
    * disclosed as unable to launch — which is the defect, not the requirement. Every
    * ACP manifest carries that flag and every reason says "start it with
-   * `hafleet acp-up` instead": a different command, not an inability. Warning on it
+   * `hagency acp-up` instead": a different command, not an inability. Warning on it
    * told a contributor their installed, working Octos could not run.
    *
    * The fact worth warning about is what the HOST PROBE knows: not installed here.
@@ -1248,7 +1248,7 @@ suites.writes = async (page) => {
  * outgoing URL was built by interpolating that same string — which `new URL()`
  * decodes and normalizes AGAIN. So the string checked was not the string requested:
  *
- *   DELETE /api/hafleet/whitelist/%252e%252e/agents/victim
+ *   DELETE /api/hagency/whitelist/%252e%252e/agents/victim
  *     -> Next decodes to  whitelist/%2e%2e/agents/victim   (matches /^whitelist\/.+$/)
  *     -> fetch() resolves to  DELETE /api/agents/victim
  *
@@ -1301,7 +1301,7 @@ suites.proxyBoundary = async () => {
    * that was not allowlisted. `DELETE agents/:name` was then admitted so the Remove button
    * could do what it claimed, and this check began failing with HTTP 200 — not because a
    * boundary broke, but because the check had been measuring allowlist COVERAGE and calling
-   * it traversal resistance. Sending `DELETE /api/hafleet/agents/X` directly gets the
+   * it traversal resistance. Sending `DELETE /api/hagency/agents/X` directly gets the
    * identical response, so the encoded form buys an attacker nothing.
    *
    * Targets below are therefore chosen so the expectation is real: each normalizes onto a
@@ -1332,7 +1332,7 @@ suites.proxyBoundary = async () => {
     ['single-encoded dots onto engagement deletion', 'DELETE', 'whitelist/%2e%2e/engagements/en_probe'],
   ];
   for (const [label, method, template] of attacks) {
-    const url = `${BASE}/api/hafleet/${template.replace('PLACEHOLDER', victim ?? 'x')}`;
+    const url = `${BASE}/api/hagency/${template.replace('PLACEHOLDER', victim ?? 'x')}`;
     // eslint-disable-next-line no-await-in-loop
     const res = await fetch(url, { method });
     check(`proxy refuses ${label}`, res.status === 400 || res.status === 403,
@@ -1348,8 +1348,8 @@ suites.proxyBoundary = async () => {
    */
   const ghost = 'no-such-agent-for-traversal-probe';
   const [viaDots, direct] = await Promise.all([
-    fetch(`${BASE}/api/hafleet/whitelist/%2e%2e/agents/${ghost}`, { method: 'DELETE' }),
-    fetch(`${BASE}/api/hafleet/agents/${ghost}`, { method: 'DELETE' }),
+    fetch(`${BASE}/api/hagency/whitelist/%2e%2e/agents/${ghost}`, { method: 'DELETE' }),
+    fetch(`${BASE}/api/hagency/agents/${ghost}`, { method: 'DELETE' }),
   ]);
   check('a traversal onto an allowlisted route is treated exactly as that route',
     viaDots.status === direct.status,
@@ -1369,7 +1369,7 @@ suites.proxyBoundary = async () => {
    * and widen the offer it was measured against. Checked against the backend
    * directly, since the proxy never carries this credential.
    */
-  const reqTok = process.env.HAFLEET_REQUESTER_TOKEN ?? 'reqtoken';
+  const reqTok = process.env.HAGENCY_REQUESTER_TOKEN ?? 'reqtoken';
   const asRequester = (path, method, body) => fetch(`${BACKEND}/api/${path}`, {
     method,
     headers: { Authorization: `Bearer ${reqTok}`, 'Content-Type': 'application/json' },
@@ -1382,7 +1382,7 @@ suites.proxyBoundary = async () => {
   });
   if (submitted.status === 401) {
     skip('a requester token submits but cannot decide',
-      'HAFLEET_REQUESTER_TOKEN is not configured on this backend, so the split cannot be observed');
+      'HAGENCY_REQUESTER_TOKEN is not configured on this backend, so the split cannot be observed');
   } else {
     check('a requester token can submit a request', submitted.ok, `HTTP ${submitted.status}`);
     const created = submitted.ok ? (await submitted.json()).engagement : null;
@@ -1418,10 +1418,10 @@ suites.proxyBoundary = async () => {
    * request carrying evidence that it was forwarded is refused. Both a non-loopback
    * tail and a spoofed-loopback tail behind a real hop must fail.
    */
-  const remote = await fetch(`${BASE}/api/hafleet/agents`, { headers: { 'X-Forwarded-For': '10.1.1.5' } });
+  const remote = await fetch(`${BASE}/api/hagency/agents`, { headers: { 'X-Forwarded-For': '10.1.1.5' } });
   check('proxy refuses a caller that says it was forwarded', remote.status === 403,
     `HTTP ${remote.status}`);
-  const spoofed = await fetch(`${BASE}/api/hafleet/agents`, { headers: { 'X-Forwarded-For': '10.1.1.5, 127.0.0.1' } });
+  const spoofed = await fetch(`${BASE}/api/hagency/agents`, { headers: { 'X-Forwarded-For': '10.1.1.5, 127.0.0.1' } });
   check('and a loopback tail does not launder a remote hop in front of it',
     spoofed.status === 403, `HTTP ${spoofed.status}`);
 
@@ -1433,7 +1433,7 @@ suites.proxyBoundary = async () => {
    * POST here with no preflight, and the proxy relabels it application/json and
    * attaches the operator token. One visited page could whitelist a room.
    */
-  const crossSite = await fetch(`${BASE}/api/hafleet/whitelist`, {
+  const crossSite = await fetch(`${BASE}/api/hagency/whitelist`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain', 'Sec-Fetch-Site': 'cross-site', Origin: 'https://evil.example' },
     body: JSON.stringify({ projectRoomId: '!csrf:hq.example', displayName: 'csrf' }),
@@ -1454,18 +1454,18 @@ suites.proxyBoundary = async () => {
 
   // The allowlist must permit the action it names and no more: a room id is ONE
   // segment, and `whitelist/.+` used to pre-authorise any nested DELETE added later.
-  const nested = await fetch(`${BASE}/api/hafleet/whitelist/a/b`, { method: 'DELETE' });
+  const nested = await fetch(`${BASE}/api/hagency/whitelist/a/b`, { method: 'DELETE' });
   check('proxy refuses a nested whitelist delete', nested.status === 403, `HTTP ${nested.status}`);
 
   // And the writes it exists to permit still work, or the fix has broken the console.
   const room = '!proxyBoundaryCheck:hq.example';
-  const add = await fetch(`${BASE}/api/hafleet/whitelist`, {
+  const add = await fetch(`${BASE}/api/hagency/whitelist`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ projectRoomId: room, displayName: 'boundary check' }),
   });
   check('a legitimate whitelist write still passes the proxy', add.ok, `HTTP ${add.status}`);
-  const del = await fetch(`${BASE}/api/hafleet/whitelist/${encodeURIComponent(room)}`, { method: 'DELETE' });
+  const del = await fetch(`${BASE}/api/hagency/whitelist/${encodeURIComponent(room)}`, { method: 'DELETE' });
   check('and so does its removal, room id and all', del.ok, `HTTP ${del.status}`);
 };
 

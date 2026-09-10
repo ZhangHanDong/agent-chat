@@ -50,10 +50,10 @@ function runVerifyRemote(args, options = {}) {
     timeout: options.timeout || 8000,
     env: {
       ...process.env,
-      HAFLEET_INTERNAL_DISPATCH: '1',
+      HAGENCY_INTERNAL_DISPATCH: '1',
       API_TOKEN: '',
-      HAFLEET_API: '',
-      HAFLEET_SERVER: '',
+      HAGENCY_API: '',
+      HAGENCY_SERVER: '',
       ...options.env,
     },
   });
@@ -211,7 +211,7 @@ describe('verify-remote cli', () => {
       '--server', 'remote-a',
       '--samples', '1',
       '--interval', '1',
-    ], { env: { AGENT_NAME: 'hafleet-develop' } });
+    ], { env: { AGENT_NAME: 'hagency-develop' } });
 
     expect(stdout).not.toContain('Verifying agent state');
     expect(stdout).toContain('verify-remote passed.');

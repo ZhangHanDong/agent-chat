@@ -17,7 +17,7 @@
 # again at the end — including the side itself, which is the third assertion.
 #
 # Usage:
-#   HAFLEET_RUNTIME_DIR=~/.hafleet-e2e-runtime scripts/verify-multi-side.sh
+#   HAGENCY_RUNTIME_DIR=~/.hagency-e2e-runtime scripts/verify-multi-side.sh
 #
 # Requires a second homeserver. Bring one up with:
 #   scripts/verify-multi-side.sh --print-second-homeserver
@@ -26,11 +26,11 @@
 
 set -uo pipefail
 
-RUNTIME="${HAFLEET_RUNTIME_DIR:-}"
-BACKEND="${HAFLEET_BACKEND_URL:-http://127.0.0.1:8090}"
+RUNTIME="${HAGENCY_RUNTIME_DIR:-}"
+BACKEND="${HAGENCY_BACKEND_URL:-http://127.0.0.1:8090}"
 SIDE_B="${MULTI_SIDE_SERVER:-acme.test}"
 SIDE_B_URL="${MULTI_SIDE_URL:-http://127.0.0.1:8018}"
-SIDE_B_REG="${MULTI_SIDE_REGISTRATION:-$HOME/.hafleet-palpo-b/appservices/hafleet.yaml}"
+SIDE_B_REG="${MULTI_SIDE_REGISTRATION:-$HOME/.hagency-palpo-b/appservices/hagency.yaml}"
 
 failed=0
 check() {
@@ -69,9 +69,9 @@ if [ "${1:-}" = "--print-second-homeserver" ]; then
   cat <<'DOC'
 A second homeserver, for the isolation assertions. Ports are +10 from the first so they cannot collide.
 
-  mkdir -p ~/.hafleet-palpo-b/{data/media,appservices}
+  mkdir -p ~/.hagency-palpo-b/{data/media,appservices}
 
-  cat > ~/.hafleet-palpo-b/palpo.toml <<'TOML'
+  cat > ~/.hagency-palpo-b/palpo.toml <<'TOML'
   server_name = "acme.test"
   allow_registration = true
   appservice_registration_dir = "/var/palpo/appservices"
@@ -92,7 +92,7 @@ DOC
 fi
 
 if [ -z "$RUNTIME" ]; then
-  skip_or_fail "HAFLEET_RUNTIME_DIR is required. There is no safe default: guessing would run these assertions — including a side REMOVAL — against a fleet other than the one you meant."
+  skip_or_fail "HAGENCY_RUNTIME_DIR is required. There is no safe default: guessing would run these assertions — including a side REMOVAL — against a fleet other than the one you meant."
 fi
 # shellcheck disable=SC1091
 set -a; . "$RUNTIME/.env" >/dev/null 2>&1 || true; set +a
@@ -134,7 +134,7 @@ A_BUDGET_BEFORE=$(api "$BACKEND/api/project-sides/$SIDE_A/budget" | jq_py "print
 
 # ── onboard the second side ────────────────────────────────────────────────────────────────────────
 api -X POST -d "{\"server_name\":\"$SIDE_B\",\"api_base_url\":\"$SIDE_B_URL\"}" "$BACKEND/api/project-sides" > /dev/null
-api -X PUT -d "{\"credential\":{\"kind\":\"appservice\",\"asToken\":\"$AS_B\",\"hsToken\":\"$HS_B\",\"namespace\":\"@ac_.*\",\"senderLocalpart\":\"hafleet\"}}" \
+api -X PUT -d "{\"credential\":{\"kind\":\"appservice\",\"asToken\":\"$AS_B\",\"hsToken\":\"$HS_B\",\"namespace\":\"@ac_.*\",\"senderLocalpart\":\"hagency\"}}" \
   "$BACKEND/api/project-sides/$SIDE_B/credential" > /dev/null
 VERDICT=$(api -X POST "$BACKEND/api/project-sides/$SIDE_B/verify" | jq_py "print(d.get('side',{}).get('accessState'))")
 check "the second side's credential is accepted by its homeserver" "$([ "$VERDICT" = "accepted" ] && echo 1 || echo 0)" "got $VERDICT"
@@ -146,9 +146,9 @@ AS_A=$(curl -s -H "X-Bridge-Secret: ${MATRIX_BRIDGE_SECRET:-}" "$BACKEND/api/pro
 A_URL=$(api "$BACKEND/api/project-sides" | jq_py "print(next((s['apiBaseUrl'] for s in d.get('sides',[]) if s['id']=='$SIDE_A'), ''))")
 if [ -n "$AS_A" ] && [ -n "$A_URL" ]; then
   X1=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $AS_B" \
-    "$A_URL/_matrix/client/v3/account/whoami?user_id=%40hafleet%3A$SIDE_A")
+    "$A_URL/_matrix/client/v3/account/whoami?user_id=%40hagency%3A$SIDE_A")
   X2=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $AS_A" \
-    "$SIDE_B_URL/_matrix/client/v3/account/whoami?user_id=%40hafleet%3A$SIDE_B")
+    "$SIDE_B_URL/_matrix/client/v3/account/whoami?user_id=%40hagency%3A$SIDE_B")
   check "each side's as_token is refused by the OTHER homeserver" \
     "$([ "$X1" = "401" ] && [ "$X2" = "401" ] && echo 1 || echo 0)" "$SIDE_A=$X1 $SIDE_B=$X2"
 else
@@ -160,7 +160,7 @@ CROSS=$(node --input-type=module -e "
 const { inviteToRoomOnSide } = await import('./lib/matrix-representative.js');
 const r = await inviteToRoomOnSide({
   side: { serverName: '$SIDE_B', apiBaseUrl: '$SIDE_B_URL' },
-  credential: { kind: 'appservice', asToken: 'unused', senderLocalpart: 'hafleet', namespace: '@ac_.*' },
+  credential: { kind: 'appservice', asToken: 'unused', senderLocalpart: 'hagency', namespace: '@ac_.*' },
   roomId: '!x:$SIDE_A', userId: '@ac_probe:$SIDE_A',
   fetchImpl: async () => { throw new Error('a request was made'); },
 });

@@ -1,7 +1,7 @@
 # PR 157 integration after review closure
 
-The operator requested merging the conflict-free open PRs. HAFleet PR 157 at
-36631ddd is the only reviewed open HAFleet PR that merges without conflict into
+The operator requested merging the conflict-free open PRs. Hagency PR 157 at
+36631ddd is the only reviewed open Hagency PR that merges without conflict into
 local master 49cfee5. GitHub merged it as 7f61fcd on 2026-09-10 at 00:22 UTC
 (September 9 locally). Its production delta updates Hono to 4.13.7 and Morgan to
 1.12.0, preserving the existing advisory baseline and allowlist.
@@ -29,12 +29,12 @@ Validation:
   attempt lacked console dependencies; the next caught the invalid manual
   selector described above. Both causes are corrected before the successful run.
 
-HAFleet PRs 154, 155, 156 and 158 conflict with the local review fixes and remain
+Hagency PRs 154, 155, 156 and 158 conflict with the local review fixes and remain
 outside this integration. Palpo PRs 377, 375, 372 and 360 are conflict-free against
 their upstream main, but the current GitHub account has only READ permission in
 palpo-im/palpo. No upstream Palpo merge is claimed. PR 374 has conflicts and a
 failed Complement check; PR 349 also conflicts.
 
 Raw commands, verification logs, PR state and merge receipts are retained under
-~/Library/Caches/hafleet-review-closure/2026-09-09/pr157-merge/. The operator's
+~/Library/Caches/hagency-review-closure/2026-09-09/pr157-merge/. The operator's
 independent website coordination changes remain outside the integration commits.

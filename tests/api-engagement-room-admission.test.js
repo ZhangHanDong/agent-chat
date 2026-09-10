@@ -95,7 +95,7 @@ async function boot({ hs = null, credential = null, allocatedTokens = 5_000_000,
       },
     },
     env: { MATRIX_BRIDGE_SECRET: BRIDGE_SECRET, MATRIX_AGENT_PREFIX: 'ac_',
-      HAFLEET_OWNER_MXID: '@owner:palpo.test', HAFLEET_OWNER_DM_ROOM: '!owner-dm:palpo.test' },
+      HAGENCY_OWNER_MXID: '@owner:palpo.test', HAGENCY_OWNER_DM_ROOM: '!owner-dm:palpo.test' },
   });
   const app = context.app;
   context.internals.approvalStoreForTest.upsertBinding({ agent: AGENT, project: 'admission', project_room_id: ROOM,
@@ -127,7 +127,7 @@ const asCredential = (over = {}) => ({
   asToken: 'as_secret_never_logged',
   hsToken: 'hs_secret',
   namespace: '@ac_.*',
-  senderLocalpart: 'hafleet',
+  senderLocalpart: 'hagency',
   ...over,
 });
 
@@ -228,7 +228,7 @@ describe('an approved engagement puts the agent in the room', () => {
      * (sender_localpart) and names the agent in its body; the join is masqueraded as the AGENT. Swap
      * them and you get a room holding the representative, reported as the agent having joined.
      */
-    expect(invite.url).toContain(encodeURIComponent(`@hafleet:${SIDE}`));
+    expect(invite.url).toContain(encodeURIComponent(`@hagency:${SIDE}`));
     expect(invite.body.user_id).toBe(`@ac_${AGENT}:${SIDE}`);
     expect(join.url).toContain(encodeURIComponent(`@ac_${AGENT}:${SIDE}`));
   });
@@ -321,7 +321,7 @@ describe('an approved engagement puts the agent in the room', () => {
  *
  * Confirmed on a live homeserver before it was written: after two runs of `e2e-full-loop.mjs`, whose own
  * teardown reported "the run leaves no room behind in any account", `@ac_soaker:palpo2.test` was still
- * joined to both abandoned project rooms. Revoking removed HAFleet's record of the attachment and left the
+ * joined to both abandoned project rooms. Revoking removed Hagency's record of the attachment and left the
  * agent sitting in somebody else's Matrix room, permanently, once per finished engagement. The suite could
  * not see it: it knows its own account and the bot's, and an agent is neither.
  */
@@ -434,8 +434,8 @@ describe('a revoked engagement gives the room seat back', () => {
     const app = await boot({ legacy: true, hs, credential: asCredential() });
     // An engagement whose room is on the contributor's own server needs no seat given back.
     const created = await request(app).post('/api/engagements').send({
-      project: 'local/thing', projectRoomId: '!local:hafleet.test', role: 'coding',
-      requester: '@me:hafleet.test', requestedTokens: 100_000, requestId: '$local-1',
+      project: 'local/thing', projectRoomId: '!local:hagency.test', role: 'coding',
+      requester: '@me:hagency.test', requestedTokens: 100_000, requestId: '$local-1',
     });
     const id = created.body.engagement.id;
     await request(app).post(`/api/engagements/${id}/verdict`).send({ approve: true }).expect(200);
@@ -567,7 +567,7 @@ describe('a refused invite says WHY, when the reason is power rather than creden
     const hs = await fakeHomeserver({
       inviteStatus: 403,
       inviteBody: { errcode: 'M_FORBIDDEN' },
-      powerLevels: { invite: 50, users_default: 0, users: { '@hafleet:palpo.test': 50 } },
+      powerLevels: { invite: 50, users_default: 0, users: { '@hagency:palpo.test': 50 } },
     });
     const app = await boot({ hs, credential: asCredential() });
     const r = await approve(app);

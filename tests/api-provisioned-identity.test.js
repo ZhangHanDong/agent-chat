@@ -78,7 +78,7 @@ async function boot({ hs = null, credential = 'appservice' } = {}) {
       .set('Authorization', `Bearer ${TOKEN}`)
       .send({
         credential: credential === 'appservice'
-          ? { kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok', namespace: '@ac_.*', senderLocalpart: 'hafleet' }
+          ? { kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok', namespace: '@ac_.*', senderLocalpart: 'hagency' }
           : { kind: 'registrationToken', registrationToken: 'reg-tok' },
       })
       .expect(200);
@@ -235,7 +235,7 @@ describe('a federating side lets an existing identity be reused', () => {
       seen.push(req.url);
       if (req.url.includes('/profile/')) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ displayname: 'HAFleet Bot' }));
+        return res.end(JSON.stringify({ displayname: 'Hagency Bot' }));
       }
       if (req.url.startsWith('/_matrix/client/v3/account/whoami')) {
         const m = /user_id=([^&]+)/.exec(req.url);
@@ -255,7 +255,7 @@ describe('a federating side lets an existing identity be reused', () => {
       API_TOKEN: TOKEN,
       MATRIX_AGENT_PREFIX: 'ac_',
       MATRIX_AGENT_MAX_PER_CELL: '1',
-      MATRIX_BOT_USERNAME: 'hafleetbot',
+      MATRIX_BOT_USERNAME: 'hagencybot',
       MATRIX_SERVER_NAME: 'matrix.example.test',
     };
     const hs = await federatingHomeserver();
@@ -266,7 +266,7 @@ describe('a federating side lets an existing identity be reused', () => {
       .send({ server_name: SIDE, api_base_url: hs.url }).expect(200);
     await request(app).put(`/api/project-sides/${SIDE}/credential`)
       .set('Authorization', `Bearer ${TOKEN}`)
-      .send({ credential: { kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok', namespace: '@ac_.*', senderLocalpart: 'hafleet' } })
+      .send({ credential: { kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok', namespace: '@ac_.*', senderLocalpart: 'hagency' } })
       .expect(200);
     /*
      * The allocation the main `boot` also sets. Without it the dispatch is refused by the budget gate
@@ -338,7 +338,7 @@ describe('a federating side lets an existing identity be reused', () => {
         API_TOKEN: TOKEN,
         MATRIX_AGENT_PREFIX: 'ac_',
         MATRIX_AGENT_MAX_PER_CELL: '1',
-        MATRIX_BOT_USERNAME: 'hafleetbot',
+        MATRIX_BOT_USERNAME: 'hagencybot',
         MATRIX_SERVER_NAME: 'matrix.example.test',
       },
     });
@@ -346,7 +346,7 @@ describe('a federating side lets an existing identity be reused', () => {
     await request(app).post('/api/project-sides').set('Authorization', `Bearer ${TOKEN}`)
       .send({ server_name: SIDE, api_base_url: fake.url }).expect(200);
     await request(app).put(`/api/project-sides/${SIDE}/credential`).set('Authorization', `Bearer ${TOKEN}`)
-      .send({ credential: { kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok', namespace: '@ac_.*', senderLocalpart: 'hafleet' } })
+      .send({ credential: { kind: 'appservice', asToken: 'as-tok', hsToken: 'hs-tok', namespace: '@ac_.*', senderLocalpart: 'hagency' } })
       .expect(200);
     await request(app).put(`/api/project-sides/${SIDE}/allocation`).set('Authorization', `Bearer ${TOKEN}`)
       .send({ allocated_tokens: 5_000_000 }).expect(200);

@@ -31,7 +31,7 @@ describe('Agent Operations authentication primitives', () => {
     expect(canonicalAgentOpsJson({ z: 1, a: { y: 2, x: 1 } }))
       .toBe('{"a":{"x":1,"y":2},"z":1}');
     expect(agentOpsBodyDigest({ b: 2, a: 1 })).toBe(agentOpsBodyDigest({ a: 1, b: 2 }));
-    const material = { schema: 'com.hafleet.agent_ops.v1', nonce: 'proof-1' };
+    const material = { schema: 'com.hagency.agent_ops.v1', nonce: 'proof-1' };
     const signature = sign(null, Buffer.from(canonicalAgentOpsJson(material)), pair.privateKey).toString('base64url');
     expect(verifyAgentOpsProof(publicJwk, signature, material)).toBe(true);
     expect(verifyAgentOpsProof({ ...publicJwk, extra: true }, signature, material)).toBe(false);

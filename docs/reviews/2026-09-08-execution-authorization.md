@@ -25,7 +25,7 @@ when any transition completes a task; reopening the same canonical task cannot
 revive an old task grant. Owner/binding changes and Agent recreation invalidate
 old grants. Verdicts remain digest-bound, single-use and authenticated.
 
-HAFleet rechecks its own rules for every callback and sends an ordinary native
+Hagency rechecks its own rules for every callback and sends an ordinary native
 accept/turn grant, rather than writing Codex policy files or broadly accepting
 the session. Revocation therefore affects subsequent requests; it cannot undo
 completed operations or permissions already held in the current native turn.
@@ -34,7 +34,7 @@ Agent-supplied registration and approval metadata cannot create those privileges
 
 ## Validation
 
-- 154 tests passed across nine focused HAFleet suites, including actual local
+- 154 tests passed across nine focused Hagency suites, including actual local
   fixture runners spanning multiple dispatches, API authority, resource-to-Agent
   inheritance, task reopening, revocation and existing attachment behavior.
 - Robrix2: 35 approval/action tests passed; native executable built. The two
@@ -44,19 +44,19 @@ Agent-supplied registration and approval metadata cannot create those privileges
 - Syntax, ESLint, architecture ownership, router boundary/build reproducibility,
   spec bindings and diff whitespace checks passed. A preexisting test's missing
   `ReadableStream` import was made explicit for the ESLint check.
-- HAFleet agent-spec parse/lint passed, quality 1.0. Its native lifecycle reports
+- Hagency agent-spec parse/lint passed, quality 1.0. Its native lifecycle reports
   boundary pass and five **skip** scenarios because it does not execute these
-  Vitest bindings. This is not reported as a passing HAFleet lifecycle.
+  Vitest bindings. This is not reported as a passing Hagency lifecycle.
 
 ## Mini1 and real Codex evidence
 
-The local HAFleet backend/bridge/console and Robrix2 Mini1 desktop were updated;
+The local Hagency backend/bridge/console and Robrix2 Mini1 desktop were updated;
 Palpo source and deployment were unchanged. All existing Agent YOLO settings
 remain off. The test-only durable grant was revoked through the live webpage.
 
 In Mini1's existing encrypted `octos-code-use · Private approvals` room, Robrix2
 rendered all four buttons with the exact scope. Clicking **Always allow this
-operation** produced an encrypted Matrix verdict, which HAFleet consumed before
+operation** produced an encrypted Matrix verdict, which Hagency consumed before
 the harmless sentinel command ran. A fresh real Codex dispatch reused that rule
 with no new owner verdict. After webpage revocation, the identical command again
 parked for approval and did not modify the sentinel. Test cleanup denied that

@@ -51,9 +51,9 @@ function resolveWorkdir(raw) {
 }
 
 function defaultApiBaseUrl(env = process.env) {
-  const explicit = String(env.HAFLEET_API || '').trim();
+  const explicit = String(env.HAGENCY_API || '').trim();
   if (explicit) return explicit.replace(/\/$/, '');
-  const port = parseInt(env.HAFLEET_BACKEND_PORT || '8090', 10);
+  const port = parseInt(env.HAGENCY_BACKEND_PORT || '8090', 10);
   return `http://127.0.0.1:${port}`;
 }
 

@@ -2,8 +2,8 @@
 
 Integrated workflow commit `c380959` with upstream `origin/master` at `4fb9749`
 on `integration/matrix-workflows-20260908`, in an isolated worktree. The original
-checkout's concurrent website planning files and the live HAFleet runtime were
-preserved. No branch was pushed and this HAFleet integration was not deployed.
+checkout's concurrent website planning files and the live Hagency runtime were
+preserved. No branch was pushed and this Hagency integration was not deployed.
 
 ## Resolutions
 
@@ -32,7 +32,7 @@ preserved. No branch was pushed and this HAFleet integration was not deployed.
 - Full `npm run test:ci`: **279 files passed; 4,151 tests passed, 1 skipped,
   0 failed**. The skip is the existing non-macOS installer refusal scenario on
   this macOS host. Final JSON is `test-results.json`; console evidence is
-  `/tmp/hafleet-integration-sharded-final.log`.
+  `/tmp/hagency-integration-sharded-final.log`.
 - Four direct-chat, invited-room and botless startup files were also checked
   after the SDK dependency-boundary adjustment: **9 tests passed**.
 - Router build/type/artifact checks, JavaScript syntax, undefined identifiers,
@@ -68,5 +68,5 @@ See each repository's integration report for evidence and limitations.
 
 The separately requested Palpo owner-renewal and status-timeout repairs were
 integrated as `b8b6bc80` and `0736f991` and deployed only to the dedicated Mini1
-web container. They do not change the direction of the HAFleet callback or remove
+web container. They do not change the direction of the Hagency callback or remove
 the existing reverse connection. A requested outbound-protocol review is separate.

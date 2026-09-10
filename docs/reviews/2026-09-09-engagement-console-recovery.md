@@ -15,7 +15,7 @@ a human Matrix account or delete the Agent identity.
 
 The requested room's actual Palpo and Matrix name is **Signup approval E2E 0909**,
 owned by the ordinary signup test account. The operator's `ymote` account created
-**octos-one**. HAFleet lacked all project metadata for the connected side, and the
+**octos-one**. Hagency lacked all project metadata for the connected side, and the
 Projects page rendered the room ID as its primary label.
 
 ## Changes

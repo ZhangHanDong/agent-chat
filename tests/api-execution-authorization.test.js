@@ -18,7 +18,7 @@ test('execution policy and grant management reject agent credentials and preserv
     },
     agentTokens: { edison: 'fixture-agent-token' },
     frameworkPresets: [{ id: 'pool', name: 'Pool', framework: 'codex', model: 'gpt-5.6-sol' }],
-    env: { API_TOKEN: 'fixture-operator', HAFLEET_AGENT_TOKEN_MODE: 'hard' },
+    env: { API_TOKEN: 'fixture-operator', HAGENCY_AGENT_TOKEN_MODE: 'hard' },
   });
   const endpoint = '/api/agents/edison/execution-policy';
   for (const headers of [{}, agentHeaders]) {

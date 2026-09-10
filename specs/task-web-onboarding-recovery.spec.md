@@ -29,8 +29,8 @@ observed launch/health outcomes without invented restart counts or ACP remedies.
 
 ### Allowed Changes
 - backend-v2.js
-- bin/hafleet-up
-- bin/hafleet-up-v1
+- bin/hagency-up
+- bin/hagency-up-v1
 - mockup/app/onboard/page.jsx
 - mockup/lib/console-workflow.js
 - mockup/lib/i18n.js

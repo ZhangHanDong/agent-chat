@@ -12,7 +12,7 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true });
 let passed = 0;
 async function check(locale, mode, route = '/resources') {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  await context.addInitScript(locale => localStorage.setItem('hafleet.locale', locale), locale);
+  await context.addInitScript(locale => localStorage.setItem('hagency.locale', locale), locale);
   const page = await context.newPage(), unexpected = [], errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await context.route('**/*', async route => {
@@ -21,7 +21,7 @@ async function check(locale, mode, route = '/resources') {
       unexpected.push(`${req.method()} ${url.pathname}`); return route.abort();
     }
     if (!url.pathname.startsWith('/api/')) return route.continue();
-    const p = url.pathname.replace('/api/hafleet/', '');
+    const p = url.pathname.replace('/api/hagency/', '');
     const reply = body => route.fulfill({ json: body });
     if (p === 'agents') return reply(mode === 'allocated' ? [agent] : []);
     if (p === 'framework-presets') return reply(mode === 'empty' ? [] : [resource]);

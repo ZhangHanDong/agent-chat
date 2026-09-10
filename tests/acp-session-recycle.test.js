@@ -11,7 +11,7 @@ import { readFileSync } from 'fs';
 // Idle time is NOT the trigger. Verified by driving the same agent after 3h42m idle
 // on a resumed session: it answered in 10s.
 
-const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
 
 describe('a session that stops answering is replaced', () => {
   test('a timed-out delivery triggers a recycle', () => {

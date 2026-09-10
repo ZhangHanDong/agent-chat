@@ -35,6 +35,6 @@ The disabled Config control is also checked through the shared React SSR rendere
 - Installed agent-spec 1.4.0 lifecycle passed its explicit boundary check and
   skipped eight Node scenarios. Lifecycle is not passing; exact Vitest runs
   above provide the executable behavior evidence. Local run logs are under
-  `/tmp/hafleet-dashboard-refresh-agent-spec`.
+  `/tmp/hagency-dashboard-refresh-agent-spec`.
 - No new translations, helper modules, UI operations, services, builds or commits
   were needed. Final production build and GUI checks belong to the parent task.

@@ -133,7 +133,7 @@ export const offers = [
  * A name-keyed whitelist would be spoofable by any project that renames itself
  * after a trusted one, so the name here is for reading only.
  *
- * Default-deny, following TRUSTED_HAFLEET_COORDINATION_TOOLS
+ * Default-deny, following TRUSTED_HAGENCY_COORDINATION_TOOLS
  * (lib/codex-permission-hook.js:15): anything not named is refused.
  */
 export const whitelist = [
@@ -162,7 +162,7 @@ export const ROUTE_REASONS = ['notWhitelisted', 'overOffer', 'overCeiling'];
 export const projectSides = [
   {
     id: 'hq.example', label: 'Acme HQ', credentialKind: 'appservice', accessState: 'ok',
-    representative: '@hafleet:hq.example', namespace: '@ac_.*',
+    representative: '@hagency:hq.example', namespace: '@ac_.*',
     awaitingInstall: false, credentialIssuedAt: null, active: true,
     allocatedTokens: 4_000_000,
     budget: { allocated: 4_000_000, committed: 1_550_000, remaining: 2_450_000 },
@@ -192,7 +192,7 @@ export const projectSides = [
   },
   {
     id: 'biglittle.example', label: 'BigLittle', credentialKind: 'registrationToken', accessState: 'ok',
-    representative: '@hafleet:biglittle.example', namespace: null,
+    representative: '@hagency:biglittle.example', namespace: null,
     awaitingInstall: false, credentialIssuedAt: null, active: true,
     allocatedTokens: 0,
     budget: { allocated: 0, committed: 0, remaining: 0 },
@@ -206,7 +206,7 @@ export const projectSides = [
      * an appservice's representative is its sender_localpart, which is decided when the file is written.
      */
     id: 'newco.example', label: 'NewCo', credentialKind: 'appservice', accessState: 'unverified',
-    representative: '@hafleet:newco.example', namespace: '@ac_.*',
+    representative: '@hagency:newco.example', namespace: '@ac_.*',
     awaitingInstall: true, credentialIssuedAt: 1_755_200_000_000, active: true,
     allocatedTokens: null,
     // Null, not zero. `remaining` cannot be computed from an allocation that does not exist.
@@ -424,7 +424,7 @@ export const agentLog = {
   'hermes-agent': {
     source: 'log',
     lines: [
-      { at: '00:38:09', kind: 'tools', text: 'mcp__hafleet__send_message [completed]' },
+      { at: '00:38:09', kind: 'tools', text: 'mcp__hagency__send_message [completed]' },
       { at: '00:38:09', kind: 'turn', text: 'finished (end_turn)' },
     ],
   },
@@ -433,7 +433,7 @@ export const agentLog = {
   'claude-agent': { source: 'pane', lines: [] },
 };
 
-// The backend API base — README's documented default and the HAFLEET_API default.
+// The backend API base — README's documented default and the HAGENCY_API default.
 export const API_BASE = 'http://127.0.0.1:8090';
 
 /**
@@ -490,23 +490,23 @@ export const detected = [
     id: 'claude', displayName: 'Claude Code', transport: 'tmux', command: 'claude',
     acpArgs: null, onPath: true, version: '2.1.8',
     credentialHome: '~/.claude/', credentialPresent: true, authFix: 'claude login',
-    acpModelFlag: null, permissionSummary: 'auto-mode', setup: [], startWith: 'hafleet up',
+    acpModelFlag: null, permissionSummary: 'auto-mode', setup: [], startWith: 'hagency up',
   },
   {
     id: 'octos', displayName: 'Octos', transport: 'acp', command: 'octos',
     acpArgs: ['acp', '--profile', 'coding-full'], onPath: true, version: '2.0.2',
     credentialHome: '~/.config/octos/config.json', credentialPresent: true,
     authFix: 'edit octos config.json', acpModelFlag: '--model',
-    permissionSummary: 'octos sandbox as configured (hafleet never passes --danger-full-access)',
+    permissionSummary: 'octos sandbox as configured (hagency never passes --danger-full-access)',
     setup: [{ ok: true, key: 'ob.pre.codingFull' }, { ok: true, key: 'ob.pre.mcpServers' }],
-    startWith: 'hafleet acp-up',
+    startWith: 'hagency acp-up',
   },
   {
     id: 'codex', displayName: 'Codex (tmux)', transport: 'tmux', command: 'codex',
     acpArgs: null, onPath: true, version: '0.146.0',
     credentialHome: '~/.codex/', credentialPresent: true, authFix: 'codex login',
     acpModelFlag: null, permissionSummary: 'level2 (workspace-write + on-request)',
-    setup: [], startWith: 'hafleet up',
+    setup: [], startWith: 'hagency up',
   },
   {
     id: 'hermes', displayName: 'Hermes', transport: 'acp', command: 'hermes-acp',
@@ -518,14 +518,14 @@ export const detected = [
       { ok: true, key: 'ob.pre.acpExtra' },
       { ok: false, key: 'ob.pre.mcpExtra', fix: 'uv pip install -e ".[acp,mcp]"' },
     ],
-    startWith: 'hafleet acp-up',
+    startWith: 'hagency acp-up',
   },
   {
     id: 'codex-acp', displayName: 'Codex (ACP)', transport: 'acp', command: 'codex-acp',
     acpArgs: [], onPath: false, version: null,
     credentialHome: '~/.codex/', credentialPresent: true, authFix: 'codex login',
     acpModelFlag: null, permissionSummary: 'level2 (workspace-write + on-request)',
-    setup: [], startWith: 'hafleet acp-up',
+    setup: [], startWith: 'hagency acp-up',
   },
 ];
 
@@ -572,14 +572,14 @@ export const onboardSteps = [
 /** The exact command the form is equivalent to. */
 export function onboardCommand({ name, workspace, framework, supervised, model }) {
   const f = detected.find((x) => x.id === framework);
-  const parts = [f?.startWith ?? 'hafleet acp-up', name || '<name>', workspace || '<workspace>', framework];
+  const parts = [f?.startWith ?? 'hagency acp-up', name || '<name>', workspace || '<workspace>', framework];
   if (supervised && f?.transport === 'acp') parts.push('--supervised');
   if (model && f?.acpModelFlag) parts.push(f.acpModelFlag, model);
   return parts.join(' ');
 }
 
 /*
- * Where each framework keeps its credential. HAFleet never holds the secret — an
+ * Where each framework keeps its credential. Hagency never holds the secret — an
  * agent authenticates itself before it joins — so what the console legitimately
  * knows is whether a provider RESOLVED, because failing to is the most common
  * reason onboarding fails.

@@ -10,9 +10,9 @@ let BotCommands;
 let runtimeDir;
 let env;
 beforeAll(async () => {
-  env = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_SERVER_NAME']);
-  runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-command-replies-'));
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  env = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_SERVER_NAME']);
+  runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-command-replies-'));
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.MATRIX_SERVER_NAME = 'fleet.test';
   ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?command-replies`));
   ({ default: BotCommands } = await import('../lib/bot-commands.js'));

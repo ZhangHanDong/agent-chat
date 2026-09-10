@@ -3,7 +3,7 @@
  *
  *   a Matrix account posts in a room on the deployed homeserver
  *     -> the RUNNING bridge receives it through its own sync loop
- *       -> hafleet routes it into an engagement
+ *       -> hagency routes it into an engagement
  *         -> a browser presses Approve in the console
  *           -> an agent is BOUND to the project room
  *             -> the bot's reply lands back in the room
@@ -44,7 +44,7 @@
  * PRECONDITIONS — all of them real processes, none faked:
  *   - a homeserver reachable at MATRIX_HS (mini1, via ssh tunnel)
  *   - bridge-matrix.js running and joined to the room
- *   - the hafleet backend, and the console dev server
+ *   - the hagency backend, and the console dev server
  *   - optionally Robrix; only its liveness is checked, and it no longer shares an
  *     account with this suite — see scripts/lib/matrix-account.mjs
  *
@@ -72,7 +72,7 @@ const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/M
  * be a credential published with this file.
  */
 const REG_TOKEN = process.env.MATRIX_TOKEN ?? '';
-const BOT_MXID = process.env.BOT_MXID ?? '@hafleet-bot:palpo.test';
+const BOT_MXID = process.env.BOT_MXID ?? '@hagency-bot:palpo.test';
 /*
  * The bot's own credentials, used only to remove it from the room this run created.
  * Optional: without them the suite still passes its assertions and reports that the
@@ -83,7 +83,7 @@ const BOT_PASSWORD = process.env.MATRIX_BOT_PASSWORD ?? '';
 // The running bridge's state file, which already holds a valid bot token. Preferred
 // over /login, which Palpo throttles hard enough to fail teardown outright.
 const BRIDGE_STATE = process.env.BRIDGE_STATE
-  ?? (process.env.HAFLEET_RUNTIME_DIR ? join(process.env.HAFLEET_RUNTIME_DIR, 'data', 'matrix', 'bridge-state.json') : '');
+  ?? (process.env.HAGENCY_RUNTIME_DIR ? join(process.env.HAGENCY_RUNTIME_DIR, 'data', 'matrix', 'bridge-state.json') : '');
 /*
  * The client's state store. Defaults to the newest db_* directory macOS Robrix
  * creates, so the caller usually needs to set nothing.
@@ -144,7 +144,7 @@ function clientAlive() {
 }
 
 (async () => {
-  console.log(`\nFull loop — Matrix ${HS} · bridge · hafleet ${BACKEND} · console ${CONSOLE}\n`);
+  console.log(`\nFull loop — Matrix ${HS} · bridge · hagency ${BACKEND} · console ${CONSOLE}\n`);
 
   /*
    * A THROWAWAY ACCOUNT, not the operator's.
@@ -233,7 +233,7 @@ function clientAlive() {
   // delays delivery by exactly as much.
   const queued = await until(async () => ((await api('engagements')).body?.engagements ?? [])
     .find((e) => e.projectRoomId === room), { tries: BRIDGE_PATIENCE_MS / 1500, gapMs: 1500 });
-  check('the RUNNING bridge delivered the pre-join request to hafleet', Boolean(queued),
+  check('the RUNNING bridge delivered the pre-join request to hagency', Boolean(queued),
     queued ? '' : 'no engagement appeared — is bridge-matrix.js running, and does it have the join backfill?');
   if (!queued) process.exit(1);
 
@@ -287,15 +287,15 @@ function clientAlive() {
     check('and carries an owner', /^@[^:\s]+:[^\s]+$/.test(bound.ownerMxid ?? ''), bound.ownerMxid);
 
     /*
-     * AND THE HOMESERVER'S OWN ACCOUNT OF WHO IS IN THE ROOM — not HAFleet's record of it.
+     * AND THE HOMESERVER'S OWN ACCOUNT OF WHO IS IN THE ROOM — not Hagency's record of it.
      *
-     * Every check above this reads a HAFleet store. A binding is our claim that an agent is attached; the
+     * Every check above this reads a Hagency store. A binding is our claim that an agent is attached; the
      * membership is the customer's homeserver's fact, and `admitAgentToProjectRoom` returns its outcome
      * only on the verdict response, which nothing was reading. So an approval that bound the agent and
      * failed to admit it looked identical to one that worked — and this repository has already shipped
      * that exact shape twice, which is why this asks the room instead.
      *
-     * The mxid is composed the way HAFleet mints it (`MATRIX_AGENT_PREFIX` + agent name on the side's
+     * The mxid is composed the way Hagency mints it (`MATRIX_AGENT_PREFIX` + agent name on the side's
      * server), so a prefix mismatch shows up here rather than as a silent absence.
      */
     const prefix = process.env.MATRIX_AGENT_PREFIX ?? 'ac_';

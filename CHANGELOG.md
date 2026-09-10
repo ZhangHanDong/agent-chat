@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to HAFleet are recorded here. Format follows
+All notable changes to Hagency are recorded here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -17,18 +17,18 @@ the starting point: above the stale `1.0.0` without implying a `2.0` rewrite.
 
 ### Changed
 
-- Both READMEs rewritten around the name **HAFleet**, covering the five install
+- Both READMEs rewritten around the name **Hagency**, covering the five install
   paths, the upgrade and rollback story, release artifacts, and an explicit
   security-posture section separating what is enforced from what is assumed.
-- Internal identifiers (`hafleet`, `hafleet`, `HAFLEET_`, `HAFLEET_`)
+- Internal identifiers (`hagency`, `hagency`, `HAGENCY_`, `HAGENCY_`)
   are deliberately unchanged: unit names, CLI commands, `.env` variables, the MCP
-  server name and `~/.hafleet` are all covered by the compatibility contract in
+  server name and `~/.hagency` are all covered by the compatibility contract in
   docs/RELEASING.md, so renaming them is a major version with a migration.
 - **Agent access goes through a platform seam.** `backend-v2.js` had 34 raw tmux
   invocations and now has none; `lib/runtime/` defines the contract and
   `lib/runtime/tmux.js` implements it. Terminal-only operations are gated on a
   declared capability, so a non-tmux runtime becomes additive rather than a
-  refactor. This is what pinned HAFleet to Linux and macOS.
+  refactor. This is what pinned Hagency to Linux and macOS.
 - **Kernel test shards run at concurrency 1 by default.** The backend test helper
   retains ~12 MB per context permanently (212 call sites), and running five shards
   at once pushed workers into recycling mid-run, leaving partially evaluated
@@ -69,7 +69,7 @@ the starting point: above the stale `1.0.0` without implying a `2.0` rewrite.
   `Restart=always`, so anything pushed to the deploy branch executed as root
   within one poll interval. It now runs as the service user and escalates only
   for `systemctl restart`, through a narrow sudoers rule.
-- **The release gate is on by default.** `HAFLEET_RELEASE_GATE` defaulted to
+- **The release gate is on by default.** `HAGENCY_RELEASE_GATE` defaulted to
   `none`, meaning untested commits deployed. It now defaults to `worktree`,
   which builds the candidate ref in a detached worktree and runs
   `verify:cd-preflight` before the live checkout is touched.
@@ -86,7 +86,7 @@ the starting point: above the stale `1.0.0` without implying a `2.0` rewrite.
   `MATRIX_BOT_PASSWORD` fails the install with guidance, and the bridge is
   verified when requested.
 - The README quick-start cloned `shisuiki/agent-chat` — the upstream, not this
-  fork — so following the documented steps did not produce HAFleet.
+  fork — so following the documented steps did not produce Hagency.
 
 ### Known gaps
 
@@ -96,8 +96,8 @@ the starting point: above the stale `1.0.0` without implying a `2.0` rewrite.
   effect, and tmux demonstrated reachable through the sandbox. See
   docs/DEPLOYMENT.md.
 - ~~The repository has no `LICENSE`.~~ **Resolved 2026-07-29:** upstream adopted
-  Apache 2.0 (commit `aa8e5e5`), so HAFleet is now Apache 2.0 and distributable.
+  Apache 2.0 (commit `aa8e5e5`), so Hagency is now Apache 2.0 and distributable.
   See [docs/LICENSING.md](docs/LICENSING.md).
 
-[Unreleased]: https://github.com/hagency-org/HAFleet/compare/v1.2.0...HEAD
-[1.2.0]: https://github.com/hagency-org/HAFleet/releases/tag/v1.2.0
+[Unreleased]: https://github.com/hagency-org/hagency/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/hagency-org/hagency/releases/tag/v1.2.0

@@ -2,7 +2,7 @@
  * 代表 — the representative on a project side (ADR-016 decision 3).
  *
  * THE SPLIT UNDER TEST. Until now the representative and the working agent were one thing, so an
- * agent identity had to exist before any project was known — composed on HAFleet's own server, which
+ * agent identity had to exist before any project was known — composed on Hagency's own server, which
  * is unusable for a project hosted elsewhere once you stop assuming federation. An operator named it:
  * 「所以你先创建了 biglittle 的 matrix id 是错的」. These tests pin the properties that make the
  * representative able to exist first.
@@ -47,7 +47,7 @@ const asCred = (over = {}) => ({
   asToken: AS_TOKEN,
   hsToken: 'hs_secret',
   namespace: '@ac_.*',
-  senderLocalpart: 'hafleet',
+  senderLocalpart: 'hagency',
   ...over,
 });
 
@@ -137,11 +137,11 @@ describe('the MXID is discovered, never composed', () => {
      *
      * The server here answers with a localpart we did not ask for. The module must believe it.
      */
-    const impl = fakeFetch([ok({ user_id: '@hafleet-intake-7:palpo.test', device_id: 'D1' })]);
+    const impl = fakeFetch([ok({ user_id: '@hagency-intake-7:palpo.test', device_id: 'D1' })]);
     const r = await ensureRepresentative({
       side: SIDE, credential: regCred({ representativeToken: REP_TOKEN }), fetchImpl: impl,
     });
-    expect(r.mxid).toBe('@hafleet-intake-7:palpo.test');
+    expect(r.mxid).toBe('@hagency-intake-7:palpo.test');
     expect(r.accessState).toBe('accepted');
   });
 
@@ -153,7 +153,7 @@ describe('the MXID is discovered, never composed', () => {
 
   test('a trailing slash on the base URL does not produce a double slash', async () => {
     // Some homeservers 404 `//_matrix/...` rather than normalizing it.
-    const impl = fakeFetch([ok({ user_id: `@hafleet:${SERVER}` })]);
+    const impl = fakeFetch([ok({ user_id: `@hagency:${SERVER}` })]);
     await whoami({ baseUrl: 'http://127.0.0.1:8008/', token: REP_TOKEN, fetchImpl: impl });
     expect(impl.calls[0].url).toContain('http://127.0.0.1:8008/_matrix/');
     expect(impl.calls[0].url).not.toContain('//_matrix/');
@@ -164,7 +164,7 @@ describe('an appservice side registers nothing', () => {
   test('it masquerades as sender_localpart and is accepted', async () => {
     /*
      * The whoami answer deliberately does NOT match the localpart we masqueraded as. Found by
-     * mutation testing: replacing `mxid: userId` with a composed `@hafleet:<server>` survived,
+     * mutation testing: replacing `mxid: userId` with a composed `@hagency:<server>` survived,
      * because the first version of this test had the server echo exactly what we would have built —
      * so it could not tell "believed the server" from "composed a string that happened to agree".
      *
@@ -172,10 +172,10 @@ describe('an appservice side registers nothing', () => {
      * registration the project side actually installed is what the server knows. When they disagree,
      * the server is right.
      */
-    const impl = fakeFetch([ok({ user_id: `@hafleet-as:${SERVER}` })]);
+    const impl = fakeFetch([ok({ user_id: `@hagency-as:${SERVER}` })]);
     const r = await ensureRepresentative({ side: SIDE, credential: asCred(), fetchImpl: impl });
     expect(r.accessState).toBe('accepted');
-    expect(r.mxid).toBe(`@hafleet-as:${SERVER}`);
+    expect(r.mxid).toBe(`@hagency-as:${SERVER}`);
     /*
      * The masquerade is the mechanism: the query parameter names the user, the as_token authorises.
      *
@@ -190,18 +190,18 @@ describe('an appservice side registers nothing', () => {
      * as verified, and did not reproduce. Kept as a note because the error is instructive: code paths
      * existing is not code paths behaving.
      */
-    expect(impl.calls[0].url).toContain(`user_id=%40hafleet%3A${SERVER}`);
+    expect(impl.calls[0].url).toContain(`user_id=%40hagency%3A${SERVER}`);
     expect(impl.calls[0].headers.Authorization).toBe(`Bearer ${AS_TOKEN}`);
   });
 
   test('THE PAYOFF: no registration call is made, and nothing per-agent is minted', async () => {
     /*
      * The reason mandating appservice simplified the credential model rather than complicating it.
-     * An appservice side's agents hold NO credential — HAFleet masquerades with the one `as_token` —
+     * An appservice side's agents hold NO credential — Hagency masquerades with the one `as_token` —
      * which is why ADR-014 decision 4's per-agent `{ homeserver, accessToken }` is not merely
      * misplaced for such a side but unrepresentable.
      */
-    const impl = fakeFetch([ok({ user_id: `@hafleet:${SERVER}` })]);
+    const impl = fakeFetch([ok({ user_id: `@hagency:${SERVER}` })]);
     const r = await ensureRepresentative({ side: SIDE, credential: asCred(), fetchImpl: impl });
     expect(impl.calls).toHaveLength(1);
     expect(impl.calls.some((c) => c.url.includes('/register'))).toBe(false);
@@ -217,11 +217,11 @@ describe('an appservice side registers nothing', () => {
   });
 
   test('the sender localpart preserves exact Matrix identity case', async () => {
-    const impl = fakeFetch([ok({ user_id: `@HAFleet:${SERVER}` })]);
+    const impl = fakeFetch([ok({ user_id: `@Hagency:${SERVER}` })]);
     await ensureRepresentative({
-      side: SIDE, credential: asCred({ senderLocalpart: 'HAFleet' }), fetchImpl: impl,
+      side: SIDE, credential: asCred({ senderLocalpart: 'Hagency' }), fetchImpl: impl,
     });
-    expect(impl.calls[0].url).toContain('%40HAFleet%3A');
+    expect(impl.calls[0].url).toContain('%40Hagency%3A');
   });
 
   test('a recorded representative MXID is used instead of reconstructing its localpart', async () => {
@@ -236,11 +236,11 @@ describe('a registration-token side obtains a token once', () => {
   test('with no token it registers and hands the new token back for storage', async () => {
     const impl = fakeFetch([
       fail(401, { session: 'uia-session-1', flows: [{ stages: ['m.login.registration_token'] }] }),
-      ok({ access_token: 'minted_token', user_id: `@hafleet:${SERVER}` }),
+      ok({ access_token: 'minted_token', user_id: `@hagency:${SERVER}` }),
     ]);
     const r = await ensureRepresentative({ side: SIDE, credential: regCred(), fetchImpl: impl });
     expect(r.accessState).toBe('accepted');
-    expect(r.mxid).toBe(`@hafleet:${SERVER}`);
+    expect(r.mxid).toBe(`@hagency:${SERVER}`);
     // Returned rather than written: this module holds no store, and letting a network helper mutate
     // credentials would put the change outside the store's audit trail.
     expect(r.credentialPatch).toEqual({ representativeToken: 'minted_token' });
@@ -249,7 +249,7 @@ describe('a registration-token side obtains a token once', () => {
   test('the registration token travels in the UIA auth stage', async () => {
     const impl = fakeFetch([
       fail(401, { session: 's1' }),
-      ok({ access_token: 't', user_id: `@hafleet:${SERVER}` }),
+      ok({ access_token: 't', user_id: `@hagency:${SERVER}` }),
     ]);
     await ensureRepresentative({ side: SIDE, credential: regCred(), fetchImpl: impl });
     const auth = JSON.parse(impl.calls[1].body).auth;
@@ -268,7 +268,7 @@ describe('a registration-token side obtains a token once', () => {
     for (let i = 0; i < 2; i += 1) {
       const impl = fakeFetch([
         fail(401, { session: `s${i}` }),
-        ok({ access_token: `t${i}`, user_id: `@hafleet:${SERVER}` }),
+        ok({ access_token: `t${i}`, user_id: `@hagency:${SERVER}` }),
       ]);
       const r = await registerRepresentative({ baseUrl: API, registrationToken: REG_TOKEN, fetchImpl: impl });
       seen.push(JSON.parse(impl.calls[0].body).password);
@@ -279,7 +279,7 @@ describe('a registration-token side obtains a token once', () => {
   });
 
   test('a server that registers outright, with no UIA, is handled', async () => {
-    const impl = fakeFetch([ok({ access_token: 'immediate', user_id: `@hafleet:${SERVER}` })]);
+    const impl = fakeFetch([ok({ access_token: 'immediate', user_id: `@hagency:${SERVER}` })]);
     const r = await registerRepresentative({ baseUrl: API, registrationToken: REG_TOKEN, fetchImpl: impl });
     expect(r.accessToken).toBe('immediate');
     expect(impl.calls).toHaveLength(1);
@@ -290,10 +290,10 @@ describe('a registration-token side obtains a token once', () => {
     const impl = fakeFetch([
       fail(401, { session: 's1' }),
       ok({ access_token: 'minted' }),
-      ok({ user_id: `@hafleet:${SERVER}`, device_id: 'D1' }),
+      ok({ user_id: `@hagency:${SERVER}`, device_id: 'D1' }),
     ]);
     const r = await ensureRepresentative({ side: SIDE, credential: regCred(), fetchImpl: impl });
-    expect(r.mxid).toBe(`@hafleet:${SERVER}`);
+    expect(r.mxid).toBe(`@hagency:${SERVER}`);
     expect(impl.calls[2].url).toContain('/account/whoami');
   });
 
@@ -328,7 +328,7 @@ describe('a registration-token side obtains a token once', () => {
 
 describe('an existing representative token is validated, never replaced', () => {
   test('a good token is accepted with one call', async () => {
-    const impl = fakeFetch([ok({ user_id: `@hafleet:${SERVER}`, device_id: 'D1' })]);
+    const impl = fakeFetch([ok({ user_id: `@hagency:${SERVER}`, device_id: 'D1' })]);
     const r = await ensureRepresentative({
       side: SIDE, credential: regCred({ representativeToken: REP_TOKEN }), fetchImpl: impl,
     });
@@ -438,7 +438,7 @@ describe('minting an agent identity on a project side', () => {
   test('APPSERVICE: nothing is created, nothing is stored, and there is NO per-agent token', async () => {
     /*
      * The account exists by virtue of the namespace the project side installed, so minting is a claim
-     * rather than an act. `accessToken: null` is the point — HAFleet acts as this agent with the side's
+     * rather than an act. `accessToken: null` is the point — Hagency acts as this agent with the side's
      * one `as_token`, which is why ADR-014 decision 4's per-agent `{ homeserver, accessToken }` is
      * unrepresentable for such a side.
      */
@@ -556,7 +556,7 @@ describe('creating a room on a project side', () => {
       side: SIDE, credential: asCred(), name: 'Approval: alpha', encrypted: false, fetchImpl: impl,
     });
     expect(r).toMatchObject({ created: true, roomId: `!new:${SERVER}`, encrypted: false });
-    expect(impl.calls[0].url).toContain(`user_id=%40hafleet%3A${SERVER}`);
+    expect(impl.calls[0].url).toContain(`user_id=%40hagency%3A${SERVER}`);
     expect(impl.calls[0].headers.Authorization).toBe(`Bearer ${AS_TOKEN}`);
   });
 
@@ -693,7 +693,7 @@ describe('sending into a room on a project side', () => {
     });
     expect(r).toMatchObject({ sent: true, eventId: '$e1' });
     expect(impl.calls[0].method).toBe('PUT');
-    expect(impl.calls[0].url).toContain(`user_id=%40hafleet%3A${SERVER}`);
+    expect(impl.calls[0].url).toContain(`user_id=%40hagency%3A${SERVER}`);
     expect(impl.calls[0].url).toContain('/send/m.room.message/');
     expect(JSON.parse(impl.calls[0].body)).toEqual(CONTENT);
   });
@@ -811,7 +811,7 @@ describe('the representative brings an agent into a project room', () => {
     const [call] = impl.calls;
     expect(call.url).toContain(`/rooms/${encodeURIComponent(ROOM)}/invite`);
     // The masquerade is the sender_localpart, NOT the agent: the representative is who invites.
-    expect(call.url).toContain(`user_id=${encodeURIComponent(`@hafleet:${SERVER}`)}`);
+    expect(call.url).toContain(`user_id=${encodeURIComponent(`@hagency:${SERVER}`)}`);
     expect(JSON.parse(call.body).user_id).toBe(AGENT);
     expect(call.headers.Authorization).toBe(`Bearer ${AS_TOKEN}`);
   });
@@ -917,7 +917,7 @@ const r = await joinRoomOnSideAsAgent({
 
   /*
    * AND TAKES IT OUT AGAIN. Read off a live homeserver: four `@ac_e2e-probe-*` accounts still joined to a
-   * project room, every one an agent HAFleet had deleted hours earlier. Every Matrix server here belongs to
+   * project room, every one an agent Hagency had deleted hours earlier. Every Matrix server here belongs to
    * a customer, so those are seats in somebody else's house held by contractors who left.
    */
   test('the agent leaves under the appservice credential, as itself', async () => {
@@ -1000,7 +1000,7 @@ describe('the invite object: a published alias, and a knock', () => {
     const [call] = impl.calls;
     expect(call.url).toContain(`/directory/room/${encodeURIComponent(ALIAS)}`);
     // Masqueraded as the representative: the directory read is done by the account that will knock.
-    expect(call.url).toContain(encodeURIComponent(`@hafleet:${SERVER}`));
+    expect(call.url).toContain(encodeURIComponent(`@hagency:${SERVER}`));
   });
 
   test('an alias published by ANOTHER server is refused before any call', async () => {
@@ -1021,15 +1021,15 @@ describe('the invite object: a published alias, and a knock', () => {
   test('the representative knocks, and the reason rides with it', async () => {
     const impl = fakeFetch([ok({ room_id: ROOM })]);
     const r = await knockOnRoomOnSide({
-      side: SIDE, credential: asCred(), aliasOrRoomId: ROOM, reason: 'HAFleet asks to take work here',
+      side: SIDE, credential: asCred(), aliasOrRoomId: ROOM, reason: 'Hagency asks to take work here',
       fetchImpl: impl,
     });
     expect(r).toMatchObject({ knocked: true, already: false, roomId: ROOM });
     const [call] = impl.calls;
     expect(call.method).toBe('POST');
     expect(call.url).toContain(`/knock/${encodeURIComponent(ROOM)}`);
-    expect(call.url).toContain(encodeURIComponent(`@hafleet:${SERVER}`));
-    expect(JSON.parse(call.body)).toEqual({ reason: 'HAFleet asks to take work here' });
+    expect(call.url).toContain(encodeURIComponent(`@hagency:${SERVER}`));
+    expect(JSON.parse(call.body)).toEqual({ reason: 'Hagency asks to take work here' });
   });
 
   test('a homeserver without knocking says SO, rather than looking like a bad alias', async () => {
@@ -1098,15 +1098,15 @@ describe('the invite object: a published alias, and a knock', () => {
  * `federates`.
  */
 describe('probing whether a project side federates with us', () => {
-  const OURS = '@hafleetbot:matrix.example.test';
+  const OURS = '@hagencybot:matrix.example.test';
 
   test('a profile that resolves proves their server reached ours', async () => {
-    const impl = fakeFetch([ok({ displayname: 'HAFleet Bot' })]);
+    const impl = fakeFetch([ok({ displayname: 'Hagency Bot' })]);
     const r = await probeFederationFromSide({ side: SIDE, credential: asCred(), probeMxid: OURS, fetchImpl: impl });
     expect(r.federation).toBe('federates');
     const [call] = impl.calls;
     expect(call.url).toContain(`/profile/${encodeURIComponent(OURS)}`);
-    expect(call.url).toContain(encodeURIComponent(`@hafleet:${SERVER}`));
+    expect(call.url).toContain(encodeURIComponent(`@hagency:${SERVER}`));
   });
 
   test('M_NOT_FOUND is UNKNOWN, not proof either way', async () => {
@@ -1150,7 +1150,7 @@ describe('probing whether a project side federates with us', () => {
 
   test('a bare name is rejected outright, because a wrong probe target reads as isolation', async () => {
     await expect(probeFederationFromSide({
-      side: SIDE, credential: asCred(), probeMxid: 'hafleetbot', fetchImpl: fakeFetch([]),
+      side: SIDE, credential: asCred(), probeMxid: 'hagencybot', fetchImpl: fakeFetch([]),
     })).rejects.toThrow(RepresentativeError);
   });
 });
@@ -1162,7 +1162,7 @@ describe('reading a room\'s history on a project side', () => {
    * WHY THIS READ EXISTS AT ALL. The bridge backfills the invite→join window for a room its BOT joins,
    * because sync delivers nothing from before a join. The representative has the identical window and no
    * way to read it — `backfillJoinedRoom` paginates with the bot's client, which has no account on the
-   * customer's homeserver. Walked live: a customer who invited HAFleet and asked in the same breath got
+   * customer's homeserver. Walked live: a customer who invited Hagency and asked in the same breath got
    * no engagement, no reply and no error.
    */
   test('an appservice side reads as the representative, with the side\'s own token', async () => {
@@ -1176,7 +1176,7 @@ describe('reading a room\'s history on a project side', () => {
     expect(call.method).toBe('GET');
     expect(call.url).toContain(`/rooms/${encodeURIComponent(ROOM)}/messages`);
     // The masquerade is the whole point: without user_id the as_token reads as the appservice itself.
-    expect(call.url).toContain(`user_id=${encodeURIComponent(`@hafleet:${SERVER}`)}`);
+    expect(call.url).toContain(`user_id=${encodeURIComponent(`@hagency:${SERVER}`)}`);
     expect(call.headers.Authorization).toBe(`Bearer ${AS_TOKEN}`);
   });
 

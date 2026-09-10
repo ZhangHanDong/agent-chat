@@ -11,22 +11,22 @@ import path from 'node:path';
  * of onRoomEvent, the router answered 500, and the sync collector retried the batch until it
  * circuit-broke. Seen live on the first bot-less sync deployment.
  *
- * The bridge module is imported AFTER pointing HAFLEET_RUNTIME_DIR at a throwaway: its evaluation
+ * The bridge module is imported AFTER pointing HAGENCY_RUNTIME_DIR at a throwaway: its evaluation
  * mkdirs and may migrate state under that root (see tests/esm-linkage.test.js).
  */
 let groupOrNull;
 let runtime;
 let savedRuntimeDir;
 beforeAll(async () => {
-  savedRuntimeDir = process.env.HAFLEET_RUNTIME_DIR;
-  runtime = mkdtempSync(path.join(tmpdir(), 'hafleet-group-or-null-'));
-  process.env.HAFLEET_RUNTIME_DIR = runtime;
+  savedRuntimeDir = process.env.HAGENCY_RUNTIME_DIR;
+  runtime = mkdtempSync(path.join(tmpdir(), 'hagency-group-or-null-'));
+  process.env.HAGENCY_RUNTIME_DIR = runtime;
   ({ groupOrNull } = await import('../bridge-matrix.js'));
 });
 afterAll(() => {
   rmSync(runtime, { recursive: true, force: true });
-  if (savedRuntimeDir === undefined) delete process.env.HAFLEET_RUNTIME_DIR;
-  else process.env.HAFLEET_RUNTIME_DIR = savedRuntimeDir;
+  if (savedRuntimeDir === undefined) delete process.env.HAGENCY_RUNTIME_DIR;
+  else process.env.HAGENCY_RUNTIME_DIR = savedRuntimeDir;
 });
 afterEach(() => vi.unstubAllGlobals());
 

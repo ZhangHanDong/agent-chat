@@ -119,7 +119,7 @@ export default function Rail() {
   return (
     <nav className="rail" aria-label={t('rail.nav')}>
       <div className="rail-brand">
-        <b>HAFLEET</b>
+        <b>HAGENCY</b>
         <span>
           {`${agents.length} ${t('rail.agentsCount')} · ${unconfigured} ${t('rail.unconfigured')}`}
         </span>

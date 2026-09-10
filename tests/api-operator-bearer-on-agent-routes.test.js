@@ -2,14 +2,14 @@
  * THE OPERATOR'S BEARER COUNTS ON AN AGENT ROUTE.
  *
  * `requireAgentToken` knew exactly one credential — `x-agent-token` — so under
- * `HAFLEET_AGENT_TOKEN_MODE=hard` the operator was refused on every route it guards, for any agent
+ * `HAGENCY_AGENT_TOKEN_MODE=hard` the operator was refused on every route it guards, for any agent
  * whose token was loaded. Not a policy: `authorizeAgentCredential` in the same file has always taken
  * the bearer first, so the module held two credential checkers that disagreed about whether the
  * operator exists.
  *
  * Three observed consequences, each a separate reason this is a defect:
  *
- *   - `bin/hafleet-up` documents it against itself: "the launcher sends only the operator bearer, so a
+ *   - `bin/hagency-up` documents it against itself: "the launcher sends only the operator bearer, so a
  *     managed agent whose token is already loaded answers 403 here EVERY time and printed 'Registered
  *     online' anyway."
  *   - the dashboard's Save Configuration reaches `PATCH /api/agents/:name` through `server.js`, whose
@@ -54,7 +54,7 @@ async function boot(env = {}) {
       },
     },
     agentTokens: { [AGENT]: AGENT_TOKEN },
-    env: { HAFLEET_AGENT_TOKEN_MODE: 'hard', API_TOKEN: OPERATOR, ...env },
+    env: { HAGENCY_AGENT_TOKEN_MODE: 'hard', API_TOKEN: OPERATOR, ...env },
   });
   /*
    * Asserted, not assumed. If the token had not loaded, every 403 below would be absent for the wrong

@@ -39,7 +39,7 @@ function fixture() {
     if (suffix === 'state/m.room.join_rules/') return { join_rule: 'invite' };
     if (suffix === 'state/m.room.encryption/') return roomId === dm ? { algorithm: 'm.megolm.v1.aes-sha2' } : null;
     if (suffix === 'state/m.room.power_levels/') return power;
-    if (suffix.startsWith('state/com.hafleet.admin.binding.v1/')) return targetBinding;
+    if (suffix.startsWith('state/com.hagency.admin.binding.v1/')) return targetBinding;
     throw new Error(`Unexpected Matrix operation: ${suffix}`);
   });
   const make = () => createFleetProtocol({ load: () => persisted, save: next => { persisted = structuredClone(next); },

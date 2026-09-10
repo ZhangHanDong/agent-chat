@@ -3,7 +3,7 @@
  *
  * GET /api/frameworks/detect probed only `--version`, so a binary that answered it
  * was reported `state: ready`. On a fresh machine with octos 0.1.1 that is exactly
- * what happened — and `hafleet acp-up` then died with
+ * what happened — and `hagency acp-up` then died with
  * `unrecognized subcommand 'acp'`. The console had told the operator a framework was
  * ready for a launch path the installed version does not have.
  *

@@ -4,16 +4,16 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 
-const SCRIPT = 'bin/hafleet-acp-up';
+const SCRIPT = 'bin/hagency-acp-up';
 const source = readFileSync(SCRIPT, 'utf-8');
-const HELPER = 'scripts/hafleet-supervise-agent.mjs';
+const HELPER = 'scripts/hagency-supervise-agent.mjs';
 
 // A tmux agent survives its launcher exiting, because tmux owns the pane. An ACP
 // agent dies with its host process and cannot be resumed — octos's ACP v1 reports
 // loadSession:false — so without supervision a crash is permanent and a reboot
 // loses the agent entirely.
 
-describe('hafleet acp-up --supervised', () => {
+describe('hagency acp-up --supervised', () => {
   test('is valid bash and documents itself', () => {
     execFileSync('bash', ['-n', SCRIPT], { stdio: ['ignore', 'pipe', 'pipe'] });
     const help = execFileSync('bash', [SCRIPT, '--help'], { encoding: 'utf-8' });
@@ -25,7 +25,7 @@ describe('hafleet acp-up --supervised', () => {
     // Two hosts holding sessions for one agent would both poll the inbox and both
     // answer. The supervised branch must exit before the nohup below it.
     const branch = source.indexOf('if [ "$SUPERVISED" = true ]; then');
-    const detached = source.indexOf('nohup node "$BASE_DIR/scripts/hafleet-acp-agent.mjs"');
+    const detached = source.indexOf('nohup node "$BASE_DIR/scripts/hagency-acp-agent.mjs"');
     expect(branch).toBeGreaterThan(-1);
     expect(branch).toBeLessThan(detached);
     const body = source.slice(branch, detached);
@@ -66,7 +66,7 @@ describe('hafleet acp-up --supervised', () => {
 
 describe('the registration helper', () => {
   const makeProfile = () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-sup-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-sup-'));
     const file = path.join(dir, 'profile.json');
     writeFileSync(file, JSON.stringify({
       name: 'test', services: [{ name: 'backend', command: ['node', 'backend-v2.js'], dependsOn: [] }],
@@ -129,12 +129,12 @@ describe('the registration helper', () => {
 });
 
 describe('a supervised ACP agent reports its own pid', () => {
-  // bin/hafleet-acp-up registers on the operator's behalf, which only covers the
+  // bin/hagency-acp-up registers on the operator's behalf, which only covers the
   // detached path. The supervisor spawns the host directly, so acp-up never runs
   // and the backend kept probing whichever pid registered first. Observed live:
   // acpPid=73908 against a live host pid of 5832, offlineReason=acp-process-gone.
   // The supervisor was restarting an agent the dashboard insisted was dead.
-  const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+  const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
 
   test('the host registers itself, not just acp-up', () => {
     expect(host).toContain("api('/api/agents'");
@@ -166,7 +166,7 @@ describe('an ACP agent reports its own activity', () => {
   // so the sweep's ACP branch does liveness only and the activity fields stayed
   // null: idleMs=-1, lastTmuxActivitySec=0, while claude and codex had real values.
   // A hung octos and a healthy idle octos were indistinguishable to the fleet.
-  const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+  const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
 
   test('it derives activity from session/update counts, not a pane', () => {
     expect(host).toContain('runtime.updateCursor(name)');
@@ -260,7 +260,7 @@ describe('an ACP agent is nudged, not spoon-fed', () => {
   // Worse, the host's unfiltered inbox read advances the cursor — so by the time
   // the agent ran check_inbox its mail was already consumed and it saw NONE.
   // Verified live before the change.
-  const host = readFileSync('scripts/hafleet-acp-agent.mjs', 'utf-8');
+  const host = readFileSync('scripts/hagency-acp-agent.mjs', 'utf-8');
 
   test('the host probes /unread and never consumes the inbox', () => {
     // /unread does not advance the cursor; the unfiltered read does. Reading it

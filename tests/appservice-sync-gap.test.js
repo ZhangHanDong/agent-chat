@@ -8,14 +8,14 @@ test('sync gap bounds are recorded before cursor advancement', async () => {
   const operations = [];
   const collector = startAppserviceSyncCollector({
     baseUrl: 'https://side.test', side: 'side.test',
-    credentialFor: () => ({ asToken: 'as', hsToken: 'hs', senderLocalpart: 'hafleet' }),
+    credentialFor: () => ({ asToken: 'as', hsToken: 'hs', senderLocalpart: 'hagency' }),
     router: { handle: async () => ({ status: 200 }) },
     readCursor: () => cursor,
     writeCursor: async (value) => { operations.push(['cursor', value]); cursor = value; },
     writePendingReconcile: (...args) => operations.push(['reconcile', ...args]),
     onRoomsNeedingReconcile: async () => {},
     fetchImpl: async (url) => {
-      if (url.endsWith('/login')) return Response.json({ access_token: 'access', user_id: '@hafleet:side.test' });
+      if (url.endsWith('/login')) return Response.json({ access_token: 'access', user_id: '@hagency:side.test' });
       polls += 1;
       return Response.json({ next_batch: 'after', rooms: { join: {
         '!room:side.test': { timeline: { limited: true, events: [{ type: 'm.room.message', event_id: '$latest' }] } },

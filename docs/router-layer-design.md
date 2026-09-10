@@ -398,16 +398,16 @@ cursor has advanced past it.
 The delivery-effect gate observes a structured wrapper acknowledgement after
 the verified child process has accepted the complete payload on stdin. It does
 not use first model output and does not assume a five-second model response.
-`HAFLEET_RUNNER_ACK_MS` is set only after the launch spike measures Claude and
+`HAGENCY_RUNNER_ACK_MS` is set only after the launch spike measures Claude and
 Codex cold starts; timeout after `started` settles `outcome_unknown`.
 Failure before `takePayload` revokes the failed claim and returns the same
 dispatch to `queued` with a durable availability timestamp. The backend retries
-after `HAFLEET_RUNNER_LAUNCH_RETRY_MS` (default 5000 ms); it never cancels the
+after `HAGENCY_RUNNER_LAUNCH_RETRY_MS` (default 5000 ms); it never cancels the
 accepted input or asks the user to reconstruct it.
 
 Approval parking keeps the process and all resource leases. Resource usage is
-bounded by both approval TTL and `HAFLEET_MAX_PARKED_RUNNERS` (finite,
-host-wide; proposed default 4). A separate `HAFLEET_MAX_LIVE_RUNNERS`
+bounded by both approval TTL and `HAGENCY_MAX_PARKED_RUNNERS` (finite,
+host-wide; proposed default 4). A separate `HAGENCY_MAX_LIVE_RUNNERS`
 (proposed default 8) bounds all live local wrappers, and the parked limit must
 remain lower so at least one slot is reserved for non-parked coordination and
 read-only work. When the parked cap is full, a new approval request is failed
@@ -457,7 +457,7 @@ in Robrix2.
    restart reconciliation.
 7. Add privacy-filtered snapshot/event endpoints.
 8. After task-store cutover, wire only session ingestion/dispatch behind
-   `HAFLEET_THREAD_SESSIONS`, default off; run shadow mode, then one
+   `HAGENCY_THREAD_SESSIONS`, default off; run shadow mode, then one
    local-agent canary, before any broader enablement. Turning this switch off
    restores legacy delivery but does not switch the task writer back to JSON.
 

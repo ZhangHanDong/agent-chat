@@ -9,7 +9,7 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 test('upgrades both version nine lineages without losing approval or task data', () => {
   for (const lineage of ['upstream-v9', 'workflow-v11']) {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-schema-union-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-schema-union-'));
     roots.push(root);
     const dbPath = path.join(root, 'router.db');
     let router = openRouter({ dbPath });

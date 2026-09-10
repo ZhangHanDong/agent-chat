@@ -8,7 +8,7 @@ tags: [agent-spec, workflow]
 
 ## Scope
 
-All hafleet source, protocol, test, and documentation changes.
+All hagency source, protocol, test, and documentation changes.
 
 ## Instructions
 

@@ -1,6 +1,6 @@
 # Palpo fleet reception protocol v1
 
-This is the bounded HAFleet integration for the operator-authorized Palpo admin
+This is the bounded Hagency integration for the operator-authorized Palpo admin
 application. It extends the existing direct-room request path with a separate,
 verified reception-to-project path. Ordinary `!request` still targets its source
 room; no chat parameter can select another target.
@@ -9,7 +9,7 @@ room; no chat parameter can select another target.
 
 The four public operations share the existing App Service listener. They require
 that registration's `hs_token`; the authenticated registration selects the side.
-They do not expose HAFleet's backend listener or accept its operator token.
+They do not expose Hagency's backend listener or accept its operator token.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -24,18 +24,18 @@ registration before recording or disclosing any result. There is no arbitrary
 path, URL, HTTP method or operator-token forwarding surface.
 
 The fleet identity is the installed registration's `hf_<32 hex digits>` prefix,
-with sender localpart `<fleetId>_representative`. HAFleet derives its working-agent
+with sender localpart `<fleetId>_representative`. Hagency derives its working-agent
 prefix `<fleetId>_agent_` from that side's accepted sender and exact namespace.
 Importing the registration therefore needs no `MATRIX_AGENT_PREFIX` override.
 Minting, admission, sending and mention recognition use the same side scope;
 legacy registrations retain their configured prefix. Inconsistent managed sender
 and namespace pairs fail closed.
-As before, one HAFleet instance has one registration per project server. Separate
-HAFleet instances on the same Palpo retain distinct registrations and namespaces.
+As before, one Hagency instance has one registration per project server. Separate
+Hagency instances on the same Palpo retain distinct registrations and namespaces.
 
 ## Connection receipt
 
-Palpo sends `com.hafleet.connection.probe.v1` in the fleet reception as that fleet's
+Palpo sends `com.hagency.connection.probe.v1` in the fleet reception as that fleet's
 representative, containing `fleetId` and a fresh 16–128 character base64url/UUID
 challenge. Only an authenticated **push** received through the normal provenance
 gate records evidence. Sync polling and HTTP readback cannot manufacture a push
@@ -51,7 +51,7 @@ recent 100 per fleet. Custom protocol events never become chat commands or tasks
 ## Request identity and ownership
 
 The requester's actual Matrix session sends
-`com.hafleet.engagement.request.v1` with these fields:
+`com.hagency.engagement.request.v1` with these fields:
 
 ```text
 v: 1
@@ -65,13 +65,13 @@ The scoped HTTP POST adds the returned `sourceEventId` and `ownerDmRoomId`.
 Its full value stays in the authenticated submission and operator-only persisted
 request context. Public status and result messages omit it.
 
-HAFleet independently verifies the immutable event ID, full authenticated sender
+Hagency independently verifies the immutable event ID, full authenticated sender
 and every public request field. It requires requester and representative membership
 in the source reception. Target requester and owner must be joined; requester and
 representative must have invitation authority, while the declared owner must have
 room administrator power (at least 100). The target is invite-only and plaintext.
 
-The target room must carry `com.hafleet.admin.binding.v1` state with state key
+The target room must carry `com.hagency.admin.binding.v1` state with state key
 `fleetId` and exact content:
 
 ```text
@@ -143,7 +143,7 @@ distinct required tokens. It shows nonsecret scope and fills masked inputs local
 only the explicit Save action writes the credential. Importing another server or
 a broader namespace is refused.
 
-Set `HAFLEET_CONSOLE_DIST_DIR=.next-admin-e2e` for both build and start when running
+Set `HAGENCY_CONSOLE_DIST_DIR=.next-admin-e2e` for both build and start when running
 the isolated admin E2E console. This preserves the existing console's `.next`
 artifact. No new backend/bridge protocol environment variables are required beyond
 the normal isolated runtime, AS listener and side credentials.

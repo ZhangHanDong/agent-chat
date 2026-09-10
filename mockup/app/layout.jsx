@@ -70,9 +70,9 @@ export default function RootLayout({ children }) {
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{
-              var t=localStorage.getItem('hafleet.theme');
+              var t=localStorage.getItem('hagency.theme');
               if(t&&t!=='system')document.documentElement.setAttribute('data-theme',t);
-              var l=localStorage.getItem('hafleet.locale');
+              var l=localStorage.getItem('hagency.locale');
               if(l==='zh')document.documentElement.setAttribute('lang','zh-CN');
             }catch(e){}})();`,
           }}

@@ -4,7 +4,7 @@ id: ADR-013
 title: "Serve the resource contributor, not the dispatching house"
 status: Accepted
 liveness: auto
-tags: [hafleet, resource-plane, contribution, capacity, metering, engagement]
+tags: [hagency, resource-plane, contribution, capacity, metering, engagement]
 ---
 
 ## Amendment 2026-08-11 — the serving agent and its model are transparent, not hidden
@@ -62,9 +62,9 @@ matters in practice rather than only on paper:
 Section 8 originally listed R8's `PriceBook` and `BillingSource` among the PRD models
 **retained and load-bearing**. That was wrong and is withdrawn.
 
-The operator's ruling: HAFleet's unit of account is the **token**. It answers how much
+The operator's ruling: Hagency's unit of account is the **token**. It answers how much
 capacity was lent and to whom. Converting tokens to money depends on the contract, the
-plan, the region and the negotiated rate — none of which HAFleet observes — so it is a
+plan, the region and the negotiated rate — none of which Hagency observes — so it is a
 separate problem for a separate system.
 
 The implementation had already voted this way and the ADR had not noticed: every
@@ -103,13 +103,13 @@ requirement for a measurement nobody can take would be unmeetable by constructio
 
 ## Context
 
-Every prior design of the HAFleet console assumed its user is **the house that dispatches
-workers**: a PDU manager staffing projects. `docs/PRD-hafleet-pdu.md` v0.2 states that product
-directly — HAFleet "accept[s] scoped staffing requests … and return[s] auditable assignments",
+Every prior design of the Hagency console assumed its user is **the house that dispatches
+workers**: a PDU manager staffing projects. `docs/PRD-hagency-pdu.md` v0.2 states that product
+directly — Hagency "accept[s] scoped staffing requests … and return[s] auditable assignments",
 "analogous to a digital-employee outsourcing house or PDU" — and R0 builds an
 `AssignmentRequest` / `StaffingAssignment` contract on top of it.
 
-The operator has ruled that this is the wrong user. HAFleet's user is the **resource
+The operator has ruled that this is the wrong user. Hagency's user is the **resource
 provider**: 带资入组的开源贡献者 — somebody who contributes to a project not by writing code
 but by lending agent capacity. They own Claude Code, Codex, Hermes, Octos installations. They
 want to expose that capacity to a community and control exactly what they lend, in which
@@ -146,7 +146,7 @@ shape the decisions below, and each is load-bearing:
   `backend-v2.js` is a CLI help string.
 
 One further fact was found late and reorders the build: **capacity is physically per credential
-home, not per agent.** `bin/hafleet-up:1640-1644` unsets `ANTHROPIC_API_KEY` for Claude agents
+home, not per agent.** `bin/hagency-up:1640-1644` unsets `ANTHROPIC_API_KEY` for Claude agents
 unless a per-agent runtime profile supplies one explicitly, and `$HOME` is never reassigned in the
 launch path. So Claude agents share the operator's authenticated subscription and its quota by
 default; API-key mode is the deliberate exception. Registering more agents does not add capacity.
@@ -222,7 +222,7 @@ Four rules, each a decision rather than a detail:
 - **Editing the whitelist is privilege escalation, not a preference.** Adding a project means "your
   future requests bypass me". It gets the treatment destructive actions get, and both the add and
   the remove are audited — for the same reason `approval-store` audits every verdict.
-  `TRUSTED_HAFLEET_COORDINATION_TOOLS` at `lib/codex-permission-hook.js:15` is the precedent for
+  `TRUSTED_HAGENCY_COORDINATION_TOOLS` at `lib/codex-permission-hook.js:15` is the precedent for
   the shape: a closed, default-deny set.
 - **Removing a project affects only future requests.** It must not terminate running engagements.
   Revoking an active engagement is a separate, explicit act with its own confirmation.
@@ -266,18 +266,18 @@ domain record. The phased sequence, per-endpoint shapes, evidence and verificati
 [`../../docs/PLAN-console-api-integration.md`](../../docs/PLAN-console-api-integration.md), which is
 the implementation plan for this table.
 
-**8. What this withdraws from `docs/PRD-hafleet-pdu.md`.** Withdrawn: the PDU/outsourcing-house
+**8. What this withdraws from `docs/PRD-hagency-pdu.md`.** Withdrawn: the PDU/outsourcing-house
 product statement, R0's `AssignmentRequest` / `StaffingAssignment` contract, `/api/dispatch` and
 any successor router-facing assignment path, and the staffing-request direction of travel.
 **Retained and now load-bearing:** R7's usage accrual with A-R7-3's unknown-never-zero rule,
 R8's `Seat` / `SeatBinding` / `BudgetReservation` model, and R12's roster acceptance written
 against the running prototype. **Also withdrawn (amended 2026-08-10):** R8's `PriceBook` and
-`BillingSource`, and the monetary half of R7's usage/cost accrual — HAFleet's unit of account is
+`BillingSource`, and the monetary half of R7's usage/cost accrual — Hagency's unit of account is
 the token, and token-to-currency conversion is out of scope. R7's accrual is retained in tokens. The PRD must be revised to v0.3 to record
 this split; until then its dispatch requirements are not implementable and must not be scheduled.
 
 The console is a running Next.js prototype under `mockup/`, published at
-`hagency-org.github.io/HAFleet`. What matters about it is not its size but that **this decision has
+`hagency-org.github.io/Hagency`. What matters about it is not its size but that **this decision has
 an executable form whose invariants are asserted before every export** — the layer boundaries, the
 role vocabulary, the blank-is-never-a-zero rule and the i18n contract are all checked rather than
 described. Three suites do that checking: `scripts/check-invariants.mjs` against the rendered HTML,

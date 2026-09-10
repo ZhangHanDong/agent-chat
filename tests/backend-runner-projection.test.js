@@ -9,7 +9,7 @@ describe('backend on-demand runner projection', () => {
     ready: agent('ready', { offlineReason: 'tmux-missing:auto' }),
     modeled: agent('modeled', { runtimeProfile: { primary: { framework: 'codex', model: 'declared-model', apiKey: 'secret-model-key' } } }),
     stopped: agent('stopped', { manualDown: true, offlineReason: 'manual-offline' }),
-    missing: agent('missing', { workdir: '/nonexistent/hafleet-runner-projection-workdir' }),
+    missing: agent('missing', { workdir: '/nonexistent/hagency-runner-projection-workdir' }),
     file: agent('file', { workdir: `${process.cwd()}/package.json` }),
     credential: agent('credential'),
     error: agent('error', { offlineReason: 'native-runtime-error' }),
@@ -30,10 +30,10 @@ describe('backend on-demand runner projection', () => {
     return result.body;
   };
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-runner-projection-', {
+    context = await createBackendTestContext('hagency-runner-projection-', {
       agents: records,
       agentTokens: Object.fromEntries(Object.keys(records).filter(n => n !== 'credential').map(n => [n, `token-${n}`])),
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1' },
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1' },
     });
     router = context.internals.routerStoreForTest;
   });
@@ -127,7 +127,7 @@ describe('backend hybrid thread dispatch projection', () => {
   const agent = (name, overrides = {}) => ({ name, agentId: `agent_${name}`, kind: 'agent', type: 'claude',
     workdir: process.cwd(), online: true, transport: 'tmux', tmux: `${name}:0.0`, ...overrides });
   beforeEach(async () => {
-    context = await createBackendTestContext('hafleet-hybrid-projection-', {
+    context = await createBackendTestContext('hagency-hybrid-projection-', {
       agents: {
         hybrid: agent('hybrid'), other: agent('other'),
         stopped: agent('stopped', { manualDown: true, online: false, offlineReason: 'manual-offline' }),
@@ -137,7 +137,7 @@ describe('backend hybrid thread dispatch projection', () => {
       },
       agentRuntime: { hybrid: { activeNow: false, idleDurationSec: 119745, activeDurationSec: 0 } },
       agentTokens: { hybrid: 'test-hybrid-token', other: 'test-other-token', acp: 'test-acp-token' },
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1' },
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1' },
     });
     router = context.internals.routerStoreForTest;
   });

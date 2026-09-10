@@ -77,7 +77,7 @@ const identityNormalizer = (v) => (typeof v === 'string' && v.trim() ? v.trim() 
 // ── resolveAgentTokenMode ─────────────────────────────────────────────
 describe('resolveAgentTokenMode', () => {
   it('defaults to audit when nothing is configured', () => {
-    // A fleet that has never heard of HAFLEET_AGENT_TOKEN_MODE must keep working:
+    // A fleet that has never heard of HAGENCY_AGENT_TOKEN_MODE must keep working:
     // agent tokens were added to a running product, and defaulting to `hard` would
     // have 403'd every un-provisioned agent on upgrade.
     expect(resolveAgentTokenMode({})).toEqual({ mode: 'audit', configuredMode: 'audit' });
@@ -86,9 +86,9 @@ describe('resolveAgentTokenMode', () => {
   it('recognises hard and soft, and normalises case and padding', () => {
     // An operator writing `Hard` in a systemd unit intends enforcement. Case-folding
     // is the difference between an enforced fleet and one that only logs.
-    expect(resolveAgentTokenMode({ HAFLEET_AGENT_TOKEN_MODE: 'hard' }).mode).toBe('hard');
-    expect(resolveAgentTokenMode({ HAFLEET_AGENT_TOKEN_MODE: '  HARD  ' }).mode).toBe('hard');
-    expect(resolveAgentTokenMode({ HAFLEET_AGENT_TOKEN_MODE: 'Soft' }).mode).toBe('soft');
+    expect(resolveAgentTokenMode({ HAGENCY_AGENT_TOKEN_MODE: 'hard' }).mode).toBe('hard');
+    expect(resolveAgentTokenMode({ HAGENCY_AGENT_TOKEN_MODE: '  HARD  ' }).mode).toBe('hard');
+    expect(resolveAgentTokenMode({ HAGENCY_AGENT_TOKEN_MODE: 'Soft' }).mode).toBe('soft');
   });
 
   it('falls open to audit on an unrecognised mode but PRESERVES what was configured', () => {
@@ -99,11 +99,11 @@ describe('resolveAgentTokenMode', () => {
      * configuredMode=audit and there would be no evidence anywhere that the operator
      * asked for enforcement and did not get it.
      */
-    expect(resolveAgentTokenMode({ HAFLEET_AGENT_TOKEN_MODE: 'enforce' }))
+    expect(resolveAgentTokenMode({ HAGENCY_AGENT_TOKEN_MODE: 'enforce' }))
       .toEqual({ mode: 'audit', configuredMode: 'enforce' });
-    expect(resolveAgentTokenMode({ HAFLEET_AGENT_TOKEN_MODE: 'strict' }).configuredMode).toBe('strict');
+    expect(resolveAgentTokenMode({ HAGENCY_AGENT_TOKEN_MODE: 'strict' }).configuredMode).toBe('strict');
     // An empty or blank value is not a typo, so it reports plain audit.
-    expect(resolveAgentTokenMode({ HAFLEET_AGENT_TOKEN_MODE: '   ' }))
+    expect(resolveAgentTokenMode({ HAGENCY_AGENT_TOKEN_MODE: '   ' }))
       .toEqual({ mode: 'audit', configuredMode: 'audit' });
   });
 });
@@ -745,7 +745,7 @@ describe('buildAgentTokenReadiness', () => {
 
   it('reports failClosedReady only when EVERY managed agent has a token', () => {
     /*
-     * This is the number an operator reads before switching HAFLEET_AGENT_TOKEN_MODE to
+     * This is the number an operator reads before switching HAGENCY_AGENT_TOKEN_MODE to
      * hard. A true here with one agent missing its token means that agent is 403'd
      * immediately after the switch — so the flip must be all-or-nothing.
      */
@@ -812,19 +812,19 @@ describe('buildAgentTokenReadiness', () => {
 });
 
 describe('buildServerCredentialReadiness', () => {
-  it('reports HAFLEET_SERVER_TOKEN as configured but NOT accepted or enforced', () => {
+  it('reports HAGENCY_SERVER_TOKEN as configured but NOT accepted or enforced', () => {
     /*
-     * The invariant this module states in its own field names: HAFLEET_SERVER_TOKEN is a
+     * The invariant this module states in its own field names: HAGENCY_SERVER_TOKEN is a
      * FUTURE credential. An operator who sets it and sees `serverTokenConfigured: true`
      * must also see that it buys nothing yet — otherwise they will believe the
      * server-owned routes are protected by it and leave API_TOKEN unset, which is
      * precisely the deployment `behavior: 'server-routes-open'` is warning about.
      */
-    const readiness = buildServerCredentialReadiness({ env: { HAFLEET_SERVER_TOKEN: 'srv' } });
+    const readiness = buildServerCredentialReadiness({ env: { HAGENCY_SERVER_TOKEN: 'srv' } });
     expect(readiness.serverTokenConfigured).toBe(true);
     expect(readiness.serverTokenAccepted).toBe(false);
     expect(readiness.serverTokenEnforced).toBe(false);
-    expect(readiness.futureCredential).toBe('HAFLEET_SERVER_TOKEN');
+    expect(readiness.futureCredential).toBe('HAGENCY_SERVER_TOKEN');
     expect(readiness.behavior).toBe('server-routes-open');
   });
 

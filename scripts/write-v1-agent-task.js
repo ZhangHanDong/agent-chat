@@ -81,7 +81,7 @@ Options:
   --owner <name>     Override task owner (default: manifest/current owner)
   --reason <text>    Required for wait
   --until <iso8601>  Required for wait
-  --web-url <url>    Override backend API base URL (default: HAFLEET_API or http://127.0.0.1:8090)
+  --web-url <url>    Override backend API base URL (default: HAGENCY_API or http://127.0.0.1:8090)
   --graph <id>       Report a task graph node result/failure instead of home metadata
   --node <id>        Task graph node id (required with --graph)
   --result <json>    JSON payload for graph completion
@@ -140,9 +140,9 @@ function parsePositiveInt(value, fallback) {
 }
 
 function defaultApiBaseUrl(env = process.env) {
-  const explicit = String(env.HAFLEET_API || '').trim();
+  const explicit = String(env.HAGENCY_API || '').trim();
   if (explicit) return explicit.replace(/\/$/, '');
-  const port = parsePositiveInt(env.HAFLEET_BACKEND_PORT, 8090);
+  const port = parsePositiveInt(env.HAGENCY_BACKEND_PORT, 8090);
   return `http://127.0.0.1:${port}`;
 }
 
@@ -270,26 +270,26 @@ function buildGraphPayload(command, args) {
 async function writeDispatchTask(command, args, manifest, workdir) {
   const env = process.env;
   const authority = {
-    'X-HAFleet-Dispatch-Id': env.HAFLEET_DISPATCH_ID,
-    'X-HAFleet-Runner-Id': env.HAFLEET_RUNNER_ID,
-    'X-HAFleet-Dispatch-Capability': env.HAFLEET_DISPATCH_CAPABILITY,
-    'X-HAFleet-Fence-Generation': env.HAFLEET_FENCE_GENERATION,
+    'X-Hagency-Dispatch-Id': env.HAGENCY_DISPATCH_ID,
+    'X-Hagency-Runner-Id': env.HAGENCY_RUNNER_ID,
+    'X-Hagency-Dispatch-Capability': env.HAGENCY_DISPATCH_CAPABILITY,
+    'X-Hagency-Fence-Generation': env.HAGENCY_FENCE_GENERATION,
   };
   const hasAuthority = Object.values(authority).some(value => value !== undefined && value !== '');
-  const declaresEphemeral = Boolean(env.HAFLEET_EPHEMERAL_RUNNER && env.HAFLEET_EPHEMERAL_RUNNER !== '0');
+  const declaresEphemeral = Boolean(env.HAGENCY_EPHEMERAL_RUNNER && env.HAGENCY_EPHEMERAL_RUNNER !== '0');
   if (!declaresEphemeral && !hasAuthority) return false;
-  if (env.HAFLEET_EPHEMERAL_RUNNER !== '1'
+  if (env.HAGENCY_EPHEMERAL_RUNNER !== '1'
     || Object.values(authority).some(value => typeof value !== 'string' || !value.trim())
-    || !/^[1-9][0-9]*$/.test(authority['X-HAFleet-Fence-Generation'])) {
+    || !/^[1-9][0-9]*$/.test(authority['X-Hagency-Fence-Generation'])) {
     throw new Error('incomplete ephemeral dispatch authority; refusing legacy task metadata fallback');
   }
   if (args.graphId || args.nodeId || args.result || args.error || command === 'fail') {
     throw new Error('ephemeral task writer supports canonical start, heartbeat, wait, resume and done only');
   }
   if (args.owner && args.owner !== manifest.name) throw new Error('ephemeral task owner cannot be replaced');
-  const apiBaseUrl = String(env.HAFLEET_API || '').trim().replace(/\/$/, '');
+  const apiBaseUrl = String(env.HAGENCY_API || '').trim().replace(/\/$/, '');
   if (!apiBaseUrl || args.webUrl && args.webUrl.replace(/\/$/, '') !== apiBaseUrl) {
-    throw new Error('ephemeral task writer requires its assigned HAFLEET_API endpoint');
+    throw new Error('ephemeral task writer requires its assigned HAGENCY_API endpoint');
   }
   let agentToken = env.AGENT_TOKEN || '';
   if (!agentToken) {

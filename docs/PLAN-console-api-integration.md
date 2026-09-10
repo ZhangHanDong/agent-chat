@@ -51,7 +51,7 @@ Scale for orientation:
 | endpoint | purpose | evidence it is absent |
 |---|---|---|
 | `GET /api/frameworks` | list the five manifests: `id`, `displayName`, `launch.{command,defaultArgs,modelFlag,permissionSummary}`, `guards`, launchability | no `/api/frameworks` route; `listFrameworks()` exists and is unrouted |
-| `GET /api/frameworks/detect` | scan the host: which frameworks are installed, versions, usable | nearest prior art is `bin/hafleet-up:1804`'s `command -v claude` — shell-level, one framework, no API |
+| `GET /api/frameworks/detect` | scan the host: which frameworks are installed, versions, usable | nearest prior art is `bin/hagency-up:1804`'s `command -v claude` — shell-level, one framework, no API |
 | `/api/seats` | the accounting root: one credential home = one quota | `seat`, `credentialHome`, `planType`, `quota` all have **zero** occurrences in `lib/` and `backend-v2.js` |
 | `GET /api/capability` | role → how many I can fill, computed server-side | `role-capacity.json` has no consumer outside `mockup/` |
 | `/api/engagements` | inbound request + approve/reject writing a per-agent allocation | `engagement` — zero occurrences |
@@ -183,7 +183,7 @@ plus an assertion that no role vocabulary exists outside `role-capacity.json`.
 1. **`Seat` and `SeatBinding`.** Seat identity derives from the credential home. Follow PRD R8:
    a deployment-keyed HMAC with a key id and rotation policy, never a raw path and never a
    globally correlatable hash. The fact this models is verified:
-   `bin/hafleet-up:1640-1644` unsets `ANTHROPIC_API_KEY` for Claude agents unless a per-agent
+   `bin/hagency-up:1640-1644` unsets `ANTHROPIC_API_KEY` for Claude agents unless a per-agent
    runtime profile supplies one, and `$HOME` is never reassigned in the launch path — so Claude
    agents share the operator's authenticated subscription and its quota by default.
 2. **`ceiling` and `rateCap` on preset/agent, referencing a `seatId`.**
@@ -230,7 +230,7 @@ Model on `approval-store`: durable, audited, terminal states, TTL.
    but over → **falls back to approval, not rejection**; not whitelisted → awaits approval.
 3. **`/api/whitelist`** — keyed on `projectRoomId`, never a name. `ROOM_ID_RE`
    (`lib/approval-store.js:19`) already validates room ids strictly. Default-deny, on the model of
-   `TRUSTED_HAFLEET_COORDINATION_TOOLS` (`lib/codex-permission-hook.js:15`). Both add and remove
+   `TRUSTED_HAGENCY_COORDINATION_TOOLS` (`lib/codex-permission-hook.js:15`). Both add and remove
    are audited. Removal affects only future requests and must not terminate running engagements.
 4. **`/api/offers`** — `{ role, count, budgetCapPerEngagement, rateCap, published }`.
 5. **A bearer-readable, redacted binding projection**, replacing the bridge-secret path for the
@@ -286,7 +286,7 @@ requirements** through `satisfies`. ADR-013 is a decision, not a requirement, an
 2. a paired `knowledge/requirements/req-*.md` is written and accepted, on the model of
    `req-project-board.md` beside `adr-009` — testable `MUST` statements plus Gherkin scenarios for
    the five phases;
-3. `docs/PRD-hafleet-pdu.md` reaches v0.3, since its supersession notice currently marks R0 and the
+3. `docs/PRD-hagency-pdu.md` reaches v0.3, since its supersession notice currently marks R0 and the
    dispatch requirements as not implementable.
 
 Items 1 and 2 gate code. Item 3 gates scheduling other workstreams against the PRD.
@@ -343,7 +343,7 @@ by reading the handler.
   agent-name suffixes, which is what `canonicalRole()` exists to bridge. The change made
   the mapping explicit (`canonical:`) and bound it with a test, rather than deleting it.
 - **API-key mode does not yield token numbers.** §P3 assumed providers report usage
-  there. They do — but not to HAFleet, which launches a CLI that talks to the provider
+  there. They do — but not to Hagency, which launches a CLI that talks to the provider
   directly. No API response passes through this process in either mode. The routes that
   could work are the framework's own session logs, or becoming a proxy; both are
   decisions, and both are named in the `metering` block rather than merely admitted.
@@ -395,7 +395,7 @@ live engagements on a whitelist removal each fail exactly the assertion that nam
 
 ### 7.5 Closing the loop against real components
 
-Everything above validates hafleet against hafleet. `mockup/scripts/e2e-full-loop.mjs`
+Everything above validates hagency against hagency. `mockup/scripts/e2e-full-loop.mjs`
 validates it against a real homeserver, a real bridge, a real GUI client and a real
 browser at once: `@lin` posts `!request architect 300000 20000` into a room it creates on
 the Palpo deployed to mini1, the running `bridge-matrix.js` picks it up, Playwright clicks
@@ -485,7 +485,7 @@ keeping: every one needed a condition the developer's box happened not to have.
 |---|---|
 | `fillable` contradicted `crossFamilyOk` on the same object — a one-family fleet reported `review: {fillable: 1, crossFamilyOk: false}` | a mixed-family fleet |
 | `state: ready` for a framework that cannot start — the probe ran `--version` only, so octos 0.1.1 passed and `acp-up` then died on `unrecognized subcommand 'acp'` | a current binary |
-| the preset's provider never reached the process — a preset saying `moonshot` launched a **deepseek** client and died on `DEEPSEEK_API_KEY`, because octos resolves the provider from its own config and hafleet passed none | a local octos config that agrees with the preset |
+| the preset's provider never reached the process — a preset saying `moonshot` launched a **deepseek** client and died on `DEEPSEEK_API_KEY`, because octos resolves the provider from its own config and hagency passed none | a local octos config that agrees with the preset |
 | a running ACP agent reported **offline** — `syncAcpAgentLiveness` set `agent.online` on the record, but `serializeAgent` reads the state machine, which only the tmux sweep updated | never having launched an ACP agent and looked at the console |
 
 The last one is the sharpest: `agents.json` said `online: true` and the API said
@@ -495,7 +495,7 @@ both directions, so a change that fixes one side and not the other fails whichev
 side it breaks.
 
 Two bootstrap gaps also showed up, neither a bug but both undocumented: the first
-binding needs `HAFLEET_OWNER_DM_ROOM` as well as `HAFLEET_OWNER_MXID` (without it
+binding needs `HAGENCY_OWNER_DM_ROOM` as well as `HAGENCY_OWNER_MXID` (without it
 approval goes `active` with `bound: false` — loudly, which is the behaviour §7.4
 built), and `credentialPresent: true` means only that the credential DIRECTORY
 exists. On the clean host that directory was root-owned and empty, and the framework
@@ -656,7 +656,7 @@ tests that did not exist, and those tests failed:
   ("heartbeat recovery resolves only the matching server outage") and `api-messages`
   ("backend_receipt_survives_retention", failing with `Parse Error: Expected HTTP/`).
   All three pass every time in isolation, and none imports anything this branch
-  changed. Ruled out so far: an `API_TOKEN`/`HAFLEET_REQUESTER_TOKEN` leak from the
+  changed. Ruled out so far: an `API_TOKEN`/`HAGENCY_REQUESTER_TOKEN` leak from the
   caller's shell (they pass with both set), a shared runtime directory (the harness
   uses `mkdtempSync`, which randomises), and per-file timing constructs (one of the
   three has none). All three go through `createBackendTestContext` and two bind real

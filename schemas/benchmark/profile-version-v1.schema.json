@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "hafleet.benchmark.profile-version/v1",
+  "$id": "hagency.benchmark.profile-version/v1",
   "title": "AgentChat Benchmark Profile Version",
   "type": "object",
   "required": [
@@ -15,7 +15,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "hafleet.benchmark.profile-version/v1"
+      "const": "hagency.benchmark.profile-version/v1"
     },
     "profileId": {
       "type": "string",

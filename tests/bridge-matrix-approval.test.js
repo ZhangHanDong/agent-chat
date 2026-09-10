@@ -52,9 +52,9 @@ describe('Matrix owner approval bridge', () => {
   };
 
   beforeAll(async () => {
-    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-bridge-approval-'));
-    envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX']);
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-bridge-approval-'));
+    envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX']);
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     const bridgeUrl = pathToFileURL(path.resolve('bridge-matrix.js')).href;
     ({
@@ -179,8 +179,8 @@ describe('Matrix owner approval bridge', () => {
      * REQ-OWNER-UI-APPROVAL-IDENTITY and REQ-OWNER-UI-APPROVAL-AUTHORITY. The exact-object
      * assertion is what carries both: `sender_mxid` is the complete MXID taken from
      * `event.sender` and `room_id` is the room the bridge observed the event in, neither of
-     * which the client's `com.hafleet.approval` payload can supply or override. That is the
-     * whole of "Robrix2 emits, hafleet authorizes" on the bridge side — the identity used
+     * which the client's `com.hagency.approval` payload can supply or override. That is the
+     * whole of "Robrix2 emits, hagency authorizes" on the bridge side — the identity used
      * downstream is homeserver-stamped, not self-reported.
      */
     const parsed = parseApprovalVerdictEvent('!approval-dm:palpo.test', {
@@ -215,10 +215,10 @@ describe('Matrix owner approval bridge', () => {
     });
   });
 
-  test('legacy_hafleet_namespace_verdict_still_accepted_in_transition', () => {
+  test('legacy_hagency_namespace_verdict_still_accepted_in_transition', () => {
     /*
      * Wire-protocol transition guard. Verdicts already in flight — sent by deployed clients
-     * under the old `com.hafleet.approval.verdict.v1` name before the namespace returned to
+     * under the old `com.hagency.approval.verdict.v1` name before the namespace returned to
      * `com.agentchat.*` — must not be dropped: losing one reads as a hung approval on both
      * ends. Only the VERDICT accepts the legacy name; status/request are outbound-only.
      */
@@ -226,9 +226,9 @@ describe('Matrix owner approval bridge', () => {
       event_id: '$legacy-verdict',
       sender: '@alex:palpo.test',
       content: {
-        msgtype: 'com.hafleet.approval.verdict.v1',
+        msgtype: 'com.hagency.approval.verdict.v1',
         body: 'Approval response submitted',
-        'com.hafleet.approval': {
+        'com.hagency.approval': {
           version: 1,
           kind: 'verdict',
           agent: approval.agent,
@@ -264,7 +264,7 @@ describe('Matrix owner approval bridge', () => {
       content: {
         msgtype: 'com.agentchat.approval.verdict.v1',
         body: 'Approval response submitted',
-        'com.hafleet.approval': { ...fullDetail },
+        'com.hagency.approval': { ...fullDetail },
       },
     })).toBeNull();
     // hybrid 2: LEGACY msgtype, NEW payload key
@@ -272,7 +272,7 @@ describe('Matrix owner approval bridge', () => {
       event_id: '$hybrid-legacy-msgtype-new-key',
       sender: '@alex:palpo.test',
       content: {
-        msgtype: 'com.hafleet.approval.verdict.v1',
+        msgtype: 'com.hagency.approval.verdict.v1',
         body: 'Approval response submitted',
         'com.agentchat.approval': { ...fullDetail },
       },
@@ -420,16 +420,16 @@ describe('Matrix owner approval bridge', () => {
   test('plaintext approval diagnostics require explicit non-production opt-in', () => {
     expect(resolveApprovalDmMode({})).toBe('required');
     expect(() => resolveApprovalDmMode({
-      HAFLEET_APPROVAL_DM_MODE: 'plaintext-test',
-    })).toThrow('HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST=1');
+      HAGENCY_APPROVAL_DM_MODE: 'plaintext-test',
+    })).toThrow('HAGENCY_ALLOW_PLAINTEXT_APPROVAL_TEST=1');
     expect(() => resolveApprovalDmMode({
-      HAFLEET_APPROVAL_DM_MODE: 'plaintext-test',
-      HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST: '1',
+      HAGENCY_APPROVAL_DM_MODE: 'plaintext-test',
+      HAGENCY_ALLOW_PLAINTEXT_APPROVAL_TEST: '1',
       NODE_ENV: 'production',
     })).toThrow('forbidden in production');
     expect(resolveApprovalDmMode({
-      HAFLEET_APPROVAL_DM_MODE: 'plaintext-test',
-      HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST: '1',
+      HAGENCY_APPROVAL_DM_MODE: 'plaintext-test',
+      HAGENCY_ALLOW_PLAINTEXT_APPROVAL_TEST: '1',
       NODE_ENV: 'test',
     })).toBe('plaintext-test');
   });

@@ -21,7 +21,7 @@ import { describe, expect, test } from 'vitest';
 import { MatrixBridge, resolveGroupReplyRelation } from '../bridge-matrix.js';
 
 const ROOM = '!room:example.org';
-const GROUP = 'hafleet';
+const GROUP = 'hagency';
 const QUESTION = '$question-event';
 
 /** Route metadata for a question asked at the room's top level — no thread anywhere. */

@@ -7,7 +7,7 @@ import { openRouter, runCodexDispatch, runClaudeDispatch } from '../router/dist/
 const dirs = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function setup(framework = 'codex') {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-activity-')); dirs.push(root);
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-activity-')); dirs.push(root);
   let now = Date.now();
   const options = { dbPath: path.join(root, 'router.db'), now: () => now };
   const router = openRouter(options);

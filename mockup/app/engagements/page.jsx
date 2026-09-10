@@ -193,7 +193,7 @@ function ProjectSides({ t }) {
                     {/* Entering one was a curl-only act until now (ADR-016 decision 8). The form can
                         write a credential it can never read back — the read side stays closed. */}
                     {side.connectionMode === 'outbound' && <p className="why-inline">
-                      纯出站 · HAFleet 主动连接 Palpo
+                      纯出站 · Hagency 主动连接 Palpo
                       <span className="mono"> {side.outboundEndpoint}</span>
                     </p>}
                     <CredentialForm
@@ -204,7 +204,7 @@ function ProjectSides({ t }) {
                     {/*
                       * THE TWO THINGS AN OPERATOR CAN ACTUALLY DO, and neither existed here.
                       *
-                      * The only action on this column was a form asking for tokens that — when HAFleet issued
+                      * The only action on this column was a form asking for tokens that — when Hagency issued
                       * them — were readable for one moment and are write-only afterwards. So for the common
                       * case the sole affordance was one the operator could not complete. They asked twice why
                       * "set credential" was still there.

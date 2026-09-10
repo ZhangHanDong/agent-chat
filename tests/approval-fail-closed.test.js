@@ -136,8 +136,8 @@ describe('bridge onApprovalRequested — deliver both surfaces or fail closed', 
 
   beforeAll(async () => {
     runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'approval-failclosed-bridge-'));
-    for (const k of ['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX']) saved[k] = process.env[k];
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    for (const k of ['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX']) saved[k] = process.env[k];
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_AGENT_PREFIX = 'ac_';
     const url = pathToFileURL(path.resolve('bridge-matrix.js')).href;
     ({ MatrixBridge } = await import(`${url}?failclosed-test=${Date.now()}`));

@@ -6,7 +6,7 @@ import { promisify } from 'util';
 import { afterEach, describe, expect, test } from 'vitest';
 
 const REPO_ROOT = path.resolve('.');
-const HAFLEET_BIN = path.join(REPO_ROOT, 'bin', 'hafleet');
+const HAGENCY_BIN = path.join(REPO_ROOT, 'bin', 'hagency');
 const execFileAsync = promisify(execFile);
 const cleanupDirs = new Set();
 
@@ -22,7 +22,7 @@ function writeExecutable(filePath, content) {
 }
 
 function setupFakePath() {
-  const binDir = trackTempDir('hafleet-cli-ls-bin-');
+  const binDir = trackTempDir('hagency-cli-ls-bin-');
   writeExecutable(path.join(binDir, 'tmux'), `#!/usr/bin/env bash
 case "$1" in
   list-sessions) exit 0 ;;
@@ -59,7 +59,7 @@ function writeV1Manifest(homeRoot, name, type = 'codex') {
 }
 
 async function runAgentLs(env = {}) {
-  const { stdout } = await execFileAsync(HAFLEET_BIN, ['ls', '--all'], {
+  const { stdout } = await execFileAsync(HAGENCY_BIN, ['ls', '--all'], {
     cwd: REPO_ROOT,
     encoding: 'utf-8',
     env: {
@@ -75,17 +75,17 @@ afterEach(() => {
   cleanupDirs.clear();
 });
 
-describe('hafleet ls cli', () => {
+describe('hagency ls cli', () => {
   test('lists v1 manifests from runtime-derived homes', async () => {
-    const runtimeDir = trackTempDir('hafleet-ls-runtime-');
+    const runtimeDir = trackTempDir('hagency-ls-runtime-');
     const homeDir = path.join(runtimeDir, 'homes');
     const paths = writeV1Manifest(homeDir, 'alpha');
     const output = await runAgentLs({
       PATH: setupFakePath(),
-      HOME: trackTempDir('hafleet-ls-home-'),
-      HAFLEET_RUNTIME_DIR: runtimeDir,
-      HAFLEET_API: 'http://127.0.0.1:1',
-      HAFLEET_HOMEDIR: '',
+      HOME: trackTempDir('hagency-ls-home-'),
+      HAGENCY_RUNTIME_DIR: runtimeDir,
+      HAGENCY_API: 'http://127.0.0.1:1',
+      HAGENCY_HOMEDIR: '',
     });
 
     expect(output).toContain('alpha');
@@ -94,16 +94,16 @@ describe('hafleet ls cli', () => {
     expect(output).toContain(paths.workdir);
   });
 
-  test('ignores relative HAFLEET_HOMEDIR and still lists runtime homes', async () => {
-    const runtimeDir = trackTempDir('hafleet-ls-runtime-');
+  test('ignores relative HAGENCY_HOMEDIR and still lists runtime homes', async () => {
+    const runtimeDir = trackTempDir('hagency-ls-runtime-');
     const homeDir = path.join(runtimeDir, 'homes');
     writeV1Manifest(homeDir, 'beta', 'claude');
     const output = await runAgentLs({
       PATH: setupFakePath(),
-      HOME: trackTempDir('hafleet-ls-home-'),
-      HAFLEET_RUNTIME_DIR: runtimeDir,
-      HAFLEET_API: 'http://127.0.0.1:1',
-      HAFLEET_HOMEDIR: 'relative-home',
+      HOME: trackTempDir('hagency-ls-home-'),
+      HAGENCY_RUNTIME_DIR: runtimeDir,
+      HAGENCY_API: 'http://127.0.0.1:1',
+      HAGENCY_HOMEDIR: 'relative-home',
     });
 
     expect(output).toContain('beta');
@@ -111,15 +111,15 @@ describe('hafleet ls cli', () => {
   });
 
   test('keeps legacy home fallback visible', async () => {
-    const fakeHome = trackTempDir('hafleet-ls-home-');
-    const legacyHome = path.join(fakeHome, '.hafleet');
+    const fakeHome = trackTempDir('hagency-ls-home-');
+    const legacyHome = path.join(fakeHome, '.hagency');
     writeV1Manifest(legacyHome, 'legacy');
     const output = await runAgentLs({
       PATH: setupFakePath(),
       HOME: fakeHome,
-      HAFLEET_API: 'http://127.0.0.1:1',
-      HAFLEET_HOMEDIR: '',
-      HAFLEET_RUNTIME_DIR: '',
+      HAGENCY_API: 'http://127.0.0.1:1',
+      HAGENCY_HOMEDIR: '',
+      HAGENCY_RUNTIME_DIR: '',
     });
 
     expect(output).toContain('legacy');

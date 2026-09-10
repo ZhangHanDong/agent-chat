@@ -8,7 +8,7 @@ tags: [tasks, runner, mcp, regression]
 
 ## Intent
 
-Allow a HAFleet-managed agent to record verified inner work and complete its
+Allow a Hagency-managed agent to record verified inner work and complete its
 bound task through structured MCP operations. Preserve session isolation and
 keep final response text separate from durable task and dispatch state.
 
@@ -124,4 +124,4 @@ Scenario: Operator resume wakes the existing blocked dispatch
 ## Out of Scope
 
 - Remote service deployment, global configuration changes, or automatic task completion from terminal text.
-- Making Octos a disposable HAFleet runner; it remains a lower-level execution choice.
+- Making Octos a disposable Hagency runner; it remains a lower-level execution choice.

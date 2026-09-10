@@ -1,4 +1,4 @@
-<!-- hafleet-supervisor-agents-template: v1 -->
+<!-- hagency-supervisor-agents-template: v1 -->
 ## Role
 - I am the explicit supervisor-local workspace for `{{AGENT_NAME}}`.
 

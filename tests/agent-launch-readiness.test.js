@@ -12,7 +12,7 @@
  * third copy whose drift is exactly what this audit round kept finding — two ownership-binding
  * writers, two field lists, one launcher missing a bot invite.
  *
- * WHY VERIFY-ONLY. `bin/hafleet-up`'s preflight ESTABLISHES readiness and, for Codex, confirms hook
+ * WHY VERIFY-ONLY. `bin/hagency-up`'s preflight ESTABLISHES readiness and, for Codex, confirms hook
  * trust at a TTY: `confirmHookTrust` returns false when `!input.isTTY` and its caller aborts. A
  * sweep loop inside the backend has no terminal, so it could never complete an establishing
  * preflight — and does not need to, because it launches into an already-provisioned home. So this
@@ -63,7 +63,7 @@ describe('the credential the runtime submits WITH', () => {
   test('a missing agent token refuses both frameworks and names the command', () => {
     /*
      * Without it the runtime cannot reach the backend at all, so a permission request has nowhere
-     * to go and the runtime falls back to whatever it does alone. `bin/hafleet-up` MINTS this when
+     * to go and the runtime falls back to whatever it does alone. `bin/hagency-up` MINTS this when
      * absent; a daemon must report rather than repair, because minting a credential outside
      * provisioning is how a second source of truth starts.
      */
@@ -72,7 +72,7 @@ describe('the credential the runtime submits WITH', () => {
       expect(result.ok, framework).toBe(false);
       expect(result.reason).toBe('missing_agent_approval_token');
       // An operator needs somewhere to go, not just a refusal.
-      expect(result.detail).toMatch(/hafleet up/);
+      expect(result.detail).toMatch(/hagency up/);
     }
   });
 
@@ -91,14 +91,14 @@ describe('Claude asks over the MCP permission channel', () => {
      * reaches the forbidden state by configuration rather than by omission — and everything else
      * about the home looks correct, which is what makes it worth a case.
      */
-    const result = verify('claude', home(), { HAFLEET_CLAUDE_PERMISSION_CHANNEL: 'false' });
+    const result = verify('claude', home(), { HAGENCY_CLAUDE_PERMISSION_CHANNEL: 'false' });
     expect(result).toMatchObject({ ok: false, reason: 'claude_permission_channel_disabled' });
   });
 
   test('any value other than the literal false leaves the channel on', () => {
     // Default-on: an unset or misspelled value must not silently disable the relay.
     for (const value of [undefined, '', 'true', 'TRUE', '0', 'no']) {
-      expect(verify('claude', home(), { HAFLEET_CLAUDE_PERMISSION_CHANNEL: value }).ok, String(value))
+      expect(verify('claude', home(), { HAGENCY_CLAUDE_PERMISSION_CHANNEL: value }).ok, String(value))
         .toBe(true);
     }
   });
@@ -148,7 +148,7 @@ describe('what is deliberately not gated', () => {
   test('ACP runtimes pass, because they answer permission requests themselves', () => {
     /*
      * hermes, octos and codex-acp answer `session/request_permission` through the ACP client, which
-     * declines anything that is not a hafleet coordination tool. There is no adapter here to
+     * declines anything that is not a hagency coordination tool. There is no adapter here to
      * verify, so refusing them would block launches for a reason that does not apply to them.
      */
     for (const framework of ['hermes', 'octos', 'codex-acp']) {

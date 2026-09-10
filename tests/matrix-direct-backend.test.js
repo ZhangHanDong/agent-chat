@@ -16,7 +16,7 @@ test('direct messages continue one private conversation with project owner appro
     agents: { worker: { name: 'worker', agentId: 'agent_worker', type: 'codex', kind: 'agent', online: true,
       workdir: process.cwd(), workspaceMode: 'shared', projectSide: 'test' } },
     agentTokens: { worker: 'worker-secret' },
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'bridge-secret', HAFLEET_AGENT_TOKEN_MODE: 'hard' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'bridge-secret', HAGENCY_AGENT_TOKEN_MODE: 'hard' },
     rawDataFiles: {
       'engagements.json': JSON.stringify({ engagements: { allocation: { id: 'allocation', agent: 'worker', state: 'active', projectRoomId: '!project:test', allocatedTokens: 100000 } } }),
       'project-sides.json': JSON.stringify({ sides: { test: { id: 'test', serverName: 'test', active: true,
@@ -46,9 +46,9 @@ test('direct messages continue one private conversation with project owner appro
       workspaceResourceId: 'dm-work', mayWrite: true, payload: {} });
     const first = router.claimDispatch({ runnerId: 'first', leaseMs: 60000, capabilityTtlMs: 60000, maxLiveRunners: 3 });
     expect(router.takePayload(first).ok).toBe(true);
-    const headers = { 'X-Agent-Token': 'worker-secret', 'X-HAFleet-Dispatch-Id': first.dispatchId,
-      'X-HAFleet-Runner-Id': first.runnerId, 'X-HAFleet-Dispatch-Capability': first.capability,
-      'X-HAFleet-Fence-Generation': String(first.fenceGeneration) };
+    const headers = { 'X-Agent-Token': 'worker-secret', 'X-Hagency-Dispatch-Id': first.dispatchId,
+      'X-Hagency-Runner-Id': first.runnerId, 'X-Hagency-Dispatch-Capability': first.capability,
+      'X-Hagency-Fence-Generation': String(first.fenceGeneration) };
     const history = await request(context.app).post('/api/router/conversation').set(headers).send({ agent: 'worker', offset: 0, roomId: '!owner-approval:test' }).expect(200);
     expect(history.body.messages.map(m => m.body)).toEqual(['Remember the release is Tuesday']);
     createRouterTaskStore(router).transitionTask(activated.taskId, 'done');
@@ -80,7 +80,7 @@ test('invited room targets keep separate allocations and reject unauthorized rec
   const context = await createBackendTestContext('invited-targets-', {
     agents: Object.fromEntries(names.map(name => [name, { name, agentId: `agent_${name}`, type: 'codex', kind: 'agent', online: true,
       workdir: process.cwd(), workspaceMode: 'shared', projectSide: 'test' }])),
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'bridge-secret' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'bridge-secret' },
     rawDataFiles: {
       'engagements.json': JSON.stringify({ engagements: Object.fromEntries(names.map(name => [name,
         { id: name, agent: name, state: 'active', projectRoomId: '!project:test', allocatedTokens: 100000 }])) }),
@@ -121,7 +121,7 @@ test('cross-agent thread creation preserves human mentions and private promotion
   const context = await createBackendTestContext('cross-agent-private-', {
     agents: Object.fromEntries(names.map(name => [name, { name, agentId: `agent_${name}`, type: 'codex', kind: 'agent',
       online: true, workdir: process.cwd(), workspaceMode: 'shared', projectSide: 'test' }])),
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'bridge-secret' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', MATRIX_BRIDGE_SECRET: 'bridge-secret' },
     rawDataFiles: {
       'engagements.json': JSON.stringify({ engagements: Object.fromEntries(names.map(name => [name,
         { id: name, agent: name, state: 'active', projectRoomId: '!project:test', allocatedTokens: 100000 }])) }),

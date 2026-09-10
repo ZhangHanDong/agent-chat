@@ -69,14 +69,14 @@ async function boot({ manualOffers = true, outbound = false } = {}) {
     else if (url.pathname.endsWith('/m.room.power_levels/')) value = { users: { [ownerMxid]: allowOwner ? 100 : 0 }, invite: 0 };
     else if (url.pathname.endsWith('/m.room.join_rules/')) value = { join_rule: 'invite' };
     else if (url.pathname.endsWith('/m.room.encryption/')) { res.statusCode = 404; }
-    else if (url.pathname.includes('/com.hafleet.admin.binding.v1/')) value = { v: 1, fleetId, purpose: 'project', projectId: 'project_1', ownerMxid, authVersion: 1 };
+    else if (url.pathname.includes('/com.hagency.admin.binding.v1/')) value = { v: 1, fleetId, purpose: 'project', projectId: 'project_1', ownerMxid, authVersion: 1 };
     res.end(JSON.stringify(value));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   ctx = await createBackendTestContext('palpo-definitions-', { frameworkPresets: structuredClone(presets),
     agents: { original: { name: 'original', kind: 'agent', type: 'codex', projectSide: side, presetId: 'strong',
       runtimeProfile: { primary: { framework: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' } } } },
-    env: { MATRIX_BRIDGE_SECRET: bridgeSecret, HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1' },
+    env: { MATRIX_BRIDGE_SECRET: bridgeSecret, HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1' },
     rawDataFiles: { 'project-sides.json': JSON.stringify({ version: 1, audit: [], sides: { [side]: {
       id: side, serverName: side, active: true, apiBaseUrl: `http://127.0.0.1:${server.address().port}`, projects: {},
       allocatedTokens: 20000, representative: { mxid: rep }, credential: { kind: 'appservice', asToken: 'fixture-as', hsToken,
@@ -95,7 +95,7 @@ test('last Palpo allocation retirement fences admission and verifies remote remo
   const response = (await request(ctx.app).post(`/api/engagements/${approved.id}/revoke`).send({ reason: 'operator revoke' }).expect(200)).body;
   expect(response.engagement).toMatchObject({ state: 'ended', bound: false, withdrawal: { scope: 'agent', state: 'complete', retirement: { localStopped: true, remote: { state: 'retired' } } } });
   expect(retirementRequests).toHaveLength(1);
-  expect(retirementRequests[0]).toMatchObject({ headers: { authorization: 'Bearer fixture-machine-token-long', 'x-hafleet-generation': '1' }, body: { requestId: 'retire-edison', localStopped: true } });
+  expect(retirementRequests[0]).toMatchObject({ headers: { authorization: 'Bearer fixture-machine-token-long', 'x-hagency-generation': '1' }, body: { requestId: 'retire-edison', localStopped: true } });
   expect((await request(ctx.app).get('/api/agents?view=names')).body).not.toContain(approved.agent);
   expect((await request(ctx.app).get('/api/contributions')).body.contributions.some(row => row.agent === approved.agent && row.active)).toBe(false);
   expect((await request(ctx.app).get('/api/agents/original')).body.retiredAt).toBeUndefined();

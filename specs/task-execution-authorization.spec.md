@@ -36,7 +36,7 @@ without changing the default sandbox or private authenticated approval authority
 - router/dist/**
 - mockup/components/**
 - mockup/app/resources/**
-- mockup/app/api/hafleet/[...path]/route.js
+- mockup/app/api/hagency/[...path]/route.js
 - mockup/lib/**
 - mockup/scripts/check-execution-permissions.mjs
 - tests/**

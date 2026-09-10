@@ -19,9 +19,9 @@ async function fixture(fileWorkspace = false, projectSide = null) {
   const agents = Object.fromEntries(['worker', 'peer', 'outsider'].map((name) => [name, {
     name, agentId: `agent_${name}`, kind: 'agent', type: 'codex', workdir: process.cwd(), online: true, ...(projectSide ? { projectSide } : {}),
   }]));
-  const context = await createBackendTestContext('hafleet-session-tools-', {
+  const context = await createBackendTestContext('hagency-session-tools-', {
     agents, agentTokens: { worker: 'worker-secret', peer: 'peer-secret', outsider: 'outsider-secret' },
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', HAFLEET_AGENT_TOKEN_MODE: 'hard', API_TOKEN: 'operator-secret', MATRIX_BRIDGE_SECRET: 'bridge-secret' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', HAGENCY_AGENT_TOKEN_MODE: 'hard', API_TOKEN: 'operator-secret', MATRIX_BRIDGE_SECRET: 'bridge-secret' },
   });
   const router = context.internals.routerStoreForTest;
   context.internals.stopRouterPumpForTest();
@@ -54,9 +54,9 @@ async function fixture(fileWorkspace = false, projectSide = null) {
     expect((await request(context.app).put('/api/approval-bindings').set('X-Bridge-Secret', 'bridge-secret')
       .send({ agent: name, project: 'test', project_room_id: '!project:test', owner_mxid: '@owner:test', owner_dm_room_id: '!private:test' })).status).toBe(200);
   }
-  const headers = { 'X-Agent-Token': 'worker-secret', 'X-HAFleet-Dispatch-Id': claim.dispatchId,
-    'X-HAFleet-Runner-Id': claim.runnerId, 'X-HAFleet-Dispatch-Capability': claim.capability,
-    'X-HAFleet-Fence-Generation': String(claim.fenceGeneration) };
+  const headers = { 'X-Agent-Token': 'worker-secret', 'X-Hagency-Dispatch-Id': claim.dispatchId,
+    'X-Hagency-Runner-Id': claim.runnerId, 'X-Hagency-Dispatch-Capability': claim.capability,
+    'X-Hagency-Fence-Generation': String(claim.fenceGeneration) };
   return { context, router, own, other, peer, claim, headers };
 }
 
@@ -64,10 +64,10 @@ async function connectMcp(context, claim) {
   const serving = await context.listen();
   cleanup.push(() => serving.close());
   const transport = new StdioClientTransport({ command: process.execPath, args: [path.resolve('mcp-server.js')], stderr: 'pipe',
-    env: { PATH: process.env.PATH, AGENT_NAME: 'worker', AGENT_TOKEN: 'worker-secret', HAFLEET_API: serving.baseUrl,
-      HAFLEET_RUNTIME_DIR: context.runtimeDir, HAFLEET_EPHEMERAL_RUNNER: '1', HAFLEET_AGENT_ID: 'agent_worker',
-      HAFLEET_DISPATCH_ID: claim.dispatchId, HAFLEET_RUNNER_ID: claim.runnerId, HAFLEET_DISPATCH_CAPABILITY: claim.capability,
-      HAFLEET_FENCE_GENERATION: String(claim.fenceGeneration), HAFLEET_CLAUDE_PERMISSION_CHANNEL: '0' } });
+    env: { PATH: process.env.PATH, AGENT_NAME: 'worker', AGENT_TOKEN: 'worker-secret', HAGENCY_API: serving.baseUrl,
+      HAGENCY_RUNTIME_DIR: context.runtimeDir, HAGENCY_EPHEMERAL_RUNNER: '1', HAGENCY_AGENT_ID: 'agent_worker',
+      HAGENCY_DISPATCH_ID: claim.dispatchId, HAGENCY_RUNNER_ID: claim.runnerId, HAGENCY_DISPATCH_CAPABILITY: claim.capability,
+      HAGENCY_FENCE_GENERATION: String(claim.fenceGeneration), HAGENCY_CLAUDE_PERMISSION_CHANNEL: '0' } });
   const client = new Client({ name: 'session-test', version: '1' }, { capabilities: {} });
   cleanup.push(() => client.close());
   await client.connect(transport);
@@ -95,9 +95,9 @@ async function delegatedChildFixture() {
     localServerId: 'local', workspaceResourceId: 'child-work', mayWrite: true, payload: {} }).ok).toBe(true);
   const childClaim = f.router.claimDispatch({ runnerId: 'child-runner', leaseMs: 60_000, capabilityTtlMs: 60_000, maxLiveRunners: 3 });
   expect(f.router.takePayload(childClaim).ok).toBe(true);
-  const childHeaders = { 'X-Agent-Token': 'peer-secret', 'X-HAFleet-Dispatch-Id': childClaim.dispatchId,
-    'X-HAFleet-Runner-Id': childClaim.runnerId, 'X-HAFleet-Dispatch-Capability': childClaim.capability,
-    'X-HAFleet-Fence-Generation': String(childClaim.fenceGeneration) };
+  const childHeaders = { 'X-Agent-Token': 'peer-secret', 'X-Hagency-Dispatch-Id': childClaim.dispatchId,
+    'X-Hagency-Runner-Id': childClaim.runnerId, 'X-Hagency-Dispatch-Capability': childClaim.capability,
+    'X-Hagency-Fence-Generation': String(childClaim.fenceGeneration) };
   const reply = { agent: 'peer', to: 'worker', type: 'reply', full: '# README\n\nExact child artifact.',
     target_task_id: f.own.taskId, tool_call_id: 'readme-reply' };
   return { ...f, child, childClaim, childHeaders, reply };
@@ -119,10 +119,10 @@ async function taskWriterFixture() {
   const run = async (args, overrides = {}) => {
     const result = await execFileAsync(process.execPath, [path.resolve('scripts/write-v1-agent-task.js'),
       '--workdir', workdir, ...args], { cwd: workdir, timeout: 5000, env: {
-      PATH: process.env.PATH, HAFLEET_API: serving.baseUrl, AGENT_TOKEN: 'worker-secret',
-      HAFLEET_EPHEMERAL_RUNNER: '1', HAFLEET_DISPATCH_ID: f.claim.dispatchId,
-      HAFLEET_RUNNER_ID: f.claim.runnerId, HAFLEET_DISPATCH_CAPABILITY: f.claim.capability,
-      HAFLEET_FENCE_GENERATION: String(f.claim.fenceGeneration), ...overrides,
+      PATH: process.env.PATH, HAGENCY_API: serving.baseUrl, AGENT_TOKEN: 'worker-secret',
+      HAGENCY_EPHEMERAL_RUNNER: '1', HAGENCY_DISPATCH_ID: f.claim.dispatchId,
+      HAGENCY_RUNNER_ID: f.claim.runnerId, HAGENCY_DISPATCH_CAPABILITY: f.claim.capability,
+      HAGENCY_FENCE_GENERATION: String(f.claim.fenceGeneration), ...overrides,
     } });
     expect(readFileSync(manifestPath, 'utf8')).toBe(beforeManifest);
     return JSON.parse(result.stdout);
@@ -162,8 +162,8 @@ describe('ephemeral session tools', () => {
       expect(await invoke('update_task_execution', { id, heartbeat: true })).toMatchObject({ result: { isError: true }, text: expect.stringContaining('outside the runner session') });
     }
     for (const auth of [{ 'X-Agent-Token': 'worker-secret' }, { ...headers, 'X-Agent-Token': 'peer-secret' },
-      { ...headers, 'X-HAFleet-Runner-Id': 'wrong-runner' }, { ...headers, 'X-HAFleet-Dispatch-Capability': 'wrong' },
-      { ...headers, 'X-HAFleet-Fence-Generation': '99' }]) {
+      { ...headers, 'X-Hagency-Runner-Id': 'wrong-runner' }, { ...headers, 'X-Hagency-Dispatch-Capability': 'wrong' },
+      { ...headers, 'X-Hagency-Fence-Generation': '99' }]) {
       expect((await call(auth)).status).toBeGreaterThanOrEqual(400);
     }
     expect(router.settleAndRelease({ ...claim, outcome: 'completed', output: { text: 'More work is required' } }).ok).toBe(true);
@@ -207,13 +207,13 @@ describe('ephemeral session tools', () => {
 
   test('ephemeral task writer refuses incomplete context foreign tasks and expired dispatches', async () => {
     const { router, own, other, claim, run, manifestPath, beforeManifest } = await taskWriterFixture();
-    for (const overrides of [{ HAFLEET_DISPATCH_CAPABILITY: '' }, { HAFLEET_EPHEMERAL_RUNNER: '0' },
-      { HAFLEET_FENCE_GENERATION: '0' }]) {
+    for (const overrides of [{ HAGENCY_DISPATCH_CAPABILITY: '' }, { HAGENCY_EPHEMERAL_RUNNER: '0' },
+      { HAGENCY_FENCE_GENERATION: '0' }]) {
       await expect(run(['done'], overrides)).rejects.toMatchObject({ stderr: expect.stringContaining('incomplete ephemeral dispatch authority') });
     }
     await expect(run(['done', '--id', other.taskId])).rejects.toMatchObject({ stderr: expect.stringContaining('outside this dispatch') });
     await expect(run(['done', '--graph', 'foreign', '--node', 'task'])).rejects.toMatchObject({ stderr: expect.stringContaining('canonical start') });
-    await expect(run(['done'], { HAFLEET_API: '' })).rejects.toMatchObject({ stderr: expect.stringContaining('assigned HAFLEET_API') });
+    await expect(run(['done'], { HAGENCY_API: '' })).rejects.toMatchObject({ stderr: expect.stringContaining('assigned HAGENCY_API') });
     expect(router.settleAndRelease({ ...claim, outcome: 'completed', output: { text: 'Turn complete; more work is required' } }).ok).toBe(true);
     await expect(run(['done'])).rejects.toMatchObject({ stderr: expect.stringContaining('canonical task write failed') });
     expect(router.db.prepare('SELECT status FROM tasks WHERE task_id=?').get(own.taskId).status).toBe('in_progress');
@@ -307,7 +307,7 @@ describe('ephemeral session tools', () => {
     expect((await call({ op: 'get', id: other.taskId })).status).toBe(403);
     expect((await call({ op: 'transition', id: other.taskId, status: 'done' })).status).toBe(403);
     expect((await call({ op: 'get', id: own.taskId }, { 'X-Agent-Token': 'worker-secret' })).status).toBe(401);
-    expect((await call({ op: 'get', id: own.taskId }, { ...headers, 'X-HAFleet-Fence-Generation': '99' })).status).toBeGreaterThanOrEqual(400);
+    expect((await call({ op: 'get', id: own.taskId }, { ...headers, 'X-Hagency-Fence-Generation': '99' })).status).toBeGreaterThanOrEqual(400);
     expect((await call({ op: 'comment', id: own.taskId, text: 'Real work product', author: 'outsider' })).body.task.comments[0].author).toBe('worker');
     expect((await call({ op: 'transition', id: own.taskId, status: 'done' })).body.task.status).toBe('done');
   });

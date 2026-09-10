@@ -40,8 +40,8 @@ describe('reaping dead bot DM rooms', () => {
     writeFileSync(path.join(runtimeDir, 'data', 'matrix', 'bridge-state.json'), JSON.stringify({
       botToken: null, agentTokens: {}, roomGroupMap: {}, groupRoomMap: {}, dmRooms: {},
     }, null, 2));
-    envSnapshot = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_TRUST_MODE']);
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    envSnapshot = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_TRUST_MODE']);
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_TRUST_MODE = 'audit';
 
     const url = pathToFileURL(path.resolve('bridge-matrix.js')).href;

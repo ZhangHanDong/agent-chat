@@ -3,7 +3,7 @@
  * side from a shell recipe into a form.
  *
  * The operator's objection was 「你让用户跑 script？」, and the reason it lands is that the recipe's hardest
- * step is a GUESS: which address can the customer's homeserver use to call HAFleet. Guess wrong and, in the
+ * step is a GUESS: which address can the customer's homeserver use to call Hagency. Guess wrong and, in the
  * words of `docs/FOR-PROJECT-SIDES.md`, "the symptom is silence rather than an error".
  *
  * So the tests below are mostly about honesty rather than features. Two things must never happen: an
@@ -191,13 +191,13 @@ describe('the whole answer a setup form needs', () => {
     });
     expect(reach.appservice.listening).toBe(false);
     expect(reach.appservice.callbackCandidates).toEqual([]);
-    expect(reach.appservice.reason).toMatch(/HAFLEET_APPSERVICE_PORT/);
+    expect(reach.appservice.reason).toMatch(/HAGENCY_APPSERVICE_PORT/);
   });
 
   test('with a port, candidates come with an explicit statement that none is proven', async () => {
     // The discipline this module exists to keep. It cannot know, so it must not imply that it does.
     const reach = await describeMatrixReach({
-      env: { MATRIX_SERVER_NAME: 'hs.test', MATRIX_HOMESERVER: 'http://hs.test', HAFLEET_APPSERVICE_PORT: '8009' },
+      env: { MATRIX_SERVER_NAME: 'hs.test', MATRIX_HOMESERVER: 'http://hs.test', HAGENCY_APPSERVICE_PORT: '8009' },
       fetchImpl: fakeFetch({ default: reachable }),
       interfaces,
     });
@@ -323,15 +323,15 @@ describe('turning a server name into an address, which the protocol already spec
 
 describe('a co-located edge is also a way in', () => {
   /*
-   * FOUND BY THE OPERATOR USING THE SCREEN. With no `HAFLEET_APPSERVICE_PORT` this reported "the bridge opens
+   * FOUND BY THE OPERATOR USING THE SCREEN. With no `HAGENCY_APPSERVICE_PORT` this reported "the bridge opens
    * no socket… a registration installed now would receive nothing" — while the edge link was delivering,
    * verified at 88 of 88 transactions. Worse than a cosmetic error: it told them to open an inbound socket,
    * which is precisely what co-locating exists to avoid, on a host that sits on a public IP.
    */
   const edgeEnv = {
-    HAFLEET_EDGE_URL: 'http://127.0.0.1:8095',
-    HAFLEET_EDGE_LINK_TOKEN: 'link',
-    HAFLEET_EDGE_SIDE: 'acme.test',
+    HAGENCY_EDGE_URL: 'http://127.0.0.1:8095',
+    HAGENCY_EDGE_LINK_TOKEN: 'link',
+    HAGENCY_EDGE_SIDE: 'acme.test',
   };
 
   test('an edge is reported as the way in, not as nothing listening', async () => {
@@ -349,7 +349,7 @@ describe('a co-located edge is also a way in', () => {
     // The first bot-less sync deployment was told "nothing will receive your homeserver's events" while
     // its collector was logged in and polling. Reach reads the same two variables the resolver does.
     const reach = await describeMatrixReach({
-      env: { MATRIX_SERVER_NAME: 'acme.test', HAFLEET_APPSERVICE_SYNC_SIDE: 'acme.test', HAFLEET_APPSERVICE_SYNC_URL: 'https://acme.test' },
+      env: { MATRIX_SERVER_NAME: 'acme.test', HAGENCY_APPSERVICE_SYNC_SIDE: 'acme.test', HAGENCY_APPSERVICE_SYNC_URL: 'https://acme.test' },
       fetchImpl: fakeFetch({ default: { status: 200, body: { versions: ['v1.12'] } } }),
       interfaces: {},
     });
@@ -361,9 +361,9 @@ describe('a co-located edge is also a way in', () => {
     // reach must not drift from the resolver: a slash-suffixed side or a bare-host URL is refused by
     // resolveAppserviceSyncConfig, so the collector never starts — reach must say so, not claim polling.
     for (const env of [
-      { MATRIX_SERVER_NAME: 'acme.test', HAFLEET_APPSERVICE_SYNC_SIDE: 'acme.test/', HAFLEET_APPSERVICE_SYNC_URL: 'https://acme.test' },
-      { MATRIX_SERVER_NAME: 'acme.test', HAFLEET_APPSERVICE_SYNC_SIDE: 'acme.test', HAFLEET_APPSERVICE_SYNC_URL: 'acme.test' },
-      { MATRIX_SERVER_NAME: 'acme.test', HAFLEET_APPSERVICE_SYNC_SIDE: 'acme.test' },
+      { MATRIX_SERVER_NAME: 'acme.test', HAGENCY_APPSERVICE_SYNC_SIDE: 'acme.test/', HAGENCY_APPSERVICE_SYNC_URL: 'https://acme.test' },
+      { MATRIX_SERVER_NAME: 'acme.test', HAGENCY_APPSERVICE_SYNC_SIDE: 'acme.test', HAGENCY_APPSERVICE_SYNC_URL: 'acme.test' },
+      { MATRIX_SERVER_NAME: 'acme.test', HAGENCY_APPSERVICE_SYNC_SIDE: 'acme.test' },
     ]) {
       const reach = await describeMatrixReach({ env, fetchImpl: fakeFetch({ default: { status: 200, body: { versions: ['v1.12'] } } }), interfaces: {} });
       expect(reach.appservice.inboundVia).toBeNull();
@@ -377,7 +377,7 @@ describe('a co-located edge is also a way in', () => {
       interfaces: {},
     });
     expect(reach.appservice.inboundVia).toBeNull();
-    expect(reach.appservice.reason).toMatch(/HAFLEET_APPSERVICE_SYNC_SIDE/);
+    expect(reach.appservice.reason).toMatch(/HAGENCY_APPSERVICE_SYNC_SIDE/);
   });
 
   test('with neither a port nor an edge, the warning stands and names both fixes', async () => {
@@ -389,14 +389,14 @@ describe('a co-located edge is also a way in', () => {
       interfaces: {},
     });
     expect(reach.appservice.inboundVia).toBeNull();
-    expect(reach.appservice.reason).toMatch(/hafleet-appservice-edge/);
+    expect(reach.appservice.reason).toMatch(/hagency-appservice-edge/);
   });
 
   test('a half-configured edge is not treated as an edge', async () => {
     // Same rule `resolveEdgeLinkConfig` applies: half-configured means somebody was mid-setup, and calling
     // it working would hide that at the moment it matters most.
     const reach = await describeMatrixReach({
-      env: { HAFLEET_EDGE_URL: 'http://x:1', MATRIX_SERVER_NAME: 'acme.test' },
+      env: { HAGENCY_EDGE_URL: 'http://x:1', MATRIX_SERVER_NAME: 'acme.test' },
       fetchImpl: fakeFetch({ default: { status: 200, body: { versions: ['v1.12'] } } }),
       interfaces: {},
     });
@@ -405,7 +405,7 @@ describe('a co-located edge is also a way in', () => {
 
   test('a real socket still says so, and offers the callback addresses', async () => {
     const reach = await describeMatrixReach({
-      env: { MATRIX_SERVER_NAME: 'acme.test', HAFLEET_APPSERVICE_PORT: '8094' },
+      env: { MATRIX_SERVER_NAME: 'acme.test', HAGENCY_APPSERVICE_PORT: '8094' },
       fetchImpl: fakeFetch({ default: { status: 200, body: { versions: ['v1.12'] } } }),
       interfaces: { en0: [{ family: 'IPv4', address: '10.0.0.5', internal: false }] },
     });
@@ -509,7 +509,7 @@ describe('the classifier, and the answer a walkthrough got wrong', () => {
 describe('is anything actually arriving, and whose problem is it', () => {
   /*
    * THE MOST DANGEROUS THING THE WALKTHROUGH FOUND. `POST .../verify` answers `accepted` after exercising
-   * the OUTBOUND direction only — HAFleet could act as the representative, so the screen said the customer
+   * the OUTBOUND direction only — Hagency could act as the representative, so the screen said the customer
    * was onboarded. Inbound was dead. Nothing on any screen said so, and the only contrary evidence was a
    * counter inside a process on somebody else's machine.
    *
@@ -529,27 +529,27 @@ describe('is anything actually arriving, and whose problem is it', () => {
     /*
      * The state an operator cannot guess: the console works, the API works, `verify` says `accepted`, and a
      * DIFFERENT process — the bridge — is the one that was never started. Observed exactly this way:
-     * `transactions: 4` with `HAFleet last seen: never`.
+     * `transactions: 4` with `Hagency last seen: never`.
      */
-    const d = diagnoseEdgeInbound({ transactions: 4, delivered: 0, rejected: 0, hafleetWaiting: false });
+    const d = diagnoseEdgeInbound({ transactions: 4, delivered: 0, rejected: 0, hagencyWaiting: false });
     expect(d.state).toBe('not-collected');
     expect(d.detail).toMatch(/BRIDGE/);
     expect(d.detail).toMatch(/bridge-matrix\.js/);
   });
 
   test('connected but taking nothing is still not-collected', () => {
-    const d = diagnoseEdgeInbound({ transactions: 3, delivered: 0, hafleetWaiting: true });
+    const d = diagnoseEdgeInbound({ transactions: 3, delivered: 0, hagencyWaiting: true });
     expect(d.state).toBe('not-collected');
   });
 
   test('a just-restarted edge is settling, not a warning — a pill that fires on healthy fleets is ignored', () => {
     /*
      * The counters live in the edge process, so a deploy zeroes them. Verified on the live fleet: restarting
-     * the edge took a healthy `flowing` straight to `never-called` while HAFleet was long-polling it. Left
+     * the edge took a healthy `flowing` straight to `never-called` while Hagency was long-polling it. Left
      * alone that would raise an inbound warning on every update of every working deployment.
      */
     const d = diagnoseEdgeInbound(
-      { transactions: 0, hafleetWaiting: true, startedAt: 1_000_000 },
+      { transactions: 0, hagencyWaiting: true, startedAt: 1_000_000 },
       { now: () => 1_030_000 },   // 30s old
     );
     expect(d.state).toBe('never-called');
@@ -559,7 +559,7 @@ describe('is anything actually arriving, and whose problem is it', () => {
 
   test('once it has been up a while, never-called is a warning again', () => {
     const d = diagnoseEdgeInbound(
-      { transactions: 0, hafleetWaiting: true, startedAt: 1_000_000 },
+      { transactions: 0, hagencyWaiting: true, startedAt: 1_000_000 },
       { now: () => 1_000_000 + 200_000 },   // past the settling window
     );
     expect(d.settling).toBe(false);
@@ -569,7 +569,7 @@ describe('is anything actually arriving, and whose problem is it', () => {
   test('a fresh edge NOBODY is collecting from is not settling, however young', () => {
     // Youth excuses a quiet homeserver. It does not excuse a bridge that is not there.
     const d = diagnoseEdgeInbound(
-      { transactions: 0, hafleetWaiting: false, startedAt: 1_000_000 },
+      { transactions: 0, hagencyWaiting: false, startedAt: 1_000_000 },
       { now: () => 1_005_000 },
     );
     expect(d.settling).toBe(false);
@@ -578,7 +578,7 @@ describe('is anything actually arriving, and whose problem is it', () => {
   test('an edge that does not report a start time is judged as before, not excused', () => {
     // An older edge predates the field. Treating a missing timestamp as "fresh" would mute the warning for
     // every one of them.
-    const d = diagnoseEdgeInbound({ transactions: 0, hafleetWaiting: true });
+    const d = diagnoseEdgeInbound({ transactions: 0, hagencyWaiting: true });
     expect(d.settling).toBe(false);
   });
 
@@ -597,20 +597,20 @@ describe('is anything actually arriving, and whose problem is it', () => {
   test('rejected wins over flowing, because a stopped stream beside a rising rejection reads as health', () => {
     // delivered > 0 from before the token changed, rejected climbing since. Reporting `flowing` here would
     // report health while every NEW event is turned away.
-    const d = diagnoseEdgeInbound({ transactions: 9, delivered: 4, rejected: 5, hafleetWaiting: true });
+    const d = diagnoseEdgeInbound({ transactions: 9, delivered: 4, rejected: 5, hagencyWaiting: true });
     expect(d.state).toBe('rejected');
   });
 
   test('flowing says how much, so a number can be compared on the next look', () => {
-    const d = diagnoseEdgeInbound({ transactions: 7, delivered: 7, rejected: 0, hafleetWaiting: true });
+    const d = diagnoseEdgeInbound({ transactions: 7, delivered: 7, rejected: 0, hagencyWaiting: true });
     expect(d.state).toBe('flowing');
     expect(d.detail).toMatch(/7 of 7/);
   });
 
   test('a previous collection counts as collecting, so a poll gap is not reported as a dead bridge', () => {
-    // Between long-polls `hafleetWaiting` is briefly false; a bridge that has ever collected is not absent.
+    // Between long-polls `hagencyWaiting` is briefly false; a bridge that has ever collected is not absent.
     const d = diagnoseEdgeInbound({
-      transactions: 2, delivered: 2, hafleetWaiting: false, hafleetLastSeenAt: 1700000000000,
+      transactions: 2, delivered: 2, hagencyWaiting: false, hagencyLastSeenAt: 1700000000000,
     });
     expect(d.state).toBe('flowing');
   });

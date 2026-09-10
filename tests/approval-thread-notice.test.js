@@ -5,9 +5,9 @@ import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 describe('approval notice thread provenance', () => {
   let context, router, approvals, upstream;
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-approval-thread-', {
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1',
-        MATRIX_BRIDGE_SECRET: 'bridge-secret', HAFLEET_AGENT_TOKEN_MODE: 'hard' },
+    context = await createBackendTestContext('hagency-approval-thread-', {
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1',
+        MATRIX_BRIDGE_SECRET: 'bridge-secret', HAGENCY_AGENT_TOKEN_MODE: 'hard' },
       agents: Object.fromEntries(['worker', 'other'].map(name => [name, {
         name, agentId: `agent_${name}`, type: 'claude', kind: 'agent', role: 'coding',
         workdir: process.cwd(), online: true,
@@ -29,9 +29,9 @@ describe('approval notice thread provenance', () => {
     const claim = router.claimDispatch({ runnerId: 'runner', leaseMs: 60000, capabilityTtlMs: 60000, maxLiveRunners: 4 });
     expect(router.takePayload(claim).ok).toBe(true);
     const response = await request(context.app).post('/api/router/approvals/claude').set({
-      'X-Agent-Token': 'worker-token', 'X-HAFleet-Dispatch-Capability': claim.capability,
-      'X-HAFleet-Dispatch-Id': claim.dispatchId, 'X-HAFleet-Runner-Id': claim.runnerId,
-      'X-HAFleet-Fence-Generation': String(claim.fenceGeneration),
+      'X-Agent-Token': 'worker-token', 'X-Hagency-Dispatch-Capability': claim.capability,
+      'X-Hagency-Dispatch-Id': claim.dispatchId, 'X-Hagency-Runner-Id': claim.runnerId,
+      'X-Hagency-Fence-Generation': String(claim.fenceGeneration),
     }).send({ agent: 'worker', request_id: 'native-1', tool_name: 'Bash',
       description: 'Inspect this task', input_preview: 'private command', thread_root_event_id: '$forged' });
     expect(response.status).toBe(201);
@@ -82,8 +82,8 @@ describe('approval notice thread provenance', () => {
 });
 
 test('legacy deployments publish approval notices without a router', async () => {
-  const context = await createBackendTestContext('hafleet-approval-no-router-', {
-    env: { HAFLEET_THREAD_SESSIONS: '0', HAFLEET_ROUTER_TASK_CUTOVER: '0', HAFLEET_ROUTER_SHADOW: '0',
+  const context = await createBackendTestContext('hagency-approval-no-router-', {
+    env: { HAGENCY_THREAD_SESSIONS: '0', HAGENCY_ROUTER_TASK_CUTOVER: '0', HAGENCY_ROUTER_SHADOW: '0',
       MATRIX_BRIDGE_SECRET: 'bridge-secret' },
     agents: { worker: { name: 'worker', agentId: 'agent_worker', type: 'claude', kind: 'agent' } },
   });

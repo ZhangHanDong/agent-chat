@@ -44,8 +44,8 @@ if (process.env.FAKE_CLAUDE_CLOSE_STDIN === '1') {
       process.exit(Number(process.env.FAKE_CLAUDE_RESULT_ERROR_EXIT ?? '0'));
     }
     const sensitiveKeys = [
-      'API_TOKEN', 'MATRIX_BRIDGE_SECRET', 'HAFLEET_DASHBOARD_TOKEN',
-      'HAFLEET_SUBCONSCIOUS_EVENT_TOKEN', 'MATRIX_BOT_PASSWORD',
+      'API_TOKEN', 'MATRIX_BRIDGE_SECRET', 'HAGENCY_DASHBOARD_TOKEN',
+      'HAGENCY_SUBCONSCIOUS_EVENT_TOKEN', 'MATRIX_BOT_PASSWORD',
     ].filter((key) => process.env[key]);
     const result = process.env.FAKE_CLAUDE_REPORT_ENV === '1'
       ? `env:${sensitiveKeys.length === 0 ? 'clean' : sensitiveKeys.join(',')}`

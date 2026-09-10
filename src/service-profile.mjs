@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-// The Matrix bridge is optional everywhere else in HAFleet — install-full.sh
+// The Matrix bridge is optional everywhere else in Hagency — install-full.sh
 // gates it behind --with-bridge, and it fail-closes without Matrix credentials.
 // Requiring it here meant the supervised-services path (the only one that works
 // on macOS, where there is no systemd) could not run a Matrix-free install at

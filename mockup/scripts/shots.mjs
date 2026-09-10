@@ -49,8 +49,8 @@ for (const [name, path, locale, theme] of SHOTS) {
   // Seed the preference before first paint, the same way the app's own inline
   // script reads it — clicking the switches afterwards would capture a flash.
   await page.evaluateOnNewDocument((l, th) => {
-    localStorage.setItem('hafleet.locale', l);
-    localStorage.setItem('hafleet.theme', th);
+    localStorage.setItem('hagency.locale', l);
+    localStorage.setItem('hagency.theme', th);
     // The stored value is the LOCALES *code* ('zh'), not the html lang tag
     // ('zh-CN'). Seeding the tag silently fell back to English and produced a
     // shot labelled zh that was entirely in English — which is the failure mode

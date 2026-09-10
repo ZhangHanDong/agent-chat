@@ -31,7 +31,7 @@ async function boot({ emptyAgents = false, transport } = {}) {
     frameworkPresets: [{ id: 'fixture-resource', name: 'Resource', framework: 'claude', model: 'claude-opus-5',
       ceiling: { tokens: 1000000, period: 'monthly' } }],
     env: { MATRIX_BRIDGE_SECRET: bridgeSecret, MATRIX_AGENT_PREFIX: 'ac_',
-      HAFLEET_THREAD_SESSIONS: '0', HAFLEET_ROUTER_TASK_CUTOVER: '0' },
+      HAGENCY_THREAD_SESSIONS: '0', HAGENCY_ROUTER_TASK_CUTOVER: '0' },
     rawDataFiles: { 'project-sides.json': JSON.stringify({ version: 1, audit: [], sides: {
       [SIDE]: { id: SIDE, serverName: SIDE, apiBaseUrl: 'http://127.0.0.1:1', label: 'Fixture',
         active: true, createdAt: 1, updatedAt: 1, projects: {}, allocatedTokens: 500000,

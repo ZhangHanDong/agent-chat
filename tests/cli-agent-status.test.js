@@ -5,11 +5,11 @@ import path from 'path';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
 
 const REPO_ROOT = path.resolve('.');
-const HAFLEET_BIN = path.join(REPO_ROOT, 'bin', 'hafleet');
+const HAGENCY_BIN = path.join(REPO_ROOT, 'bin', 'hagency');
 const execFileAsync = promisify(execFile);
 
 async function runCli(args, env = {}) {
-  const { stdout } = await execFileAsync(HAFLEET_BIN, args, {
+  const { stdout } = await execFileAsync(HAGENCY_BIN, args, {
     cwd: REPO_ROOT,
     encoding: 'utf-8',
     env: {
@@ -20,7 +20,7 @@ async function runCli(args, env = {}) {
   return stdout;
 }
 
-describe('hafleet status cli', () => {
+describe('hagency status cli', () => {
   let context = null;
 
   afterEach(() => {
@@ -29,7 +29,7 @@ describe('hafleet status cli', () => {
   });
 
   test('shows unknown when backend runtime activity is unavailable', async () => {
-    context = await createBackendTestContext('hafleet-cli-status-test-', {
+    context = await createBackendTestContext('hagency-cli-status-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -54,7 +54,7 @@ describe('hafleet status cli', () => {
 
     try {
       const output = await runCli(['cli', 'status', 'alpha'], {
-        HAFLEET_API: listener.baseUrl,
+        HAGENCY_API: listener.baseUrl,
       });
 
       expect(output).toContain('state:       unknown');

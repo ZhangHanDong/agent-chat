@@ -2,7 +2,7 @@
 
 The operator requested repair of the recurring heartbeat/done approval cards.
 The native Codex sandbox correctly blocked the shell wrapper's HTTP access to
-HAFleet. The integration incorrectly depended on that shell transport for routine
+Hagency. The integration incorrectly depended on that shell transport for routine
 task state: its prompt offered the wrapper, home instructions required it, and
 the MCP heartbeat tool still called a legacy endpoint forbidden to ephemeral
 dispatches. There was also an independent App Server MCP confirmation default.
@@ -36,7 +36,7 @@ remaining open without explicit completion. Strict router compilation and
 generated-output comparison, router boundary,275 bound spec selectors, remote
 package synchronization and whitespace checks pass.
 
-The separate opt-in real-runtime probe uses the actual HAFleet backend and Codex
+The separate opt-in real-runtime probe uses the actual Hagency backend and Codex
 in an isolated local fixture. It retains the old home instructions to reproduce
 the transport conflict. The first run failed honestly: Codex requested approval
 for `get_task`, before the tool could reach the backend. No owner verdict was
@@ -60,7 +60,7 @@ record the scope and security decision.
 
 At23:55Z, a fresh router read and read-only SQLite check both showed no leased,
 started or parked runners. A consistent private database backup was saved.
-Only the owned local HAFleet backend18194 was gracefully restarted, PID52844
+Only the owned local Hagency backend18194 was gracefully restarted, PID52844
 →53826, with the existing rig environment. New dispatches use the repaired MCP
 server and launch policy. Mini1 Palpo, its web admin, bridge18195, console13202,
 Robrix and the separate manual runtime were left running.

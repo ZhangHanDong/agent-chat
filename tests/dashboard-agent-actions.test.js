@@ -6,7 +6,7 @@ import { renderDashboard } from './helpers/dashboard-render.js';
 
 const mockup = fileURLToPath(new URL('../mockup/', import.meta.url));
 const requireDashboard = createRequire(new URL('../mockup/package.json', import.meta.url));
-const hookKey = '__hafleetAgentActionsTest';
+const hookKey = '__hagencyAgentActionsTest';
 const agent = { name: 'claude-agent' };
 let AgentActions;
 let harness;

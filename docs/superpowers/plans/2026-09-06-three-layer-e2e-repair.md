@@ -1,6 +1,6 @@
 # Three-layer E2E repair plan
 
-**Goal:** A GUI request reaches a HAFleet-managed agent, real inner execution, independent verification, task completion and the original Matrix thread without test-driver intervention.
+**Goal:** A GUI request reaches a Hagency-managed agent, real inner execution, independent verification, task completion and the original Matrix thread without test-driver intervention.
 
 **Architecture:** Preserve backend-owned sessions, capability fencing and task truth. The middle agent supervises the lower execution agent through Herdr/octoloop. Work continues on the existing repair branch and E2E runtime; local Docker Palpo only.
 

@@ -14,7 +14,7 @@ describe('pending encrypted approval event store', () => {
   });
 
   test('an encrypted history batch writes once and rolls back completely on persistence failure', () => {
-    const directory = mkdtempSync(path.join(os.tmpdir(), 'hafleet-pending-batch-'));
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'hagency-pending-batch-'));
     temporaryDirectories.push(directory);
     const store = new PendingEncryptedEventStore(path.join(directory, 'pending.json'));
     const input = id => ({ roomId: '!room:test', event: { type: 'm.room.encrypted', event_id: id, content: { ciphertext: id } } });
@@ -36,7 +36,7 @@ describe('pending encrypted approval event store', () => {
      * claim: retaining an undecrypted owner verdict is only acceptable if it is retained
      * privately.
      */
-    const directory = mkdtempSync(path.join(os.tmpdir(), 'hafleet-pending-e2ee-'));
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'hagency-pending-e2ee-'));
     temporaryDirectories.push(directory);
     const filePath = path.join(directory, 'pending.json');
     const event = {
@@ -64,7 +64,7 @@ describe('pending encrypted approval event store', () => {
   });
 
   test('prunes retained ciphertext after the bounded recovery window', () => {
-    const directory = mkdtempSync(path.join(os.tmpdir(), 'hafleet-pending-e2ee-'));
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'hagency-pending-e2ee-'));
     temporaryDirectories.push(directory);
     const filePath = path.join(directory, 'pending.json');
     let now = 1000;
@@ -93,7 +93,7 @@ describe('pending encrypted approval event store', () => {
      * oldest retained verdict. An LRU here would lose exactly the verdict that has been
      * waiting longest for its key, which is the one most likely to be about to arrive.
      */
-    const directory = mkdtempSync(path.join(os.tmpdir(), 'hafleet-pending-e2ee-'));
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'hagency-pending-e2ee-'));
     temporaryDirectories.push(directory);
     const store = new PendingEncryptedEventStore(path.join(directory, 'pending.json'), {
       maxEntries: 1,

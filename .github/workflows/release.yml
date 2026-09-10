@@ -74,12 +74,12 @@ jobs:
             --release "$RELEASE" \
             --out-dir dist \
             --channel release
-          FULL_TARBALL="hafleet-${RELEASE}.tar.gz"
+          FULL_TARBALL="hagency-${RELEASE}.tar.gz"
 
           # Remote relay package (unchanged). --sort/--owner/--group/--mtime are
           # GNU tar extensions; the runner has GNU tar, so both artifacts are
           # byte-reproducible for a given tag.
-          REMOTE_TARBALL="hafleet-remote-${RELEASE}.tar.gz"
+          REMOTE_TARBALL="hagency-remote-${RELEASE}.tar.gz"
           tar --sort=name \
               --owner=0 --group=0 --numeric-owner \
               --mtime="@$(git log -1 --format=%ct)" \
@@ -120,7 +120,7 @@ jobs:
           PRERELEASE=""
           case "$TAG" in *-*) PRERELEASE="--prerelease" ;; esac
           gh release create "$TAG" \
-            --title "HAFleet ${{ steps.version.outputs.release }}" \
+            --title "Hagency ${{ steps.version.outputs.release }}" \
             --notes-file release-notes.md \
             ${PRERELEASE} \
             "dist/${{ steps.package.outputs.full_tarball }}" \

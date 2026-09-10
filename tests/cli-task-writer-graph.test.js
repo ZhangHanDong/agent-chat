@@ -50,7 +50,7 @@ afterEach(() => {
 
 describe('task-writer graph integration', () => {
   test('task-writer graph done/fail flags update graph nodes over HTTP', async () => {
-    const context = await createBackendTestContext('hafleet-task-writer-graph-test-', {
+    const context = await createBackendTestContext('hagency-task-writer-graph-test-', {
       agents: {
         alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: false, manualDown: true, offlineReason: 'idle' },
         beta: { name: 'beta', type: 'agent', kind: 'agent', online: false, manualDown: true, offlineReason: 'idle' },
@@ -61,7 +61,7 @@ describe('task-writer graph integration', () => {
     cleanupPaths.add(context.runtimeDir);
 
     try {
-      const homeRoot = trackTempDir('hafleet-home-');
+      const homeRoot = trackTempDir('hagency-home-');
       runNode(PROVISION_SCRIPT, [
         '--name', 'alpha',
         '--type', 'claude',
@@ -95,7 +95,7 @@ describe('task-writer graph integration', () => {
         '--graph', graphId,
         '--node', 'first',
         '--result', '{"ok":true,"step":1}',
-      ], workdir, { HAFLEET_API: listener.baseUrl });
+      ], workdir, { HAGENCY_API: listener.baseUrl });
       const doneJson = JSON.parse(doneOutput);
       expect(doneJson.ok).toBe(true);
       expect(doneJson.node.status).toBe('complete');
@@ -105,7 +105,7 @@ describe('task-writer graph integration', () => {
         '--graph', graphId,
         '--node', 'second',
         '--error', 'boom',
-      ], workdir, { HAFLEET_API: listener.baseUrl });
+      ], workdir, { HAGENCY_API: listener.baseUrl });
       const failJson = JSON.parse(failOutput);
       expect(failJson.ok).toBe(true);
       expect(failJson.node.status).toBe('failed');

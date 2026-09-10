@@ -56,7 +56,7 @@ export interface CodexRunnerOptions extends RunnerBaseOptions {
     requestOwnerApproval: OwnerApprovalHandler;
     /** Contributor-owned setting; never sourced from a task/message payload. */
     yolo?: boolean;
-    /** Backend-owned, exact HAFleet control-plane policy; absent means owner-gated. */
+    /** Backend-owned, exact Hagency control-plane policy; absent means owner-gated. */
     coordinationNeedsOwnerApproval?: (input: {
         tool_name: string;
         tool_input: Readonly<Record<string, unknown>>;

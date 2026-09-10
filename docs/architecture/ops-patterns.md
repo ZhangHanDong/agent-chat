@@ -54,13 +54,13 @@ Three git-poll-based autodeploy scripts manage continuous deployment across envi
 
 | Branch | Environment | Script | Services |
 |--------|-------------|--------|----------|
-| `master` | Dev (`hafleet/`) | `hafleet-dev-autodeploy.sh` | backend-v2, bridge-matrix, server |
-| `stable` | Production (`hafleet-live/`) | `hafleet-stable-autodeploy.sh` | backend-v2, bridge-matrix, server |
-| `stable` | Remote servers | `hafleet-remote-autodeploy.sh` | push-relay only |
+| `master` | Dev (`hagency/`) | `hagency-dev-autodeploy.sh` | backend-v2, bridge-matrix, server |
+| `stable` | Production (`hagency-live/`) | `hagency-stable-autodeploy.sh` | backend-v2, bridge-matrix, server |
+| `stable` | Remote servers | `hagency-remote-autodeploy.sh` | push-relay only |
 
 ### Dev Autodeploy
 
-**File**: `scripts/hafleet-dev-autodeploy.sh`
+**File**: `scripts/hagency-dev-autodeploy.sh`
 
 **Behavior**:
 - Polls `master` branch every 30 seconds
@@ -71,9 +71,9 @@ Three git-poll-based autodeploy scripts manage continuous deployment across envi
 **Service restart** (lines 27-47):
 ```
 restart_services():
-  systemctl restart hafleet-backend
+  systemctl restart hagency-backend
   wait_for_backend (30s health gate)
-  systemctl restart hafleet
+  systemctl restart hagency
   systemctl restart bridge-matrix
 ```
 
@@ -89,7 +89,7 @@ restart_services():
 
 ### Stable Autodeploy
 
-**File**: `scripts/hafleet-stable-autodeploy.sh`
+**File**: `scripts/hagency-stable-autodeploy.sh`
 
 **Behavior**:
 - Polls `stable` branch every 30 seconds
@@ -107,17 +107,17 @@ wait_for_backend():
 ```
 
 **Service restart order** (lines 55-93):
-1. Restart `hafleet-backend` (backend)
+1. Restart `hagency-backend` (backend)
 2. `wait_for_backend` (30s timeout)
-3. Restart remaining services (`hafleet`, `bridge-matrix`)
+3. Restart remaining services (`hagency`, `bridge-matrix`)
 
-**Systemd unit**: `hafleet-stable-autodeploy.service`
+**Systemd unit**: `hagency-stable-autodeploy.service`
 - Runs as root
-- Logs to `/path/to/hafleet-live/logs/`
+- Logs to `/path/to/hagency-live/logs/`
 
 ### Remote Autodeploy
 
-**File**: `scripts/hafleet-remote-autodeploy.sh`
+**File**: `scripts/hagency-remote-autodeploy.sh`
 
 **Behavior**:
 - Polls `stable` branch every 60 seconds (longer interval for remote)
@@ -389,15 +389,15 @@ Agent ──(every ~60s)──► POST /api/heartbeat ──► backend stores t
 
 | Service | Log Method | Location |
 |---------|-----------|----------|
-| backend-v2 (dev) | systemd journal | `journalctl --user -u hafleet-dev-backend` |
-| backend-v2 (stable) | systemd journal + file | `journalctl -u hafleet-backend`, `hafleet-live/logs/` |
+| backend-v2 (dev) | systemd journal | `journalctl --user -u hagency-dev-backend` |
+| backend-v2 (stable) | systemd journal + file | `journalctl -u hagency-backend`, `hagency-live/logs/` |
 | bridge-matrix | systemd journal | `journalctl -u bridge-matrix` |
-| server (dev) | systemd journal | `journalctl --user -u hafleet-dev-web` |
-| server (stable) | systemd journal | `journalctl -u hafleet` |
+| server (dev) | systemd journal | `journalctl --user -u hagency-dev-web` |
+| server (stable) | systemd journal | `journalctl -u hagency` |
 | push-relay | systemd journal | `journalctl -u push-relay` |
 | push-relay (remote) | systemd journal | `journalctl -u push-relay-autodeploy` on remote host |
-| autodeploy (dev) | systemd journal | `journalctl --user -u hafleet-dev-autodeploy` |
-| autodeploy (stable) | file | `hafleet-live/logs/autodeploy.log` |
+| autodeploy (dev) | systemd journal | `journalctl --user -u hagency-dev-autodeploy` |
+| autodeploy (stable) | file | `hagency-live/logs/autodeploy.log` |
 | subconscious events | JSONL file | `data/subconscious-events.jsonl` |
 | supervisor snapshots | In-memory + API | `GET /api/supervisor/snapshots` |
 
@@ -451,7 +451,7 @@ Claude Code Session
 
 ### Hook Points
 
-**Configuration file**: `subconscious/claude-hafleet/hooks/hooks.json`
+**Configuration file**: `subconscious/claude-hagency/hooks/hooks.json`
 
 | Hook | Trigger | Timeout | Data Captured |
 |------|---------|---------|---------------|
@@ -460,7 +460,7 @@ Claude Code Session
 | `PreToolUse` | Before any tool execution | 10s | Session ID, tool name, parameters (`hooks.json:25-35`) |
 | `Stop` | Session ends (completion/error) | 15s | Session ID, stop reason, transcript (`hooks.json:36-46`) |
 
-**Entry script**: `subconscious/claude-hafleet/scripts/hook-entry.mjs`
+**Entry script**: `subconscious/claude-hagency/scripts/hook-entry.mjs`
 
 Each hook invokes:
 ```bash
@@ -471,8 +471,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/hook-entry.mjs" <HookType>
 
 1. **Hook fires** — Claude Code invokes `hook-entry.mjs` with hook type
 2. **Context resolution** (`hook-entry.mjs:94-101`) — reads env vars:
-   - `CLAUDE_SESSION_ID`, `HAFLEET_AGENT_NAME` or `CLAUDE_AGENT_NAME`
-   - `HAFLEET_HOMEDIR` or `CLAUDE_AGENT_HOME`
+   - `CLAUDE_SESSION_ID`, `HAGENCY_AGENT_NAME` or `CLAUDE_AGENT_NAME`
+   - `HAGENCY_HOMEDIR` or `CLAUDE_AGENT_HOME`
 3. **State resolution** (`hook-entry.mjs:103-163`) — loads `state/letta.json` to determine mode
 4. **Optional LLM guidance** — if local runtime mode enabled:
    - Calls `POST /api/subconscious/runtime/invoke/:name` (`hook-entry.mjs:226-269`)
@@ -544,7 +544,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/hook-entry.mjs" <HookType>
 {
   "provider": "local",
   "mode": "runtime",
-  "agentId": "claude-hafleet-<agentName>",
+  "agentId": "claude-hagency-<agentName>",
   "resolutionSource": "deterministic",
   "guidance": {
     "type": "manual",
@@ -574,7 +574,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/hook-entry.mjs" <HookType>
   "hooks": {
     "installed": true,
     "hookFile": ".claude/hooks/hooks.json",
-    "entryScript": "<repoRoot>/subconscious/claude-hafleet/scripts/hook-entry.mjs"
+    "entryScript": "<repoRoot>/subconscious/claude-hagency/scripts/hook-entry.mjs"
   },
   "endpoints": {
     "eventUrl": "http://localhost:8090/api/subconscious/events",
@@ -718,8 +718,8 @@ The push-relay is the core communication component for remote agents.
 2. **Environment setup** (lines 122-144):
    - Creates `.env` file with:
      - `API_TOKEN` — bearer token for backend API
-     - `HAFLEET_BACKEND_URL` — central backend URL (e.g. `https://host:8090`)
-     - `HAFLEET_AGENT_NAME` — agent name for this remote instance
+     - `HAGENCY_BACKEND_URL` — central backend URL (e.g. `https://host:8090`)
+     - `HAGENCY_AGENT_NAME` — agent name for this remote instance
 
 3. **Dependencies** (lines 146-148):
    - Runs `npm install` in the cloned repo
@@ -765,40 +765,40 @@ The dev autodeploy service handles this automatically. To trigger manually:
 
 ```bash
 # Check autodeploy status
-systemctl --user status hafleet-dev-autodeploy
+systemctl --user status hagency-dev-autodeploy
 
 # View recent deploy logs
-journalctl --user -u hafleet-dev-autodeploy --since "1 hour ago"
+journalctl --user -u hagency-dev-autodeploy --since "1 hour ago"
 
 # Manual deploy (if autodeploy is stopped)
-cd ~/laplace/hafleet
+cd ~/laplace/hagency
 git pull --ff-only origin master
 npm install
-systemctl --user restart hafleet-dev-backend
-systemctl --user restart hafleet-dev-web
+systemctl --user restart hagency-dev-backend
+systemctl --user restart hagency-dev-web
 ```
 
 #### Stable Deploy (automatic, health-gated)
 
 ```bash
 # Check stable autodeploy status
-systemctl status hafleet-stable-autodeploy
+systemctl status hagency-stable-autodeploy
 
 # View deploy logs
-tail -f ~/laplace/hafleet-live/logs/autodeploy.log
+tail -f ~/laplace/hagency-live/logs/autodeploy.log
 
 # Manual stable deploy
-cd ~/laplace/hafleet-live
+cd ~/laplace/hagency-live
 git pull --ff-only origin stable
 npm install
-systemctl restart hafleet-backend
+systemctl restart hagency-backend
 # Wait for backend health
 for i in $(seq 1 30); do
   curl -sf http://localhost:8090/api/agents && break
   sleep 1
 done
 systemctl restart bridge-matrix
-systemctl restart hafleet
+systemctl restart hagency
 ```
 
 ### 5.2 Agent Restart
@@ -807,14 +807,14 @@ systemctl restart hafleet
 
 ```bash
 # Check agent activity first
-bin/hafleet-ls                          # List running agents
-bin/hafleet-audit <agentName>           # Check recent activity
+bin/hagency-ls                          # List running agents
+bin/hagency-audit <agentName>           # Check recent activity
 
 # Graceful shutdown (archives scrollback, captures resume-id)
-bin/hafleet-down <agentName>
+bin/hagency-down <agentName>
 ```
 
-**`hafleet-down` sequence** (`bin/hafleet-down`, 600 lines):
+**`hagency-down` sequence** (`bin/hagency-down`, 600 lines):
 
 1. **Safety checks** (lines 257-319):
    - Validates agent exists and is running
@@ -827,7 +827,7 @@ bin/hafleet-down <agentName>
 
 3. **Archive & resume** (lines 456-506):
    - Captures tmux scrollback to archive file
-   - Saves `resume-id` to `state/resume-id` for later `hafleet-up --resume`
+   - Saves `resume-id` to `state/resume-id` for later `hagency-up --resume`
    - Preserves conversation state
 
 4. **Exit sequence** (lines 518-543):
@@ -839,17 +839,17 @@ bin/hafleet-down <agentName>
 
 ```bash
 # Fresh start
-bin/hafleet-up <agentName>
+bin/hagency-up <agentName>
 
 # Resume from previous session
-bin/hafleet-up <agentName> --resume
+bin/hagency-up <agentName> --resume
 ```
 
 **Resume** reads `state/resume-id` to continue the previous conversation.
 
 ### 5.3 Merge-to-Stable Checklist
 
-Based on `docs/hafleet-develop/stable-merge-readiness-audit.md` (246 lines) and `docs/hafleet-develop/stable-merge-execution-hygiene-plan.md` (175 lines).
+Based on `docs/hagency-develop/stable-merge-readiness-audit.md` (246 lines) and `docs/hagency-develop/stable-merge-execution-hygiene-plan.md` (175 lines).
 
 #### Pre-Merge Blockers (must all pass)
 
@@ -871,10 +871,10 @@ Based on `docs/hafleet-develop/stable-merge-readiness-audit.md` (246 lines) and 
 
 ```bash
 # 1. Stop all agents
-bin/hafleet-down --all
+bin/hagency-down --all
 
 # 2. Switch to stable branch
-cd ~/laplace/hafleet-live
+cd ~/laplace/hagency-live
 git checkout stable
 
 # 3. Merge master into stable
@@ -895,11 +895,11 @@ curl -sf http://localhost:8090/api/agents
 - Monitor autodeploy logs for 5 minutes
 - Verify all services restarted cleanly
 - Check dashboard for agent connectivity
-- Restart agents as needed with `bin/hafleet-up`
+- Restart agents as needed with `bin/hagency-up`
 
 ### 5.4 Trust Mode Flip
 
-**Configuration**: `HAFLEET_AGENT_TOKEN_MODE` environment variable
+**Configuration**: `HAGENCY_AGENT_TOKEN_MODE` environment variable
 
 **Enforcement logic**: `backend-v2.js:163-220`
 
@@ -913,12 +913,12 @@ curl -sf http://localhost:8090/api/agents
 
 ```bash
 # 1. Update environment
-export HAFLEET_AGENT_TOKEN_MODE=hard   # or: audit, off
+export HAGENCY_AGENT_TOKEN_MODE=hard   # or: audit, off
 
 # 2. Restart backend to pick up new mode
-systemctl --user restart hafleet-dev-backend   # dev
+systemctl --user restart hagency-dev-backend   # dev
 # or
-systemctl restart hafleet-backend                   # stable
+systemctl restart hagency-backend                   # stable
 
 # 3. Verify mode is active
 curl -s http://localhost:8090/api/health | grep tokenMode
@@ -962,11 +962,11 @@ curl -X DELETE -H "Authorization: Bearer <admin_token>" \
 
 | Script | Purpose |
 |--------|---------|
-| `bin/hafleet-up` | Start or resume an agent (tmux session, MCP, push-relay) |
-| `bin/hafleet-down` | Graceful agent shutdown (archive, resume-id capture) |
-| `bin/hafleet-ls` | List running agents with status |
-| `bin/hafleet-send` | Send a message to an agent |
-| `bin/hafleet-audit` | Check agent activity and recent messages |
+| `bin/hagency-up` | Start or resume an agent (tmux session, MCP, push-relay) |
+| `bin/hagency-down` | Graceful agent shutdown (archive, resume-id capture) |
+| `bin/hagency-ls` | List running agents with status |
+| `bin/hagency-send` | Send a message to an agent |
+| `bin/hagency-audit` | Check agent activity and recent messages |
 | `bin/agent-dashboard` | Open the web dashboard |
 | `bin/agent-task` | Manage agent tasks (create, update, list) |
 | `bin/group-add` | Add member to a group |
@@ -979,18 +979,18 @@ curl -X DELETE -H "Authorization: Bearer <admin_token>" \
 
 ```bash
 # ─── Dev environment (systemctl --user) ───
-systemctl --user status hafleet-dev-backend
-systemctl --user status hafleet-dev-web
-systemctl --user status hafleet-dev-autodeploy
+systemctl --user status hagency-dev-backend
+systemctl --user status hagency-dev-web
+systemctl --user status hagency-dev-autodeploy
 
-systemctl --user restart hafleet-dev-backend
-systemctl --user restart hafleet-dev-web
+systemctl --user restart hagency-dev-backend
+systemctl --user restart hagency-dev-web
 
 # ─── Stable environment (systemctl as root) ───
-systemctl status hafleet-backend
+systemctl status hagency-backend
 systemctl status bridge-matrix
-systemctl status hafleet
-systemctl status hafleet-stable-autodeploy
+systemctl status hagency
+systemctl status hagency-stable-autodeploy
 
 # ─── Health checks ───
 curl -s http://localhost:8090/api/agents          # Backend API
@@ -998,7 +998,7 @@ curl -s http://localhost:8090/api/health          # Health summary
 curl -s http://localhost:8084/                     # Dashboard
 
 # ─── Logs ───
-journalctl --user -u hafleet-dev-backend -f    # Dev backend logs
-journalctl --user -u hafleet-dev-web -f         # Dev web/dashboard logs
-tail -f ~/laplace/hafleet-live/logs/*.log       # Stable logs
+journalctl --user -u hagency-dev-backend -f    # Dev backend logs
+journalctl --user -u hagency-dev-web -f         # Dev web/dashboard logs
+tail -f ~/laplace/hagency-live/logs/*.log       # Stable logs
 ```

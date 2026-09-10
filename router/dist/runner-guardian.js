@@ -5,12 +5,12 @@ import { OwnedProcessTree, parseProcessSnapshot } from './owned-process-tree.js'
 // identities after exit/reparenting instead of confusing group exit with cleanup.
 if (process.platform === 'win32')
     throw new Error('runner guardian requires POSIX process-group support');
-const executable = process.env.HAFLEET_GUARDIAN_EXECUTABLE?.trim() ?? '';
+const executable = process.env.HAGENCY_GUARDIAN_EXECUTABLE?.trim() ?? '';
 if (!executable)
     throw new Error('runner guardian executable is missing');
 let parsedArgs;
 try {
-    parsedArgs = JSON.parse(process.env.HAFLEET_GUARDIAN_ARGS_JSON ?? '[]');
+    parsedArgs = JSON.parse(process.env.HAGENCY_GUARDIAN_ARGS_JSON ?? '[]');
 }
 catch {
     throw new Error('runner guardian argv is invalid');
@@ -20,13 +20,13 @@ if (!Array.isArray(parsedArgs) || parsedArgs.some((value) => typeof value !== 's
 }
 const args = parsedArgs;
 const childEnv = { ...process.env };
-delete childEnv.HAFLEET_GUARDIAN_EXECUTABLE;
-delete childEnv.HAFLEET_GUARDIAN_ARGS_JSON;
+delete childEnv.HAGENCY_GUARDIAN_EXECUTABLE;
+delete childEnv.HAGENCY_GUARDIAN_ARGS_JSON;
 delete childEnv.NODE_CHANNEL_FD;
 delete childEnv.NODE_CHANNEL_SERIALIZATION_MODE;
 // Establish and census the owned process before user code can run or exit.
 // exec preserves this PID/birth identity; executable and argv stay positional.
-const runtime = spawn('/bin/sh', ['-c', 'kill -STOP "$$"; exec "$@"', 'hafleet-runtime', executable, ...args], {
+const runtime = spawn('/bin/sh', ['-c', 'kill -STOP "$$"; exec "$@"', 'hagency-runtime', executable, ...args], {
     cwd: process.cwd(),
     env: childEnv,
     stdio: ['pipe', 'pipe', 'pipe'],

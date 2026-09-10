@@ -7,7 +7,7 @@ import { readV1AgentManifest } from '../lib/agent-home-v1.js';
 
 const REPO_ROOT = path.resolve('.');
 const PROVISION_SCRIPT = path.join(REPO_ROOT, 'scripts', 'provision-v1-agent-home.js');
-const HAFLEET_BIN = path.join(REPO_ROOT, 'bin', 'hafleet');
+const HAGENCY_BIN = path.join(REPO_ROOT, 'bin', 'hagency');
 
 const cleanupDirs = new Set();
 
@@ -29,7 +29,7 @@ function runNodeScript(scriptPath, args, env = {}) {
 }
 
 function runCli(args, env = {}) {
-  return execFileSync(HAFLEET_BIN, args, {
+  return execFileSync(HAGENCY_BIN, args, {
     cwd: REPO_ROOT,
     encoding: 'utf-8',
     env: {
@@ -48,7 +48,7 @@ afterEach(() => {
 
 describe('v1 agent project provisioning', () => {
   test('provision-v1-agent-home creates a v1 home without a bound project', () => {
-    const homeRoot = trackTempDir('hafleet-home-');
+    const homeRoot = trackTempDir('hagency-home-');
     const output = runNodeScript(PROVISION_SCRIPT, [
       '--name', 'solo-agent',
       '--type', 'codex',
@@ -72,9 +72,9 @@ describe('v1 agent project provisioning', () => {
     expect(meta.managedProjects).toEqual([]);
   });
 
-  test('hafleet project add, list, and remove manage dynamic project bindings', () => {
-    const homeRoot = trackTempDir('hafleet-home-');
-    const sourceRoot = trackTempDir('hafleet-source-');
+  test('hagency project add, list, and remove manage dynamic project bindings', () => {
+    const homeRoot = trackTempDir('hagency-home-');
+    const sourceRoot = trackTempDir('hagency-source-');
     const sourceProject = path.join(sourceRoot, 'sample-project');
     mkdirSync(sourceProject, { recursive: true });
     writeFileSync(path.join(sourceProject, 'README.md'), '# sample\n', 'utf-8');
@@ -85,7 +85,7 @@ describe('v1 agent project provisioning', () => {
       '--home', homeRoot,
     ]);
 
-    const cliEnv = { HAFLEET_HOMEDIR: homeRoot };
+    const cliEnv = { HAGENCY_HOMEDIR: homeRoot };
     const addOutput = runCli(['project', 'add', 'project-agent', sourceProject, '--mode', 'symlink'], cliEnv);
     expect(addOutput).toContain('Added project sample-project to project-agent');
     expect(addOutput).toContain('materialization\tlinked');

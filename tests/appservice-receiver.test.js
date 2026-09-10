@@ -307,8 +307,8 @@ describe('the registration we hand to a project side', () => {
      * as_token authorises a whole namespace, so a derived one would make .env compromise permanent
      * control of every lent agent on that side, with no rotation path.
      */
-    const a = generateRegistration({ id: 'hafleet', url: 'https://us.example' });
-    const b = generateRegistration({ id: 'hafleet', url: 'https://us.example' });
+    const a = generateRegistration({ id: 'hagency', url: 'https://us.example' });
+    const b = generateRegistration({ id: 'hagency', url: 'https://us.example' });
     /*
      * The two tokens must DIFFER, and that is a separate requirement from being random. They
      * authorise opposite directions — `as_token` lets us act on the homeserver, `hs_token` lets the
@@ -326,7 +326,7 @@ describe('the registration we hand to a project side', () => {
   });
 
   test('it carries every field a homeserver needs', () => {
-    const reg = generateRegistration({ id: 'hafleet', url: 'https://us.example/' });
+    const reg = generateRegistration({ id: 'hagency', url: 'https://us.example/' });
     expect(Object.keys(reg).sort()).toEqual([
       'as_token', 'hs_token', 'id', 'namespaces', 'rate_limited', 'sender_localpart', 'url',
     ]);
@@ -335,8 +335,8 @@ describe('the registration we hand to a project side', () => {
   });
 
   test('sender_localpart is lowercased, because the spec requires it of localparts', () => {
-    expect(generateRegistration({ id: 'x', url: 'https://u.example', senderLocalpart: 'HAFleet' })
-      .sender_localpart).toBe('hafleet');
+    expect(generateRegistration({ id: 'x', url: 'https://u.example', senderLocalpart: 'Hagency' })
+      .sender_localpart).toBe('hagency');
   });
 
   test('the default namespace matches the existing agent prefix rather than changing it', () => {
@@ -351,13 +351,13 @@ describe('the registration we hand to a project side', () => {
   });
 
   test('the YAML round-trips through the fields a homeserver parses', () => {
-    const reg = generateRegistration({ id: 'hafleet-side-a', url: 'https://us.example' });
+    const reg = generateRegistration({ id: 'hagency-side-a', url: 'https://us.example' });
     const yaml = renderRegistrationYaml(reg);
-    expect(yaml).toContain('id: hafleet-side-a');
+    expect(yaml).toContain('id: hagency-side-a');
     expect(yaml).toContain('url: "https://us.example"');
     expect(yaml).toContain(`as_token: ${reg.as_token}`);
     expect(yaml).toContain(`hs_token: ${reg.hs_token}`);
-    expect(yaml).toContain('sender_localpart: hafleet');
+    expect(yaml).toContain('sender_localpart: hagency');
     expect(yaml).toContain('regex: "@ac_.*"');
     expect(yaml).toContain('aliases: []');
     expect(yaml).toContain('rooms: []');

@@ -24,8 +24,8 @@ async function boot() {
     frameworkPresets: structuredClone(presets),
     agents: { original: { name: 'original', type: 'codex', kind: 'agent', projectSide: 'palpo.test', presetId: 'strong',
       runtimeProfile: { primary: { framework: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' } } } },
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1',
-      HAFLEET_OWNER_MXID: '@owner:palpo.test', HAFLEET_OWNER_DM_ROOM: '!private:palpo.test' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1',
+      HAGENCY_OWNER_MXID: '@owner:palpo.test', HAGENCY_OWNER_DM_ROOM: '!private:palpo.test' },
   });
   ctx.internals.stopRouterPumpForTest();
   ctx.internals.setEngagementLauncherForTest(async () => {});
@@ -34,7 +34,7 @@ async function boot() {
     await request(ctx.app).put(`/api/project-sides/${side}/allocation`).send({ allocated_tokens: 20000 }).expect(200);
   }
   await request(ctx.app).put('/api/project-sides/palpo.test/credential').send({ credential: {
-    kind: 'appservice', asToken: 'fixture-as', hsToken: 'fixture-hs', namespace: '^@ac_.*', senderLocalpart: 'hafleet',
+    kind: 'appservice', asToken: 'fixture-as', hsToken: 'fixture-hs', namespace: '^@ac_.*', senderLocalpart: 'hagency',
   } }).expect(200);
   ctx.internals.approvalStoreForTest.upsertBinding({ agent: 'original', project: 'project', project_room_id: ROOM,
     owner_mxid: '@owner:palpo.test', owner_dm_room_id: '!private:palpo.test' });

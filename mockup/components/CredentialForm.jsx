@@ -31,7 +31,7 @@ import { parseFleetCredentialImport } from '@/lib/fleet-credential-import';
 const KINDS = ['appservice', 'registrationToken'];
 
 const EMPTY = {
-  appservice: { asToken: '', hsToken: '', namespace: '@ac_.*', senderLocalpart: 'hafleet' },
+  appservice: { asToken: '', hsToken: '', namespace: '@ac_.*', senderLocalpart: 'hagency' },
   registrationToken: { registrationToken: '' },
 };
 
@@ -160,7 +160,7 @@ export default function CredentialForm({ side, live, onDone }) {
       <div className="dim">{t(kind === 'appservice' ? 'cr.kindAs' : 'cr.kindReg')}</div>
 
       {fields.transport?.mode === 'outbound' && <p role="status">
-        纯出站连接：保存后 HAFleet 自动连接 Palpo，无需填写 HAFleet 公网地址或配置 SSH 转发。
+        纯出站连接：保存后 Hagency 自动连接 Palpo，无需填写 Hagency 公网地址或配置 SSH 转发。
         <span className="mono"> {fields.transport.url}</span>
       </p>}
       {Object.keys(fields).filter(name => name !== 'transport').map((name) => (
@@ -183,7 +183,7 @@ export default function CredentialForm({ side, live, onDone }) {
         * WHO THIS FORM IS FOR, said because the answer is not always "you".
         *
         * It exists for the case where the project side generated the credential themselves and handed it over.
-        * When HAFleet ISSUED the credential, these two tokens were readable for exactly one moment and are
+        * When Hagency ISSUED the credential, these two tokens were readable for exactly one moment and are
         * write-only afterwards — so the operator cannot fill this in, and being shown an empty form with a
         * "still needed" label is being asked for something they were never given.
         */}

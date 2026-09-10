@@ -15,7 +15,7 @@ const SIDE = 'side.test';
 const ROOM = '!gap:side.test';
 const acting = {
   side: { serverName: SIDE, apiBaseUrl: 'https://side.test' },
-  credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hafleet' },
+  credential: { kind: 'appservice', asToken: 'as', senderLocalpart: 'hagency' },
 };
 let MatrixBridge;
 let runtimeDir;
@@ -25,18 +25,18 @@ let sends;
 let requests;
 
 beforeAll(async () => {
-  const keys = ['HAFLEET_RUNTIME_DIR', 'HAFLEET_APPSERVICE_SYNC_SIDE', 'HAFLEET_APPSERVICE_SYNC_URL',
-    'HAFLEET_APPSERVICE_PORT', 'HAFLEET_EDGE_LINK_URL', 'HAFLEET_EDGE_LINK_SIDE', 'HAFLEET_EDGE_LINK_TOKEN',
+  const keys = ['HAGENCY_RUNTIME_DIR', 'HAGENCY_APPSERVICE_SYNC_SIDE', 'HAGENCY_APPSERVICE_SYNC_URL',
+    'HAGENCY_APPSERVICE_PORT', 'HAGENCY_EDGE_LINK_URL', 'HAGENCY_EDGE_LINK_SIDE', 'HAGENCY_EDGE_LINK_TOKEN',
     'MATRIX_JOIN_BACKFILL_PAGES', 'MATRIX_JOIN_BACKFILL_MAX_EVENTS', 'MATRIX_JOIN_BACKFILL_LIMIT'];
   env = snapshotEnv(keys);
   for (const key of keys) delete process.env[key];
-  runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-gap-'));
+  runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-gap-'));
   mkdirSync(path.join(runtimeDir, 'data', 'matrix'), { recursive: true });
   writeFileSync(path.join(runtimeDir, 'data', 'matrix', 'bridge-state.json'), JSON.stringify({
     appserviceSyncReconcile: { [SIDE]: { '!legacy:side.test': 1234 } },
   }));
-  Object.assign(process.env, { HAFLEET_RUNTIME_DIR: runtimeDir,
-    HAFLEET_APPSERVICE_SYNC_SIDE: SIDE, HAFLEET_APPSERVICE_SYNC_URL: 'https://side.test',
+  Object.assign(process.env, { HAGENCY_RUNTIME_DIR: runtimeDir,
+    HAGENCY_APPSERVICE_SYNC_SIDE: SIDE, HAGENCY_APPSERVICE_SYNC_URL: 'https://side.test',
     MATRIX_JOIN_BACKFILL_PAGES: '2', MATRIX_JOIN_BACKFILL_MAX_EVENTS: '4', MATRIX_JOIN_BACKFILL_LIMIT: '2' });
   ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?sync-gap-test`));
 });
@@ -76,7 +76,7 @@ test('persisted sync gaps route forward history through the authenticated router
   await reconcile();
   expect(requests.map(({ url }) => [url.searchParams.get('from'), url.searchParams.get('to'), url.searchParams.get('dir')]))
     .toEqual([['before', 'newest', 'f'], ['page-2', 'newest', 'f']]);
-  expect(requests[0].url.searchParams.get('user_id')).toBe('@hafleet:side.test');
+  expect(requests[0].url.searchParams.get('user_id')).toBe('@hagency:side.test');
   expect(sends).toHaveLength(1);
   expect(sends[0].headers.authorization).toBe('Bearer hs');
   expect(sends[0].body.mode).toBe('sync');
@@ -121,7 +121,7 @@ test('initial history still uses only the invite-to-join policy', async () => {
   pending({ kind: 'join', from: null, to: 'initial' });
   bridge.backfillJoinedRoomOnSide = vi.fn(async () => 0);
   await reconcile();
-  expect(bridge.backfillJoinedRoomOnSide).toHaveBeenCalledWith(SIDE, ROOM, '@hafleet:side.test');
+  expect(bridge.backfillJoinedRoomOnSide).toHaveBeenCalledWith(SIDE, ROOM, '@hagency:side.test');
   expect(sends).toEqual([]);
 });
 

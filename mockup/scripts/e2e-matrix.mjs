@@ -2,7 +2,7 @@
  * End-to-end: a real Matrix room asks, and an agent ends up attached to it.
  *
  * WHAT THIS PROVES THAT NOTHING ELSE DOES. The other three suites all start inside
- * hafleet. This one starts outside it, in Matrix, and finishes at a binding — the
+ * hagency. This one starts outside it, in Matrix, and finishes at a binding — the
  * record that actually attaches an agent to a project. Until this existed, two gaps
  * were invisible to every test in the repo:
  *
@@ -21,14 +21,14 @@
  *
  * Run:
  *   ssh -f -N -L 8008:127.0.0.1:8008 cloud@<mini1>     # tunnel to the homeserver
- *   HAFLEET_REQUESTER_TOKEN=… node scripts/e2e-matrix.mjs
+ *   HAGENCY_REQUESTER_TOKEN=… node scripts/e2e-matrix.mjs
  *
  * Env:
  *   MATRIX_HS     homeserver base url            (default http://127.0.0.1:8008)
  *   MATRIX_TOKEN  registration token             (REQUIRED — no default, see below)
- *   BACKEND       hafleet backend                (default http://127.0.0.1:8090)
+ *   BACKEND       hagency backend                (default http://127.0.0.1:8090)
  *   API_TOKEN     operator token                 (default devtoken)
- *   HAFLEET_REQUESTER_TOKEN  requester token, if the backend separates them
+ *   HAGENCY_REQUESTER_TOKEN  requester token, if the backend separates them
  */
 
 import { MatrixClient, SimpleFsStorageProvider } from 'matrix-bot-sdk';
@@ -81,7 +81,7 @@ const register = (prefix) => registerThrowaway(HS, REG_TOKEN, prefix);
 const store = (name) => new SimpleFsStorageProvider(join(mkdtempSync(join(tmpdir(), 'e2e-')), `${name}.json`));
 
 (async () => {
-  console.log(`\nE2E — Matrix ${HS} -> hafleet ${BACKEND}\n`);
+  console.log(`\nE2E — Matrix ${HS} -> hagency ${BACKEND}\n`);
 
   if (!REG_TOKEN) {
     check('a registration token is configured', false,
@@ -102,15 +102,15 @@ const store = (name) => new SimpleFsStorageProvider(join(mkdtempSync(join(tmpdir
   /*
    * The credential is checked HERE, not discovered six steps later.
    *
-   * lib/bot-commands.js:85 sends HAFLEET_REQUESTER_TOKEN or API_TOKEN, whichever
+   * lib/bot-commands.js:85 sends HAGENCY_REQUESTER_TOKEN or API_TOKEN, whichever
    * exists. With neither, the backend correctly refuses and the failure surfaced as
-   * "the request never reached hafleet as an engagement" — which reads like a broken
+   * "the request never reached hagency as an engagement" — which reads like a broken
    * bridge and is really an unset variable in the caller's shell. Same reason the
    * homeserver reachability check is the first thing above.
    */
-  if (!(process.env.HAFLEET_REQUESTER_TOKEN || '').trim() && !(process.env.API_TOKEN || '').trim()) {
+  if (!(process.env.HAGENCY_REQUESTER_TOKEN || '').trim() && !(process.env.API_TOKEN || '').trim()) {
     check('a credential is available to submit the request', false,
-      'set HAFLEET_REQUESTER_TOKEN (preferred) or API_TOKEN — the bot sends one of them');
+      'set HAGENCY_REQUESTER_TOKEN (preferred) or API_TOKEN — the bot sends one of them');
     process.exit(1);
   }
 
@@ -170,7 +170,7 @@ const store = (name) => new SimpleFsStorageProvider(join(mkdtempSync(join(tmpdir
 
   const queued = ((await api('engagements')).body?.engagements ?? [])
     .find((e) => e.projectRoomId === room);
-  check('the request reached hafleet as an engagement', Boolean(queued), room);
+  check('the request reached hagency as an engagement', Boolean(queued), room);
   if (!queued) process.exit(1);
 
   check('keyed on the room id Matrix reported, not one the sender chose',

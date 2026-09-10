@@ -9,8 +9,8 @@ let MatrixBridge, bridgeStateForTest, runtime, environment;
 const room = '!group:test', alice = '@alice:test', one = '@ac_one:test', two = '@ac_two:test';
 beforeAll(async () => {
   runtime = mkdtempSync(path.join(os.tmpdir(), 'agent-discussion-'));
-  environment = snapshotEnv(['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX']);
-  process.env.HAFLEET_RUNTIME_DIR = runtime; process.env.MATRIX_AGENT_PREFIX = 'ac_';
+  environment = snapshotEnv(['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX']);
+  process.env.HAGENCY_RUNTIME_DIR = runtime; process.env.MATRIX_AGENT_PREFIX = 'ac_';
   ({ MatrixBridge, bridgeStateForTest } = await import('../bridge-matrix.js'));
 });
 afterEach(() => { bridgeStateForTest().trustedManagedRooms = {}; vi.restoreAllMocks(); });
@@ -25,7 +25,7 @@ function fixture() {
   bridge.directChats = { entryForRoom: () => entries[0], entriesForRoom: () => entries,
     verify: vi.fn(async () => ({ mode: 'group', members: [alice, one, two] })) };
   bridge.resolveKnownAgentName = name => ['one', 'two'].includes(name) ? name : null;
-  bridge.isAgentActivity = event => Boolean(event.content?.['io.hafleet.activity']);
+  bridge.isAgentActivity = event => Boolean(event.content?.['io.hagency.activity']);
   bridge.callBackendApi = vi.fn(async (_method, endpoint, input) => {
     expect(endpoint).toBe('/api/matrix/conversations/events'); return router.conversations.archive(input);
   });
@@ -64,7 +64,7 @@ test('background archival keeps admission checks, excludes activity and retries 
     await expect(bridge.onRoomMessage(room, reply())).rejects.toThrow('archive unavailable');
     await bridge.onRoomMessage(room, reply());
     expect(router.db.prepare('SELECT count(*) n FROM room_conversation_events').get().n).toBe(1);
-    await bridge.onRoomMessage(room, { ...reply('$activity'), content: { ...reply().content, 'io.hafleet.activity': {} } });
+    await bridge.onRoomMessage(room, { ...reply('$activity'), content: { ...reply().content, 'io.hagency.activity': {} } });
     bridge.directChats.verify.mockResolvedValue({ mode: 'group', members: [alice, two] });
     await bridge.onRoomMessage(room, reply('$not-joined'));
     expect(router.db.prepare('SELECT count(*) n FROM room_conversation_events').get().n).toBe(1);

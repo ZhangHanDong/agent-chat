@@ -9,7 +9,7 @@ tags: [console, engagement, capability, seat, ceiling, matrix, audit]
 
 ## Problem
 
-HAFleet's dashboard was designed around a dispatcher: it answered "who is working on
+Hagency's dashboard was designed around a dispatcher: it answered "who is working on
 what". The operator's actual position is the opposite one. They own agents and lend
 capacity; scheduling belongs to whoever borrows it. A console built on the dispatcher
 premise shows a provider information they cannot act on, and hides the three things
@@ -21,14 +21,14 @@ Four records the design depends on did not exist. A gap audit found `seat`,
 with no storage behind it. Separately, approving an engagement changed nothing about
 the world: six active engagements stood against zero bindings.
 
-Consumption is the harder half. HAFleet launches a coding CLI that talks to its
-provider directly, so no API response passes through HAFleet to read a usage figure
+Consumption is the harder half. Hagency launches a coding CLI that talks to its
+provider directly, so no API response passes through Hagency to read a usage figure
 from — in api-key mode as much as on a subscription. A console that shows a number
 there would be inventing it.
 
 Consumption here means **tokens**, not money. ADR-013's amendment of 2026-08-10 withdrew
 R8's `PriceBook` and `BillingSource`: converting tokens to currency depends on contract,
-plan, region and negotiated rate, none of which HAFleet observes, so it belongs to a
+plan, region and negotiated rate, none of which Hagency observes, so it belongs to a
 different system. The implementation had already settled this — every interface is
 denominated in tokens and `currency` appears nowhere in the stores.
 
@@ -41,7 +41,7 @@ MUST NOT present a scheduler, lease, queue, or work-assignment surface.
 [REQ-CONTRIBUTION-CONSOLE-UNIT] The unit of account MUST be the token. Every ceiling,
 quota, offer cap, rate cap and allocation MUST be denominated in tokens. The console MUST
 NOT convert tokens to currency, because the rate depends on contract, plan, region and
-negotiated terms that HAFleet does not observe, and on a fixed subscription the marginal
+negotiated terms that Hagency does not observe, and on a fixed subscription the marginal
 cost of a token is zero — so a monetary figure per engagement would be an allocation of a
 bill paid regardless, not a charge.
 
@@ -226,8 +226,8 @@ Scenario: A pending greeting survives room cleanup
 ## Traceability
 
 - `REQ-CONTRIBUTION-CONSOLE-IDEMPOTENT` implements PRD acceptance **A-R0-1**
-  (`docs/PRD-hafleet-pdu.md:325`), whose traceability row names the gate `CT/IT-R0-IDEMP`
-  and the accountable parties as the HAFleet and Robrix2 owners. The shared identifier is
+  (`docs/PRD-hagency-pdu.md:325`), whose traceability row names the gate `CT/IT-R0-IDEMP`
+  and the accountable parties as the Hagency and Robrix2 owners. The shared identifier is
   the Matrix event id rather than a negotiated token: it already exists on both sides, is
   stable, and cannot be forged by the sender.
 

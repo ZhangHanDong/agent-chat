@@ -91,7 +91,7 @@ function usage() {
 
 Options:
   --workdir <path>                 Agent workdir (default: cwd)
-  --web-url <url>                  Override HAFLEET_WEB_URL / HAFLEET_WEB_PORT resolution
+  --web-url <url>                  Override HAGENCY_WEB_URL / HAGENCY_WEB_PORT resolution
   --clear-primary                  Remove runtimeProfile.primary
   --clear-supervisor               Remove runtimeProfile.supervisor
   --primary-framework <value>
@@ -150,9 +150,9 @@ function parsePositiveInt(value, fallback) {
 }
 
 function defaultWebBaseUrl(env = process.env) {
-  const explicit = String(env.HAFLEET_WEB_URL || '').trim();
+  const explicit = String(env.HAGENCY_WEB_URL || '').trim();
   if (explicit) return explicit.replace(/\/$/, '');
-  const port = parsePositiveInt(env.HAFLEET_WEB_PORT, 8084);
+  const port = parsePositiveInt(env.HAGENCY_WEB_PORT, 8084);
   return `http://127.0.0.1:${port}`;
 }
 

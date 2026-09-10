@@ -15,7 +15,7 @@
  *
  *   WHICH CREDENTIAL ASKS. REQ-CONTRIBUTION-CONSOLE-SUBMIT-SCOPE requires that the
  *   credential which submits a request cannot decide one, widen an offer, or edit the
- *   whitelist. That is implemented by preferring HAFLEET_REQUESTER_TOKEN over the operator
+ *   whitelist. That is implemented by preferring HAGENCY_REQUESTER_TOKEN over the operator
  *   API_TOKEN, so the bridge asks with the narrowest credential that can do the job. If the
  *   preference silently inverted, every request would be submitted with a token that can
  *   also approve it, and nothing in the reply text would change.
@@ -69,7 +69,7 @@ beforeEach(() => {
       }),
     };
   };
-  for (const k of ['HAFLEET_REQUESTER_TOKEN', 'API_TOKEN', 'MATRIX_BRIDGE_SECRET']) {
+  for (const k of ['HAGENCY_REQUESTER_TOKEN', 'API_TOKEN', 'MATRIX_BRIDGE_SECRET']) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
@@ -145,7 +145,7 @@ describe('the narrowest credential that can submit', () => {
      * submission from being made with a credential that can also approve it.
      */
     process.env.API_TOKEN = 'operator-token';
-    process.env.HAFLEET_REQUESTER_TOKEN = 'requester-token';
+    process.env.HAGENCY_REQUESTER_TOKEN = 'requester-token';
     const { bot } = harness();
     await bot.cmdRequest(ROOM, ['coding', '400000'], SENDER, { eventId: EVENT_ID });
     expect(engagementCall().headers.Authorization).toBe('Bearer requester-token');
@@ -286,7 +286,7 @@ describe('what the project is told it got', () => {
         engagement: {
           id: 'e1', role: 'coding', allocatedTokens: 400_000, autoJoined: true, agent: 'claude-agent',
         },
-        binding: { bound: false, error: 'no owner known for this agent: set HAFLEET_OWNER_MXID and HAFLEET_OWNER_DM_ROOM, or let the Matrix bridge create the first binding' },
+        binding: { bound: false, error: 'no owner known for this agent: set HAGENCY_OWNER_MXID and HAGENCY_OWNER_DM_ROOM, or let the Matrix bridge create the first binding' },
         serving,
       }),
     };
@@ -312,7 +312,7 @@ describe('what the project is told it got', () => {
   test('a failure does NOT hand the project the provider\'s configuration', async () => {
     /*
      * The private half, and the one that was wrong under the previous policy too. The
-     * backend's bind error names `HAFLEET_OWNER_MXID` and `HAFLEET_OWNER_DM_ROOM` as the
+     * backend's bind error names `HAGENCY_OWNER_MXID` and `HAGENCY_OWNER_DM_ROOM` as the
      * remedy — actionable for the provider, and for a project it is a description of
      * somebody else's deployment. The project is told the attach did not happen, which is
      * all they can act on.
@@ -321,7 +321,7 @@ describe('what the project is told it got', () => {
     const { bot, replies } = harness();
     await bot.cmdRequest(ROOM, ['coding', '400000'], SENDER, { eventId: EVENT_ID });
     const body = replies.at(-1).body;
-    expect(body).not.toMatch(/HAFLEET_/);
+    expect(body).not.toMatch(/HAGENCY_/);
     expect(body).not.toMatch(/DM_ROOM|MXID/);
     // Still told, though — a silent partial success would be its own defect.
     expect(body).toMatch(/could not be attached/i);

@@ -5,7 +5,7 @@ title: "Integrate Matrix workflow changes with current upstream"
 status: Accepted
 ---
 
-The operator requests integration of the committed HAFleet, Robrix2 and Palpo
+The operator requests integration of the committed Hagency, Robrix2 and Palpo
 work with current upstream. Preserve resource-based allocation, Matrix DM/group
 conversation and file handling, scoped approvals, explicit YOLO and upstream
 three-layer task lifecycle, membership recovery and truthful dashboard state.

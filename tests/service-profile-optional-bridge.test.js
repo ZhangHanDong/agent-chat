@@ -5,7 +5,7 @@ import path from 'path';
 
 import { loadServiceProfile } from '../src/service-profile.mjs';
 
-// The Matrix bridge is optional throughout HAFleet: install-full.sh gates it
+// The Matrix bridge is optional throughout Hagency: install-full.sh gates it
 // behind --with-bridge and it fail-closes without credentials. The profile
 // loader used to require all four services, which meant the supervised-services
 // path — the only one that works on macOS, where there is no systemd — could
@@ -14,7 +14,7 @@ import { loadServiceProfile } from '../src/service-profile.mjs';
 const roots = [];
 
 function writeProfile(services, { name = 'services-local' } = {}) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-profile-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-profile-'));
   roots.push(root);
   mkdirSync(path.join(root, 'services'), { recursive: true });
   // The loader verifies each command's script exists on disk, so stub them.

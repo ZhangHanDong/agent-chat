@@ -60,11 +60,11 @@ which is a stronger guarantee than the guard that was built on top of it.
 | `lib/dashboard/render/agent-detail-page.js` | the Subconscious tab, its CSS, and 5 render/save functions — 272 to zero |
 | `lib/dashboard/proxy-routes.js` | 6 proxy routes and both installers |
 | `lib/upstream-claude-subconscious.js` | deleted (the egress source) |
-| `scripts/configure-v1-subconscious.js`, `subconscious/claude-hafleet/` | deleted |
-| `scripts/provision-v1-agent-home.js`, `bin/hafleet-up`, `bin/hafleet-up-v1` | provisioning and launch wiring, `letta.json` creation, launch-env injection |
+| `scripts/configure-v1-subconscious.js`, `subconscious/claude-hagency/` | deleted |
+| `scripts/provision-v1-agent-home.js`, `bin/hagency-up`, `bin/hagency-up-v1` | provisioning and launch wiring, `letta.json` creation, launch-env injection |
 | `lib/backend/auth-adapter.js` | `authorizeSubconsciousEventIngest`, `canAccessPrivilegedSubconsciousDetail`, the ingest-token exemption |
 | `mockup/components/AgentTabs.jsx` | the fabricated panel, and the migration panel's three toast-only buttons beside it |
-| env | `SUBCONSCIOUS_*`, `LETTA_*`, `HAFLEET_SUBCONSCIOUS_EVENT_TOKEN` |
+| env | `SUBCONSCIOUS_*`, `LETTA_*`, `HAGENCY_SUBCONSCIOUS_EVENT_TOKEN` |
 
 ## What was deliberately NOT removed
 
@@ -81,10 +81,10 @@ before any future export path is added.
 ## Consequences
 
 Good: no code path can send session transcripts off the machine; the console cannot report a memory
-state that was never measured; `hafleet up` and provisioning are shorter and no longer write a
+state that was never measured; `hagency up` and provisioning are shorter and no longer write a
 `letta.json` nobody reads.
 
-Bad: HAFleet has no long-term agent memory. Nothing replaces it. If memory returns, it should be
+Bad: Hagency has no long-term agent memory. Nothing replaces it. If memory returns, it should be
 designed against `lib/memory-export-policy.js` from the start rather than have a guard retrofitted
 around a default that already leaked.
 

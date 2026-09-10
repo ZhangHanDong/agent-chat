@@ -9,14 +9,14 @@
  * numbers everywhere, which is exactly the error this design refuses elsewhere.
  * So every slice reports where it came from, and the UI labels what it cannot fill.
  *
- * Everything is fetched through the same-origin proxy at /api/hafleet/*, never
- * from the backend directly. See app/api/hafleet/[...path]/route.js for why the
+ * Everything is fetched through the same-origin proxy at /api/hagency/*, never
+ * from the backend directly. See app/api/hagency/[...path]/route.js for why the
  * token must not reach the browser.
  */
 
 import * as fixture from './mock-data.js';
 
-const PROXY = '/api/hafleet';
+const PROXY = '/api/hagency';
 
 /** Slices with a real endpoint behind them at this baseline. */
 export const LIVE_SLICES = [

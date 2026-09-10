@@ -1,7 +1,7 @@
 /*
  * `check_inbox` must record what the agent was asked, because a progress hook cannot ask.
  *
- * `bin/hafleet-progress` refuses to post without an anchor — it will not put a step feed into a shared
+ * `bin/hagency-progress` refuses to post without an anchor — it will not put a step feed into a shared
  * room's main timeline — so without this write the reporter is correct and permanently silent. The
  * inbox read is the one moment where "the message I am about to work on" is known.
  *
@@ -66,8 +66,8 @@ function mcpClient(tmpdir, port) {
     env: {
       ...process.env,
       AGENT_NAME: 'alpha',
-      HAFLEET_API: `http://127.0.0.1:${port}`,
-      HAFLEET_SERVER: 'local',
+      HAGENCY_API: `http://127.0.0.1:${port}`,
+      HAGENCY_SERVER: 'local',
       API_TOKEN: 'test-token',
       // Both redirected: the anchor lands under HOME and the ephemeral counts under TMPDIR, and a test
       // that isolated only one of them would write into the developer's real home directory.
@@ -132,11 +132,11 @@ function mcpClient(tmpdir, port) {
  * reaches it, which is why the fix does not cost the deployment anything.
  */
 function anchorPath(home) {
-  return path.join(home, '.hafleet', 'progress-anchor', 'alpha.json');
+  return path.join(home, '.hagency', 'progress-anchor', 'alpha.json');
 }
 
 async function readInboxAndAnchor(inbox) {
-  const tmpdir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-anchor-'));
+  const tmpdir = mkdtempSync(path.join(os.tmpdir(), 'hagency-anchor-'));
   temps.add(tmpdir);
   const { port } = await fakeBackend(inbox);
   const client = mcpClient(tmpdir, port);
@@ -149,9 +149,9 @@ describe('check_inbox records a progress anchor', () => {
   test('a group message is remembered with its group', async () => {
     const { anchor } = await readInboxAndAnchor({
       dm: [],
-      group: [{ id: 'msg_100', ts: 1000, group: 'hafleet', from: 'yuechen', summary: 'question' }],
+      group: [{ id: 'msg_100', ts: 1000, group: 'hagency', from: 'yuechen', summary: 'question' }],
     });
-    expect(anchor()).toMatchObject({ replyTo: 'msg_100', group: 'hafleet' });
+    expect(anchor()).toMatchObject({ replyTo: 'msg_100', group: 'hagency' });
   });
 
   test('a direct message is remembered as a DM back to its sender', async () => {
@@ -185,9 +185,9 @@ describe('check_inbox records a progress anchor', () => {
      * inbox while working, the polls come back empty, and a writer that cleared on empty would drop the
      * anchor mid-task.
      */
-    const tmpdir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-anchor-'));
+    const tmpdir = mkdtempSync(path.join(os.tmpdir(), 'hagency-anchor-'));
     temps.add(tmpdir);
-    let payload = { dm: [], group: [{ id: 'msg_300', ts: 3000, group: 'hafleet', from: 'yuechen' }] };
+    let payload = { dm: [], group: [{ id: 'msg_300', ts: 3000, group: 'hagency', from: 'yuechen' }] };
     const server = http.createServer((req, res) => {
       res.setHeader('Content-Type', 'application/json');
       if (req.url.startsWith('/api/inbox/')) return res.end(JSON.stringify(payload));
@@ -210,7 +210,7 @@ describe('check_inbox records a progress anchor', () => {
     // "started" — the one line that tells a borrower the room heard them.
     const { anchor } = await readInboxAndAnchor({
       dm: [],
-      group: [{ id: 'msg_400', ts: 4000, group: 'hafleet', from: 'yuechen' }],
+      group: [{ id: 'msg_400', ts: 4000, group: 'hagency', from: 'yuechen' }],
     });
     expect(anchor()).toMatchObject({ lastSentAt: 0, counts: {} });
   });
@@ -227,7 +227,7 @@ describe('an agent whose own progress crowded out the question', () => {
      * The fix is one wider request, made ONLY when everything visible is the agent's own. This test
      * asserts both halves: that the narrow slice really is all self, and that the wide one is asked for.
      */
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-anchor-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-anchor-'));
     temps.add(dir);
 
     const asked = [];
@@ -254,7 +254,7 @@ describe('an agent whose own progress crowded out the question', () => {
   test('the wider look is NOT made when a foreign message was already visible', async () => {
     // Bounded on purpose. Always asking for a wide window would make every group read more expensive to
     // fix a rare dead end, so the extra request must fire only in that dead end.
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-anchor-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-anchor-'));
     temps.add(dir);
     const asked = [];
     const server = http.createServer((req, res) => {
@@ -276,7 +276,7 @@ describe('an agent whose own progress crowded out the question', () => {
   test('a failing wider look leaves the read itself successful', async () => {
     // The wide request is a courtesy. The agent asked to read its group and that succeeded; a 500 on the
     // recovery attempt must not turn a working tool call into an error the agent has to handle.
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-anchor-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-anchor-'));
     temps.add(dir);
     const server = http.createServer((req, res) => {
       res.setHeader('Content-Type', 'application/json');

@@ -12,10 +12,10 @@ try {
       description: 'Network host: aapt.org\nProtocol: https' };
     const writes = [], errors = [], unexpected = [];
     const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
-    await context.addInitScript(locale => localStorage.setItem('hafleet.locale', locale), locale);
+    await context.addInitScript(locale => localStorage.setItem('hagency.locale', locale), locale);
     const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
     await context.route('**/api/**', route => {
-      const req = route.request(), p = new URL(req.url()).pathname.replace('/api/hafleet/', '');
+      const req = route.request(), p = new URL(req.url()).pathname.replace('/api/hagency/', '');
       const reply = json => route.fulfill({ json });
       if (req.method() !== 'GET') {
         writes.push({ method: req.method(), path: p, body: req.postDataJSON() });

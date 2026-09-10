@@ -233,10 +233,10 @@ describe('!bindroom', () => {
 
 describe('who speaks when a command comes from a project side room', () => {
   /*
-   * FOUND BY TYPING `!offer` AS A CUSTOMER on a clean pair of machines: a fresh HAFleet on one, a fresh
+   * FOUND BY TYPING `!offer` AS A CUSTOMER on a clean pair of machines: a fresh Hagency on one, a fresh
    * homeserver on another, connected by a co-located appservice edge. The command arrived, was dispatched
    * and handled — and its answer died with `M_FORBIDDEN: sender's membership is not 'join'`, because every
-   * reply went out as HAFleet's own bot and the bot is not in the customer's room. The REPRESENTATIVE is.
+   * reply went out as Hagency's own bot and the bot is not in the customer's room. The REPRESENTATIVE is.
    *
    * So the whole ordering conversation — `!offer`, `!request`, the reply that says who was assigned — was
    * silent on the customer's side. It cannot happen on a single-homeserver deployment, where the bot is in
@@ -259,7 +259,7 @@ describe('who speaks when a command comes from a project side room', () => {
   });
 
   test('a bridge without that method still replies, so nothing regresses', async () => {
-    // The bot remains correct for every deployment where HAFleet and the room share one homeserver.
+    // The bot remains correct for every deployment where Hagency and the room share one homeserver.
     const { bot, sent } = makeBot();
     await bot.reply('!ours:matrix.example.test', 'hello');
     expect(sent).toEqual(['hello']);

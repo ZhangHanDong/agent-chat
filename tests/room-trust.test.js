@@ -25,12 +25,12 @@ describe('room trust classifier (5.8.1)', () => {
       dmRooms: { 'dm:testbot': '!dm-existing:matrix.test' },
     }, null, 2));
     envSnapshot = snapshotEnv([
-      'HAFLEET_RUNTIME_DIR',
+      'HAGENCY_RUNTIME_DIR',
       'MATRIX_TRUST_MODE',
       'MATRIX_TRUSTED_ROOM_IDS',
       'MATRIX_TRUSTED_INVITER_MXIDS',
     ]);
-    process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+    process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
     process.env.MATRIX_TRUST_MODE = 'audit';
     process.env.MATRIX_TRUSTED_ROOM_IDS = '!allow1:matrix.test,!allow2:matrix.test';
     process.env.MATRIX_TRUSTED_INVITER_MXIDS = '@admin:matrix.test';

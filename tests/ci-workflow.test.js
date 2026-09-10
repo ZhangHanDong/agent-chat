@@ -58,7 +58,7 @@ describe('GitHub Actions CI workflow', () => {
 
 test('sharded suite retains failure when a child crashes or omits its report', () => {
   for (const failure of ['none', 'exit', 'missing', 'signal']) {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-suite-verdict-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-suite-verdict-'));
     try {
       mkdirSync(path.join(root, 'scripts'));
       mkdirSync(path.join(root, 'node_modules/vitest'), { recursive: true });

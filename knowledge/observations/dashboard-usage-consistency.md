@@ -39,7 +39,7 @@ allocation exclusion, ended-only allocation, and a measured zero task count.
   skipped all six Node scenarios because no verifier covered their steps. The
   lifecycle is **not passing**; the executable behavioral evidence is the exact
   Vitest invocation above. Its run log is under
-  `/tmp/hafleet-dashboard-usage-agent-spec` for this local session.
+  `/tmp/hagency-dashboard-usage-agent-spec` for this local session.
 - `git diff --check` passed. Production build and GUI recheck belong to the
   parent E2E task; this repair did not operate a browser or restart services.
 

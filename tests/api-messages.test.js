@@ -70,7 +70,7 @@ describe('backend message API', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-messages-test-', {
+    context = await createBackendTestContext('hagency-messages-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -140,7 +140,7 @@ describe('backend message API', () => {
      * X-Bridge-Secret header is what makes this the "authenticated inbound" path the
      * statement scopes itself to.
      */
-    const threadContext = await createBackendTestContext('hafleet-matrix-thread-context-', {
+    const threadContext = await createBackendTestContext('hagency-matrix-thread-context-', {
       agents: {
         alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: false, manualDown: true },
       },
@@ -191,7 +191,7 @@ describe('backend message API', () => {
      * plus the final on-disk read still showing `$agent-event-1`. A last-write-wins backend
      * would pass the first assertion and fail the second, which is why the read matters.
      */
-    const deliveryContext = await createBackendTestContext('hafleet-matrix-delivery-upsert-', {
+    const deliveryContext = await createBackendTestContext('hagency-matrix-delivery-upsert-', {
       agents: {
         alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: false, manualDown: true },
       },
@@ -269,7 +269,7 @@ describe('backend message API', () => {
   });
 
   test('authenticated Matrix source_event_id returns the original message without redispatch', async () => {
-    const idempotentContext = await createBackendTestContext('hafleet-matrix-idempotency-', {
+    const idempotentContext = await createBackendTestContext('hagency-matrix-idempotency-', {
       agents: {
         alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: true },
       },
@@ -316,7 +316,7 @@ describe('backend message API', () => {
   });
 
   test('committed_receipt_restores_missing_live_message', async () => {
-    const recovering = await createBackendTestContext('hafleet-matrix-committed-recovery-', {
+    const recovering = await createBackendTestContext('hagency-matrix-committed-recovery-', {
       agents: {
         alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: false, manualDown: true },
       },
@@ -360,7 +360,7 @@ describe('backend message API', () => {
       type: 'message.accepted', attemptId: 'existing-attempt', messageId: 'msg_existing',
     });
     const archived = JSON.stringify({ id: 'msg_archived', summary: 'durable archive row' });
-    const repairing = await createBackendTestContext('hafleet-matrix-jsonl-repair-', {
+    const repairing = await createBackendTestContext('hagency-matrix-jsonl-repair-', {
       rawDataFiles: {
         'message-delivery-events.jsonl': `${accepted}\n{"attemptId":"torn`,
         'messages-archive.jsonl': `${archived}\n{"id":"torn`,
@@ -380,7 +380,7 @@ describe('backend message API', () => {
   });
 
   test('backend_reserved_dispatch_resumes_after_restart', async () => {
-    const recovering = await createBackendTestContext('hafleet-matrix-recovery-', {
+    const recovering = await createBackendTestContext('hagency-matrix-recovery-', {
       agents: { alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: true } },
       env: { MATRIX_BRIDGE_SECRET: 'matrix-recovery-secret' },
     });
@@ -430,7 +430,7 @@ describe('backend message API', () => {
       acceptedKeys.set(key, result);
       return { body: result };
     });
-    const recovering = await createBackendTestContext('hafleet-matrix-wake-recovery-', {
+    const recovering = await createBackendTestContext('hagency-matrix-wake-recovery-', {
       agents: {
         alpha: {
           name: 'alpha', type: 'agent', kind: 'agent', online: true,
@@ -439,7 +439,7 @@ describe('backend message API', () => {
       },
       env: {
         MATRIX_BRIDGE_SECRET: 'matrix-wake-secret',
-        HAFLEET_QUEUE_URL: queue.url,
+        HAGENCY_QUEUE_URL: queue.url,
       },
     });
     const payload = {
@@ -480,7 +480,7 @@ describe('backend message API', () => {
   });
 
   test('unauthenticated Matrix source_event_id cannot reserve an idempotency key', async () => {
-    const unauthenticatedContext = await createBackendTestContext('hafleet-matrix-idempotency-unauth-', {
+    const unauthenticatedContext = await createBackendTestContext('hagency-matrix-idempotency-unauth-', {
       agents: {
         alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: true },
       },
@@ -511,7 +511,7 @@ describe('backend message API', () => {
   });
 
   test('Matrix ingestion fails closed when bridge secret or event id is missing', async () => {
-    const noSecret = await createBackendTestContext('hafleet-matrix-no-secret-', {
+    const noSecret = await createBackendTestContext('hagency-matrix-no-secret-', {
       agents: { alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: true } },
     });
     const payload = {
@@ -525,7 +525,7 @@ describe('backend message API', () => {
     expect(readPersistedMessages(noSecret.runtimeDir)).toHaveLength(0);
     noSecret.cleanup();
 
-    const withSecret = await createBackendTestContext('hafleet-matrix-no-event-', {
+    const withSecret = await createBackendTestContext('hagency-matrix-no-event-', {
       agents: { alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: true } },
       env: { MATRIX_BRIDGE_SECRET: 'required-bridge-secret' },
     });
@@ -541,7 +541,7 @@ describe('backend message API', () => {
   });
 
   test('backend_receipt_survives_retention', async () => {
-    const retained = await createBackendTestContext('hafleet-matrix-retention-', {
+    const retained = await createBackendTestContext('hagency-matrix-retention-', {
       agents: { alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: false, manualDown: true } },
       agentTokens: { alpha: ALPHA_TOKEN },
       env: { MATRIX_BRIDGE_SECRET: 'retention-secret', AGENT_MESSAGE_RETENTION_LIMIT: '100' },
@@ -579,7 +579,7 @@ describe('backend message API', () => {
   });
 
   test('non-Matrix callers cannot reserve source_event_id even with bridge authentication', async () => {
-    const apiContext = await createBackendTestContext('hafleet-matrix-idempotency-api-', {
+    const apiContext = await createBackendTestContext('hagency-matrix-idempotency-api-', {
       agents: {
         alpha: { name: 'alpha', type: 'agent', kind: 'agent', online: true },
       },
@@ -698,7 +698,7 @@ describe('backend message API', () => {
   });
 
   test('message suppression returns 503 without side effects when messages persistence fails', async () => {
-    const failContext = await createBackendTestContext('hafleet-message-suppress-save-fail-test-', {
+    const failContext = await createBackendTestContext('hagency-message-suppress-save-fail-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -744,7 +744,7 @@ describe('backend message API', () => {
   });
 
   test('delivery event APIs return matching tail entries with the requested limit from a large log', async () => {
-    const largeContext = await createBackendTestContext('hafleet-messages-delivery-tail-test-', {
+    const largeContext = await createBackendTestContext('hagency-messages-delivery-tail-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -814,7 +814,7 @@ describe('backend message API', () => {
   });
 
   test('unread inbox lookups use fresh indexed direct and group mention rows', async () => {
-    const indexedContext = await createBackendTestContext('hafleet-messages-unread-index-test-', {
+    const indexedContext = await createBackendTestContext('hagency-messages-unread-index-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -895,7 +895,7 @@ describe('backend message API', () => {
   });
 
   test('unread inbox indexing preserves equal timestamp cursor ordering', async () => {
-    const indexedContext = await createBackendTestContext('hafleet-messages-unread-order-test-', {
+    const indexedContext = await createBackendTestContext('hagency-messages-unread-order-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -939,7 +939,7 @@ describe('backend message API', () => {
   });
 
   test('offline catchup messages append source delivery events and do not recurse', async () => {
-    const catchupContext = await createBackendTestContext('hafleet-messages-catchup-test-', {
+    const catchupContext = await createBackendTestContext('hagency-messages-catchup-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1018,7 +1018,7 @@ describe('backend message API', () => {
         ? { status: 503, body: { ok: false, error: 'queue down' } }
         : { status: 200, body: { ok: true, id: count, queuedAt: 3000 + count } }
     ));
-    const retryContext = await createBackendTestContext('hafleet-merged-push-retry-test-', {
+    const retryContext = await createBackendTestContext('hagency-merged-push-retry-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1052,7 +1052,7 @@ describe('backend message API', () => {
           mentions: [],
         },
       ],
-      env: { HAFLEET_QUEUE_URL: queueStub.url },
+      env: { HAGENCY_QUEUE_URL: queueStub.url },
     });
 
     try {
@@ -1103,7 +1103,7 @@ describe('backend message API', () => {
       status: 200,
       body: { ok: true, id: count, queuedAt: 3000 + count },
     }));
-    const retryContext = await createBackendTestContext('hafleet-hostname-local-push-test-', {
+    const retryContext = await createBackendTestContext('hagency-hostname-local-push-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1129,8 +1129,8 @@ describe('backend message API', () => {
         },
       ],
       env: {
-        HAFLEET_SERVER: 'local',
-        HAFLEET_QUEUE_URL: queueStub.url,
+        HAGENCY_SERVER: 'local',
+        HAGENCY_QUEUE_URL: queueStub.url,
       },
     });
 
@@ -1174,7 +1174,7 @@ describe('backend message API', () => {
         ? { status: 503, body: { ok: false, error: 'queue down' } }
         : { status: 200, body: { ok: true, id: count, queuedAt: 4000 + count } }
     ));
-    const retryContext = await createBackendTestContext('hafleet-catchup-retry-test-', {
+    const retryContext = await createBackendTestContext('hagency-catchup-retry-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1209,7 +1209,7 @@ describe('backend message API', () => {
           mentions: [],
         },
       ],
-      env: { HAFLEET_QUEUE_URL: queueStub.url },
+      env: { HAGENCY_QUEUE_URL: queueStub.url },
     });
 
     try {
@@ -1287,7 +1287,7 @@ describe('backend message API', () => {
         },
       },
     };
-    const retryContext = await createBackendTestContext('hafleet-catchup-existing-test-', {
+    const retryContext = await createBackendTestContext('hagency-catchup-existing-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1323,7 +1323,7 @@ describe('backend message API', () => {
         },
         existingCatchup,
       ],
-      env: { HAFLEET_QUEUE_URL: queueStub.url },
+      env: { HAGENCY_QUEUE_URL: queueStub.url },
     });
 
     try {
@@ -1514,7 +1514,7 @@ describe('backend message API', () => {
   });
 
   test('POST message returns 503 without accept side effects when messages persistence fails', async () => {
-    const failContext = await createBackendTestContext('hafleet-messages-save-fail-test-', {
+    const failContext = await createBackendTestContext('hagency-messages-save-fail-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1550,7 +1550,7 @@ describe('backend message API', () => {
   });
 
   test('POST message returns 503 without persistence when msg_counter persistence fails', async () => {
-    const failContext = await createBackendTestContext('hafleet-message-counter-fail-test-', {
+    const failContext = await createBackendTestContext('hagency-message-counter-fail-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1584,7 +1584,7 @@ describe('backend message API', () => {
   });
 
   test('startup reconciles stale msg_counter from persisted messages before assigning next id', async () => {
-    const staleCounterContext = await createBackendTestContext('hafleet-message-counter-reconcile-test-', {
+    const staleCounterContext = await createBackendTestContext('hagency-message-counter-reconcile-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1631,7 +1631,7 @@ describe('backend message API', () => {
   });
 
   test('GET inbox returns 503 and leaves unread state when cursor persistence fails', async () => {
-    const failContext = await createBackendTestContext('hafleet-inbox-cursor-fail-test-', {
+    const failContext = await createBackendTestContext('hagency-inbox-cursor-fail-test-', {
       agents: {
         alpha: {
           name: 'alpha',
@@ -1745,7 +1745,7 @@ describe('backend message API', () => {
   });
 
   test('message persistence prunes acknowledged history and archives the dropped prefix', async () => {
-    const largeContext = await createBackendTestContext('hafleet-messages-prune-test-', {
+    const largeContext = await createBackendTestContext('hagency-messages-prune-test-', {
       agents: {
         alpha: {
           name: 'alpha',

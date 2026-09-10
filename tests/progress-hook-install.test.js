@@ -1,10 +1,10 @@
 /*
- * The installer that gives `bin/hafleet-progress` a caller, and the four ways it could destroy an
+ * The installer that gives `bin/hagency-progress` a caller, and the four ways it could destroy an
  * agent's configuration instead.
  *
- * This tool exists because the reporter had no caller and no mechanism could give it one: HAFleet has
+ * This tool exists because the reporter had no caller and no mechanism could give it one: Hagency has
  * never written the `hooks` key of `.claude/settings.json`. On the host that noticed, no directory had
- * hooks HAFleet put there; two had written their own, for their own purposes — and those two are the
+ * hooks Hagency put there; two had written their own, for their own purposes — and those two are the
  * reason every test below is about NOT losing something. A hooks writer that assumed an empty key
  * would delete working automation, and the agent would keep running with its own automation quietly
  * gone, which is the kind of failure nobody notices until something that should have fired didn't.
@@ -16,7 +16,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
-const installer = path.resolve('bin/hafleet-install-progress-hooks');
+const installer = path.resolve('bin/hagency-install-progress-hooks');
 const temps = [];
 const httpServers = [];
 
@@ -30,7 +30,7 @@ afterEach(async () => {
 
 /** An agent home, optionally with settings.json already in it. */
 function makeHome(settings) {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-hook-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-hook-'));
   temps.push(dir);
   writeFileSync(path.join(dir, 'CLAUDE.md'), '# home\n');
   mkdirSync(path.join(dir, '.claude'), { recursive: true });
@@ -79,7 +79,7 @@ function readSettings(home) {
 }
 
 const ours = (entries) => (entries || []).filter((e) => (e.hooks || [])
-  .some((h) => (h.command || '').includes('hafleet-progress'))).length;
+  .some((h) => (h.command || '').includes('hagency-progress'))).length;
 
 describe('installing the progress hooks', () => {
   test('a home with no settings at all gets both events', () => {
@@ -127,7 +127,7 @@ describe('installing the progress hooks', () => {
     // operator's original with a copy that already contains our edit — the one version nobody needs.
     const home = makeHome({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo original' }] }] } });
     run(home);
-    const backup = path.join(home, '.claude', 'settings.json.pre-hafleet-progress.bak');
+    const backup = path.join(home, '.claude', 'settings.json.pre-hagency-progress.bak');
     expect(existsSync(backup)).toBe(true);
     const saved = JSON.parse(readFileSync(backup, 'utf8'));
     expect(ours(saved.hooks.Stop)).toBe(0);
@@ -173,7 +173,7 @@ describe('what it refuses to do', () => {
     // `.claude/` alone is not evidence — ordinary repositories all over a developer's host have one,
     // and writing hooks into the wrong tree makes an agent report into another customer's room. One
     // directory on the host that prompted this had hooks, no CLAUDE.md, and was not an agent workspace.
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-nothome-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-nothome-'));
     temps.push(dir);
     mkdirSync(path.join(dir, '.claude'), { recursive: true });
     const result = run(dir);
@@ -182,7 +182,7 @@ describe('what it refuses to do', () => {
   });
 
   test('a missing directory is refused', () => {
-    expect(run(path.join(os.tmpdir(), 'hafleet-definitely-absent-dir')).code).toBe(2);
+    expect(run(path.join(os.tmpdir(), 'hagency-definitely-absent-dir')).code).toBe(2);
   });
 
   test('a path and --agent together are refused rather than one silently winning', () => {
@@ -217,7 +217,7 @@ describe('resolving the target from the fleet', () => {
   test('--agent installs into the workdir the backend reports', async () => {
     const home = makeHome();
     const base = await withBackend({ name: 'alpha', workdir: home, workspaceMode: 'shared' });
-    const result = await runAsync('--agent', 'alpha', { HAFLEET_BACKEND_URL: base });
+    const result = await runAsync('--agent', 'alpha', { HAGENCY_BACKEND_URL: base });
     expect(result.code).toBe(0);
     expect(result.out).toContain(home);
     expect(ours(readSettings(home).hooks.PostToolUse)).toBe(1);
@@ -227,14 +227,14 @@ describe('resolving the target from the fleet', () => {
     // The failure the required-path rule was really about: writing hooks for an agent whose workspace
     // nobody has decided on. Four of five agents in the fleet that prompted this were in that state.
     const base = await withBackend({ name: 'alpha', workdir: null, homeDir: null });
-    const result = await runAsync('--agent', 'alpha', { HAFLEET_BACKEND_URL: base });
+    const result = await runAsync('--agent', 'alpha', { HAGENCY_BACKEND_URL: base });
     expect(result.code).toBe(1);
     expect(result.out).toMatch(/no workdir or homeDir/);
   });
 
   test('an unknown agent is reported as the backend answered, not as a missing directory', async () => {
     const base = await withBackend({ error: 'not found' }, 404);
-    const result = await runAsync('--agent', 'ghost', { HAFLEET_BACKEND_URL: base });
+    const result = await runAsync('--agent', 'ghost', { HAGENCY_BACKEND_URL: base });
     expect(result.code).toBe(1);
     expect(result.out).toMatch(/HTTP 404/);
   });
@@ -242,7 +242,7 @@ describe('resolving the target from the fleet', () => {
   test('an unreachable backend says so and installs nothing', () => {
     // Port 1 is not listening. The message must name the backend, because "could not install" with no
     // reason sends an operator looking at the agent's directory instead of at the service.
-    const result = run('--agent', 'alpha', { HAFLEET_BACKEND_URL: 'http://127.0.0.1:1' });
+    const result = run('--agent', 'alpha', { HAGENCY_BACKEND_URL: 'http://127.0.0.1:1' });
     expect(result.code).toBe(1);
     expect(result.out).toMatch(/could not reach the backend/);
   });
@@ -258,7 +258,7 @@ describe('Codex, whose hooks live somewhere else entirely', () => {
    * one agent it was going to be demonstrated on.
    */
   function makeCodexHome(hooks) {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-codex-'));
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-codex-'));
     temps.push(dir);
     if (hooks !== undefined) writeFileSync(path.join(dir, 'hooks.json'), JSON.stringify(hooks, null, 2));
     return dir;
@@ -278,7 +278,7 @@ describe('Codex, whose hooks live somewhere else entirely', () => {
     const after = hooksAt(dir);
     const commands = (after.PostToolUse || []).flatMap((e) => (e.hooks || []).map((h) => h.command));
     expect(commands).toContain('cargo-agents hook codex post-tool-use');
-    expect(commands.some((c) => c.includes('hafleet-progress'))).toBe(true);
+    expect(commands.some((c) => c.includes('hagency-progress'))).toBe(true);
     expect((after.SessionStart || []).length).toBe(1);
   });
 
@@ -288,7 +288,7 @@ describe('Codex, whose hooks live somewhere else entirely', () => {
     const dir = makeCodexHome({ hooks: {} });
     run('--framework', 'codex', { CODEX_HOME: dir });
     const entry = hooksAt(dir).PostToolUse.find((e) => (e.hooks || [])
-      .some((h) => h.command.includes('hafleet-progress')));
+      .some((h) => h.command.includes('hagency-progress')));
     expect(entry.matcher).toBe('');
     expect(entry.hooks[0].timeout).toBe(10);
   });
@@ -328,7 +328,7 @@ describe('Codex, whose hooks live somewhere else entirely', () => {
   test('a missing Codex home is refused rather than created', () => {
     // Creating one would put a config where Codex has never run, and the operator would be told they are
     // set up when nothing reads that directory.
-    const result = run('--framework', 'codex', { CODEX_HOME: path.join(os.tmpdir(), 'hafleet-no-codex-here') });
+    const result = run('--framework', 'codex', { CODEX_HOME: path.join(os.tmpdir(), 'hagency-no-codex-here') });
     expect(result.code).toBe(1);
     expect(result.out).toMatch(/no Codex home/);
   });

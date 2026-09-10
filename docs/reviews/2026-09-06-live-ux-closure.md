@@ -11,7 +11,7 @@ the complete project is not signed off.**
 The [original live report](2026-09-06-live-ux.md) remains historical evidence of a
 failed full workflow. Its failed, partial and blocked results have not been
 rewritten as passing. This report records the subsequent authorized repairs on
-`fix/spec-review-closure`, based on HAFleet commit `f89c746`, with uncommitted source
+`fix/spec-review-closure`, based on Hagency commit `f89c746`, with uncommitted source
 changes. Private host inventory, credentials, room identifiers, account details,
 browser profiles and full operational traces remain outside the repository.
 
@@ -44,7 +44,7 @@ limitation.
 | Robrix mention membership | Opening the picker refreshes remote SDK membership once, retaining room/thread scope and local suggestions while fetching. Explicit remote refresh invalidates an already-synced member cache. | PASS without restarting Robrix: a controlled fixture member appears after joining and disappears after leaving. Room membership returns from five to six to five; the owner room is untouched and still refuses outsider access. Join/leave support setup used the Matrix API, not native invite controls. |
 
 Native Agent Operations remains unavailable under its release/provenance gate.
-HAFleet's development contract and Robrix's expected namespace do not establish
+Hagency's development contract and Robrix's expected namespace do not establish
 compatible released artifacts. The existing private approval protocol is a
 separate surface; testing it does not certify the gated Agent Operations views.
 
@@ -83,8 +83,8 @@ coverage totals.
 
 | Verification | Recorded result | Scope limit / evidence |
 |---|---|---|
-| Earlier full HAFleet Vitest run | 232 files passed; 3,835 tests passed, one skipped. | `closure-full-vitest.log`; this run predates later Fable follow-ups and final cleanup-proof edits. It is not a final-tree full-suite result. |
-| Full HAFleet suite after socket-fixture correction | 234 files passed; 3,863 tests passed, one skipped; exit 0. | `closure/full-vitest-fixture-fixed.log`; 373.92 seconds, started 2026-09-06 00:44:49 PDT. Before/after hashes found no changed paths during the run; the private diff and receipt preserve the exact working-tree snapshot at `f89c746`. Later source changes require their own relevant verification. |
+| Earlier full Hagency Vitest run | 232 files passed; 3,835 tests passed, one skipped. | `closure-full-vitest.log`; this run predates later Fable follow-ups and final cleanup-proof edits. It is not a final-tree full-suite result. |
+| Full Hagency suite after socket-fixture correction | 234 files passed; 3,863 tests passed, one skipped; exit 0. | `closure/full-vitest-fixture-fixed.log`; 373.92 seconds, started 2026-09-06 00:44:49 PDT. Before/after hashes found no changed paths during the run; the private diff and receipt preserve the exact working-tree snapshot at `f89c746`. Later source changes require their own relevant verification. |
 | Subsequent provisioned-thread Stop correction | 36/36 passed across three files: Stop 19, provisioning 10, console 7. | `closure/provisioned-stop-final.log`; real provisioned records plus a real guardian subprocess. Stop waits while the child remains alive, then confirms after the final child write, process exit and cleanup receipt. Same-name foreign tmux sessions remain untouched. Four new regressions first failed against the previous code; `closure/provisioned-stop-red.log` preserves them. This delta postdates the full-suite snapshot. |
 | Subsequent detached-tool guardian correction | 39/39 passed across three files: Stop 19, structured runners 17, process-tree regressions 3. The two files with later portable zombie-state assertions passed 22/22. | `closure/detached-guardian-affected-vitest.log` and `closure/detached-guardian-portable-pid-vitest.log`. The real provisioned Stop test now includes a detached grandchild. Separate real subprocesses prove tracked reparenting, unrelated-process preservation and inspection-loss refusal. The same counterexample fails against the old guardian and passes against the new one in `closure/detached-guardian-{red,green}.{json,log}`. This is bounded observed-process evidence; ADR-019 records the polling limit. It does not replace the failed live Stop receipt or the required fresh live retest. |
 | Subsequent stopped-agent admission correction | 116/116 passed across eight related files. | `closure/stopped-admission-affected-vitest.log`; a new role request excludes stopped or cleanup-fenced agents and can provision a fresh qualifying resource, retaining the previous engagement and owner identity. Both exact regressions first failed against the old eligibility predicate in `closure/stopped-admission-red.log`. |

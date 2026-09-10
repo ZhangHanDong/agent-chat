@@ -13,7 +13,7 @@ room memberships and stops local use while retaining messages and work history.
 ## Constraints
 
 ### Must
-- Initiate every retirement request from HAFleet to Palpo using the current scoped outbound credential.
+- Initiate every retirement request from Hagency to Palpo using the current scoped outbound credential.
 - Bind retirement to a known request, exact Agent MXID and actual App Service ownership.
 - Preserve the shared App Service, its representative, human users and other allocated Agents.
 - Retain another active allocation or in-progress reservation for this Agent.
@@ -44,7 +44,7 @@ Scenario: The last allocation retires the identity
   Test: last Palpo allocation retirement fences admission and verifies remote removal
   Given an Agent with one allocation and several Matrix rooms
   When the operator revokes that allocation
-  Then HAFleet retires that exact identity through its outbound credential
+  Then Hagency retires that exact identity through its outbound credential
   And Matrix access and room departure are verified before completion
 
 Scenario: Another allocation preserves identity access

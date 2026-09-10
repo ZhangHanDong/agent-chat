@@ -15,7 +15,7 @@ test('imported fleet identity overrides only its own side while legacy naming st
   expect(projectSideAgentPrefix(acting, 'ac_')).toBe(`${fleetId}_agent_`);
   expect(projectSideAgentMxid('coding', acting, 'ac_')).toBe(`@${fleetId}_agent_coding:palpo.test`);
   expect(projectSideAgentPrefix({ side, credential: { kind: 'registrationToken' } }, 'ac_')).toBe('ac_');
-  expect(projectSideAgentPrefix({ side, credential: { kind: 'appservice', senderLocalpart: 'hafleet', namespace: '@ac_.*' } }, 'ac_')).toBe('ac_');
+  expect(projectSideAgentPrefix({ side, credential: { kind: 'appservice', senderLocalpart: 'hagency', namespace: '@ac_.*' } }, 'ac_')).toBe('ac_');
   expect(projectSideAgentPrefix({ side, credential: { kind: 'registrationToken' } }, 'custom_')).toBe('custom_');
   expect(() => projectSideAgentPrefix({ side, credential: { ...acting.credential, namespace: '.*' } })).toThrow('managed_fleet_identity_scope_invalid');
   expect(() => projectSideAgentPrefix({ side: { serverName: 'foreign.test' }, credential: acting.credential })).toThrow('managed_fleet_identity_scope_invalid');

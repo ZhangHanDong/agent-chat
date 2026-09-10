@@ -18,7 +18,7 @@ const projectRoot = process.cwd();
 const roots = [];
 
 function temporaryProject() {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-contract-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-contract-'));
   roots.push(root);
   mkdirSync(path.join(root, 'scripts'), { recursive: true });
   cpSync(path.join(projectRoot, 'router'), path.join(root, 'router'), { recursive: true });
@@ -91,7 +91,7 @@ describe('router build and dependency contract', () => {
 
   test('test_router_dependency_spike_installs_and_recovers_wal', () => {
     expect(Number(process.versions.node.split('.')[0])).toBeGreaterThanOrEqual(22);
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-dependency-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-dependency-'));
     roots.push(root);
     cpSync(path.join(projectRoot, 'package.json'), path.join(root, 'package.json'));
     cpSync(path.join(projectRoot, 'package-lock.json'), path.join(root, 'package-lock.json'));

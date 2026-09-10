@@ -16,7 +16,7 @@ const fixtureProfilePath = path.join(repoRoot, 'tests', 'fixtures', 'services-lo
 const runtimes = [];
 
 function tempRuntime() {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-standalone-doctor-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hagency-standalone-doctor-'));
   runtimes.push(dir);
   return dir;
 }
@@ -97,7 +97,7 @@ function healthyDiagnoseServicesImpl() {
 function baseEnv(overrides = {}) {
   return {
     MATRIX_HOMESERVER: 'https://matrix.example.test',
-    HAFLEET_API: BACKEND_URL,
+    HAGENCY_API: BACKEND_URL,
     ...overrides,
   };
 }
@@ -397,9 +397,9 @@ describe('standalone-doctor.mjs CLI', () => {
     const runtimeRoot = tempRuntime();
     const env = {
       ...process.env,
-      HAFLEET_RUNTIME_DIR: runtimeRoot,
+      HAGENCY_RUNTIME_DIR: runtimeRoot,
       MATRIX_HOMESERVER: 'http://127.0.0.1:1',
-      HAFLEET_API: 'http://127.0.0.1:1',
+      HAGENCY_API: 'http://127.0.0.1:1',
     };
 
     await expect(execFileAsync(process.execPath, [

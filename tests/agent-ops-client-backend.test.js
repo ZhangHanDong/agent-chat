@@ -43,12 +43,12 @@ describe('scoped Agent Operations backend client boundary', () => {
   let inspectionState;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-agent-ops-client-', {
+    context = await createBackendTestContext('hagency-agent-ops-client-', {
       env: {
-        HAFLEET_THREAD_SESSIONS: '1',
-        HAFLEET_ROUTER_TASK_CUTOVER: '1',
-        HAFLEET_AGENT_OPS_CLIENT: '1',
-        HAFLEET_AGENT_OPS_LOOPBACK_ORIGIN: AUDIENCE,
+        HAGENCY_THREAD_SESSIONS: '1',
+        HAGENCY_ROUTER_TASK_CUTOVER: '1',
+        HAGENCY_AGENT_OPS_CLIENT: '1',
+        HAGENCY_AGENT_OPS_LOOPBACK_ORIGIN: AUDIENCE,
         MATRIX_BRIDGE_SECRET: 'agent-ops-bridge-secret',
         API_TOKEN: 'agent-ops-dashboard-token',
       },
@@ -93,7 +93,7 @@ describe('scoped Agent Operations backend client boundary', () => {
       .post('/api/agent-ops/v1/control/bootstrap')
       .set('X-Bridge-Secret', 'agent-ops-bridge-secret')
       .send({
-        schema: 'com.hafleet.agent_ops.v1', agent: 'worker',
+        schema: 'com.hagency.agent_ops.v1', agent: 'worker',
         project_room_id: PROJECT_ROOM, owner_mxid: OWNER, owner_dm_room_id: OWNER_DM,
         matrix_event_id: '$agent-ops-bootstrap', matrix_device_id: DEVICE_ID,
         matrix_device_ed25519: DEVICE_ED25519, matrix_device_curve25519: DEVICE_CURVE25519,
@@ -104,7 +104,7 @@ describe('scoped Agent Operations backend client boundary', () => {
     bootstrapGrant = bootstrap.body;
     expectCanonical(bootstrap.body);
     expect(bootstrap.body).toMatchObject({
-      schema: 'com.hafleet.agent_ops.v1', kind: 'client_session_grant',
+      schema: 'com.hagency.agent_ops.v1', kind: 'client_session_grant',
       audience: AUDIENCE, client_nonce: 'client-bootstrap-nonce',
     });
     const serverUnsigned = { ...bootstrap.body };
@@ -235,7 +235,7 @@ describe('scoped Agent Operations backend client boundary', () => {
       .post('/api/agent-ops/v1/control/bootstrap')
       .set('X-Bridge-Secret', 'agent-ops-bridge-secret')
       .send({
-        schema: 'com.hafleet.agent_ops.v1', agent: 'other',
+        schema: 'com.hagency.agent_ops.v1', agent: 'other',
         project_room_id: projectRoom, owner_mxid: OWNER, owner_dm_room_id: OWNER_DM,
         matrix_event_id: '$unenrolled-bootstrap', matrix_device_id: DEVICE_ID,
         matrix_device_ed25519: DEVICE_ED25519, matrix_device_curve25519: DEVICE_CURVE25519,
@@ -260,7 +260,7 @@ describe('scoped Agent Operations backend client boundary', () => {
         .post('/api/agent-ops/v1/control/bootstrap')
         .set('X-Bridge-Secret', 'agent-ops-bridge-secret')
         .send({
-          schema: 'com.hafleet.agent_ops.v1', agent: 'worker',
+          schema: 'com.hagency.agent_ops.v1', agent: 'worker',
           project_room_id: PROJECT_ROOM, owner_mxid: OWNER, owner_dm_room_id: OWNER_DM,
           matrix_event_id: '$substitution', matrix_device_id: DEVICE_ID,
           matrix_device_ed25519: DEVICE_ED25519, matrix_device_curve25519: DEVICE_CURVE25519,
@@ -351,7 +351,7 @@ describe('scoped Agent Operations backend client boundary', () => {
 
     const response = await signedGet('/api/agent-ops/v1/snapshot');
     expect(response.status, JSON.stringify(response.body)).toBe(200);
-    expect(response.body.schema).toBe('com.hafleet.agent_ops.v1');
+    expect(response.body.schema).toBe('com.hagency.agent_ops.v1');
     expect(response.body.scope).toMatchObject({ agent_id: 'agent_worker', project_room_id: PROJECT_ROOM });
     expect(response.body.queue).toHaveLength(1);
     expect(response.body.attention[0]).toMatchObject({ kind: 'parked_approval', dispatch_id: queued.dispatchId });
@@ -601,7 +601,7 @@ describe('scoped Agent Operations backend client boundary', () => {
 
 describe('Agent Operations feature gate', () => {
   test('agent_ops_client_feature_off_preserves_existing_backend_contracts', async () => {
-    const context = await createBackendTestContext('hafleet-agent-ops-off-');
+    const context = await createBackendTestContext('hagency-agent-ops-off-');
     try {
       const health = await request(context.app).get('/health');
       expect(health.status).toBe(200);

@@ -2,7 +2,7 @@
 
 The operator's second question, “改写为python版本”, had a valid native Matrix
 mention and the original `octos-code-use` thread relation. The bridge received
-it and HAFleet stored it as `msg_0005`. Dispatch
+it and Hagency stored it as `msg_0005`. Dispatch
 `20de23cb-830b-41f4-9d5b-ef986d5c062a` was queued against the previously completed
 task, while claimDispatch refused `task_status: done`. There was no pending
 approval or running model for this second message. Intake and scheduling disagreed

@@ -98,10 +98,10 @@ function stubFetch() {
 
 beforeAll(async () => {
   runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'agent-credential-'));
-  for (const k of ['HAFLEET_RUNTIME_DIR', 'MATRIX_HOMESERVER', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME', ENV_VAR]) {
+  for (const k of ['HAGENCY_RUNTIME_DIR', 'MATRIX_HOMESERVER', 'MATRIX_AGENT_PREFIX', 'MATRIX_SERVER_NAME', ENV_VAR]) {
     savedEnv[k] = process.env[k];
   }
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.MATRIX_HOMESERVER = HOMESERVER;
   process.env.MATRIX_AGENT_PREFIX = 'ac_';
   process.env.MATRIX_SERVER_NAME = 'hs.test';

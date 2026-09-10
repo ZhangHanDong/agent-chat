@@ -63,17 +63,17 @@ MANAGED_SPECS=(
   "remote/package.json:package.json"
   "remote/push-relay.js:push-relay.js"
   "remote/mcp-server.js:mcp-server.js"
-  "remote/bin/hafleet:bin/hafleet"
-  "bin/hafleet-prune-agents:bin/hafleet-prune-agents"
-  "bin/hafleet-legacy:bin/hafleet-legacy"
-  "bin/hafleet-cli:bin/hafleet-cli"
-  "bin/hafleet-down:bin/hafleet-down"
-  "bin/hafleet-ls:bin/hafleet-ls"
-  "bin/hafleet-maintain:bin/hafleet-maintain"
-  "bin/hafleet-send:bin/hafleet-send"
-  "bin/hafleet-service:bin/hafleet-service"
-  "remote/bin/hafleet-up:bin/hafleet-up"
-  "bin/hafleet-update:bin/hafleet-update"
+  "remote/bin/hagency:bin/hagency"
+  "bin/hagency-prune-agents:bin/hagency-prune-agents"
+  "bin/hagency-legacy:bin/hagency-legacy"
+  "bin/hagency-cli:bin/hagency-cli"
+  "bin/hagency-down:bin/hagency-down"
+  "bin/hagency-ls:bin/hagency-ls"
+  "bin/hagency-maintain:bin/hagency-maintain"
+  "bin/hagency-send:bin/hagency-send"
+  "bin/hagency-service:bin/hagency-service"
+  "remote/bin/hagency-up:bin/hagency-up"
+  "bin/hagency-update:bin/hagency-update"
   "bin/self-time-reminder:bin/self-time-reminder"
   "bin/verify-remote:bin/verify-remote"
   "lib/blocked-patterns.js:lib/blocked-patterns.js"
@@ -159,19 +159,19 @@ compare_managed_against_remote() {
 
 check_dispatch_targets() {
   local build_root="$1"
-  local cli="$build_root/bin/hafleet"
+  local cli="$build_root/bin/hagency"
   local bin_dir="$build_root/bin"
   local targets target target_path
   local failures=0
 
   if [ ! -f "$cli" ]; then
-    echo "[FAIL] generated bin/hafleet missing"
+    echo "[FAIL] generated bin/hagency missing"
     return 1
   fi
 
   targets="$(sed -n 's/.*dispatch "\([^"]*\)".*/\1/p' "$cli" | sort -u)"
   if [ -z "$targets" ]; then
-    echo "[FAIL] generated bin/hafleet has no dispatch targets"
+    echo "[FAIL] generated bin/hagency has no dispatch targets"
     return 1
   fi
 

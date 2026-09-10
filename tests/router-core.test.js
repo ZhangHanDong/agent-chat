@@ -9,7 +9,7 @@ import { createRouterTaskStore, migrateLegacyTasks, openRouter, WorktreeManager 
 const roots = [];
 
 function makeRouter(options = {}) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-'));
   roots.push(root);
   let now = options.start ?? 1_800_000_000_000;
   const router = openRouter({
@@ -1342,7 +1342,7 @@ describe('approval parking and read projection', () => {
   });
 
   test('test_restart_reconciles_started_dispatch_to_outcome_unknown', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-restart-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-restart-'));
     roots.push(root);
     const dbPath = path.join(root, 'router.db');
     let router = openRouter({ dbPath });
@@ -1366,7 +1366,7 @@ describe('approval parking and read projection', () => {
   });
 
   test('test_fencing_generation_survives_restart', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-router-fence-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-router-fence-'));
     roots.push(root);
     const dbPath = path.join(root, 'router.db');
     let now = 1_800_000_000_000;
@@ -1404,7 +1404,7 @@ describe('approval parking and read projection', () => {
   test('test_router_snapshot_excludes_paths_and_owner_private_approval_data', () => {
     const { router } = makeRouter();
     router.registerWorkspace({
-      resourceId: 'ws', safeLabel: 'safe workspace', backendPath: '/secret/absolute/workspace', branchName: 'hafleet/task',
+      resourceId: 'ws', safeLabel: 'safe workspace', backendPath: '/secret/absolute/workspace', branchName: 'hagency/task',
     });
     router.db.prepare("UPDATE resources SET dirty=1, dirty_reason='inspect required' WHERE resource_id='ws'").run();
     const text = JSON.stringify(router.snapshot());
@@ -1429,7 +1429,7 @@ describe('approval parking and read projection', () => {
 
 describe('conservative worktree lifecycle', () => {
   test('test_worktree_mode_runs_two_threads_in_distinct_worktrees', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1448,7 +1448,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('failed worktree bootstrap remains fail-closed until a successful bootstrap is recorded', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-bootstrap-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-bootstrap-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1474,7 +1474,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('changed bootstrap cannot bypass a dirty failed-bootstrap quarantine', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-bootstrap-dirty-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-bootstrap-dirty-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1497,7 +1497,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('worktree bootstrap does not inherit backend credentials', async () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-bootstrap-env-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-bootstrap-env-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1532,7 +1532,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('async worktree preparation does not block the backend event loop', async () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-bootstrap-async-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-bootstrap-async-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1558,7 +1558,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('recreated worktree cannot reuse bootstrap success from a removed checkout', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-recreate-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-recreate-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');
@@ -1581,7 +1581,7 @@ describe('conservative worktree lifecycle', () => {
   });
 
   test('worktree resource identity includes repository and worktree root', () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-identity-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-identity-'));
     roots.push(root);
     const makeRepo = (name) => {
       const repo = path.join(root, name);
@@ -1621,7 +1621,7 @@ describe('conservative worktree lifecycle', () => {
 
   test('test_dirty_worktree_retained_on_session_eviction', () => {
     const { router } = makeRouter();
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-worktree-dirty-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-worktree-dirty-'));
     roots.push(root);
     const repo = path.join(root, 'repo');
     const worktreesDir = path.join(root, 'worktrees');

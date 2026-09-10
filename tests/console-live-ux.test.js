@@ -27,7 +27,7 @@ describe('live console workflow', () => {
     expect(await revokeEngagement('revoke-me', { reason: 'operator revoke' }))
       .toMatchObject({ ok: true, reconciled: true, body: { engagement } });
     expect(fetcher.mock.calls.map(([url, options]) => [url, options.method ?? 'GET']))
-      .toEqual([['/api/hafleet/engagements/revoke-me/revoke', 'POST'], ['/api/hafleet/engagements', 'GET']]);
+      .toEqual([['/api/hagency/engagements/revoke-me/revoke', 'POST'], ['/api/hagency/engagements', 'GET']]);
   });
 
   it('console never claims a revoke succeeded from another or still active engagement', async () => {
@@ -154,13 +154,13 @@ describe('live console workflow', () => {
   });
 
   it('console allocation and stop proxy routes preserve authorization and refuse adjacent credential routes', async () => {
-    vi.stubEnv('HAFLEET_CONSOLE_TOKEN', 'console-test');
-    vi.stubEnv('HAFLEET_API_TOKEN', 'operator-test');
+    vi.stubEnv('HAGENCY_CONSOLE_TOKEN', 'console-test');
+    vi.stubEnv('HAGENCY_API_TOKEN', 'operator-test');
     const upstream = vi.fn(async () => Response.json({ ok: true, stopped: true }));
     vi.stubGlobal('fetch', upstream);
-    const routes = await import('../mockup/app/api/hafleet/[...path]/route.js');
+    const routes = await import('../mockup/app/api/hagency/[...path]/route.js');
     const call = (method, path, { authorized = true, site = 'same-origin', body = '{}' } = {}) => routes[method](
-      new Request(`http://127.0.0.1:3100/api/hafleet/${path.join('/')}`, {
+      new Request(`http://127.0.0.1:3100/api/hagency/${path.join('/')}`, {
         method,
         headers: { ...(authorized ? { authorization: 'Bearer console-test' } : {}), 'sec-fetch-site': site, 'content-type': 'application/json' },
         ...(method === 'GET' ? {} : { body }),

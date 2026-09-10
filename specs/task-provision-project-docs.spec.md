@@ -33,7 +33,7 @@ when their bootstrap reads docs/projects.md.
 ### Allowed Changes
 - lib/agent-project-docs.js
 - scripts/provision-v1-agent-home.js
-- scripts/hafleet-project.js
+- scripts/hagency-project.js
 - tests/provision-project-docs.test.js
 - tests/api-agent-provision.test.js
 - knowledge/requirements/req-provision-project-docs.md

@@ -12,8 +12,8 @@ let temp;
 let env;
 beforeAll(async () => {
   temp = mkdtempSync(path.join(os.tmpdir(), 'bridge-fleet-protocol-'));
-  env = snapshotEnv(['HAFLEET_RUNTIME_DIR']);
-  process.env.HAFLEET_RUNTIME_DIR = temp;
+  env = snapshotEnv(['HAGENCY_RUNTIME_DIR']);
+  process.env.HAGENCY_RUNTIME_DIR = temp;
   ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?fleet=${Date.now()}`));
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -71,7 +71,7 @@ test('real bridge records the push probe and forwards only verified private-owne
     else if (url.pathname.endsWith('m.room.join_rules/')) value = { join_rule: 'invite' };
     else if (url.pathname.endsWith('m.room.encryption/')) return { ok: false, status: 404 };
     else if (url.pathname.endsWith('m.room.power_levels/')) value = { invite: 0, users: { [borrower]: 100 } };
-    else if (url.pathname.includes('com.hafleet.admin.binding.v1/')) value = { v: 1, fleetId,
+    else if (url.pathname.includes('com.hagency.admin.binding.v1/')) value = { v: 1, fleetId,
       purpose: 'project', projectId: 'project_1', ownerMxid: borrower, authVersion: 1 };
     else throw new Error(`unexpected representative request: ${url.pathname}`);
     return { ok: true, status: 200, json: async () => value };

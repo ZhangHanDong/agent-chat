@@ -16,7 +16,7 @@
  *
  * I had claimed these methods could not be tested without a homeserver. That was wrong:
  * tests/bridge-matrix-approval.test.js already imports the module dynamically with
- * HAFLEET_RUNTIME_DIR set and stubs `botClient`. This file uses the same recipe, so the claim is
+ * HAGENCY_RUNTIME_DIR set and stubs `botClient`. This file uses the same recipe, so the claim is
  * retired along with the excuse.
  */
 
@@ -42,11 +42,11 @@ let findRoomAgentBinding;
 const saved = {};
 
 beforeAll(async () => {
-  runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-invite-accept-'));
-  for (const k of ['HAFLEET_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_BRIDGE_SECRET', 'MATRIX_SERVER_NAME']) {
+  runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-invite-accept-'));
+  for (const k of ['HAGENCY_RUNTIME_DIR', 'MATRIX_AGENT_PREFIX', 'MATRIX_BRIDGE_SECRET', 'MATRIX_SERVER_NAME']) {
     saved[k] = process.env[k];
   }
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir;
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir;
   process.env.MATRIX_AGENT_PREFIX = 'ac_';
   process.env.MATRIX_BRIDGE_SECRET = 'test-secret';
   process.env.MATRIX_SERVER_NAME = 'hq.example';

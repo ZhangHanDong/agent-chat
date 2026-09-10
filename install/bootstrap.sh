@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# HAFleet bootstrap installer.
+# Hagency bootstrap installer.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/hagency-org/HAFleet/master/install/bootstrap.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/hagency-org/hagency/master/install/bootstrap.sh)
 #
 # Clones the repository at a pinned release and hands off to install-full.sh.
 # This exists because the only documented install path was "git clone, then run
 # the installer" — and the README pointed at the upstream repository, so
-# following it did not produce HAFleet.
+# following it did not produce Hagency.
 #
 # Everything after `--` is forwarded to install-full.sh, so its flags all work:
 #   bash <(curl -fsSL .../bootstrap.sh) -- --dry-run
@@ -14,14 +14,14 @@
 #
 # Options:
 #   --ref REF     Tag, branch or commit to install (default: latest release tag)
-#   --dir PATH    Where to clone (default: ~/hafleet)
+#   --dir PATH    Where to clone (default: ~/hagency)
 #   --list        List available releases and exit
 #   --no-install  Clone and stop, without running the installer
 set -euo pipefail
 
-REPO_URL="${HAFLEET_REPO_URL:-https://github.com/hagency-org/HAFleet.git}"
-TARGET_DIR="${HAFLEET_DIR:-$HOME/hafleet}"
-REQUESTED_REF="${HAFLEET_REF:-}"
+REPO_URL="${HAGENCY_REPO_URL:-https://github.com/hagency-org/hagency.git}"
+TARGET_DIR="${HAGENCY_DIR:-$HOME/hagency}"
+REQUESTED_REF="${HAGENCY_REF:-}"
 DO_LIST=false
 RUN_INSTALLER=true
 INSTALLER_ARGS=()
@@ -82,7 +82,7 @@ fi
 # 20MB of history, and the contents are exactly what CI built and published.
 # Falls back to cloning when installing a branch/commit, or when the release has
 # no attached artifact (anything tagged before this existed).
-RELEASE_BASE="${HAFLEET_RELEASE_BASE:-}"
+RELEASE_BASE="${HAGENCY_RELEASE_BASE:-}"
 if [ -z "$RELEASE_BASE" ]; then
   # Derive the releases URL from the clone URL so a fork works unchanged.
   RELEASE_BASE="$(printf '%s' "$REPO_URL" | sed -e 's|\.git$||')/releases/download"
@@ -96,7 +96,7 @@ fetch_release_tarball() {
   esac
 
   local release="${REQUESTED_REF#v}"
-  local tarball="hafleet-${release}.tar.gz"
+  local tarball="hagency-${release}.tar.gz"
   local base="$RELEASE_BASE/$REQUESTED_REF"
   local work
   work="$(mktemp -d)"
@@ -142,8 +142,8 @@ fetch_release_tarball() {
 
   tar -xzf "$work/$tarball" -C "$work"
   mkdir -p "$TARGET_DIR"
-  # The tarball has a single hafleet-<release>/ top level.
-  ( cd "$work/hafleet-${release}" && tar -cf - . ) | ( cd "$TARGET_DIR" && tar -xf - )
+  # The tarball has a single hagency-<release>/ top level.
+  ( cd "$work/hagency-${release}" && tar -cf - . ) | ( cd "$TARGET_DIR" && tar -xf - )
   rm -rf "$work"
 
   FETCH_MODE="release-artifact"

@@ -56,9 +56,9 @@ describe('operator local stop and ephemeral runtime projection', () => {
     launch.count = 0; launch.child = null;
     context = await createBackendTestContext('agent-stop-', {
       env: {
-        API_TOKEN: 'operator-test-token', HAFLEET_THREAD_SESSIONS: '1',
-        HAFLEET_ROUTER_TASK_CUTOVER: '1', HAFLEET_SESSION_ALLOWLIST: 'worker,other',
-        HAFLEET_AGENT_TOKEN_MODE: 'hard', HAFLEET_HOMEDIR: '',
+        API_TOKEN: 'operator-test-token', HAGENCY_THREAD_SESSIONS: '1',
+        HAGENCY_ROUTER_TASK_CUTOVER: '1', HAGENCY_SESSION_ALLOWLIST: 'worker,other',
+        HAGENCY_AGENT_TOKEN_MODE: 'hard', HAGENCY_HOMEDIR: '',
       },
       agentTokens: { worker: 'worker-test-token' },
       agents: {

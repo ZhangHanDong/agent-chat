@@ -7,7 +7,7 @@ tags: [agents, herdr, verification, regression]
 
 ## Intent
 
-Give HAFleet-managed middle agents a reusable skill and deterministic monitor
+Give Hagency-managed middle agents a reusable skill and deterministic monitor
 for delegated repository work through Herdr and octoloop. Replace ad hoc
 terminal text watchers with fresh result correlation and independent checks.
 
@@ -17,7 +17,7 @@ terminal text watchers with fresh result correlation and independent checks.
 - Prepare a fresh job id and nonce, observed identity, repository and verifier before dispatch.
 - Bound the monitor by a finite deadline and each external command by at most 60 seconds.
 - Validate the result content, commit, identity and repository stability around independent verification.
-- Distinguish verified work from runtime status and HAFleet task completion.
+- Distinguish verified work from runtime status and Hagency task completion.
 
 ### Must Not
 - Do not use translated status labels, line counts or old ACK text as completion authority.
@@ -38,7 +38,7 @@ terminal text watchers with fresh result correlation and independent checks.
 ## Boundaries
 
 ### Allowed Changes
-- skills/hafleet-inner-loop/**
+- skills/hagency-inner-loop/**
 - tests/inner-loop-monitor.test.js
 - knowledge/requirements/req-inner-loop-monitor.md
 - specs/task-inner-loop-monitor.spec.md
@@ -46,7 +46,7 @@ terminal text watchers with fresh result correlation and independent checks.
 ### Forbidden
 - remote/**
 - Runtime credentials and local .env files
-- HAFleet task state-machine, capabilities, Matrix routing and global agent settings
+- Hagency task state-machine, capabilities, Matrix routing and global agent settings
 
 ## Acceptance Criteria
 
@@ -115,5 +115,5 @@ Scenario: Runtime work and task verification remain separate observations
 
 - Starting, stopping or selecting the lower execution agent automatically.
 - Authorizing approval prompts, changing sandboxes, committing or pushing work.
-- HAFleet task completion or Matrix delivery; those remain authenticated backend responsibilities.
+- Hagency task completion or Matrix delivery; those remain authenticated backend responsibilities.
 - Non-Git workspaces and remote execution.

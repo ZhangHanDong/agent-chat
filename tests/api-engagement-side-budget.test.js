@@ -53,7 +53,7 @@ async function boot(env = {}) {
       id: 'p1', name: 'p', framework: 'claude', model: 'claude-opus-5',
       ceiling: { tokens: CEILING, period: 'monthly' },
     }],
-    env: { HAFLEET_OWNER_MXID: '@owner:palpo.test', HAFLEET_OWNER_DM_ROOM: '!owner-dm:palpo.test', ...env },
+    env: { HAGENCY_OWNER_MXID: '@owner:palpo.test', HAGENCY_OWNER_DM_ROOM: '!owner-dm:palpo.test', ...env },
   });
   return context.app;
 }

@@ -11,10 +11,10 @@ const transport = { mode: 'outbound', url: `https://palpo.test/api/fleet/v2/${fl
   token: 'private-machine-fixture', generation: 1 };
 beforeAll(async () => {
   runtimeDir = mkdtempSync(path.join(os.tmpdir(), 'bridge-outbound-'));
-  const keys = ['HAFLEET_RUNTIME_DIR', 'MATRIX_BRIDGE_SECRET', 'HAFLEET_APPSERVICE_PORT',
-    'HAFLEET_EDGE_URL', 'HAFLEET_EDGE_LINK_TOKEN', 'HAFLEET_EDGE_SIDE', 'HAFLEET_APPSERVICE_SYNC_SIDE', 'HAFLEET_APPSERVICE_SYNC_URL'];
+  const keys = ['HAGENCY_RUNTIME_DIR', 'MATRIX_BRIDGE_SECRET', 'HAGENCY_APPSERVICE_PORT',
+    'HAGENCY_EDGE_URL', 'HAGENCY_EDGE_LINK_TOKEN', 'HAGENCY_EDGE_SIDE', 'HAGENCY_APPSERVICE_SYNC_SIDE', 'HAGENCY_APPSERVICE_SYNC_URL'];
   environment = snapshotEnv(keys); for (const key of keys) delete process.env[key];
-  process.env.HAFLEET_RUNTIME_DIR = runtimeDir; process.env.MATRIX_BRIDGE_SECRET = 'fixture-bridge';
+  process.env.HAGENCY_RUNTIME_DIR = runtimeDir; process.env.MATRIX_BRIDGE_SECRET = 'fixture-bridge';
   ({ MatrixBridge } = await import(`${pathToFileURL(path.resolve('bridge-matrix.js')).href}?outbound-start`));
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -60,7 +60,7 @@ test('outbound bridge accepts only collector provenance and never upgrades an ol
   const accepted = []; f.bridge.handleAppserviceEvents = async (_side, events, meta) => { accepted.push({ events, meta }); };
   await f.bridge.startAppserviceIntake();
   const event = { type: 'm.room.message', event_id: '$chat', room_id: '!room:palpo.test', sender: '@human:palpo.test', content: { body: 'hello' } };
-  const probe = { ...event, type: 'com.hafleet.connection.probe.v1' };
+  const probe = { ...event, type: 'com.hagency.connection.probe.v1' };
   const body = { events: [event, probe] };
   const push = await f.bridge.appserviceRouter.handle({ method: 'PUT', path: '/_matrix/app/v1/transactions/push',
     headers: { authorization: 'Bearer hs-fixture' }, body, transport: { mode: 'push', sideId } });

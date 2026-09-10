@@ -21,7 +21,7 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const options = () => ({ repoRoot: path.resolve('.'), runtimeRoot: root, apiBaseUrl: 'http://127.0.0.1:8090', serverName: 'hafleet' });
+const options = () => ({ repoRoot: path.resolve('.'), runtimeRoot: root, apiBaseUrl: 'http://127.0.0.1:8090', serverName: 'hagency' });
 const agent = () => ({ name: 'docs', workdir: root, stateDir: path.join(root, 'state'),
   runtimeProfile: { primary: { model: 'claude-fable-5' } } });
 const read = (relative) => JSON.parse(readFileSync(path.join(root, relative), 'utf8'));
@@ -36,7 +36,7 @@ describe('Claude thread runtime configuration', () => {
     const secret = 'fixture-private-never-persist';
     vi.stubEnv('AGENT_TOKEN', secret);
     vi.stubEnv('API_TOKEN', secret);
-    vi.stubEnv('HAFLEET_SESSION_API_TOKEN', secret);
+    vi.stubEnv('HAGENCY_SESSION_API_TOKEN', secret);
     seed('.mcp.json', { mcpServers: { other: { command: 'other-tool', args: ['--fixture'] } }, unrelated: true });
     seed('.claude/settings.json', { hooks: { PreToolUse: [] }, theme: 'dark',
       permissions: { allow: ['Read'], deny: ['Bash(rm *)'], ask: ['Write'] } });
@@ -44,10 +44,10 @@ describe('Claude thread runtime configuration', () => {
     const mcp = read('.mcp.json');
     expect(mcp.unrelated).toBe(true);
     expect(mcp.mcpServers.other).toEqual({ command: 'other-tool', args: ['--fixture'] });
-    expect(mcp.mcpServers.hafleet).toMatchObject({ command: process.execPath,
-      args: [path.resolve('mcp-server.js')], env: { AGENT_NAME: 'docs', HAFLEET_MCP_SERVER_NAME: 'hafleet' } });
-    expect(Object.keys(mcp.mcpServers.hafleet.env).sort()).toEqual([
-      'AGENT_NAME', 'HAFLEET_AGENT_STATE_DIR', 'HAFLEET_API', 'HAFLEET_MCP_SERVER_NAME', 'HAFLEET_RUNTIME_DIR',
+    expect(mcp.mcpServers.hagency).toMatchObject({ command: process.execPath,
+      args: [path.resolve('mcp-server.js')], env: { AGENT_NAME: 'docs', HAGENCY_MCP_SERVER_NAME: 'hagency' } });
+    expect(Object.keys(mcp.mcpServers.hagency.env).sort()).toEqual([
+      'AGENT_NAME', 'HAGENCY_AGENT_STATE_DIR', 'HAGENCY_API', 'HAGENCY_MCP_SERVER_NAME', 'HAGENCY_RUNTIME_DIR',
     ]);
     expect(read('.claude/settings.json')).toEqual({ hooks: { PreToolUse: [] }, theme: 'dark',
       permissions: { allow: ['Read'], deny: ['Bash(rm *)'], ask: ['Write', 'Bash(gh *)', 'Bash(git push *)'] } });
@@ -124,22 +124,22 @@ describe('Claude thread runtime configuration', () => {
         { id: 'docs-preset', name: 'Documentation contribution', framework: 'claude',
           model, ceiling: { tokens: 10000, period: 'monthly' } },
       ],
-      env: { HAFLEET_MCP_SERVER_NAME: 'hafleet', HAFLEET_THREAD_SESSIONS: '0', HAFLEET_ROUTER_TASK_CUTOVER: '0',
-        HAFLEET_OWNER_MXID: '', HAFLEET_OWNER_DM_ROOM: '' },
+      env: { HAGENCY_MCP_SERVER_NAME: 'hagency', HAGENCY_THREAD_SESSIONS: '0', HAGENCY_ROUTER_TASK_CUTOVER: '0',
+        HAGENCY_OWNER_MXID: '', HAGENCY_OWNER_DM_ROOM: '' },
     });
     const launches = [];
     context.internals.setEngagementLauncherForTest(async (row) => {
       // Assert readiness at the real launch boundary, before the test substitute returns.
       const config = JSON.parse(readFileSync(path.join(row.workdir, '.mcp.json'), 'utf8'));
       const settings = JSON.parse(readFileSync(path.join(row.workdir, '.claude/settings.json'), 'utf8'));
-      expect(config.mcpServers.hafleet.env.AGENT_NAME).toBe(row.name);
+      expect(config.mcpServers.hagency.env.AGENT_NAME).toBe(row.name);
       expect(settings.permissions.ask).toEqual(expect.arrayContaining(['Bash(gh *)', 'Bash(git push *)']));
       launches.push({ name: row.name, model: claudeThreadModel(row) });
     });
     await request(context.app).post('/api/project-sides').send({ server_name: side,
       api_base_url: `http://127.0.0.1:${homeserver.address().port}` }).expect(200);
     await request(context.app).put(`/api/project-sides/${side}/credential`).send({ credential: {
-      kind: 'appservice', asToken: 'fixture-as', hsToken: 'fixture-hs', namespace: '@ac_.*', senderLocalpart: 'hafleet',
+      kind: 'appservice', asToken: 'fixture-as', hsToken: 'fixture-hs', namespace: '@ac_.*', senderLocalpart: 'hagency',
     } }).expect(200);
     await request(context.app).put(`/api/project-sides/${side}/allocation`).send({ allocated_tokens: 10000 }).expect(200);
     const pending = await request(context.app).post('/api/engagements').send({ project: 'fixture', projectRoomId: room,
@@ -164,8 +164,8 @@ describe('Claude thread runtime configuration', () => {
 
   async function queueClaudeDispatch({ model = 'claude-fable-5', override } = {}) {
     context = await createBackendTestContext('claude-argv-dispatch-', {
-      env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', HAFLEET_CLAUDE_PERMISSION_CHANNEL: '1',
-        HAFLEET_CLAUDE_RUNNER_BIN: path.resolve('tests/fixtures/fake-claude-launch-argv.mjs'), HAFLEET_RUNNER_LAUNCH_RETRY_MS: '1000' },
+      env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', HAGENCY_CLAUDE_PERMISSION_CHANNEL: '1',
+        HAGENCY_CLAUDE_RUNNER_BIN: path.resolve('tests/fixtures/fake-claude-launch-argv.mjs'), HAGENCY_RUNNER_LAUNCH_RETRY_MS: '1000' },
       agentTokens: { docs: 'claude-argv-test-token' },
       agents: { docs: { name: 'docs', agentId: 'agent_docs', kind: 'agent', type: 'claude', online: true,
         workdir: root, homeDir: root, stateDir: path.join(root, 'state'),
@@ -189,9 +189,9 @@ describe('Claude thread runtime configuration', () => {
     await vi.waitFor(() => expect(router.snapshot().dispatches.find((row) => row.dispatchId === dispatchId)?.state).toBe('completed'), { timeout: 10000 });
     const launch = read('claude-launch-record.json');
     expect(launch.argv[launch.argv.indexOf('--model') + 1]).toBe(override || 'claude-fable-5');
-    expect(launch.argv).toEqual(expect.arrayContaining(['--permission-mode', 'plan', '--dangerously-load-development-channels', 'server:hafleet']));
+    expect(launch.argv).toEqual(expect.arrayContaining(['--permission-mode', 'plan', '--dangerously-load-development-channels', 'server:hagency']));
     expect(launch.settings.permissions.ask).toEqual(expect.arrayContaining(['Bash(gh *)', 'Bash(git push *)']));
-    expect(launch.mcp.mcpServers.hafleet.env.AGENT_NAME).toBe('docs');
+    expect(launch.mcp.mcpServers.hagency.env.AGENT_NAME).toBe('docs');
     expect(JSON.stringify(launch)).not.toContain('claude-argv-test-token');
   });
 

@@ -46,7 +46,7 @@ ruling, non-federating homeservers are no longer out of scope — they are the *
 federation is an optimization. So the amendment's three-mode table (federated invite / appservice /
 project-issued tokens) is withdrawn, as is its closing paragraph deferring non-federating servers,
 and the credential moves from `(project, agent)` to `(项目方, agent)` — a project side being one
-homeserver plus the credential HAFleet holds there. Decisions 4 and 5 below are the ones ADR-016
+homeserver plus the credential Hagency holds there. Decisions 4 and 5 below are the ones ADR-016
 settles the shape of; decisions 1, 3, 6, 7 and 8 are unaffected.
 
 ADR-016 also corrects this record's cost estimate for the deferral, with measurements: agents send
@@ -170,7 +170,7 @@ practice:
 > Octos(AppService):注册在服务器上的应用服务 — 由服务器托管、可以管理自己名下的一批账号
 > Octos(Direct)／Hermes／OpenClaw:以「Matrix 好友」形式直接添加 — 就是一个普通 Matrix 账号背后的机器人
 
-HAFleet implements **neither**. It implements a third thing that needs server privilege like an
+Hagency implements **neither**. It implements a third thing that needs server privilege like an
 AppService while producing per-account credentials like a Direct agent, and makes them
 non-revocable. It is dominated by both. The repository contains **zero** AppService support: no
 `as_token`, no `hs_token`, no `sender_localpart`, no registration file (the only occurrences of
@@ -199,7 +199,7 @@ in the amendment above preserved it rather than replacing it: acceptance is what
 |---|---|---|
 | when | the homeserver will install a registration (typically our own) | a third-party homeserver that will not |
 | who creates the account | the homeserver, from a claimed namespace | a human, once per agent |
-| what HAFleet holds | one `as_token` for the whole namespace | one access token per agent |
+| what Hagency holds | one `as_token` for the whole namespace | one access token per agent |
 | server admin needed | yes, to install the registration | no — an ordinary user account |
 | revocable | yes, by removing the registration | yes, per agent |
 
@@ -278,7 +278,7 @@ credential used to be re-minted from the master secret, and now startup logs
 That is the point rather than a regression: re-minting is precisely what made the credential
 unrevocable.*
 
-**4. HAFleet may connect agents to MULTIPLE homeservers; the bot stays on one.** The operator's
+**4. Hagency may connect agents to MULTIPLE homeservers; the bot stays on one.** The operator's
 ruling is that agents must be registerable against different Matrix servers, not a single one.
 The split that makes this affordable:
 
@@ -451,7 +451,7 @@ all; because flow A removes per-agent credentials entirely for the common case; 
 `ensureAgentAccount`'s login/register/derive machinery disappears rather than being maintained.
 
 Good, because AppService is unusually cheap here. The hard part of appservice bridges is E2EE for
-puppet accounts, and HAFleet's agents send **plaintext** — `sendAsAgentContent` is a raw
+puppet accounts, and Hagency's agents send **plaintext** — `sendAsAgentContent` is a raw
 `PUT /rooms/{id}/send/m.room.message/{txn}` with no crypto path, and the only crypto store is the
 bot's. Flow A therefore does not inherit the problem that makes mautrix-style bridges complex.
 

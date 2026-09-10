@@ -7,7 +7,7 @@ home paths and agent-token fingerprint are unchanged.
 
 ## Cause
 
-Provisioning succeeded. The backend then spawned `hafleet up-v1` with the correct
+Provisioning succeeded. The backend then spawned `hagency up-v1` with the correct
 deployment environment, but the launcher sourced the repository `.env` again.
 That replaced the running instance's port and bearer token. The launch-profile
 request went to the other loopback backend and received 401, while the intended

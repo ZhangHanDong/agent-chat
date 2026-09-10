@@ -81,9 +81,9 @@ than fabricate canonical runtime task state.
   The default Turbopack external-symlink limitation remains as described above.
 - Native agent-spec: boundary **one pass**, Node scenarios **nine skips**, zero
   failures; the overall lifecycle result remains non-passing (exit one).
-- `git diff --check`: clean. This follow-up changes HAFleet source only; live
-  Palpo, HAFleet and Robrix remain on their existing deployments.
+- `git diff --check`: clean. This follow-up changes Hagency source only; live
+  Palpo, Hagency and Robrix remain on their existing deployments.
 
 Verification logs and the exact patch are preserved outside Git under
-`~/Library/Caches/hafleet-review-closure/2026-09-09/`. This record documents the
+`~/Library/Caches/hagency-review-closure/2026-09-09/`. This record documents the
 tested source; it does not claim a fresh live Matrix/LLM end-to-end run.

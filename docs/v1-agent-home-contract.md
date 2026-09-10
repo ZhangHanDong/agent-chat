@@ -11,10 +11,10 @@ Scope: development implementation only (`no migration`, `no live runtime cutover
 
 ## Runtime Root
 
-- Environment variable: `HAFLEET_HOMEDIR`
-- Default when unset: `~/.hafleet`
+- Environment variable: `HAGENCY_HOMEDIR`
+- Default when unset: `~/.hagency`
 - v1 homes are rooted at:
-  - `${HAFLEET_HOMEDIR}/agents/<agent-id>/`
+  - `${HAGENCY_HOMEDIR}/agents/<agent-id>/`
 
 ## Directory Layout
 
@@ -116,7 +116,7 @@ Ownership model:
 
 ## Provisioning Rules
 
-1. Use `hafleet up-v1 ...` for new v1 agents.
+1. Use `hagency up-v1 ...` for new v1 agents.
 2. Project materialization is explicit:
    - `--project-mode copy` (default)
    - `--project-mode symlink` (explicit opt-in compatibility mode)

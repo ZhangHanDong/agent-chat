@@ -9,7 +9,7 @@ const roots = [];
 afterEach(() => { resetMeteringCache(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 test('discovers runner transcripts by managed workdir and preserves unknown and cache identity', async () => {
-  const homeDir = mkdtempSync(path.join(os.tmpdir(), 'hafleet-runner-metering-'));
+  const homeDir = mkdtempSync(path.join(os.tmpdir(), 'hagency-runner-metering-'));
   roots.push(homeDir);
   const agent = { name: 'worker', type: 'codex', workdir: '/managed/workdir', runner: { mode: 'on-demand' } };
   const searches = [];

@@ -1,6 +1,6 @@
 # Palpo authorization import in onboarding
 
-The operator could create a project-side record in HAFleet, but step three only
+The operator could create a project-side record in Hagency, but step three only
 offered registration tokens or generating an App Service registration. Using an
 existing Palpo authorization required leaving the wizard for Engagements.
 

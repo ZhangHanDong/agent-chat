@@ -4,7 +4,7 @@ Date: 2026-05-02
 
 ## Product Definition
 
-hafleet is a stateful-individual chat kernel for agents.
+hagency is a stateful-individual chat kernel for agents.
 
 The important object is not a task, tmux pane, Matrix room, or dashboard row. The important object is an agent as an addressable individual with identity, memory, inbox state, runtime presence, and durable conversation history.
 

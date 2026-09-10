@@ -20,7 +20,7 @@ async function waitDead(pid, timeoutMs = 3000) {
   return !alive(pid);
 }
 
-// `hafleet acp-up --supervised` could add an entry to the service profile, but
+// `hagency acp-up --supervised` could add an entry to the service profile, but
 // nothing could take one out. Removing an agent meant hand-editing the profile
 // and restarting the fleet, because the supervisor reads its profile once at
 // construction and never looks again.
@@ -48,7 +48,7 @@ async function freePort() {
 }
 
 async function context(names = ['backend', 'agent:one']) {
-  const runtimeRoot = mkdtempSync(path.join(os.tmpdir(), 'hafleet-reconcile-'));
+  const runtimeRoot = mkdtempSync(path.join(os.tmpdir(), 'hagency-reconcile-'));
   runtimes.push(runtimeRoot);
   const eventLog = path.join(runtimeRoot, 'events.jsonl');
   const svc = (name, dependsOn = []) => ({
@@ -156,7 +156,7 @@ describe('reconcile applies a changed profile without restarting the fleet', () 
   });
 
   test('the persisted state stops advertising a removed service', async () => {
-    // `hafleet status` reads this file; a stale entry would report a service that
+    // `hagency status` reads this file; a stale entry would report a service that
     // is deliberately gone as unhealthy forever.
     const { supervisor, profile, svc, runtimeRoot } = await context(['backend', 'agent:one']);
     await supervisor.start();
@@ -171,8 +171,8 @@ describe('reconcile applies a changed profile without restarting the fleet', () 
 
 describe('the acp-down command', () => {
   test('is dispatched by the CLI and manifested', () => {
-    const cli = readFileSync('bin/hafleet', 'utf-8');
-    expect(cli).toContain('acp-down) dispatch "hafleet-acp-down"');
+    const cli = readFileSync('bin/hagency', 'utf-8');
+    expect(cli).toContain('acp-down) dispatch "hagency-acp-down"');
     // Read the structure, not the serialization: a string match on
     // '"command": "acp-down"' fails purely because JSON.stringify omits the space.
     const manifest = JSON.parse(readFileSync('scripts/cli-command-manifest.json', 'utf-8'));
@@ -187,32 +187,32 @@ describe('the acp-down command', () => {
     walk(manifest);
     const entry = commands.find((c) => c.command === 'acp-down');
     expect(entry, 'acp-down is missing from the CLI manifest').toBeTruthy();
-    expect(entry.target).toBe('hafleet-acp-down');
+    expect(entry.target).toBe('hagency-acp-down');
   });
 
   test('--help works without a name, which the contract gate requires', () => {
-    const out = execFileSync('bash', ['bin/hafleet-acp-down', '--help'], { encoding: 'utf-8' });
-    expect(out).toContain('Usage: hafleet acp-down');
+    const out = execFileSync('bash', ['bin/hagency-acp-down', '--help'], { encoding: 'utf-8' });
+    expect(out).toContain('Usage: hagency acp-down');
     expect(out).toContain('--keep-running');
   });
 
   test('it signals the supervisor rather than editing and hoping', () => {
     // Removing the entry alone leaves the supervisor restarting from its
     // in-memory copy. The SIGHUP is the part that makes the removal take effect.
-    const source = readFileSync('bin/hafleet-acp-down', 'utf-8');
+    const source = readFileSync('bin/hagency-acp-down', 'utf-8');
     expect(source).toContain('kill -HUP');
-    expect(source.indexOf('hafleet-supervise-agent.mjs remove'))
+    expect(source.indexOf('hagency-supervise-agent.mjs remove'))
       .toBeLessThan(source.indexOf('kill -HUP'));
   });
 
   test('it says so when there is no supervisor to reload', () => {
-    const source = readFileSync('bin/hafleet-acp-down', 'utf-8');
+    const source = readFileSync('bin/hagency-acp-down', 'utf-8');
     expect(source).toMatch(/No running supervisor found/);
   });
 });
 
 describe('SIGHUP is wired to a reload', () => {
-  const source = readFileSync('services/hafleet-services.mjs', 'utf-8');
+  const source = readFileSync('services/hagency-services.mjs', 'utf-8');
 
   test('the handler is repeatable, not once', () => {
     // `process.once('SIGHUP')` would work exactly one time and then silently stop
@@ -235,7 +235,7 @@ describe('SIGHUP is wired to a reload', () => {
 });
 
 describe('acp-up reloads instead of restarting', () => {
-  const source = readFileSync('bin/hafleet-acp-up', 'utf-8');
+  const source = readFileSync('bin/hagency-acp-up', 'utf-8');
 
   test('it signals a running supervisor', () => {
     // `launchctl kickstart -k` kills and respawns the job. Using it to add one
@@ -253,7 +253,7 @@ describe('acp-up reloads instead of restarting', () => {
 
   test('both halves of the lifecycle use the same mechanism', () => {
     // Adding and removing an agent should not differ in how disruptive they are.
-    const down = readFileSync('bin/hafleet-acp-down', 'utf-8');
+    const down = readFileSync('bin/hagency-acp-down', 'utf-8');
     for (const src of [source, down]) expect(src).toContain('kill -HUP');
   });
 });

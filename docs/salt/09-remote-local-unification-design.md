@@ -50,10 +50,10 @@ Required host inputs:
 
 | Input | Meaning |
 | --- | --- |
-| `HAFLEET_API` | Backend base URL. |
-| `HAFLEET_SERVER` | Explicit runtime host id. |
+| `HAGENCY_API` | Backend base URL. |
+| `HAGENCY_SERVER` | Explicit runtime host id. |
 | Host credential | Credential allowed to heartbeat/report runtime for this host. |
-| `HAFLEET_HOMEDIR` or derived home root | Root used to resolve local agent homes and state dirs. |
+| `HAGENCY_HOMEDIR` or derived home root | Root used to resolve local agent homes and state dirs. |
 
 Host responsibilities:
 
@@ -124,34 +124,34 @@ Current `API_TOKEN` covers too many of these. The transition can be staged:
 
 | Variable | Contract |
 | --- | --- |
-| `HAFLEET_RUNTIME_DIR` | Backend runtime/data root. |
-| `HAFLEET_SERVER` | Explicit id for the central-local runtime host. Dev may use `local`. |
+| `HAGENCY_RUNTIME_DIR` | Backend runtime/data root. |
+| `HAGENCY_SERVER` | Explicit id for the central-local runtime host. Dev may use `local`. |
 | `API_TOKEN` | Operator/backend bearer; production required. |
-| `HAFLEET_AGENT_TOKEN_MODE` | Production target: `hard`. |
+| `HAGENCY_AGENT_TOKEN_MODE` | Production target: `hard`. |
 
 ### Required For Runtime Host Relay
 
 | Variable | Contract |
 | --- | --- |
-| `HAFLEET_API` | Backend base URL. |
-| `HAFLEET_SERVER` | Explicit host id; no hostname/local fallback in production. |
-| Host credential | Initially `API_TOKEN`, later `HAFLEET_SERVER_TOKEN` or equivalent. |
-| `HAFLEET_HOMEDIR` | Optional override; otherwise derived from runtime contract. |
+| `HAGENCY_API` | Backend base URL. |
+| `HAGENCY_SERVER` | Explicit host id; no hostname/local fallback in production. |
+| Host credential | Initially `API_TOKEN`, later `HAGENCY_SERVER_TOKEN` or equivalent. |
+| `HAGENCY_HOMEDIR` | Optional override; otherwise derived from runtime contract. |
 
 ### Required For Agent MCP
 
 | Variable | Contract |
 | --- | --- |
 | `AGENT_NAME` | Agent identity. |
-| `HAFLEET_API` | Backend base URL. |
-| `HAFLEET_SERVER` | Host id assigned by launcher/manifest. |
-| `HAFLEET_AGENT_STATE_DIR` | Derived state dir containing `agent-token` and `mcp-server.pid`. |
+| `HAGENCY_API` | Backend base URL. |
+| `HAGENCY_SERVER` | Host id assigned by launcher/manifest. |
+| `HAGENCY_AGENT_STATE_DIR` | Derived state dir containing `agent-token` and `mcp-server.pid`. |
 
 ### Derived Paths
 
 These should be derived from a common resolver, not hand-assembled per component:
 
-- `homeRoot = HAFLEET_HOMEDIR || HAFLEET_RUNTIME_DIR/homes || ~/.hafleet`
+- `homeRoot = HAGENCY_HOMEDIR || HAGENCY_RUNTIME_DIR/homes || ~/.hagency`
 - `agentId = agent_<normalized name>` unless manifest provides a stable id
 - `homeDir = homeRoot/agents/<agentId>`
 - `stateDir = homeDir/state`
@@ -175,7 +175,7 @@ Recommended package layers:
 | Remote authored files | `remote/README.md`, install/service templates | remote package. |
 | Generated artifact | build output | either ignored or complete and checked; never partial. |
 
-Remote `hafleet` should dispatch only commands included in that package. If a command is central-only, the remote CLI should say so clearly instead of dispatching to a missing file.
+Remote `hagency` should dispatch only commands included in that package. If a command is central-only, the remote CLI should say so clearly instead of dispatching to a missing file.
 
 ## CLI Semantics
 
@@ -183,13 +183,13 @@ Every operator command should document scope:
 
 | Command | Scope Contract |
 | --- | --- |
-| `hafleet up` | Start a tmux agent on the current runtime host and register it to backend. |
-| `hafleet down` | Stop a tmux agent on the current runtime host; backend marking is best effort. |
-| `hafleet ls` | Show current host sessions plus backend registry context; not a global truth dump. |
-| `hafleet service` | Control services for an explicit profile; no `all` default on remote. |
-| `hafleet update` | Remote package update only, or renamed to make that scope explicit. |
-| `hafleet verify-remote` | Verify one runtime host against central backend. |
-| `hafleet check-mcp` | Profile-specific; only advertised where packaged. |
+| `hagency up` | Start a tmux agent on the current runtime host and register it to backend. |
+| `hagency down` | Stop a tmux agent on the current runtime host; backend marking is best effort. |
+| `hagency ls` | Show current host sessions plus backend registry context; not a global truth dump. |
+| `hagency service` | Control services for an explicit profile; no `all` default on remote. |
+| `hagency update` | Remote package update only, or renamed to make that scope explicit. |
+| `hagency verify-remote` | Verify one runtime host against central backend. |
+| `hagency check-mcp` | Profile-specific; only advertised where packaged. |
 
 ## Documentation Architecture
 
@@ -219,7 +219,7 @@ To avoid breaking live systems:
 - Keep `agent.tmux` and `agent.server` serialized until callers move.
 - Keep dashboard queue available for manual/legacy use, but remove it from default push delivery after relay path is stable.
 - Keep backend local sweep behind an explicit compatibility flag until local relay heartbeat is proven.
-- Do not hand-edit `bin/hafleet-up` or `remote/bin/hafleet-up`; first extract launch contracts and tests.
+- Do not hand-edit `bin/hagency-up` or `remote/bin/hagency-up`; first extract launch contracts and tests.
 
 ## Target End State
 

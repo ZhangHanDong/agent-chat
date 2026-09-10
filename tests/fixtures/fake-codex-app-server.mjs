@@ -39,13 +39,13 @@ const wrongThread = process.env.FAKE_CODEX_WRONG_THREAD === '1';
 if (process.env.FAKE_CODEX_REQUIRE_MCP_CONFIG === '1') {
   const argv = process.argv.slice(2).join('\n');
   const required = [
-    'mcp_servers.hafleet.command=',
-    'mcp_servers.hafleet.args=',
-    'mcp_servers.hafleet.env_vars=',
+    'mcp_servers.hagency.command=',
+    'mcp_servers.hagency.args=',
+    'mcp_servers.hagency.env_vars=',
   ];
   if (required.some((marker) => !argv.includes(marker))
-    || !process.env.HAFLEET_DISPATCH_CAPABILITY
-    || process.env.HAFLEET_EPHEMERAL_RUNNER !== '1') {
+    || !process.env.HAGENCY_DISPATCH_CAPABILITY
+    || process.env.HAGENCY_EPHEMERAL_RUNNER !== '1') {
     process.exit(23);
   }
 }
@@ -95,7 +95,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       params: process.env.FAKE_CODEX_ELICITATION ? {
         threadId: wrongThread ? 'thread-wrong' : 'thread-fake',
         ...(process.env.FAKE_CODEX_ELICITATION_NO_TURN ? {} : { turnId: 'turn-fake' }),
-        serverName: 'hafleet', mode: 'form', message: 'Allow create_task?',
+        serverName: 'hagency', mode: 'form', message: 'Allow create_task?',
         requestedSchema: { type: 'object', properties: process.env.FAKE_CODEX_ELICITATION === 'input' ? { secret: { type: 'string' } } : {} },
         _meta: { codex_approval_kind: 'mcp_tool_call', tool_params: { assignee: 'peer', title: 'delegated work' } },
       } : {
@@ -109,7 +109,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     };
     if (process.env.FAKE_CODEX_ELICITATION) send({ method: 'item/started', params: {
       threadId: 'thread-fake', turnId: 'turn-fake', item: { id: `mcp-item-${approvalRequestId}`,
-        type: 'mcpToolCall', status: 'inProgress', server: 'hafleet', tool: 'create_task', arguments: issuedApproval.params._meta.tool_params },
+        type: 'mcpToolCall', status: 'inProgress', server: 'hagency', tool: 'create_task', arguments: issuedApproval.params._meta.tool_params },
     } });
     send(issuedApproval);
     return;
@@ -121,7 +121,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     if (process.env.FAKE_CODEX_RETRY_DENIED_ELICITATION && approvalRequestId === 0 && !accepted) {
       send({ method: 'item/completed', params: { threadId: 'thread-fake', turnId: 'turn-fake', item: { id: 'mcp-item-0', type: 'mcpToolCall' } } });
       approvalRequestId = 1;
-      send({ method: 'item/started', params: { threadId: 'thread-fake', turnId: 'turn-fake', item: { id: 'mcp-item-1', type: 'mcpToolCall', status: 'inProgress', server: 'hafleet', tool: 'create_task', arguments: issuedApproval.params._meta.tool_params } } });
+      send({ method: 'item/started', params: { threadId: 'thread-fake', turnId: 'turn-fake', item: { id: 'mcp-item-1', type: 'mcpToolCall', status: 'inProgress', server: 'hagency', tool: 'create_task', arguments: issuedApproval.params._meta.tool_params } } });
       send({ ...issuedApproval, id: approvalRequestId });
       return;
     }

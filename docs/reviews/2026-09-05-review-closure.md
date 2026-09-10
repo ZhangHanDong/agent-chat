@@ -113,6 +113,6 @@ new-resource activation uses the full provisioning gate. No production service
 was deployed or restarted for this closure work.
 
 Detailed local logs are in
-`/Users/yuechen/Library/Caches/hafleet-closure/2026-09-05/`, including
+`/Users/yuechen/Library/Caches/hagency-closure/2026-09-05/`, including
 `full-tests-final.log`, `verify-ci-final-2.log`, `console-verify-final.log`,
 `spec-bindings-final.log`, `lifecycle-handoff.json`, and the real-model reports.

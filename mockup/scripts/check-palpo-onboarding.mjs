@@ -27,7 +27,7 @@ async function scenario(name, run) {
     const request = route.request(), url = new URL(request.url());
     if (url.origin !== base.origin) { state.unexpected.push(url.origin); return route.abort(); }
     if (!url.pathname.startsWith('/api/')) return route.continue();
-    const path = url.pathname.replace('/api/hafleet/', '');
+    const path = url.pathname.replace('/api/hagency/', '');
     const method = request.method();
     if (method !== 'GET') state.writes.push({ path, method, body: request.postDataJSON() });
     const reply = (body, status = 200) => route.fulfill({ status, json: body });

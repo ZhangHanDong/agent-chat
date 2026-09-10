@@ -16,13 +16,13 @@ const running = (pid) => {
 const killFixture = (pid) => { try { process.kill(pid, 'SIGKILL'); } catch { /* already stopped */ } };
 
 function launch(env, executable = fixture('fake-claude-runner.mjs'), args = []) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-owned-tree-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-owned-tree-'));
   roots.push(root);
   const messages = [];
   const guardian = spawn(process.execPath, [path.resolve('router/dist/runner-guardian.js')], {
     cwd: root, env: { PATH: process.env.PATH, ...env,
-      HAFLEET_GUARDIAN_EXECUTABLE: executable,
-      HAFLEET_GUARDIAN_ARGS_JSON: JSON.stringify(args), FAKE_CLAUDE_HANG: '1' },
+      HAGENCY_GUARDIAN_EXECUTABLE: executable,
+      HAGENCY_GUARDIAN_ARGS_JSON: JSON.stringify(args), FAKE_CLAUDE_HANG: '1' },
     stdio: ['pipe', 'ignore', 'pipe', 'ipc'],
   });
   let stderr = '';
@@ -38,7 +38,7 @@ function launch(env, executable = fixture('fake-claude-runner.mjs'), args = []) 
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe('guardian descendant termination evidence', () => {
-  test.each([['immediate exit', '/bin/sh', ['-c', 'exit 7'], [7]], ['missing executable', '/nonexistent/hafleet-runtime', [], [126, 127]]])(
+  test.each([['immediate exit', '/bin/sh', ['-c', 'exit 7'], [7]], ['missing executable', '/nonexistent/hagency-runtime', [], [126, 127]]])(
     'guardian observes ownership before %s and finishes without quarantine delay', async (_name, executable, args, code) => {
       const start = Date.now();
       const run = launch({}, executable, args);
@@ -49,7 +49,7 @@ describe('guardian descendant termination evidence', () => {
     });
   test.each(['still-parented', 'already-reparented'])(
     'guardian confirms a detached grandchild is gone and leaves a foreign process untouched (%s)', async (mode) => {
-      const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-detached-tool-'));
+      const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-detached-tool-'));
       roots.push(root);
       const base = path.join(root, 'tool');
       const decoy = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
@@ -93,7 +93,7 @@ describe('guardian descendant termination evidence', () => {
   );
 
   test('lost process inspection cannot produce a guardian cleanup receipt', async () => {
-    const root = mkdtempSync(path.join(os.tmpdir(), 'hafleet-inspection-loss-'));
+    const root = mkdtempSync(path.join(os.tmpdir(), 'hagency-inspection-loss-'));
     roots.push(root);
     const failure = path.join(root, 'fail-ps');
     const { guardian, messages, closed } = launch({

@@ -578,7 +578,7 @@ export class RouterStore {
                     this.db.prepare('INSERT INTO task_inputs(task_id, message_id, role, attached_at) VALUES (?, ?, ?, ?)').run(taskId, messageId, messageId === rootMessageId ? 'root' : 'supplement', now);
                 }
                 const commandId = `matrix_${randomUUID()}`;
-                const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+                const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
                 const commandPayload = {
                     roomId,
                     threadRootEventId: rootEvent,
@@ -1659,7 +1659,7 @@ export class RouterStore {
                 session_id, message_id, projected_at, processed_at
               ) VALUES (?, ?, ?, ?)`).run(session.session_id, replyMessageId, now, now);
                         const commandId = `reply_${randomUUID()}`;
-                        const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+                        const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
                         const payloadDigest = digest({
                             dispatchId: input.dispatchId,
                             roomId: session.room_id,
@@ -2063,7 +2063,7 @@ export class RouterStore {
     }
     insertNotice(input) {
         const commandId = `notice_${digest(input.dedupeKey).slice(0, 40)}`;
-        const txnId = `hafleet_${digest(commandId).slice(0, 40)}`;
+        const txnId = `hagency_${digest(commandId).slice(0, 40)}`;
         const payloadDigest = digest({
             dispatchId: input.dispatchId,
             taskId: input.taskId,

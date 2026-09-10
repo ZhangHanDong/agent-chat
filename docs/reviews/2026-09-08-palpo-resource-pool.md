@@ -15,22 +15,22 @@ family gate are not bypassed. Catalog visibility never grants capacity or change
 legacy automatic acceptance policy.
 
 Palpo's visible page reads its catalog every10 seconds and on return. The Palpo
-backend uses the existing authenticated App Service callback to HAFleet. Resource
+backend uses the existing authenticated App Service callback to Hagency. Resource
 edits and deletion appear on the next read; request drafts remain intact and
 unavailable reads disable new submissions. A request still records a Matrix event,
-whose sender, room binding and payload HAFleet independently verifies. Model
+whose sender, room binding and payload Hagency independently verifies. Model
 credentials, runtime paths and other projects' Agent definitions stay private.
 
 Validation:110 backend checks in9 files;33 Palpo Node checks; both Palpo browser
 suites (including automatic withdrawal, focus refresh, draft retention and readiness
-expiry); two bilingual HAFleet browser workflows; production build and scoped lint;
+expiry); two bilingual Hagency browser workflows; production build and scoped lint;
 architecture ownership and296 bound selectors. The source-authentication selector
 bound by the active contract is checked separately. Native agent-spec lifecycle
 reports six unsupported behavior skips, zero failures: this is non-passing and
 is not a substitute for the direct Vitest results.
 
 Actual Mini1 Playwright verification created a temporary Resource through the
-HAFleet web wizard. It appeared in an already-open Palpo after9311ms, without
+Hagency web wizard. It appeared in an already-open Palpo after9311ms, without
 publication calls or a manual refresh. Its four medium roles were selectable;
 deletion removed it automatically and preserved the draft. Only this temporary
 Resource was removed. Three actual Resources, both existing identities,
@@ -48,4 +48,4 @@ Private evidence is under
 `palpo-auto-live-result.json`, `palpo-auto-pool-final.png`,
 `palpo-auto-final-state.json`, `palpo-auto-deployment.json`,
 `palpo-auto-pool-deploy.log` and `palpo-auto-lifecycle.json`.
-Local test logs use `/tmp/palpo-auto-*` and `/tmp/hafleet-auto-*`.
+Local test logs use `/tmp/palpo-auto-*` and `/tmp/hagency-auto-*`.

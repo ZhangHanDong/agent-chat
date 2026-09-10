@@ -1,7 +1,7 @@
 /*
  * POST /api/agents/:name/provision — creating an agent, which nothing could do.
  *
- * THE HOLE. Every launcher in HAFleet starts an agent that already exists: `/start` 404s on an
+ * THE HOLE. Every launcher in Hagency starts an agent that already exists: `/start` 404s on an
  * unknown name, and the supervisor "launches into an already-provisioned home". The only writer of a
  * NEW agent record was `POST /api/agents`, guarded by `requireAgentToken` — the agent registers
  * ITSELF. But it cannot authenticate without a token, the token lives in a provisioned home, and the

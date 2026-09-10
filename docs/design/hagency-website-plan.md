@@ -12,13 +12,13 @@ hero were inspected at revision `44ff68f`, matching public `main`.
 
 Build Hagency as the umbrella for an open source collaboration ecosystem where
 people direct work, agents execute it, and the conversation connects the team.
-Give HAFleet, Robrix2 and Palpo equally substantial product pages while showing
+Give Hagency, Robrix2 and Palpo equally substantial product pages while showing
 why their combination is useful.
 
 Proposed headline: **Your team. Your agents. Your infrastructure.**
 
 Proposed supporting copy: **Bring people and coding agents into a shared
-workspace. Collaborate in Robrix2, run agents with HAFleet, and connect your
+workspace. Collaborate in Robrix2, run agents with Hagency, and connect your
 team through Palpo and Matrix—with people setting the direction.**
 
 Primary action: **Explore the workflow**. Secondary: **Get started**.
@@ -29,7 +29,7 @@ developers and self-hosters as the first adoption audience; team leads get
 plain-language explanations before technical depth. The operator was invited
 to steer audience priority; no response was available when this draft was written.
 
-Brand spelling: use **Hagency** for the website, **HAFleet**, **Robrix2**, and
+Brand spelling: use **Hagency** for the website, **Hagency**, **Robrix2**, and
 **Palpo** for the projects. Explain that Robrix2's application and release
 assets currently use the name Robrix. Preserve the separate project communities,
 licenses and upstream acknowledgments; an ecosystem site does not imply common
@@ -44,21 +44,21 @@ have diverged, so neither one substitutes for the other.
 
 | Project | Public default branch inspected | Latest published release found | Local integration revision inspected |
 | --- | --- | --- | --- |
-| HAFleet | `master`, `4fb9749`, September 7 | [v1.2.0](https://github.com/hagency-org/HAFleet/releases/tag/v1.2.0), July 30 | `c380959`, September 8, `fix/spec-review-closure` |
+| Hagency | `master`, `4fb9749`, September 7 | [v1.2.0](https://github.com/hagency-org/hagency/releases/tag/v1.2.0), July 30 | `c380959`, September 8, `fix/spec-review-closure` |
 | Robrix2 | `main`, `e28e118e`, August 30 | [v1.1.0](https://github.com/Project-Robius-China/robrix2/releases/tag/v1.1.0), July 22 | `88ebf221`, September 8 |
-| Palpo | `main`, `c96c8e33`, September 7 | [v0.4.0](https://github.com/palpo-im/palpo/releases/tag/v0.4.0), July 7 | `c8748200`, September 8, `feat/hafleet-admin-web` in the separate admin worktree |
+| Palpo | `main`, `c96c8e33`, September 7 | [v0.4.0](https://github.com/palpo-im/palpo/releases/tag/v0.4.0), July 7 | `c8748200`, September 8, `feat/hagency-admin-web` in the separate admin worktree |
 
 The primary Palpo checkout remains at `3e4fbd33`; its admin worktree contains
-the new website-relevant integration. HAFleet is 2 local-only / 27 remote-only
+the new website-relevant integration. Hagency is 2 local-only / 27 remote-only
 commits from the fetched default branch; Robrix2 is 3 / 67; the Palpo admin
 worktree is 1 / 7. These counts describe divergence, not feature quality.
 
-### HAFleet: operate and contribute agent capacity
+### Hagency: operate and contribute agent capacity
 
 Its public foundation is a local agent control plane with lifecycle management,
 messaging, tasks, human approvals, a Matrix bridge and remote relay support.
 Recent public work addresses task completion, Matrix membership recovery and
-accurate dashboard runtime/usage presentation. [Public repository](https://github.com/hagency-org/HAFleet).
+accurate dashboard runtime/usage presentation. [Public repository](https://github.com/hagency-org/hagency).
 
 September 8 local work adds a particularly useful promotional story: configure
 resources, define named agents, publish available roles, approve project requests,
@@ -124,7 +124,7 @@ integration gaps. [Existing Palpo website](https://palpo.im/).
   approvals, threads, team workflows, operations and screenshots. Its older
   `agent-chat` naming and several behavior descriptions need revision against
   the selected current implementation before publication.
-- HAFleet has extensive console screenshots under `docs/design/shots/`. A sampled
+- Hagency has extensive console screenshots under `docs/design/shots/`. A sampled
   resource screenshot still shows the earlier manual agent-onboarding flow;
   it is visual reference, not proof of today's resource-first workflow.
 - Robrix2 includes native logos and book screenshots. Preserve attribution and
@@ -136,7 +136,7 @@ integration gaps. [Existing Palpo website](https://palpo.im/).
 
 | Visitor | What the site should answer | Intended next step |
 | --- | --- | --- |
-| Developer | How do I run useful agents and work with them? | Follow the HAFleet quickstart or install Robrix2 |
+| Developer | How do I run useful agents and work with them? | Follow the Hagency quickstart or install Robrix2 |
 | Team lead | How does the team coordinate work and retain control? | Explore the annotated workflow, then team setup |
 | Resource contributor | How do I offer agent capacity to projects? | Read resource configuration and allocation guidance |
 | Matrix administrator | How do I host this and connect a fleet? | Follow Palpo deployment and fleet integration guidance |
@@ -155,7 +155,7 @@ explicit language switch; switching preserves the corresponding page.
 | --- | --- |
 | `/` | Unified promise, workflow preview, three projects, audience paths, latest verified updates, adoption actions |
 | `/ecosystem/` | Interactive architecture, responsibility boundaries, data flow, combined and standalone deployment choices |
-| `/projects/hafleet/` | Resource contribution, agents, tasks/threads, oversight, console tour, setup and availability |
+| `/projects/hagency/` | Resource contribution, agents, tasks/threads, oversight, console tour, setup and availability |
 | `/projects/robrix2/` | Native collaboration, rooms/spaces/threads, media, approvals, platform matrix and downloads |
 | `/projects/palpo/` | Matrix hosting, Rust/PostgreSQL architecture, federation, application services, admin integration preview and deployment |
 | `/demo/` | Guided example of a person requesting work, an agent executing, permission review and a returned artifact |
@@ -180,10 +180,10 @@ and guides while keeping language results clear.
 1. **Opening screen:** an Adora-style full-height generated geometric background,
    large centered Hagency wordmark, the headline and supporting copy rendered
    as HTML. Start the guided workflow with one action. A compact project row
-   makes HAFleet, Robrix2 and Palpo immediately discoverable. Product captures
+   makes Hagency, Robrix2 and Palpo immediately discoverable. Product captures
    appear in the subsequent workflow and product sections.
 2. **A task moving through the system:** a human request in Robrix2, a project
-   room on Matrix, a HAFleet agent working, a private approval when needed,
+   room on Matrix, a Hagency agent working, a private approval when needed,
    and a result delivered into the same task thread.
 3. **Three substantial product introductions:** each gets a visual, short
    purpose, three concrete capabilities, availability note and project action.
@@ -204,7 +204,7 @@ All three pages share a consistent structure: promise, product screenshot,
 capabilities grouped by user goal, workflow, architecture, availability, setup,
 FAQ and links. Each must stand on its own for search visitors.
 
-**HAFleet page:** explain configuring resources and named definitions; publishing
+**Hagency page:** explain configuring resources and named definitions; publishing
 roles; approving requests and selecting qualifying resources; on-demand agent
 provisioning; thread-scoped work and follow-ups; collaboration and delegation
 where demonstrated; observable activity; files; and contributor control over
@@ -238,7 +238,7 @@ Pair it with screenshots or a recording of the corresponding tested build.
 
 Sequence:
 
-1. Configure a resource and publish a role in HAFleet.
+1. Configure a resource and publish a role in Hagency.
 2. Register a project and request that role through the Palpo admin integration.
 3. Show manual provider approval and verified agent admission.
 4. In Robrix2, mention the agent with a small, understandable task.
@@ -253,7 +253,7 @@ short annotations and follow documentation. Keyboard navigation and a static
 transcript provide the same explanation. Reduced-motion mode avoids animated
 transitions. No live model calls or user credentials are required.
 
-Capture list: HAFleet resources/definitions, pending request and active agent;
+Capture list: Hagency resources/definitions, pending request and active agent;
 Palpo connection verification and project request; Robrix2 project room, thread,
 activity update, scoped approval and downloaded artifact. Record revision,
 platform, language and capture date. Use isolated example accounts and exclude
@@ -273,7 +273,7 @@ architecture diagrams also fit the comprehensive Hagency content.
 Reference palette: charcoal `#0A0A0F`, secondary `#12121A`, teal `#00D4AA`,
 amber `#FFB84D`, and off-white text `#E8E8F0`. Use the reference's pale
 `#F5F5FA`/`#EAEAF2` surfaces and deeper teal for the light counterpart. Carry
-HAFleet teal, Robrix2 blue and Palpo amber into diagrams and small project
+Hagency teal, Robrix2 blue and Palpo amber into diagrams and small project
 identifiers without overriding the coherent site palette.
 
 Use Geist-style large, regular-weight headings and monospace section labels,
@@ -359,7 +359,7 @@ Initial integrated guides:
 
 1. Understand the three projects and choose a deployment path.
 2. Install Robrix2 and connect to a compatible homeserver.
-3. Run HAFleet locally and configure an initial resource.
+3. Run Hagency locally and configure an initial resource.
 4. Deploy Palpo with PostgreSQL and verify Matrix access.
 5. Pair a fleet and verify event delivery in the development admin integration.
 6. Register a project, establish ownership and request an agent.
@@ -383,7 +383,7 @@ Create a dedicated managed website project at `projects/hagency-website/`, with
 its own repository boundary and task contract. Confirm whether that directory
 is a copy or symlink when provisioning it. This source checkout has no existing
 managed `projects/` tree; this is a proposed destination, not a provisioned path.
-Keep the promotional site independently buildable from the live HAFleet console.
+Keep the promotional site independently buildable from the live Hagency console.
 
 Recommended stack: **Astro + TypeScript + Markdown/MDX**, with React islands for
 the interactive workflow and selectors. Use a small CSS token system and optional
@@ -416,7 +416,7 @@ do not create tests that merely repeat static page copy.
 
 The static output should work on common static hosts. Select the production host
 and domain when a working preview is reviewable. Site creation does not require
-changes to current Palpo or HAFleet runtime services.
+changes to current Palpo or Hagency runtime services.
 
 ## 11. Discoverability, accessibility and maintenance
 

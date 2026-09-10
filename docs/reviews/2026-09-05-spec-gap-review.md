@@ -1,4 +1,4 @@
-# HAFleet specification gap review — 2026-09-05
+# Hagency specification gap review — 2026-09-05
 
 **Verdict: not complete against the accepted plan; not ready for full workflow sign-off.**
 
@@ -142,7 +142,7 @@ The missing titles are listed in [the initial audit record](../progress.md). The
 - **Real model continuity:** [THREAD-SESSIONS.md](../THREAD-SESSIONS.md), lines 3–10 and 62–71, records the required five-run, three-turn probe as outstanding. The accepted gate requires at least four successes. A local canary or prompt-assembly fixture does not replace it.
 - **Agent Operations release:** [manifest.json](../../specs/fixtures/agent-ops-client-v1/manifest.json) remains `release_status: "development"` with `source_commit: null`. Integrity checking passed for that development artifact; no released Robrix2 contract was established.
 - **Spec lifecycle:** `agent-spec` was unavailable in the reviewed environment. Parse/lint/lifecycle output was not produced. The documented Cargo-only lifecycle limitation for this Node/Vitest workspace also must not be represented as a passing scenario run.
-- **Regression reliability/portability:** the full local suite had two failures. One room-admission fixture setup returned an unexpected 404 and passed when rerun alone; its root cause remains unresolved. The self-check test reproducibly hardcodes `/usr/bin/tmux`, absent on this Mac where tmux is `/opt/homebrew/bin/tmux` ([test](../../tests/hafleet-up-selfcheck.test.js), lines 57, 59, 76).
+- **Regression reliability/portability:** the full local suite had two failures. One room-admission fixture setup returned an unexpected 404 and passed when rerun alone; its root cause remains unresolved. The self-check test reproducibly hardcodes `/usr/bin/tmux`, absent on this Mac where tmux is `/opt/homebrew/bin/tmux` ([test](../../tests/hagency-up-selfcheck.test.js), lines 57, 59, 76).
 
 ## Independent Claude Code Fable cross-review
 
@@ -168,7 +168,7 @@ The two reviews independently overlap on request-id replay (F7), retirement elig
 
 **Code:** [backend-v2.js](../../backend-v2.js), lines 13372–13386 and 13663–13667. The auto-join response returns the internal binding outcome directly to a requester-token caller.
 
-**Reproduced after Fable's finding:** without an owner, the response exposed `HAFLEET_OWNER_MXID`/`HAFLEET_OWNER_DM_ROOM` as remediation. With an owner, it exposed the configured private owner MXID and `from: "HAFLEET_OWNER_MXID"`. All values in the probe were synthetic. `REQ-CONTRIBUTION-CONSOLE-ROLES` ([requirements](../../knowledge/requirements/req-contribution-console.md), lines 53–56) expressly keeps owner MXIDs and environment variable names private. Return a borrower-safe result DTO; retain detailed remediation and owner attribution on authenticated operator/internal surfaces.
+**Reproduced after Fable's finding:** without an owner, the response exposed `HAGENCY_OWNER_MXID`/`HAGENCY_OWNER_DM_ROOM` as remediation. With an owner, it exposed the configured private owner MXID and `from: "HAGENCY_OWNER_MXID"`. All values in the probe were synthetic. `REQ-CONTRIBUTION-CONSOLE-ROLES` ([requirements](../../knowledge/requirements/req-contribution-console.md), lines 53–56) expressly keeps owner MXIDs and environment variable names private. Return a borrower-safe result DTO; retain detailed remediation and owner attribution on authenticated operator/internal surfaces.
 
 ### F17 — P2: Removing one side resolves another side's identity alerts
 
@@ -209,7 +209,7 @@ Reused same-revision verification from the initial audit: full Vitest run **3,70
 
 This extended review added isolated API and actual runner-process probes for F1–F7/F10, the real push-listener mode probe for F9, and separate reproductions of F14–F17 and the cross-family discrepancy from Fable's review. F18 was confirmed by tracing the complete deletion/refresh path. No application or test implementation was changed. Fixture backend stores and sockets were temporary; fixture runtimes were cleaned up. No deployed Matrix server, remote mini, real task-executing model, production credentials, or external project was used by those probes. The separately authorized Claude Code reviewer used its model service for review only.
 
-Local evidence is under `/Users/yuechen/Library/Caches/hafleet-audit/2026-09-05/` (suite reports, selector audit and original provenance probe) and `/Users/yuechen/Library/Caches/hafleet-review/2026-09-05/` (`contribution-probes.log`, `runner-probes.log`, `mode-probe.log`, `fable-validation.log`, independent reviewer output). Exploratory fixture setup failures in the contribution log are followed by separately labeled corrected reproductions; only the confirmed outcomes above support findings.
+Local evidence is under `/Users/yuechen/Library/Caches/hagency-audit/2026-09-05/` (suite reports, selector audit and original provenance probe) and `/Users/yuechen/Library/Caches/hagency-review/2026-09-05/` (`contribution-probes.log`, `runner-probes.log`, `mode-probe.log`, `fable-validation.log`, independent reviewer output). Exploratory fixture setup failures in the contribution log are followed by separately labeled corrected reproductions; only the confirmed outcomes above support findings.
 
 ## Suggested order to reach sign-off
 

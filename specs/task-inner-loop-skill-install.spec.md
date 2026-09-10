@@ -15,7 +15,7 @@ the stale malformed-history test to assert the existing visible failure.
 
 ### Must
 - Keep SKILL.md and scripts/monitor.mjs reachable from each installed inner-loop skill directory.
-- Preserve existing hafleet and agent-message links and back up replaced local content.
+- Preserve existing hagency and agent-message links and back up replaced local content.
 - Make check mode read-only and return a nonzero exit for incorrect links or missing resources.
 - Remove only the owned inner-loop link during uninstall and preserve unrelated user content.
 - Assert malformed Matrix history returns known false, an empty chunk, and a visible failure reason.
@@ -35,7 +35,7 @@ the stale malformed-history test to assert the existing visible failure.
 ## Boundaries
 
 ### Allowed Changes
-- bin/hafleet-sync-skills
+- bin/hagency-sync-skills
 - ./install-full.sh
 - ./uninstall.sh
 - tests/install-scripts.test.js
@@ -73,7 +73,7 @@ Scenario: Full installer provisions resources and preserves aliases
   Given temporary home, bin, env, and systemd paths
   When the full installer runs with no-start and prerequisite and package installation skipped
   Then both clients can read the inner-loop skill and its relative script
-  And existing hafleet and agent-message links still resolve to the hafleet template
+  And existing hagency and agent-message links still resolve to the hagency template
 
 Scenario: Installer preserves a local inner-loop skill
   Test: full installer preserves existing inner-loop skill content in a backup

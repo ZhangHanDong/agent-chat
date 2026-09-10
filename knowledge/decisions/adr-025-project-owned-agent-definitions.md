@@ -1,13 +1,13 @@
 ---
 kind: decision
 id: ADR-025
-title: "Palpo projects define Agents and request published HAFleet resources"
+title: "Palpo projects define Agents and request published Hagency resources"
 status: Accepted
 tags: [resources, agents, palpo, engagement]
 ---
 
 The operator clarified that Agent definitions belong to project users on Palpo.
-This supersedes ADR-024's provider-owned web definition workflow. HAFleet configures
+This supersedes ADR-024's provider-owned web definition workflow. Hagency configures
 and publishes resources; Palpo defines each Agent by name, role and selected
 resource and submits it for provider approval. Multiple project Agents may request
 the same resource. Defining or submitting does not provision or approve capacity.
@@ -35,7 +35,7 @@ The operator's 2026-09-09 clarification extends final-allocation revocation:
 retire the Agent's managed Matrix identity and remove all room memberships,
 including invited rooms and DMs. Retain historical messages and local files.
 Another active allocation or reserved fulfillment prevents whole-Agent retirement.
-HAFleet initiates a scoped outbound retirement request; Palpo verifies the known
+Hagency initiates a scoped outbound retirement request; Palpo verifies the known
 request, exact MXID and actual App Service ownership before using its server-held
 administrator credential. Deactivate with erase=false and verify zero memberships
 and refused App Service authentication. Keep the shared registration and retired
@@ -57,9 +57,9 @@ idempotency, Matrix sender and owner verification, project-side/seat budgets and
 existing operation permissions. A definition never grants network or sandbox rights.
 
 Keep existing allocations and legacy role-only requests working. Existing local
-definition records remain readable for compatibility, but the HAFleet web no
+definition records remain readable for compatibility, but the Hagency web no
 longer creates them. Palpo displays each definition with its own request status;
-HAFleet displays the requested definition and resource during approval.
+Hagency displays the requested definition and resource during approval.
 
 The operator's September 8 follow-up requires automatic resource publication.
 New resources default to catalog publication in the same persistence transaction

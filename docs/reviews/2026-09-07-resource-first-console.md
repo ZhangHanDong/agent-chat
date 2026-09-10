@@ -1,7 +1,7 @@
 # Resource configuration replaces manual Agent creation
 
 The operator confirmed that providers configure Resource capacity and approve
-borrower requests; HAFleet creates or selects the Agent as part of fulfillment.
+borrower requests; Hagency creates or selects the Agent as part of fulfillment.
 A separate manual Create Agent workflow was therefore removed from the console.
 ADR-022 and task-resource-first-console.spec.md record this product decision.
 

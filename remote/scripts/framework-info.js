@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * Registry queries for shell callers, chiefly bin/hafleet-up.
+ * Registry queries for shell callers, chiefly bin/hagency-up.
  *
- * bin/hafleet-up is bash and cannot read the JSON manifests itself, so it would
+ * bin/hagency-up is bash and cannot read the JSON manifests itself, so it would
  * otherwise keep its own hardcoded list of frameworks — which is the drift this
  * whole registry exists to remove.
  *
  *   framework-info.js ids                   -> every declared id, launchable or not
- *   framework-info.js launchable            -> newline-separated ids hafleet-up can start
+ *   framework-info.js launchable            -> newline-separated ids hagency-up can start
  *   framework-info.js ready-fixed <id>      -> literal for grep -F that means "accepting input"
  *   framework-info.js check <id>            -> exit 0 if launchable; else reason on stderr
  *
- * `check` is the one hafleet-up calls. Exit codes:
+ * `check` is the one hagency-up calls. Exit codes:
  *   0  launchable
  *   1  known but not launchable, or unknown — reason on stderr
  *   2  usage error

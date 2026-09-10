@@ -45,8 +45,8 @@ export function PrefsProvider({ children }) {
   // rather than fighting it.
   useEffect(() => {
     try {
-      setLocale(localStorage.getItem('hafleet.locale') || 'en');
-      setTheme(localStorage.getItem('hafleet.theme') || 'system');
+      setLocale(localStorage.getItem('hagency.locale') || 'en');
+      setTheme(localStorage.getItem('hagency.theme') || 'system');
     } catch { /* private mode: defaults are fine */ }
     setReady(true);
   }, []);
@@ -56,7 +56,7 @@ export function PrefsProvider({ children }) {
     const html = document.documentElement;
     const l = LOCALES.find((x) => x.code === locale) ?? LOCALES[0];
     html.setAttribute('lang', l.htmlLang);
-    try { localStorage.setItem('hafleet.locale', locale); } catch {}
+    try { localStorage.setItem('hagency.locale', locale); } catch {}
   }, [locale, ready]);
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export function PrefsProvider({ children }) {
     const html = document.documentElement;
     if (theme === 'system') html.removeAttribute('data-theme');
     else html.setAttribute('data-theme', theme);
-    try { localStorage.setItem('hafleet.theme', theme); } catch {}
+    try { localStorage.setItem('hagency.theme', theme); } catch {}
   }, [theme, ready]);
 
   const value = {

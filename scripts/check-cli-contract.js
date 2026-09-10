@@ -54,7 +54,7 @@ function runCli(cliPath, args) {
     encoding: 'utf8',
     env: {
       ...process.env,
-      HAFLEET_CLI_CONTRACT_CHECK: '1',
+      HAGENCY_CLI_CONTRACT_CHECK: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -153,7 +153,7 @@ for (const [profileName, profile] of Object.entries(manifest.profiles || {})) {
     continue;
   }
 
-  if (!help.includes('Usage: hafleet <command> [args]')) {
+  if (!help.includes('Usage: hagency <command> [args]')) {
     fail(`${cliRel} help is missing usage header`);
   }
 

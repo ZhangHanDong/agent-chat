@@ -41,7 +41,7 @@ function ensureInside(parent, child) {
 function identity(spec) {
     const agent = segment(spec.agentId, 'agent');
     const thread = `${segment(spec.threadRootEventId, 'thread').slice(0, 28)}-${shortDigest(spec.threadRootEventId)}`;
-    const branch = `hafleet/${agent}/${thread}`;
+    const branch = `hagency/${agent}/${thread}`;
     const target = path.resolve(spec.worktreesDir, agent, thread);
     return {
         branch,
@@ -58,7 +58,7 @@ function identity(spec) {
 function bootstrapStatePath(worktreePath) {
     const rawGitDir = git(worktreePath, ['rev-parse', '--git-dir']);
     const gitDir = realpathSync(path.resolve(worktreePath, rawGitDir));
-    return path.join(gitDir, 'hafleet-bootstrap.json');
+    return path.join(gitDir, 'hagency-bootstrap.json');
 }
 function readBootstrapState(statePath) {
     if (!existsSync(statePath))

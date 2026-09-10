@@ -9,7 +9,7 @@ tags: [console, resource, agent, engagement]
 ## Context
 
 The operator explicitly removed manual agent creation from the provider's product
-workflow: configure resources, approve a borrower's request, let HAFleet create or
+workflow: configure resources, approve a borrower's request, let Hagency create or
 select the agent, then manage its activity and allocation. The console still linked
 to a separate creation wizard and described an empty roster as missing capacity,
 contradicting ADR-019's existing provisionable-resource projection.

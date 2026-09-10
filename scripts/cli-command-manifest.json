@@ -1,39 +1,39 @@
 {
   "profiles": {
     "root": {
-      "cli": "bin/hafleet",
+      "cli": "bin/hagency",
       "commands": [
-        { "command": "up", "target": "hafleet-up" },
-        { "command": "acp-up", "target": "hafleet-acp-up" },
-        { "command": "acp-down", "target": "hafleet-acp-down" },
-        { "command": "up-v1", "target": "hafleet-up-v1", "aliases": ["v1-up"] },
-        { "command": "project", "target": "hafleet-project" },
-        { "command": "graph", "target": "hafleet-graph" },
-        { "command": "down", "target": "hafleet-down" },
-        { "command": "ls", "target": "hafleet-ls", "aliases": ["list"] },
-        { "command": "resume-id", "target": "hafleet-resume-id" },
-        { "command": "send", "target": "hafleet-send" },
-        { "command": "update", "target": "hafleet-update" },
-        { "command": "service", "target": "hafleet-service" },
+        { "command": "up", "target": "hagency-up" },
+        { "command": "acp-up", "target": "hagency-acp-up" },
+        { "command": "acp-down", "target": "hagency-acp-down" },
+        { "command": "up-v1", "target": "hagency-up-v1", "aliases": ["v1-up"] },
+        { "command": "project", "target": "hagency-project" },
+        { "command": "graph", "target": "hagency-graph" },
+        { "command": "down", "target": "hagency-down" },
+        { "command": "ls", "target": "hagency-ls", "aliases": ["list"] },
+        { "command": "resume-id", "target": "hagency-resume-id" },
+        { "command": "send", "target": "hagency-send" },
+        { "command": "update", "target": "hagency-update" },
+        { "command": "service", "target": "hagency-service" },
         { "command": "verify-remote", "target": "verify-remote", "aliases": ["verify"] },
-        { "command": "audit", "target": "hafleet-audit" },
-        { "command": "benchmark", "target": "hafleet-benchmark" },
-        { "command": "maintain", "target": "hafleet-maintain" },
-        { "command": "prune-agents", "target": "hafleet-prune-agents" },
-        { "command": "sync-skills", "target": "hafleet-sync-skills" },
+        { "command": "audit", "target": "hagency-audit" },
+        { "command": "benchmark", "target": "hagency-benchmark" },
+        { "command": "maintain", "target": "hagency-maintain" },
+        { "command": "prune-agents", "target": "hagency-prune-agents" },
+        { "command": "sync-skills", "target": "hagency-sync-skills" },
         { "command": "reminder", "target": "self-time-reminder", "aliases": ["self-time-reminder"] },
-        { "command": "cli", "target": "hafleet-cli", "aliases": ["admin"] },
+        { "command": "cli", "target": "hagency-cli", "aliases": ["admin"] },
         { "command": "check-mcp", "target": "check-mcp" }
       ],
       "unsupportedSmoke": ["definitely-not-a-command"],
       "helpAssertions": [
         {
           "command": "service",
-          "mustContain": ["Controls services on the current host only.", "remote relay service hafleet-push-relay"]
+          "mustContain": ["Controls services on the current host only.", "remote relay service hagency-push-relay"]
         },
         {
           "command": "update",
-          "mustContain": ["Updates git-checkout installs on this host.", "Standalone remote packages cannot self-update", "Service flags only control the remote relay service: hafleet-push-relay."]
+          "mustContain": ["Updates git-checkout installs on this host.", "Standalone remote packages cannot self-update", "Service flags only control the remote relay service: hagency-push-relay."]
         },
         {
           "command": "ls",
@@ -46,19 +46,19 @@
       ]
     },
     "remote": {
-      "cli": "remote/bin/hafleet",
+      "cli": "remote/bin/hagency",
       "commands": [
-        { "command": "up", "target": "hafleet-up" },
-        { "command": "down", "target": "hafleet-down" },
-        { "command": "ls", "target": "hafleet-ls", "aliases": ["list"] },
-        { "command": "send", "target": "hafleet-send" },
-        { "command": "update", "target": "hafleet-update" },
-        { "command": "service", "target": "hafleet-service" },
+        { "command": "up", "target": "hagency-up" },
+        { "command": "down", "target": "hagency-down" },
+        { "command": "ls", "target": "hagency-ls", "aliases": ["list"] },
+        { "command": "send", "target": "hagency-send" },
+        { "command": "update", "target": "hagency-update" },
+        { "command": "service", "target": "hagency-service" },
         { "command": "verify-remote", "target": "verify-remote", "aliases": ["verify"] },
-        { "command": "maintain", "target": "hafleet-maintain" },
-        { "command": "prune-agents", "target": "hafleet-prune-agents" },
+        { "command": "maintain", "target": "hagency-maintain" },
+        { "command": "prune-agents", "target": "hagency-prune-agents" },
         { "command": "reminder", "target": "self-time-reminder", "aliases": ["self-time-reminder"] },
-        { "command": "cli", "target": "hafleet-cli", "aliases": ["admin"] }
+        { "command": "cli", "target": "hagency-cli", "aliases": ["admin"] }
       ],
       "unsupportedSmoke": [
         "up-v1",
@@ -73,11 +73,11 @@
       "helpAssertions": [
         {
           "command": "service",
-          "mustContain": ["Controls services on the current host only.", "remote relay service hafleet-push-relay"]
+          "mustContain": ["Controls services on the current host only.", "remote relay service hagency-push-relay"]
         },
         {
           "command": "update",
-          "mustContain": ["Updates git-checkout installs on this host.", "Standalone remote packages cannot self-update", "Service flags only control the remote relay service: hafleet-push-relay."]
+          "mustContain": ["Updates git-checkout installs on this host.", "Standalone remote packages cannot self-update", "Service flags only control the remote relay service: hagency-push-relay."]
         },
         {
           "command": "ls",

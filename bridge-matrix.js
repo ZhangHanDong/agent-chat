@@ -199,7 +199,7 @@ const execFileAsync = promisify(execFile);
 let execFileAsyncImpl = execFileAsync;
 const REPO_ROOT = path.dirname(__filename);
 const RUNTIME_ROOT = (() => {
-  const raw = String(process.env.HAFLEET_RUNTIME_DIR || '').trim();
+  const raw = String(process.env.HAGENCY_RUNTIME_DIR || '').trim();
   return raw ? path.resolve(raw) : REPO_ROOT;
 })();
 assertRuntimeDir(RUNTIME_ROOT);
@@ -208,34 +208,34 @@ const HOMESERVER = process.env.MATRIX_HOMESERVER || 'https://matrix.example.com'
 // LINE PROTOCOL vs PRODUCT NAME. The wire namespace is `com.agentchat.*` because robrix2 —
 // the only deployed consumer of these events — matches exactly those strings. Renaming the
 // product renamed the constants in an earlier round and silently broke both directions: the
-// bridge sent `com.hafleet.*` nobody read, and verdicts sent by deployed clients as
+// bridge sent `com.hagency.*` nobody read, and verdicts sent by deployed clients as
 // `com.agentchat.*` were ignored. The wire name stays `com.agentchat.*` regardless of what
 // the product is called; outbound sends ONLY the wire name. Inbound verdicts accept BOTH
 // during the transition so events already in flight under the old name are not lost.
 const APPROVAL_EVENT_KEY = 'com.agentchat.approval';
-const LEGACY_APPROVAL_EVENT_KEY = 'com.hafleet.approval';
+const LEGACY_APPROVAL_EVENT_KEY = 'com.hagency.approval';
 const APPROVAL_STATUS_MSGTYPE = 'com.agentchat.approval.status.v1';
 const APPROVAL_REQUEST_MSGTYPE = 'com.agentchat.approval.request.v1';
 const APPROVAL_VERDICT_MSGTYPE = 'com.agentchat.approval.verdict.v1';
-const LEGACY_APPROVAL_VERDICT_MSGTYPE = 'com.hafleet.approval.verdict.v1';
-const AGENT_OPS_EVENT_KEY = 'com.hafleet.agent_ops';
-const AGENT_OPS_SESSION_REQUEST_MSGTYPE = 'com.hafleet.agent_ops.client_session.request.v1';
-const AGENT_OPS_SESSION_GRANT_MSGTYPE = 'com.hafleet.agent_ops.client_session.grant.v1';
-const AGENT_OPS_SESSION_REVOKE_MSGTYPE = 'com.hafleet.agent_ops.client_session.revoke.v1';
+const LEGACY_APPROVAL_VERDICT_MSGTYPE = 'com.hagency.approval.verdict.v1';
+const AGENT_OPS_EVENT_KEY = 'com.hagency.agent_ops';
+const AGENT_OPS_SESSION_REQUEST_MSGTYPE = 'com.hagency.agent_ops.client_session.request.v1';
+const AGENT_OPS_SESSION_GRANT_MSGTYPE = 'com.hagency.agent_ops.client_session.grant.v1';
+const AGENT_OPS_SESSION_REVOKE_MSGTYPE = 'com.hagency.agent_ops.client_session.revoke.v1';
 const MATRIX_MEGOLM_ALGORITHM = 'm.megolm.v1.aes-sha2';
 const REGISTRATION_TOKEN = (process.env.MATRIX_REG_TOKEN || '').trim();
 
 export function resolveApprovalDmMode(env = process.env) {
-  const requested = String(env.HAFLEET_APPROVAL_DM_MODE || 'required').trim().toLowerCase();
+  const requested = String(env.HAGENCY_APPROVAL_DM_MODE || 'required').trim().toLowerCase();
   if (requested === 'required') return 'required';
   if (requested !== 'plaintext-test') {
-    throw new Error(`unsupported HAFLEET_APPROVAL_DM_MODE: ${requested || '<empty>'}`);
+    throw new Error(`unsupported HAGENCY_APPROVAL_DM_MODE: ${requested || '<empty>'}`);
   }
   if (String(env.NODE_ENV || '').trim().toLowerCase() === 'production') {
     throw new Error('plaintext approval diagnostics are forbidden in production');
   }
-  if (String(env.HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST || '').trim() !== '1') {
-    throw new Error('plaintext approval diagnostics require HAFLEET_ALLOW_PLAINTEXT_APPROVAL_TEST=1');
+  if (String(env.HAGENCY_ALLOW_PLAINTEXT_APPROVAL_TEST || '').trim() !== '1') {
+    throw new Error('plaintext approval diagnostics require HAGENCY_ALLOW_PLAINTEXT_APPROVAL_TEST=1');
   }
   return 'plaintext-test';
 }
@@ -277,23 +277,23 @@ async function fetchWithRateLimit(url, init, tries = 6) {
   }
   return res;
 }
-const DEFAULT_BACKEND_PORT_RAW = Number.parseInt(process.env.HAFLEET_BACKEND_PORT || '8090', 10);
+const DEFAULT_BACKEND_PORT_RAW = Number.parseInt(process.env.HAGENCY_BACKEND_PORT || '8090', 10);
 const DEFAULT_BACKEND_PORT = Number.isFinite(DEFAULT_BACKEND_PORT_RAW) && DEFAULT_BACKEND_PORT_RAW > 0
   ? DEFAULT_BACKEND_PORT_RAW
   : 8090;
-const BACKEND_URL = (process.env.HAFLEET_API || `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`).trim().replace(/\/$/, '');
-const BACKEND_FETCH_TIMEOUT_MS_RAW = Number.parseInt(process.env.HAFLEET_BACKEND_FETCH_TIMEOUT_MS || '12000', 10);
+const BACKEND_URL = (process.env.HAGENCY_API || `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`).trim().replace(/\/$/, '');
+const BACKEND_FETCH_TIMEOUT_MS_RAW = Number.parseInt(process.env.HAGENCY_BACKEND_FETCH_TIMEOUT_MS || '12000', 10);
 const BACKEND_FETCH_TIMEOUT_MS = Number.isFinite(BACKEND_FETCH_TIMEOUT_MS_RAW) && BACKEND_FETCH_TIMEOUT_MS_RAW > 0
   ? BACKEND_FETCH_TIMEOUT_MS_RAW
   : 12000;
-const BACKEND_FETCH_RETRY_DELAY_MS_RAW = Number.parseInt(process.env.HAFLEET_BACKEND_FETCH_RETRY_DELAY_MS || '2500', 10);
+const BACKEND_FETCH_RETRY_DELAY_MS_RAW = Number.parseInt(process.env.HAGENCY_BACKEND_FETCH_RETRY_DELAY_MS || '2500', 10);
 const BACKEND_FETCH_RETRY_DELAY_MS = Number.isFinite(BACKEND_FETCH_RETRY_DELAY_MS_RAW) && BACKEND_FETCH_RETRY_DELAY_MS_RAW > 0
   ? BACKEND_FETCH_RETRY_DELAY_MS_RAW
   : 2500;
 const THREAD_SESSIONS_ENABLED = ['1', 'true', 'yes', 'on'].includes(
-  String(process.env.HAFLEET_THREAD_SESSIONS || '').trim().toLowerCase(),
+  String(process.env.HAGENCY_THREAD_SESSIONS || '').trim().toLowerCase(),
 );
-const ROUTER_OUTBOX_POLL_MS_RAW = Number.parseInt(process.env.HAFLEET_ROUTER_OUTBOX_POLL_MS || '1000', 10);
+const ROUTER_OUTBOX_POLL_MS_RAW = Number.parseInt(process.env.HAGENCY_ROUTER_OUTBOX_POLL_MS || '1000', 10);
 const ROUTER_OUTBOX_POLL_MS = Number.isFinite(ROUTER_OUTBOX_POLL_MS_RAW)
   ? Math.max(250, ROUTER_OUTBOX_POLL_MS_RAW)
   : 1000;
@@ -310,7 +310,7 @@ function appendMsgPath(baseUrl) {
 }
 
 function resolveMessageBaseUrl(env = process.env) {
-  const webBase = normalizeBaseUrl(env.HAFLEET_WEB_URL);
+  const webBase = normalizeBaseUrl(env.HAGENCY_WEB_URL);
   if (webBase) return appendMsgPath(webBase);
 
   const legacyMsgBase = normalizeBaseUrl(env.MSG_BASE_URL);
@@ -322,13 +322,13 @@ function resolveMessageBaseUrl(env = process.env) {
    * These links go into Matrix messages and outlive the process that answered them, so the default has
    * to point at something that will still be there. `backend-v2.js` serves `/msg/:id` itself — it has
    * all along — while the copy on the old web portal existed only for that portal's own pages, which
-   * are now deleted. `HAFLEET_WEB_URL` and `MSG_BASE_URL` above still override, so a deployment that
+   * are now deleted. `HAGENCY_WEB_URL` and `MSG_BASE_URL` above still override, so a deployment that
    * put the viewer somewhere else keeps working.
    *
    * LINKS ALREADY SENT still say 8084. Nothing can rewrite a message that has been delivered, so those
    * break when that process stops — which is the cost of retiring it, stated rather than discovered.
    */
-  const backendPortRaw = Number.parseInt(env.HAFLEET_BACKEND_PORT || '8090', 10);
+  const backendPortRaw = Number.parseInt(env.HAGENCY_BACKEND_PORT || '8090', 10);
   const backendPort = Number.isFinite(backendPortRaw) && backendPortRaw > 0 ? backendPortRaw : 8090;
   return `http://127.0.0.1:${backendPort}/msg`;
 }
@@ -1112,7 +1112,7 @@ if (!BOT_PASSWORD) {
 }
 
 if (!AUTO_AVATAR_ENABLED) {
-  console.warn('MATRIX_AUTO_AVATAR is disabled. Automatic avatar generation/sync is off; use hafleet-cli avatar <name> <image-file> for manual updates.');
+  console.warn('MATRIX_AUTO_AVATAR is disabled. Automatic avatar generation/sync is off; use hagency-cli avatar <name> <image-file> for manual updates.');
 }
 
 function makeUserId(localpart) {
@@ -2051,7 +2051,7 @@ async function setCustomAgentAvatar(agentName, imageBuffer, mimeType) {
  * router preserves receivers whose token has not changed, so a refresh is cheap and does not disturb
  * deduplication.
  */
-const APPSERVICE_SIDE_REFRESH_MS = Number.parseInt(process.env.HAFLEET_APPSERVICE_REFRESH_MS || '60000', 10) || 60_000;
+const APPSERVICE_SIDE_REFRESH_MS = Number.parseInt(process.env.HAGENCY_APPSERVICE_REFRESH_MS || '60000', 10) || 60_000;
 const MATRIX_BRIDGE_SECRET = (process.env.MATRIX_BRIDGE_SECRET || '').trim();
 const BRIDGE_API_TOKEN = (process.env.API_TOKEN || '').trim();
 
@@ -2625,7 +2625,7 @@ export function buildOwnerApprovalRequest(approval) {
     detail.description += `\nAuthorization scope for ${detail.agent} in project ${detail.project}:\n${scope.description}`
       + `\nWorkspace: ${scope.workspace}`
       + (scope.task_id ? `\nThis task: ${scope.task_id}` : '')
-      + '\nAlways allow saves this exact rule for this Agent and project. Revoke it in HAFleet → Agent → Execution permissions.';
+      + '\nAlways allow saves this exact rule for this Agent and project. Revoke it in Hagency → Agent → Execution permissions.';
   }
   const lines = [
     `Approval required for ${detail.agent}`,
@@ -2651,7 +2651,7 @@ export function parseApprovalVerdictEvent(roomId, event) {
   /*
    * STRICT PAIRING, not per-field fallback. The transition accepts two complete shapes — the
    * current (msgtype com.agentchat.* + payload key com.agentchat.*) and the legacy
-   * (com.hafleet.* + com.hafleet.*) — and NOTHING mixed. A per-field `newKey ?? legacyKey`
+   * (com.hagency.* + com.hagency.*) — and NOTHING mixed. A per-field `newKey ?? legacyKey`
    * would let a hybrid through that neither side ever declared, widening the protocol surface
    * the transition was meant to shrink; a full-payload hybrid in EITHER direction is rejected.
    */
@@ -2689,7 +2689,7 @@ export function parseApprovalVerdictEvent(roomId, event) {
 }
 
 function agentOpsClientFeatureEnabled(env = process.env) {
-  return ['1', 'true', 'yes', 'on'].includes(String(env.HAFLEET_AGENT_OPS_CLIENT || '').trim().toLowerCase());
+  return ['1', 'true', 'yes', 'on'].includes(String(env.HAGENCY_AGENT_OPS_CLIENT || '').trim().toLowerCase());
 }
 
 export function parseAgentOpsClientControlEvent(roomId, event) {
@@ -2700,7 +2700,7 @@ export function parseAgentOpsClientControlEvent(roomId, event) {
   const detail = content[AGENT_OPS_EVENT_KEY];
   const senderMxid = typeof event?.sender === 'string' ? event.sender.trim() : '';
   const eventId = typeof event?.event_id === 'string' ? event.event_id.trim() : '';
-  if (!detail || detail.schema !== 'com.hafleet.agent_ops.v1' || !/^@[^:\s]+:[^\s]+$/.test(senderMxid) || !eventId) {
+  if (!detail || detail.schema !== 'com.hagency.agent_ops.v1' || !/^@[^:\s]+:[^\s]+$/.test(senderMxid) || !eventId) {
     return { invalid: true, eventId: eventId || null };
   }
   if (content.msgtype === AGENT_OPS_SESSION_REVOKE_MSGTYPE) {
@@ -2751,7 +2751,7 @@ export function resolveInboundRoute({ groupName, targetAgent, isBotDm }) {
 // someone: prefer a coordinator, else wake the factory coordinator for the
 // single-agent mapped-room case, else nobody (let explicit
 // mentions decide). `agentUserIds` are Matrix MXIDs; `agentNameFromId` maps one
-// to an hafleet name (or null if it is not an agent account).
+// to an hagency name (or null if it is not an agent account).
 export function pickDefaultGroupRecipient(agentUserIds, agentNameFromId) {
   const ids = Array.isArray(agentUserIds) ? agentUserIds.filter(Boolean) : [];
   if (ids.length === 0) return null;
@@ -3292,7 +3292,7 @@ export function parseInboundTextMessage(content) {
   const msgType = typeof content.msgtype === 'string' ? content.msgtype : '';
   const relates = content['m.relates_to'] || {};
   if (relates.rel_type === 'm.replace') {
-    // Ignore edit events: they should not create a new hafleet message.
+    // Ignore edit events: they should not create a new hagency message.
     return { skip: true, body: '', replyEventId: null, threadRootEventId: null };
   }
   const threadRootEventId = relates.rel_type === 'm.thread' && typeof relates.event_id === 'string'
@@ -3862,8 +3862,8 @@ export class MatrixBridge {
   /**
    * A room on a configured project side is not the bot's to refuse.
    *
-   * THE DEFECT, walked on two machines. HAFleet's bot and a side's representative can be the same Matrix
-   * user — `hafleet` is the representative's default localpart, so an operator who names the bot `hafleet`
+   * THE DEFECT, walked on two machines. Hagency's bot and a side's representative can be the same Matrix
+   * user — `hagency` is the representative's default localpart, so an operator who names the bot `hagency`
    * on a co-located deployment has one account doing both jobs. Both invite handlers then see the same
    * invite. Under `MATRIX_TRUST_MODE=enforce` the bot's ran first, found `untrusted_inviter` (a customer
    * is not in `MATRIX_TRUSTED_INVITER_MXIDS` and never will be), and LEFT the room — which consumed the
@@ -4233,7 +4233,7 @@ export class MatrixBridge {
   }
 
   /**
-   * Everything that needs HAFleet's own bot account, in one place so it can fail on its own.
+   * Everything that needs Hagency's own bot account, in one place so it can fail on its own.
    *
    * Extracted rather than guarded site by site: the bot touches fifteen call sites in `start`, and fifteen
    * `if (this.botClient)` checks would be fifteen chances to forget one. A single boundary makes "the bot is
@@ -4364,7 +4364,7 @@ export class MatrixBridge {
     console.log(`[matrix-e2ee] bot crypto device verified device=${botSession.deviceId}`);
     console.log('Bot syncing...');
 
-    // 6. Listen to backend SSE for hafleet → Matrix
+    // 6. Listen to backend SSE for hagency → Matrix
     this.connectSSE();
 
     // 7. Scan all joined rooms for unmapped groups + backfill avatars
@@ -4425,7 +4425,7 @@ export class MatrixBridge {
      * THE BOT IS NOT THE ONLY WAY IN, and treating it as one turned a missing password into a total outage.
      *
      * On a co-located appservice deployment the inbound path is: customer's homeserver → edge → THIS process.
-     * None of it needs HAFleet's own bot. But every step of bringing that bot up sat before the intake with no
+     * None of it needs Hagency's own bot. But every step of bringing that bot up sat before the intake with no
      * guard, so `MATRIX_BOT_PASSWORD is required` — a credential with nothing to do with inbound — exited 1
      * and every customer went silent. Observed on clean machines; the console kept answering and the side kept
      * reporting `accepted`, because that describes the outbound direction.
@@ -4479,7 +4479,7 @@ export class MatrixBridge {
       console.error(`[bridge] the bot could not be brought up: ${this.botUnavailable}`);
       console.error(
         '[bridge] CONTINUING WITHOUT IT because this deployment has an appservice path. What is lost: talking '
-        + 'to the operator from HAFleet\'s own homeserver, E2EE anywhere, approval DM rooms, and room/avatar '
+        + 'to the operator from Hagency\'s own homeserver, E2EE anywhere, approval DM rooms, and room/avatar '
         + 'scanning. What still works: appservice intake, and sends into project-side rooms as the '
         + 'representative. Fix the bot credential to get the rest back.',
       );
@@ -4534,7 +4534,7 @@ export class MatrixBridge {
     // 10. Inbound appservice traffic, if this deployment exposes a socket for it (ADR-016).
     await this.startAppserviceIntake();
     /*
-     * THE BACKEND EVENT STREAM IS NOT BOT WORK. connectSSE() — the hafleet → Matrix half — was only
+     * THE BACKEND EVENT STREAM IS NOT BOT WORK. connectSSE() — the hagency → Matrix half — was only
      * ever called inside the bot bring-up, so a bot-less bridge collected every customer message and
      * never delivered a single agent reply: the first live run had the agent write its file, post
      * "done" to the backend, and the room stay silent. The consumer needs no bot client (its sends
@@ -5073,7 +5073,7 @@ export class MatrixBridge {
        * The representative has the identical window — invite at t, join at t+2s, and sync starts at the
        * join — and this path never looked. Proven live, on a clean pair of machines: the ask before the
        * join produced no engagement, no reply and no error, while the same ask one second after the join
-       * worked. Inviting HAFleet and saying what you want in the same breath is the obvious way to use
+       * worked. Inviting Hagency and saying what you want in the same breath is the obvious way to use
        * this, so it is the case that has to work rather than the one to document around.
        *
        * AFTER THE JOIN IS REPORTED, AND UNABLE TO UNREPORT IT. The join is what makes the project
@@ -5276,7 +5276,7 @@ export class MatrixBridge {
    * Drop local state for rooms on sides that no longer exist.
    *
    * WHAT THIS IS NOT: it does not touch the rooms themselves. They are on somebody else's homeserver and
-   * remain theirs — the same rule the backend's cascade follows for records, and the reason HAFleet tells
+   * remain theirs — the same rule the backend's cascade follows for records, and the reason Hagency tells
    * project sides it will not delete their rooms. This forgets our own pointers, nothing more.
    *
    * WHY FORGET RATHER THAN KEEP: every one of these maps is a claim that a room is usable. A DM room on a
@@ -5646,7 +5646,7 @@ export class MatrixBridge {
   /**
    * Bring up the inbound socket, if this deployment has decided to expose one.
    *
-   * Silent-by-default is the point: with no `HAFLEET_APPSERVICE_PORT` there is no socket and no
+   * Silent-by-default is the point: with no `HAGENCY_APPSERVICE_PORT` there is no socket and no
    * warning, because a deployment using registration-token sides has no reason to expose one. The
    * reason is logged rather than hidden so `doctor`-style questions have an answer.
    */
@@ -5656,10 +5656,10 @@ export class MatrixBridge {
     /*
      * TWO WAYS IN, and a deployment may use either, both, or neither.
      *
-     * The LISTENER is the original: a socket here that the homeserver dials. It only works when HAFleet is
+     * The LISTENER is the original: a socket here that the homeserver dials. It only works when Hagency is
      * reachable from the homeserver, which rules out a laptop or an internal network.
      *
-     * The EDGE LINK is the co-located one: `bin/hafleet-appservice-edge` runs beside the homeserver and
+     * The EDGE LINK is the co-located one: `bin/hagency-appservice-edge` runs beside the homeserver and
      * this dials OUT to collect. Nothing here needs to be reachable, which is the point.
      *
      * Both feed the same router, so ordering, duplicate suppression and failure behave identically. The
@@ -5679,7 +5679,7 @@ export class MatrixBridge {
      */
     const conflicts = [];
     if (config.enabled && (edge.enabled || sync.enabled)) {
-      conflicts.push(`listener (HAFLEET_APPSERVICE_PORT=${config.port}) serves every side and cannot coexist with `
+      conflicts.push(`listener (HAGENCY_APPSERVICE_PORT=${config.port}) serves every side and cannot coexist with `
         + `${edge.enabled ? `edge (side ${edge.side}) ` : ''}${sync.enabled ? `sync (side ${sync.side})` : ''}`.trim());
     }
     if (edge.enabled && sync.enabled && edge.side === sync.side) {
@@ -5703,7 +5703,7 @@ export class MatrixBridge {
 
     if (edge.enabled) {
       /*
-       * The `hs_token` comes from OUR OWN credential store, never from the link. HAFleet issued it, so
+       * The `hs_token` comes from OUR OWN credential store, never from the link. Hagency issued it, so
        * sending it back over the wire would put a credential in flight for nothing.
        */
       this.edgePuller = startEdgePuller({
@@ -5916,7 +5916,7 @@ export class MatrixBridge {
 
     /*
      * Discover humans from Matrix user directory and greet them — BOT WORK, so skipped when there is no bot.
-     * It searches HAFleet's own homeserver and greets in a bot DM; without a bot it logged
+     * It searches Hagency's own homeserver and greets in a bot DM; without a bot it logged
      * `Failed to discover humans: fetch failed` every poll, and a degraded mode that fills the log with its
      * own failures teaches an operator to stop reading it.
      *
@@ -6077,7 +6077,7 @@ export class MatrixBridge {
 
   async discoverAndGreetHumans() {
     /*
-     * It searches the user directory of HAFleet's OWN homeserver with the bot's TOKEN, and greets what it
+     * It searches the user directory of Hagency's OWN homeserver with the bot's TOKEN, and greets what it
      * finds in a bot DM. With no bot there is no token, no directory to search and nowhere to greet — it
      * logged `Failed to discover humans: fetch failed` on every poll instead. Humans on a project side arrive
      * through the appservice; they are not discovered this way.
@@ -6351,7 +6351,7 @@ export class MatrixBridge {
    * Say something into a room, as whichever identity is actually IN it.
    *
    * WHY THIS EXISTS. `!offer` from a customer's room reached the command dispatcher and its answer never
-   * arrived: `M_FORBIDDEN: sender's membership is not 'join'`. Every reply went out as HAFleet's own bot,
+   * arrived: `M_FORBIDDEN: sender's membership is not 'join'`. Every reply went out as Hagency's own bot,
    * and on a project side the bot is not a member — the REPRESENTATIVE is. So in an appservice deployment
    * the entire ordering conversation (`!offer`, `!request`) looked like the bot ignoring the customer.
    *
@@ -6376,7 +6376,7 @@ export class MatrixBridge {
    * Who is joined to a room, asked of whichever identity can see it.
    *
    * The read half of `sayInRoom`, and it exists for the same reason: the bridge classifies an inbound room by
-   * its membership, and on a project side HAFleet's own bot is not in the room to ask. The representative is.
+   * its membership, and on a project side Hagency's own bot is not in the room to ask. The representative is.
    *
    * RETURNS `{ known, members }` RATHER THAN THROWING, because the caller is mid-message. A room whose
    * membership cannot be read must still be handled — as a group, which is the safe classification: it means
@@ -6445,7 +6445,7 @@ export class MatrixBridge {
     } catch (error) {
       /*
        * THE BOT NOT BEING IN THE ROOM IS NOT THE SAME AS THE ROOM BEING ELSEWHERE, and a first version
-       * conflated them. When a project side runs on the SAME homeserver as HAFleet's own bot — which is a
+       * conflated them. When a project side runs on the SAME homeserver as Hagency's own bot — which is a
        * perfectly ordinary deployment, and the one this was walked on — the server comparison above says
        * "ours", the bot is used, and the bot is still not a member of the customer's room. Same silence.
        *
@@ -7026,7 +7026,7 @@ export class MatrixBridge {
     const replyTo = this.resolveReplyToMessageId(parsed.replyEventId);
     let effectiveMentions = [...new Set(mentions
       // Matrix rooms may also contain Octos or other external bot pills.
-      // Only registered hafleet agents are routable mention targets.
+      // Only registered hagency agents are routable mention targets.
       .map(name => this.resolveKnownAgentName(name))
       .filter(Boolean))];
 
@@ -7145,10 +7145,10 @@ export class MatrixBridge {
        *
        * The command branch above calls `rememberMatrixEvent`; `group` and `agent-dm` below both
        * `checkpointMatrixEvent`. This one replied and remembered nothing, so every redelivery of the
-       * transaction answered again. An appservice transaction is retried whenever HAFleet does not
+       * transaction answered again. An appservice transaction is retried whenever Hagency does not
        * return 200 — a restarted edge, a 500, an ack that arrives late — and none of those is unusual.
        *
-       * Watched on the rig: 20 messages sent with a `docker restart hafleet-edge` in the middle drew 32
+       * Watched on the rig: 20 messages sent with a `docker restart hagency-edge` in the middle drew 32
        * replies, arriving in bursts of six as the homeserver re-delivered the un-acked batches. Nothing
        * was lost, which is the design working; the same customer being told "Send !help for available
        * commands." six times in one second is not.
@@ -7295,7 +7295,7 @@ export class MatrixBridge {
       return result;
     }
     const result = await this.callBackendApi('POST', '/api/agent-ops/v1/control/bootstrap', {
-      schema: 'com.hafleet.agent_ops.v1',
+      schema: 'com.hagency.agent_ops.v1',
       agent: canonicalAgent,
       project_room_id: projectRoomId,
       owner_mxid: control.senderMxid,
@@ -9246,13 +9246,13 @@ export class MatrixBridge {
    * proves the message landed in a room — not that the human who has to decide is in that room. Found on
    * a live rig: `bridge-state.json` held a `botDmRooms` entry for `@operator:…` whose only member was the
    * BOT. The operator had been invited and had never joined, so the room existed, was recorded, and was
-   * the room `HAFLEET_OWNER_DM_ROOM` would have been set to — and every approval sent there would have
+   * the room `HAGENCY_OWNER_DM_ROOM` would have been set to — and every approval sent there would have
    * waited for a decision from somebody who could not see it being asked for.
    *
    * NOTHING VALIDATES THAT CONFIG. `resolveOwnerFor` takes the mxid and the room id as given, and
    * `upsertBinding` requires both fields without checking that one is in the other; the backend cannot
    * check, because reading a room's membership needs a Matrix credential and the room is usually on
-   * HAFleet's own homeserver where only the bridge has one. So the check belongs here, at the one place
+   * Hagency's own homeserver where only the bridge has one. So the check belongs here, at the one place
    * that has both the room and a credential for it.
    *
    * AFTER THE SEND, AND IT NEVER BLOCKS ONE. Refusing to deliver would be worse than delivering into a
@@ -9287,7 +9287,7 @@ export class MatrixBridge {
         `approval request for ${approval.agent ?? 'an agent'} was delivered to ${roomId}, but its owner `
         + `${owner} is NOT in that room — invited and never joined, or since departed. Nobody who can `
         + 'decide will see it. Remedy: have the owner accept the invitation to that room, or point '
-        + 'HAFLEET_OWNER_DM_ROOM (or the binding) at a room they are actually in.',
+        + 'HAGENCY_OWNER_DM_ROOM (or the binding) at a room they are actually in.',
         { kind: 'approval-owner-absent', scope: roomId },
       );
     } catch (error) {
@@ -9362,7 +9362,7 @@ export class MatrixBridge {
        *
        * An appservice project side mints NO per-agent token: the namespace makes the agent ours to act
        * for, which is the whole reason a project-side agent needs no registration. So `getAgentToken`
-       * answers null for exactly the agents HAFleet dispatches, and the throw here refused the public
+       * answers null for exactly the agents Hagency dispatches, and the throw here refused the public
        * notice before it was attempted. Both surfaces or neither, so the whole approval then failed
        * closed and was DENIED for delivery failure. Walked on the rig: an approval for `soaker` in its
        * own project room logged `missing Matrix token for approval agent soaker` and came back
@@ -9743,7 +9743,7 @@ export class MatrixBridge {
             operation = 'kick';
             const base = acting.side.apiBaseUrl.replace(/\/+$/, '');
             await post('kick', new URL(`${base}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/kick`),
-              actorToken, { user_id: userId, reason: 'Removed from hafleet group' },
+              actorToken, { user_id: userId, reason: 'Removed from hagency group' },
               appservice ? `@${credential.senderLocalpart.toLowerCase()}:${server}` : null);
             currentMembers.delete(userId);
             result.removed.push({ member: m, userId, status: 'kicked' });
@@ -10500,7 +10500,7 @@ export class MatrixBridge {
    * read receipt or reaction was ever sent, so "working" and "never heard you" looked
    * identical. That ambiguity is what an operator actually reported.
    *
-   * WHY NOT RELAY THE PANE. HAFleet can read it (GET /api/agents/:name/pane), and it is the
+   * WHY NOT RELAY THE PANE. Hagency can read it (GET /api/agents/:name/pane), and it is the
    * wrong thing to send. It carries ANSI, tool output and reasoning; a message per second
    * would flood the room and hit the rate limits this bridge already backs off from; and the
    * pane is the agent's whole screen, which may hold another project's content or a token in
@@ -11053,7 +11053,7 @@ export class MatrixBridge {
     }
   }
 
-  // ── Create Matrix room for hafleet group ───────────────────────
+  // ── Create Matrix room for hagency group ───────────────────────
   async createRoomForGroup(groupName, members) {
     const invite = [];
     for (const m of members) {
@@ -11302,7 +11302,7 @@ if (isMainModule) {
      *
      * Walked on clean machines: `MATRIX_BOT_PASSWORD is required to login/register bridge bot account` and
      * exit 1. The console went on answering, `verify` went on saying `accepted`, and the edge's counter read
-     * `HAFleet last seen: never`. Nothing connected those three facts for the operator, and the message they
+     * `Hagency last seen: never`. Nothing connected those three facts for the operator, and the message they
      * had named a bot password.
      *
      * Printed from the resolved edge config rather than from a flag, so it appears only when there IS an

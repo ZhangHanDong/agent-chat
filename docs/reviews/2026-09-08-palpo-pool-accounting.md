@@ -35,7 +35,7 @@ Deployed local backend18194 PID4587 and console13202 PID4681 using isolated
 unchanged. Private runtime/configuration and SQLite backups are under
 `pool-budget-backup-1788859304` in the Palpo admin E2E cache.
 
-Real Playwright readback at2026-09-08T09:23:57.898Z opens Edison's actual HAFleet
+Real Playwright readback at2026-09-08T09:23:57.898Z opens Edison's actual Hagency
 approval form: medium,100M pool ceiling,0 committed,100M available,100k requested.
 The shared account reports1M committed and an undeclared quota. Edison remains
 pending en_mtsfvnyd_16ee86 without a runtime, allocated tokens or fulfillment.

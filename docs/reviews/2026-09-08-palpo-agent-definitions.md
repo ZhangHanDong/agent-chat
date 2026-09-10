@@ -1,9 +1,9 @@
-# Palpo projects define Agents; HAFleet approves resources
+# Palpo projects define Agents; Hagency approves resources
 
 The operator clarified that Agent definitions belong on the Palpo project side.
 ADR-025 supersedes the earlier provider-owned web definition implementation.
 
-HAFleet now configures and publishes Resources. Its web definition form and
+Hagency now configures and publishes Resources. Its web definition form and
 definition mutation proxy routes are removed. Existing local records and backend
 APIs remain compatible. Palpo's request form collects Agent name, role, resource
 and quota. Each request card shows its own name, requested resource and status.
@@ -11,7 +11,7 @@ Multiple definitions can request one Resource without pre-creating local templat
 
 Published resources expose stable opaque IDs and safe model metadata, excluding
 other projects' Agent definitions. The exact definition is part of the Matrix
-source-event comparison and durable request fingerprint. Palpo requires HAFleet
+source-event comparison and durable request fingerprint. Palpo requires Hagency
 to acknowledge it; an older integration that drops the definition cannot silently
 fulfill the wrong request. Retries retain the definition and source event.
 
@@ -32,7 +32,7 @@ approvals and default runtime permissions are unchanged.
   distinct medium Agents despite an existing high Agent. Other cases cover source
   tampering, duplicate names, unpublished/private resources, foreign projects,
   owner authority changes, overcommit, interrupted launch and stable retry.
-- HAFleet Playwright passes both languages for publication, absence of the local
+- Hagency Playwright passes both languages for publication, absence of the local
   definition form and exact project-definition approval. Eight prior Resource
   browser flows also pass. The deployed console repeats the two corrected flows
   with intercepted fixture requests, without changing real allocations.
@@ -44,7 +44,7 @@ approvals and default runtime permissions are unchanged.
   selectors pass. Native agent-spec records four unsupported behavioral skips
   and is **not passing**; the deterministic Vitest results are separate evidence.
 
-The live check publishes only a temporary Resource through the actual HAFleet
+The live check publishes only a temporary Resource through the actual Hagency
 console, selects it in the actual Mini1 Palpo form and confirms the provider
 definition entry is absent. It does not submit an extra live project request or
 approve capacity. Temporary publication/resource cleanup preserves the operator's

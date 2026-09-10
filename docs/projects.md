@@ -13,7 +13,7 @@
 - Active implementation contract:
   `projects/hagency-website/specs/task-project-screenshots.spec.md`.
 
-The containing directory is also the existing HAFleet checkout. Website code
+The containing directory is also the existing Hagency checkout. Website code
 and tests belong exclusively in the nested website repository. The provisioned
 `task-writer` wrapper is absent in this checkout; this file records project
 location only and is not a replacement canonical task-state source.

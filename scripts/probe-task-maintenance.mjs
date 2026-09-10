@@ -37,10 +37,10 @@ const report = { kind: 'real-codex-scoped-task-maintenance', startedAt: new Date
     [file, createHash('sha256').update(readFileSync(path.join(repo, file))).digest('hex')])),
   operations: [], approvalRequests: [], passed: false };
 const save = () => writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2), { mode: 0o600 });
-const context = await createBackendTestContext('hafleet-maintenance-probe-', {
+const context = await createBackendTestContext('hagency-maintenance-probe-', {
   agents: { [name]: { name, agentId: `agent_${name}`, kind: 'agent', type: 'codex', workdir, online: true } },
   agentTokens: { [name]: token },
-  env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', HAFLEET_AGENT_TOKEN_MODE: 'hard',
+  env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', HAGENCY_AGENT_TOKEN_MODE: 'hard',
     API_TOKEN: randomBytes(32).toString('hex'), MATRIX_BRIDGE_SECRET: randomBytes(32).toString('hex'),
     MATRIX_TRUST_MODE: 'enforce' },
 });
@@ -70,16 +70,16 @@ try {
   router.enqueueDispatch({ sessionId: active.sessionId, taskId: intent.taskId, framework: 'codex', localServerId: 'local',
     workspaceResourceId: 'probe-workspace', mayWrite: true, payload: { prompt } });
   const claim = router.claimDispatch({ runnerId: 'maintenance-probe', leaseMs: 240_000, capabilityTtlMs: 240_000, maxLiveRunners: 1 });
-  const env = { AGENT_NAME: name, AGENT_TOKEN: token, HAFLEET_API: serving.baseUrl, HAFLEET_RUNTIME_DIR: context.runtimeDir,
-    HAFLEET_EPHEMERAL_RUNNER: '1', HAFLEET_AGENT_ID: `agent_${name}`, HAFLEET_MCP_HEARTBEAT_MS: '0' };
+  const env = { AGENT_NAME: name, AGENT_TOKEN: token, HAGENCY_API: serving.baseUrl, HAGENCY_RUNTIME_DIR: context.runtimeDir,
+    HAGENCY_EPHEMERAL_RUNNER: '1', HAGENCY_AGENT_ID: `agent_${name}`, HAGENCY_MCP_HEARTBEAT_MS: '0' };
   report.taskId = intent.taskId;
   report.dispatchId = claim.dispatchId;
   save();
   report.completion = await runCodexDispatch({ router, claim, cwd: workdir, executable: 'codex', model, effort: 'high', env,
     mayWrite: true, acknowledgementTimeoutMs: 60_000, executionTimeoutMs: 240_000, approvalTimeoutMs: 5000,
     maxParkedRunners: 1,
-    mcpServer: { name: 'hafleet', command: process.execPath, args: [path.join(repo, 'mcp-server.js')],
-      envVars: [...Object.keys(env), 'HAFLEET_DISPATCH_ID', 'HAFLEET_RUNNER_ID', 'HAFLEET_DISPATCH_CAPABILITY', 'HAFLEET_FENCE_GENERATION'] },
+    mcpServer: { name: 'hagency', command: process.execPath, args: [path.join(repo, 'mcp-server.js')],
+      envVars: [...Object.keys(env), 'HAGENCY_DISPATCH_ID', 'HAGENCY_RUNNER_ID', 'HAGENCY_DISPATCH_CAPABILITY', 'HAGENCY_FENCE_GENERATION'] },
     requestOwnerApproval: async request => {
       report.approvalRequests.push({ kind: request.kind, command: request.command, reason: request.reason });
       save();

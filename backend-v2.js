@@ -137,25 +137,25 @@ import { MatrixDispatchStore } from './src/matrix-dispatch-store.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.dirname(__filename);
 const RUNTIME_ROOT = (() => {
-  const raw = String(process.env.HAFLEET_RUNTIME_DIR || '').trim();
+  const raw = String(process.env.HAGENCY_RUNTIME_DIR || '').trim();
   return raw ? path.resolve(raw) : REPO_ROOT;
 })();
 assertRuntimeDir(RUNTIME_ROOT);
 const DATA_DIR = path.join(RUNTIME_ROOT, 'data');
-const DEFAULT_BACKEND_PORT_RAW = Number.parseInt(process.env.HAFLEET_BACKEND_PORT || '8090', 10);
+const DEFAULT_BACKEND_PORT_RAW = Number.parseInt(process.env.HAGENCY_BACKEND_PORT || '8090', 10);
 const PORT = Number.isFinite(DEFAULT_BACKEND_PORT_RAW) && DEFAULT_BACKEND_PORT_RAW > 0
   ? DEFAULT_BACKEND_PORT_RAW
   : 8090;
 /*
  * The web-bridge constants that pointed at the retired portal (WEB_BASE_URL, PUSH_QUEUE_URL,
- * HAFLEET_DASHBOARD_TOKEN) lived here. The queue is in-process now — `postToDeliveryQueue` — and the
- * one legitimate remote case reads HAFLEET_QUEUE_URL directly, so a stale HAFLEET_WEB_PORT can no
+ * HAGENCY_DASHBOARD_TOKEN) lived here. The queue is in-process now — `postToDeliveryQueue` — and the
+ * one legitimate remote case reads HAGENCY_QUEUE_URL directly, so a stale HAGENCY_WEB_PORT can no
  * longer steer notifications at a port nothing listens on.
  */
 const execFileAsync = promisify(execFile);
 const LOCALHOST_IPS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const LOCAL_SERVER_ID = resolveLocalServerId();
-const RECORD_LOCAL_SERVER = normalizeBoolean(process.env.HAFLEET_RECORD_LOCAL_SERVER) === true;
+const RECORD_LOCAL_SERVER = normalizeBoolean(process.env.HAGENCY_RECORD_LOCAL_SERVER) === true;
 const LOCAL_GIT_VERSION = (() => { try { return execSync('git rev-parse --short HEAD', { encoding: 'utf-8', timeout: 5000 }).trim(); } catch { return null; } })();
 // How this host reaches its agents. Every platform-specific operation — pane
 // enumeration, output capture, keystroke delivery, session existence — goes
@@ -172,7 +172,7 @@ for (const warning of sessionPolicy.warnings) console.warn(`[backend] ${warning}
 const USER_UID = (typeof process.getuid === 'function') ? process.getuid() : null;
 const USER_RUNTIME_DIR = Number.isFinite(USER_UID) ? `/run/user/${USER_UID}` : null;
 const USER_DBUS_SESSION_BUS = USER_RUNTIME_DIR ? `unix:path=${USER_RUNTIME_DIR}/bus` : null;
-const CORS_ALLOWED_ORIGIN = (process.env.FRP_API_ORIGIN || 'https://hafleet.example.com').trim();
+const CORS_ALLOWED_ORIGIN = (process.env.FRP_API_ORIGIN || 'https://hagency.example.com').trim();
 const HEARTBEAT_TTL_MS = Number.parseInt(process.env.AGENT_HEARTBEAT_TTL_MS || '90000', 10);
 const SERVER_SWEEP_INTERVAL_MS = Number.parseInt(process.env.AGENT_SERVER_SWEEP_INTERVAL_MS || '15000', 10);
 const HUMAN_SUMMARY_LIMIT = Number.parseInt(process.env.HUMAN_SUMMARY_LIMIT || '50', 10);
@@ -214,7 +214,7 @@ const AGENT_SCOPE_ALERT_CLEAR_RATIO = Number.isFinite(AGENT_SCOPE_ALERT_CLEAR_RA
 // than honored.
 const DISPATCH_LEASE_TTL_DEFAULT_MS = 15 * 60 * 1000; // 15 minutes
 const DISPATCH_LEASE_TTL_FLOOR_MS = 1000; // 1 second
-const DISPATCH_LEASE_TTL_MS_RAW = Number.parseInt(process.env.HAFLEET_DISPATCH_LEASE_TTL_MS || String(DISPATCH_LEASE_TTL_DEFAULT_MS), 10);
+const DISPATCH_LEASE_TTL_MS_RAW = Number.parseInt(process.env.HAGENCY_DISPATCH_LEASE_TTL_MS || String(DISPATCH_LEASE_TTL_DEFAULT_MS), 10);
 const DISPATCH_LEASE_TTL_MS = Number.isFinite(DISPATCH_LEASE_TTL_MS_RAW) && DISPATCH_LEASE_TTL_MS_RAW > 0
   ? Math.max(DISPATCH_LEASE_TTL_FLOOR_MS, DISPATCH_LEASE_TTL_MS_RAW)
   : DISPATCH_LEASE_TTL_DEFAULT_MS;
@@ -225,47 +225,47 @@ const DISPATCH_LEASE_DEFAULT_OWNER = 'unspecified';
 // POST /api/dispatch/release defaults to REJECTING the legacy {agent}-only shape (no leaseId,
 // no owner): letting ownership be skipped just by omitting fields would defeat the whole point
 // of "owner mismatch must fail" (a caller could always dodge the check by not claiming an
-// owner). HAFLEET_ALLOW_LEGACY_RELEASE=1 is an explicit, off-by-default escape hatch for a
+// owner). HAGENCY_ALLOW_LEGACY_RELEASE=1 is an explicit, off-by-default escape hatch for a
 // caller that predates ownership (e.g. a reintroduced OpenFab Bridge — the version live at the
 // time this lease system was built has since been descoped/stopped, so nothing needs it today).
-const DISPATCH_ALLOW_LEGACY_RELEASE = normalizeBoolean(process.env.HAFLEET_ALLOW_LEGACY_RELEASE) === true;
+const DISPATCH_ALLOW_LEGACY_RELEASE = normalizeBoolean(process.env.HAGENCY_ALLOW_LEGACY_RELEASE) === true;
 const OFFLINE_CATCHUP_LIST_LIMIT = Number.parseInt(process.env.OFFLINE_CATCHUP_LIST_LIMIT || '50', 10);
 const MESSAGE_ATTACHMENT_MAX_ITEMS = Number.parseInt(process.env.MESSAGE_ATTACHMENT_MAX_ITEMS || '8', 10);
 const MESSAGE_ATTACHMENT_MAX_BYTES = Number.parseInt(process.env.MESSAGE_ATTACHMENT_MAX_BYTES || String(20 * 1024 * 1024), 10);
 const MESSAGE_ATTACHMENT_STAGE_JSON_LIMIT = (process.env.MESSAGE_ATTACHMENT_STAGE_JSON_LIMIT || '30mb').trim() || '30mb';
 const MESSAGE_RETENTION_LIMIT = Math.max(100, Number.parseInt(process.env.AGENT_MESSAGE_RETENTION_LIMIT || '5000', 10) || 5000);
-const THREAD_SESSIONS_ENABLED = normalizeBoolean(process.env.HAFLEET_THREAD_SESSIONS) === true;
-const ROUTER_TASK_CUTOVER_ENABLED = normalizeBoolean(process.env.HAFLEET_ROUTER_TASK_CUTOVER) === true;
-const ROUTER_SHADOW_ENABLED = normalizeBoolean(process.env.HAFLEET_ROUTER_SHADOW) === true;
-const AGENT_OPS_CLIENT_ENABLED = normalizeBoolean(process.env.HAFLEET_AGENT_OPS_CLIENT) === true;
+const THREAD_SESSIONS_ENABLED = normalizeBoolean(process.env.HAGENCY_THREAD_SESSIONS) === true;
+const ROUTER_TASK_CUTOVER_ENABLED = normalizeBoolean(process.env.HAGENCY_ROUTER_TASK_CUTOVER) === true;
+const ROUTER_SHADOW_ENABLED = normalizeBoolean(process.env.HAGENCY_ROUTER_SHADOW) === true;
+const AGENT_OPS_CLIENT_ENABLED = normalizeBoolean(process.env.HAGENCY_AGENT_OPS_CLIENT) === true;
 const AGENT_OPS_LOOPBACK_ORIGIN = AGENT_OPS_CLIENT_ENABLED
   ? normalizeAgentOpsLoopbackOrigin(
-    process.env.HAFLEET_AGENT_OPS_LOOPBACK_ORIGIN || `http://127.0.0.1:${PORT}`,
+    process.env.HAGENCY_AGENT_OPS_LOOPBACK_ORIGIN || `http://127.0.0.1:${PORT}`,
   )
   : null;
-const RUNNER_LEASE_MS = Math.max(60_000, Number.parseInt(process.env.HAFLEET_RUNNER_LEASE_MS || '1200000', 10) || 1_200_000);
-const RUNNER_ACK_MS = Math.max(1_000, Number.parseInt(process.env.HAFLEET_RUNNER_ACK_MS || '60000', 10) || 60_000);
+const RUNNER_LEASE_MS = Math.max(60_000, Number.parseInt(process.env.HAGENCY_RUNNER_LEASE_MS || '1200000', 10) || 1_200_000);
+const RUNNER_ACK_MS = Math.max(1_000, Number.parseInt(process.env.HAGENCY_RUNNER_ACK_MS || '60000', 10) || 60_000);
 const RUNNER_LAUNCH_RETRY_MS = Math.max(1_000, Math.min(
   60_000,
-  Number.parseInt(process.env.HAFLEET_RUNNER_LAUNCH_RETRY_MS || '5000', 10) || 5_000,
+  Number.parseInt(process.env.HAGENCY_RUNNER_LAUNCH_RETRY_MS || '5000', 10) || 5_000,
 ));
-const MAX_LIVE_RUNNERS = Math.max(1, Number.parseInt(process.env.HAFLEET_MAX_LIVE_RUNNERS || '8', 10) || 8);
-const MAX_PARKED_RUNNERS_RAW = Number.parseInt(process.env.HAFLEET_MAX_PARKED_RUNNERS || '4', 10);
+const MAX_LIVE_RUNNERS = Math.max(1, Number.parseInt(process.env.HAGENCY_MAX_LIVE_RUNNERS || '8', 10) || 8);
+const MAX_PARKED_RUNNERS_RAW = Number.parseInt(process.env.HAGENCY_MAX_PARKED_RUNNERS || '4', 10);
 const MAX_PARKED_RUNNERS = Number.isFinite(MAX_PARKED_RUNNERS_RAW)
   ? Math.max(0, MAX_PARKED_RUNNERS_RAW)
   : 4;
-const REBUILD_TOKEN_BUDGET = Math.max(1_000, Number.parseInt(process.env.HAFLEET_REBUILD_TOKEN_BUDGET || '12000', 10) || 12_000);
-const THREAD_SESSION_MCP_SERVER_NAME = /^[A-Za-z0-9_-]{1,64}$/.test(process.env.HAFLEET_MCP_SERVER_NAME || '')
-  ? process.env.HAFLEET_MCP_SERVER_NAME
-  : 'hafleet';
+const REBUILD_TOKEN_BUDGET = Math.max(1_000, Number.parseInt(process.env.HAGENCY_REBUILD_TOKEN_BUDGET || '12000', 10) || 12_000);
+const THREAD_SESSION_MCP_SERVER_NAME = /^[A-Za-z0-9_-]{1,64}$/.test(process.env.HAGENCY_MCP_SERVER_NAME || '')
+  ? process.env.HAGENCY_MCP_SERVER_NAME
+  : 'hagency';
 if (MAX_PARKED_RUNNERS >= MAX_LIVE_RUNNERS) {
-  throw new Error('HAFLEET_MAX_PARKED_RUNNERS must be lower than HAFLEET_MAX_LIVE_RUNNERS');
+  throw new Error('HAGENCY_MAX_PARKED_RUNNERS must be lower than HAGENCY_MAX_LIVE_RUNNERS');
 }
 if (THREAD_SESSIONS_ENABLED && !ROUTER_TASK_CUTOVER_ENABLED) {
-  throw new Error('HAFLEET_THREAD_SESSIONS requires HAFLEET_ROUTER_TASK_CUTOVER=1');
+  throw new Error('HAGENCY_THREAD_SESSIONS requires HAGENCY_ROUTER_TASK_CUTOVER=1');
 }
 if (AGENT_OPS_CLIENT_ENABLED && !THREAD_SESSIONS_ENABLED) {
-  throw new Error('HAFLEET_AGENT_OPS_CLIENT requires HAFLEET_THREAD_SESSIONS=1');
+  throw new Error('HAGENCY_AGENT_OPS_CLIENT requires HAGENCY_THREAD_SESSIONS=1');
 }
 const routerRuntime = (ROUTER_TASK_CUTOVER_ENABLED || THREAD_SESSIONS_ENABLED || ROUTER_SHADOW_ENABLED)
   ? await import('./router/dist/index.js')
@@ -294,7 +294,7 @@ const AGENT_COMPACT_SUMMARY_MAX = Number.parseInt(process.env.AGENT_COMPACT_SUMM
 const AGENT_COMPACT_RUNTIME_DEDUPE_MS = Number.parseInt(process.env.AGENT_COMPACT_RUNTIME_DEDUPE_MS || '120000', 10);
 const BACKEND_STARTUP_OPTIONAL_ENV = [
   {
-    name: 'HAFLEET_DASHBOARD_TOKEN',
+    name: 'HAGENCY_DASHBOARD_TOKEN',
     description: 'Non-local dashboard mutations will remain unavailable unless this token is configured.',
   },
   ];
@@ -407,7 +407,7 @@ const MEDIA_FETCH_ALLOWED_ROOTS = [
 
 
 /*
- * The queue lives IN this process now, so "post to the queue" is a function call. `HAFLEET_QUEUE_URL`
+ * The queue lives IN this process now, so "post to the queue" is a function call. `HAGENCY_QUEUE_URL`
  * is still honoured for a deployment that runs the queue elsewhere — in that one case this really is
  * an HTTP request, carrying the operator bearer because the remote queue's guard accepts it.
  *
@@ -415,7 +415,7 @@ const MEDIA_FETCH_ALLOWED_ROOTS = [
  * move and read a fetch Response, and keeping that contract meant none of their logic — event
  * emission, markAgentPushNotified, error paths — had to be re-derived during the migration.
  */
-const REMOTE_QUEUE_URL = (process.env.HAFLEET_QUEUE_URL || '').trim().replace(/\/$/, '');
+const REMOTE_QUEUE_URL = (process.env.HAGENCY_QUEUE_URL || '').trim().replace(/\/$/, '');
 async function postToDeliveryQueue(bodyObj, idempotencyKey = '') {
   if (REMOTE_QUEUE_URL) {
     return fetch(REMOTE_QUEUE_URL, {
@@ -1433,7 +1433,7 @@ const requireBearer = createRequireBearer({ env: process.env });
  *
  *   - the agent's own MCP server sends `{name, type, tmux, server}` (`lib/mcp-server-core.js`) — none
  *     of the four;
- *   - `bin/hafleet-up` sends name/type/tmux/server plus version and path metadata, and carries the
+ *   - `bin/hagency-up` sends name/type/tmux/server plus version and path metadata, and carries the
  *     operator bearer anyway;
  *   - the dashboard's New Agent form does send `presetId` and `role`, but it reaches this endpoint
  *     through `server.js`'s `/api/agents/create`, and `backendFetch` attaches the operator bearer to
@@ -1800,8 +1800,8 @@ const pendingInviteStore = createPendingInviteStore({
  * trivially reversible — the input set is tiny — so an unkeyed value must never be
  * mistaken for one that protects anything.
  */
-const SEAT_KEY_SECRET = String(process.env.HAFLEET_SEAT_KEY || '').trim();
-const SEAT_KEY_ID = String(process.env.HAFLEET_SEAT_KEY_ID || 'default').trim() || 'default';
+const SEAT_KEY_SECRET = String(process.env.HAGENCY_SEAT_KEY || '').trim();
+const SEAT_KEY_ID = String(process.env.HAGENCY_SEAT_KEY_ID || 'default').trim() || 'default';
 
 /** Ceiling on a preset: the field the contributor is actually deciding. */
 function normalizeCeiling(value) {
@@ -1872,7 +1872,7 @@ const approvalStore = new ApprovalStore(path.join(DATA_DIR, 'approvals.json'), {
   isAgentCurrent: (name, id) => isAgentRecord(agents[name]) && executionAgentIdentity(agents[name]) === id,
 });
 /*
- * 项目方 — the project sides HAFleet is registered with (ADR-016 decision 1).
+ * 项目方 — the project sides Hagency is registered with (ADR-016 decision 1).
  *
  * Separate from `approvals.json` rather than a section inside it, because this file holds
  * CREDENTIALS: an `as_token` granting a whole namespace on a homeserver we do not administer.
@@ -2533,14 +2533,14 @@ function runnerEnvironment(agent) {
   if (!token) throw new Error(`ephemeral runner agent token is unavailable for '${agent.name}'`);
   const env = {
     AGENT_NAME: agent.name,
-    HAFLEET_API: `http://127.0.0.1:${PORT}`,
-    HAFLEET_EPHEMERAL_RUNNER: '1',
-    HAFLEET_MCP_SERVER_NAME: THREAD_SESSION_MCP_SERVER_NAME,
-    HAFLEET_RUNTIME_DIR: RUNTIME_ROOT,
-    HAFLEET_AGENT_ID: agent.agentId,
+    HAGENCY_API: `http://127.0.0.1:${PORT}`,
+    HAGENCY_EPHEMERAL_RUNNER: '1',
+    HAGENCY_MCP_SERVER_NAME: THREAD_SESSION_MCP_SERVER_NAME,
+    HAGENCY_RUNTIME_DIR: RUNTIME_ROOT,
+    HAGENCY_AGENT_ID: agent.agentId,
     AGENT_TOKEN: token,
   };
-  if (agent.homeDir) env.HAFLEET_AGENT_STATE_DIR = path.join(agent.homeDir, 'state');
+  if (agent.homeDir) env.HAGENCY_AGENT_STATE_DIR = path.join(agent.homeDir, 'state');
   const profile = agent.runtimeProfile?.primary;
   if (profile?.apiBaseUrl && threadSessionFramework(agent) === 'claude') env.ANTHROPIC_BASE_URL = profile.apiBaseUrl;
   if (profile?.apiKey && threadSessionFramework(agent) === 'claude') env.ANTHROPIC_API_KEY = profile.apiKey;
@@ -2556,7 +2556,7 @@ function runnerEnvironment(agent) {
 // docs/THREAD-SESSIONS.md gates the canary on; if either is rejected the
 // dispatch fails closed to outcome_unknown rather than running unconstrained.
 function claudeThreadSessionArgs(agent, mayWrite, modelOverride = null) {
-  if (normalizeBoolean(process.env.HAFLEET_CLAUDE_PERMISSION_CHANNEL) === false) {
+  if (normalizeBoolean(process.env.HAGENCY_CLAUDE_PERMISSION_CHANNEL) === false) {
     throw new ClaudeRuntimeConfigurationError('managed Claude ephemeral runners require the owner-approval MCP channel');
   }
   const args = [
@@ -2625,7 +2625,7 @@ async function launchClaimedThreadSessionRunner(claim, signal, onCleanup) {
   if (descriptor.framework === 'codex') {
     return runCodexDispatch({
       ...base,
-      executable: process.env.HAFLEET_CODEX_RUNNER_BIN || 'codex',
+      executable: process.env.HAGENCY_CODEX_RUNNER_BIN || 'codex',
       model: descriptor.modelOverride || agent.runtimeProfile?.primary?.model || undefined,
       effort: normalizedCodexEffort(agent.runtimeProfile?.primary?.reasoning),
       yolo: normalizeExecutionPolicy(agent.executionPolicy, 'codex').yolo,
@@ -2637,11 +2637,11 @@ async function launchClaimedThreadSessionRunner(claim, signal, onCleanup) {
         command: process.execPath,
         args: [path.join(REPO_ROOT, 'mcp-server.js')],
         envVars: [
-          'AGENT_NAME', 'HAFLEET_API', 'HAFLEET_MCP_SERVER_NAME',
-          'HAFLEET_RUNTIME_DIR', 'HAFLEET_AGENT_STATE_DIR',
-          'HAFLEET_EPHEMERAL_RUNNER', 'HAFLEET_AGENT_ID', 'AGENT_TOKEN',
-          'HAFLEET_DISPATCH_CAPABILITY', 'HAFLEET_DISPATCH_ID',
-          'HAFLEET_RUNNER_ID', 'HAFLEET_FENCE_GENERATION',
+          'AGENT_NAME', 'HAGENCY_API', 'HAGENCY_MCP_SERVER_NAME',
+          'HAGENCY_RUNTIME_DIR', 'HAGENCY_AGENT_STATE_DIR',
+          'HAGENCY_EPHEMERAL_RUNNER', 'HAGENCY_AGENT_ID', 'AGENT_TOKEN',
+          'HAGENCY_DISPATCH_CAPABILITY', 'HAGENCY_DISPATCH_ID',
+          'HAGENCY_RUNNER_ID', 'HAGENCY_FENCE_GENERATION',
         ],
       },
       requestOwnerApproval: (request) => requestThreadSessionOwnerApproval(agent, descriptor.roomId, request, descriptor),
@@ -2649,7 +2649,7 @@ async function launchClaimedThreadSessionRunner(claim, signal, onCleanup) {
   }
   return runClaudeDispatch({
     ...base,
-    executable: process.env.HAFLEET_CLAUDE_RUNNER_BIN || 'claude',
+    executable: process.env.HAGENCY_CLAUDE_RUNNER_BIN || 'claude',
     args: claudeThreadSessionArgs(agent, mayWrite, descriptor.modelOverride),
   });
 }
@@ -3518,7 +3518,7 @@ function isManualDownReason(reason) {
   if (!text) return false;
   return text === 'manual-offline'
     || text === 'session-missing'
-    || text.startsWith('hafleet-down')
+    || text.startsWith('hagency-down')
     || text.startsWith('server-maintenance:');
 }
 
@@ -6650,7 +6650,7 @@ function pushResourceAlertToAgent(agentName, summary) {
 
   const payload = `[RESOURCE ALERT] ${summary}\nPlease pause heavy tasks, checkpoint progress, and reduce memory usage immediately.`;
   postToDeliveryQueue({
-      from: 'hafleet-backend',
+      from: 'hagency-backend',
       to: agent.tmux,
       payload,
       notifyMeta: {
@@ -7001,7 +7001,7 @@ function applyServerHeartbeat(serverId, payload = {}, sourceIp = null) {
     if (ensured.created) {
       agentsChanged = true;
       // Adopting a session as an agent was completely silent, so a tmux session
-      // that had nothing to do with HAFleet became a permanent agent record with
+      // that had nothing to do with Hagency became a permanent agent record with
       // no trace of when or why. A throwaway session created to check something
       // by hand was adopted within one heartbeat and outlived the session itself.
       // Say so, and record it where an operator will actually see it.
@@ -7009,9 +7009,9 @@ function applyServerHeartbeat(serverId, payload = {}, sourceIp = null) {
       emitSystemInfo(
         `Adopted tmux session '${name}' as an agent`,
         `Server '${serverId}' reported session '${name}', which had no agent record, so one was created. `
-          + 'HAFleet can now type into that pane. If it does not belong to HAFleet, add it to '
-          + 'HAFLEET_SESSION_DENYLIST (or set HAFLEET_SESSION_ALLOWLIST) and remove the record with '
-          + 'bin/hafleet-prune-agents.',
+          + 'Hagency can now type into that pane. If it does not belong to Hagency, add it to '
+          + 'HAGENCY_SESSION_DENYLIST (or set HAGENCY_SESSION_ALLOWLIST) and remove the record with '
+          + 'bin/hagency-prune-agents.',
         'agent_adopted',
         { dedupeKey: `agent_adopted:${serverId}:${name}` }
       );
@@ -7253,7 +7253,7 @@ async function notifyAgentCatchup(agentName, reason = 'online') {
     omitted > 0 ? `... ${omitted} older message(s) omitted from replay list.` : null,
     'These messages may be time-sensitive. Review timestamps and decide whether a reply is still needed.',
     'check_inbox() returns per-message time fields: ts / at / time.',
-    'FIRST ACTION: call check_inbox() now. Use check_inbox() in hafleet MCP for full context before acting.',
+    'FIRST ACTION: call check_inbox() now. Use check_inbox() in hagency MCP for full context before acting.',
   ].filter(Boolean).join('\n');
 
   const idReservation = reserveNextMsgId();
@@ -7316,7 +7316,7 @@ async function notifyAgentCatchup(agentName, reason = 'online') {
 
 export function buildMcpReplyActionHint(msg, replyTo = null) {
   // Delegates to lib/reply-hint.js so the ACP host applies the same rule. It did
-  // not: it told its agent to reply unconditionally, so one `hafleet tell` task
+  // not: it told its agent to reply unconditionally, so one `hagency tell` task
   // produced silence from claude and codex and a message from octos.
   return buildReplyHint(msg, replyTo);
 }
@@ -7324,7 +7324,7 @@ export function buildMcpReplyActionHint(msg, replyTo = null) {
 async function pushNotify(agentName, msg, options = {}) {
   const agent = agents[agentName];
   // An ACP agent has no pane, and its session is held by a separate host process
-  // (scripts/hafleet-acp-agent.mjs) that this process cannot reach into. So the
+  // (scripts/hagency-acp-agent.mjs) that this process cannot reach into. So the
   // backend does not push to it — the host pulls, by polling the same inbox
   // endpoint check_inbox uses, and prompts the agent over session/prompt.
   //
@@ -7453,7 +7453,7 @@ async function pushNotify(agentName, msg, options = {}) {
     const operatorHint = isHuman && (isOperator || !isMatrix) ? ' This is your human operator.' : '';
 
     if (hasMcp) {
-      const checkHint = `FIRST ACTION: call check_inbox() now. Use check_inbox() in hafleet MCP for full context before acting.`;
+      const checkHint = `FIRST ACTION: call check_inbox() now. Use check_inbox() in hagency MCP for full context before acting.`;
       const actionHint = needsReply ? buildMcpReplyActionHint(msg, replyTo) : null;
       notificationKind = needsReply ? 'single_actionable' : 'single_inform';
       requiresInboxCheck = needsReply;
@@ -7467,7 +7467,7 @@ async function pushNotify(agentName, msg, options = {}) {
       const senderTmux = senderAgent?.tmux || `${replyTo}:0.0`;
       let actionHint;
       if (needsReply) {
-        actionHint = `Reply after ALL WORK is done, using /agent-message skill or: hafleet-send ${senderTmux} "<your reply>"`;
+        actionHint = `Reply after ALL WORK is done, using /agent-message skill or: hagency-send ${senderTmux} "<your reply>"`;
       }
       notificationKind = needsReply ? 'single_actionable' : 'single_inform';
       requiresInboxCheck = false;
@@ -7493,7 +7493,7 @@ async function pushNotify(agentName, msg, options = {}) {
       hasMcp,
     };
     const resp = await postToDeliveryQueue(
-      { from: 'hafleet-backend', to: agent.tmux, payload: notification, priority: notificationPriority || 'normal', notifyMeta },
+      { from: 'hagency-backend', to: agent.tmux, payload: notification, priority: notificationPriority || 'normal', notifyMeta },
       options.idempotencyKey || '',
     );
     if (resp.ok) {
@@ -7982,7 +7982,7 @@ initDeliveryQueue({
  * `global-api-auth-only` in the boundary manifest, which is the policy that already exists for this
  * exact situation (GET /api/stream uses it).
  *
- * What DID change from the old process: the portal accepted HAFLEET_DASHBOARD_TOKEN from non-local
+ * What DID change from the old process: the portal accepted HAGENCY_DASHBOARD_TOKEN from non-local
  * callers; that token died with the portal, and the operator bearer is the remote credential now.
  */
 installDeliveryQueueRoutes(app);
@@ -8499,10 +8499,10 @@ app.post('/api/agent-ops/v1/commands/resolve-outcome', requireAgentOpsEnabled, r
 });
 
 function runnerCapabilityFromRequest(req) {
-  const dispatchId = normalizeOptionalText(req.headers['x-hafleet-dispatch-id'], 255);
-  const runnerId = normalizeOptionalText(req.headers['x-hafleet-runner-id'], 255);
-  const capability = normalizeOptionalText(req.headers['x-hafleet-dispatch-capability'], 512);
-  const fenceGeneration = Number.parseInt(req.headers['x-hafleet-fence-generation'], 10);
+  const dispatchId = normalizeOptionalText(req.headers['x-hagency-dispatch-id'], 255);
+  const runnerId = normalizeOptionalText(req.headers['x-hagency-runner-id'], 255);
+  const capability = normalizeOptionalText(req.headers['x-hagency-dispatch-capability'], 512);
+  const fenceGeneration = Number.parseInt(req.headers['x-hagency-fence-generation'], 10);
   if (!dispatchId || !runnerId || !capability || !Number.isInteger(fenceGeneration) || fenceGeneration <= 0) return null;
   return { dispatchId, runnerId, capability, fenceGeneration };
 }
@@ -9088,18 +9088,18 @@ app.get('/api/approval-bindings', requireApprovalBridgeSecret, (req, res) => {
 /*
  * ── 项目方 Project sides (ADR-016 decisions 1, 3 and 8) ────────────────────────────────────
  *
- * A project side is one homeserver, the credential HAFleet holds there, and one representative.
+ * A project side is one homeserver, the credential Hagency holds there, and one representative.
  * It is the record that dissolves the circular dependency an operator identified: an agent MXID
  * contains a server name, so an identity cannot be minted before the server is known — and until
- * now `agentUserId()` composed one on HAFleet's OWN server at startup, before any project existed.
+ * now `agentUserId()` composed one on Hagency's OWN server at startup, before any project existed.
  *
  * THE CREDENTIAL IS WRITE-ONLY (decision 8). Every handler below returns the store's `publicSide`
  * projection, which has no credential field by construction. `credentialFor()` is called in exactly
  * one place — the verify handler, which needs it to talk to the homeserver — and its value never
  * reaches a response. The operator can set and replace it; nothing can read it back.
  *
- * Why that is a different rule from `cf.ownSecrets`, which says HAFleet's own secrets are
- * deliberately not editable from a browser: that rule protects HAFleet's own AUTHENTICATION, where a
+ * Why that is a different rule from `cf.ownSecrets`, which says Hagency's own secrets are
+ * deliberately not editable from a browser: that rule protects Hagency's own AUTHENTICATION, where a
  * bad value locks the operator out of the console itself. A project side's credential is inbound work
  * capacity — a bad value costs one project side's reachability and locks nobody out.
  */
@@ -9160,10 +9160,10 @@ function withProjectStaffing(side) {
    * APPROVED BUT NOT ATTACHED, per room — the state that reads as "nobody is on this project".
    *
    * `agents` above comes from BINDINGS, and an engagement going active only creates one when an owner can
-   * be resolved; without `HAFLEET_OWNER_MXID` the bind fails and records `bindError` on the engagement.
+   * be resolved; without `HAGENCY_OWNER_MXID` the bind fails and records `bindError` on the engagement.
    * That is correct and it was invisible: on a live fleet a project with 50k committed to `soaker` showed
-   * 「还没派人」, while the reason — "no owner known for this agent: set HAFLEET_OWNER_MXID and
-   * HAFLEET_OWNER_DM_ROOM" — sat in the engagement record that no page read. The approval path's own
+   * 「还没派人」, while the reason — "no owner known for this agent: set HAGENCY_OWNER_MXID and
+   * HAGENCY_OWNER_DM_ROOM" — sat in the engagement record that no page read. The approval path's own
    * comment claims the failure is "shown in the console"; it was not.
    *
    * JOINED HERE, not on the page. The console is explicit that who staffs a project is the backend's
@@ -9436,7 +9436,7 @@ function sweepCeilingOverruns() {
           drawnTokens: drawn,
           overByTokens: over,
         },
-        owner: 'hafleet-operator',
+        owner: 'hagency-operator',
         runbook: `raise the ceiling on preset ${agent.presetId ?? '(none)'} to cover what is already `
           + `committed, or revoke engagements on ${name} until the drawn figure is back under it`,
         impact: 'no new engagement can be approved against this agent; the work already approved keeps '
@@ -9471,7 +9471,7 @@ function raiseSideBudgetAlarm(sideId, { reason, act, budget, wanted }) {
         committedTokens: budget?.committed ?? null,
         remainingTokens: budget?.remaining ?? null,
       },
-      owner: 'hafleet-operator',
+      owner: 'hagency-operator',
       runbook: `PUT /api/project-sides/${sideId}/allocation with a higher allocated_tokens, `
         + 'or accept that this side stays closed to new work',
       impact: 'engagements on this project side are refused at admission; nothing running is stopped, '
@@ -9582,11 +9582,11 @@ app.get('/api/project-sides/:id/budget', requireBearer, (req, res) => {
  *
  * WHAT THE DIFFERENCE ACTUALLY IS:
  *   - `hsToken` authenticates a push INTO us. Holding it lets someone impersonate the homeserver
- *     towards HAFleet — bounded, and the receiver's own idempotency and routing bound it further.
+ *     towards Hagency — bounded, and the receiver's own idempotency and routing bound it further.
  *   - `asToken` acts as ANY identity in the claimed namespace, plus the representative itself. Holding
  *     it lets someone speak, create rooms and join rooms as every lent agent on that side.
  *
- * WHY THE BRIDGE GETS IT ANYWAY. The bridge IS the component that acts on Matrix for HAFleet; refusing
+ * WHY THE BRIDGE GETS IT ANYWAY. The bridge IS the component that acts on Matrix for Hagency; refusing
  * it acting credentials would leave the representative concept inert — nothing could create the
  * approval room a borrower decides in (ADR-016's resolved collision), and nothing could publish into
  * it. It already holds the bot's token and every agent's, so this extends an existing trust boundary
@@ -9642,17 +9642,17 @@ app.get('/api/project-sides/:id/budget', requireBearer, (req, res) => {
  */
 app.post('/api/matrix/callback-check', requireBearer, async (req, res) => {
   const homeserverUrl = typeof req.body?.homeserver_url === 'string' ? req.body.homeserver_url.trim() : '';
-  const rawPort = String(process.env.HAFLEET_APPSERVICE_PORT ?? '').trim();
+  const rawPort = String(process.env.HAGENCY_APPSERVICE_PORT ?? '').trim();
   const port = /^\d+$/.test(rawPort) ? Number(rawPort) : null;
   try {
     /*
      * The edge's URL travels too, because what the homeserver must reach depends on which way in is
      * configured — and with an edge it is the edge, not this host.
      */
-    const edgeUrl = String(process.env.HAFLEET_EDGE_URL ?? '').trim()
-      && String(process.env.HAFLEET_EDGE_LINK_TOKEN ?? '').trim()
-      && String(process.env.HAFLEET_EDGE_SIDE ?? '').trim()
-      ? String(process.env.HAFLEET_EDGE_URL).trim()
+    const edgeUrl = String(process.env.HAGENCY_EDGE_URL ?? '').trim()
+      && String(process.env.HAGENCY_EDGE_LINK_TOKEN ?? '').trim()
+      && String(process.env.HAGENCY_EDGE_SIDE ?? '').trim()
+      ? String(process.env.HAGENCY_EDGE_URL).trim()
       : null;
     const result = await verifyCallbackFromHomeserver({
       homeserverUrl, port, edgeUrl, execFileImpl: execFile,
@@ -9700,10 +9700,10 @@ app.get('/api/matrix/reach', requireBearer, async (req, res) => {
     const sides = projectSideStore.listSides({ activeOnly: false });
     const reach = await describeMatrixReach({ env: process.env, sides });
     /*
-     * ASK THE EDGE WHAT THE REGISTRATION MUST SAY, because HAFleet cannot know it and guessing shipped a
+     * ASK THE EDGE WHAT THE REGISTRATION MUST SAY, because Hagency cannot know it and guessing shipped a
      * registration that silently received nothing.
      *
-     * `HAFLEET_EDGE_URL` is how HAFleet COLLECTS from the edge. The registration needs the address the
+     * `HAGENCY_EDGE_URL` is how Hagency COLLECTS from the edge. The registration needs the address the
      * HOMESERVER dials — the edge's own socket, which is loopback when co-located. Walked on a clean pair of
      * machines: the console pre-filled the collect address (a public IP), the homeserver could not reach it,
      * `verify` still answered `accepted` because it only proves the outbound direction, and the edge's own
@@ -9715,10 +9715,10 @@ app.get('/api/matrix/reach', requireBearer, async (req, res) => {
      * is exactly the guess that caused this.
      */
     if (reach?.appservice?.inboundVia === 'edge') {
-      const link = String(process.env.HAFLEET_EDGE_LINK_TOKEN ?? '').trim();
+      const link = String(process.env.HAGENCY_EDGE_LINK_TOKEN ?? '').trim();
       try {
-        const probe = await fetch(`${reach.appservice.edgeUrl}/_hafleet/edge/status`, {
-          headers: { 'x-hafleet-link': link },
+        const probe = await fetch(`${reach.appservice.edgeUrl}/_hagency/edge/status`, {
+          headers: { 'x-hagency-link': link },
           signal: AbortSignal.timeout(5000),
         });
         if (!probe.ok) throw new Error(`the edge answered HTTP ${probe.status}`);
@@ -9736,7 +9736,7 @@ app.get('/api/matrix/reach', requireBearer, async (req, res) => {
           transactions: body?.transactions ?? 0,
           delivered: body?.delivered ?? 0,
           rejected: body?.rejected ?? 0,
-          collecting: Boolean(body?.hafleetWaiting) || Boolean(body?.hafleetLastSeenAt),
+          collecting: Boolean(body?.hagencyWaiting) || Boolean(body?.hagencyLastSeenAt),
         };
         if (!body?.registrationUrl) {
           reach.appservice.edgeNote = 'this edge does not report which address the homeserver should dial, '
@@ -9747,7 +9747,7 @@ app.get('/api/matrix/reach', requireBearer, async (req, res) => {
         reach.appservice.edgeReachable = false;
         reach.appservice.edgeRegistrationUrl = null;
         reach.appservice.inbound = { state: 'unknown', detail: 'the edge could not be asked' };
-        reach.appservice.edgeNote = `HAFleet cannot reach the edge at ${reach.appservice.edgeUrl}: `
+        reach.appservice.edgeNote = `Hagency cannot reach the edge at ${reach.appservice.edgeUrl}: `
           + `${error?.message || error}. Nothing will be collected until it can, so fix this before `
           + 'issuing a registration.';
       }
@@ -9922,11 +9922,11 @@ app.post('/api/project-sides/:id/verify', requireBearer, async (req, res) => {
     /*
      * A STAGED CREDENTIAL IS TRIED FIRST, and that is what makes staging finish itself.
      *
-     * The operator's remaining job is to install the file and restart their homeserver — HAFleet cannot do
+     * The operator's remaining job is to install the file and restart their homeserver — Hagency cannot do
      * either, and should not: writing to a customer's filesystem and restarting their Matrix server are
      * exactly the authorities `docs/FOR-PROJECT-SIDES.md` promises never to take. But it CAN notice the
      * moment the install lands, and promote without being asked. So the chore shrinks to "install it", with
-     * no separate "now tell HAFleet" step.
+     * no separate "now tell Hagency" step.
      *
      * The live credential is still tried if the staged one fails, so a verify during the window between
      * issuing and installing reports the truth about what is currently working rather than a failure.
@@ -9993,7 +9993,7 @@ app.post('/api/project-sides/:id/verify', requireBearer, async (req, res) => {
 /*
  * Generate the appservice registration a project side installs.
  *
- * THE `url` IS AN INPUT AND CANNOT BE DERIVED. HAFleet does not know what address it has in the
+ * THE `url` IS AN INPUT AND CANNOT BE DERIVED. Hagency does not know what address it has in the
  * project side's eyes — a tunnel hostname, a public IP, `host.docker.internal` for a homeserver in a
  * container on the same machine. Guessing one produces a registration that installs cleanly and never
  * delivers anything, which is the failure mode hardest to diagnose from the project side: an
@@ -10034,7 +10034,7 @@ app.post('/api/project-sides/:id/registration-file', requireBearer, (req, res) =
   const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
   if (!url) {
     return res.status(400).json({
-      error: 'url is required: the address this project side\'s homeserver can reach HAFleet at',
+      error: 'url is required: the address this project side\'s homeserver can reach Hagency at',
       code: 'bad_request',
     });
   }
@@ -10045,7 +10045,7 @@ app.post('/api/project-sides/:id/registration-file', requireBearer, (req, res) =
    *
    * The 409 was there because issuing used to invalidate a registration the homeserver already had. It made
    * the dangerous act explicit, which was right — but the danger was avoidable, and the operator who hit it
-   * was handed a repair job for a state HAFleet had created by replacing something that worked.
+   * was handed a repair job for a state Hagency had created by replacing something that worked.
    */
   /*
    * STAGED ONLY OVER A CREDENTIAL THAT IS KNOWN TO WORK, and a walkthrough is what found the difference.
@@ -10064,13 +10064,13 @@ app.post('/api/project-sides/:id/registration-file', requireBearer, (req, res) =
   /*
    * REFUSED WITHOUT A RUNTIME DIRECTORY rather than falling back to the repo or to a temp path. A
    * credential written somewhere the operator did not choose is a credential nobody will remember to
-   * remove, and `HAFLEET_RUNTIME_DIR` is the one location this deployment has already declared as the
+   * remove, and `HAGENCY_RUNTIME_DIR` is the one location this deployment has already declared as the
    * place its secrets live.
    */
-  const runtimeDir = String(process.env.HAFLEET_RUNTIME_DIR || '').trim();
+  const runtimeDir = String(process.env.HAGENCY_RUNTIME_DIR || '').trim();
   if (!runtimeDir) {
     return res.status(503).json({
-      error: 'HAFLEET_RUNTIME_DIR is not set, so there is no declared place to write a credential',
+      error: 'HAGENCY_RUNTIME_DIR is not set, so there is no declared place to write a credential',
       code: 'no_runtime_dir',
       detail: 'start the services with the runtime .env sourced, or use the terminal form of this endpoint',
     });
@@ -10078,9 +10078,9 @@ app.post('/api/project-sides/:id/registration-file', requireBearer, (req, res) =
 
   try {
     const registration = generateRegistration({
-      id: req.body?.registration_id || `hafleet-${side.id}`,
+      id: req.body?.registration_id || `hagency-${side.id}`,
       url,
-      senderLocalpart: req.body?.sender_localpart || 'hafleet',
+      senderLocalpart: req.body?.sender_localpart || 'hagency',
       userNamespaceRegex: req.body?.user_namespace || `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}.*`,
       userNamespaceExclusive: req.body?.exclusive !== false,
     });
@@ -10173,7 +10173,7 @@ app.post('/api/project-sides/:id/registration', requireBearer, (req, res) => {
   const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
   if (!url) {
     return res.status(400).json({
-      error: 'url is required: the address this project side\'s homeserver can reach HAFleet at',
+      error: 'url is required: the address this project side\'s homeserver can reach Hagency at',
       code: 'bad_request',
     });
   }
@@ -10187,9 +10187,9 @@ app.post('/api/project-sides/:id/registration', requireBearer, (req, res) => {
   }
   try {
     const registration = generateRegistration({
-      id: req.body?.registration_id || `hafleet-${side.id}`,
+      id: req.body?.registration_id || `hagency-${side.id}`,
       url,
-      senderLocalpart: req.body?.sender_localpart || 'hafleet',
+      senderLocalpart: req.body?.sender_localpart || 'hagency',
       userNamespaceRegex: req.body?.user_namespace || `@${MATRIX_AGENT_PREFIX_FOR_REGISTRATION}.*`,
       userNamespaceExclusive: req.body?.exclusive !== false,
     });
@@ -10254,7 +10254,7 @@ app.post('/api/project-sides/:id/registration', requireBearer, (req, res) => {
  * WHAT EACH CREDENTIAL KIND YIELDS, stated because they differ and only one is complete end to end:
  *
  *   appservice        an MXID and NO token. The namespace already authorises it, so nothing is
- *                     registered and HAFleet acts as the agent by masquerading (`?user_id=`). The
+ *                     registered and Hagency acts as the agent by masquerading (`?user_id=`). The
  *                     identity is real; the bridge's send path still wants a per-agent token, so an
  *                     appservice-minted agent can be ADDRESSED but cannot yet SEND. Named as the next
  *                     gap rather than hidden behind a success.
@@ -10753,7 +10753,7 @@ return res.json({
 /*
  * Verify every active side once, after the server is listening.
  *
- * NON-BLOCKING and after `listening` deliberately: this makes network calls to homeservers HAFleet
+ * NON-BLOCKING and after `listening` deliberately: this makes network calls to homeservers Hagency
  * does not control, and a slow or unreachable project side must not delay or fail startup. Each side
  * is independent — `ensureRepresentative` returns a state rather than throwing, so one unreachable
  * server cannot stop the others being checked, which is the property that makes a sweep worth having
@@ -11028,7 +11028,7 @@ app.post('/api/agents', requireAgentToken(r => r.body?.name || ''), (req, res) =
   if (!agentName) return res.status(400).json({ error: 'invalid agent name' });
   // Agent tokens were read once at startup, so a token minted afterwards — which
   // is every agent created while the backend is already running — was invisible
-  // until a restart, and with HAFLEET_AGENT_TOKEN_MODE=hard every call that
+  // until a restart, and with HAGENCY_AGENT_TOKEN_MODE=hard every call that
   // agent made was rejected. Registration is exactly when a new token appears.
   // loadAgentTokens keeps already-known entries, so this cannot rotate a live one.
   if (!agentTokens.has(agentName)) loadAgentTokens();
@@ -11100,7 +11100,7 @@ app.post('/api/agents', requireAgentToken(r => r.body?.name || ''), (req, res) =
      * omission died. The old portal's New Agent form sent its GUIDANCE textarea in this field, so a
      * strict check would have silently discarded prose an operator typed; that portal is deleted, and
      * every living writer sends a vocabulary key or nothing (verified: the console's onboard sends
-     * presetId, hafleet-up sends no role, the provision endpoint takes framework/presetId). Free-text
+     * presetId, hagency-up sends no role, the provision endpoint takes framework/presetId). Free-text
      * about an agent belongs in `identity`, which has always been the prose field. An operator-supplied
      * role that is not in the vocabulary is REFUSED above rather than silently kept, because a typo the
      * operator never learns about is the silent-unstaffable-agent trap with better manners.
@@ -11340,7 +11340,7 @@ async function mintIdentityForProvisionedAgent(agentName, sideId) {
         sourceAgent: agentName,
         summary: `${agentName} was dispatched to ${sideId} without an identity minted there`,
         detail: { agent: agentName, sideId, reason },
-        owner: 'hafleet-operator',
+        owner: 'hagency-operator',
         runbook: `POST /api/agents/${agentName}/matrix-identity to retry, after fixing what the reason `
           + `names — usually the side's credential or its namespace`,
         impact: 'the agent can still be invited, joined and spoken as through the appservice, so work is '
@@ -11709,7 +11709,7 @@ app.get('/api/agents', (req, res) => {
 
 // matrix-Agent pool view (Phase 2): the role×capability grid, for capability-aware dispatch.
 // Read-only. Filters: ?role= ?capability= ?state=idle|busy|any (default any).
-// matrix-Agent capability scheduler (Phase 3): a reservation/queue over the pool. hafleet
+// matrix-Agent capability scheduler (Phase 3): a reservation/queue over the pool. hagency
 // decides *which* agent staffs a (role, capability); the caller (e.g. the OpenFab Bridge)
 // delivers the task to it and calls /release on completion. Busy/queue are in-memory.
 //
@@ -11720,7 +11720,7 @@ app.get('/api/agents', (req, res) => {
 // (leaseId, agent, owner) tuple and reject otherwise (owner mismatch, unknown/stale leaseId, or
 // an already-expired lease — distinct 4xx reasons). POST /api/dispatch/release rejects the
 // pre-Task-7 call shape ({agent} only, no leaseId/owner) by default — letting the ownership
-// check be skipped just by omitting fields would defeat it — unless HAFLEET_ALLOW_LEGACY_RELEASE=1
+// check be skipped just by omitting fields would defeat it — unless HAGENCY_ALLOW_LEGACY_RELEASE=1
 // is set, an explicit opt-in compatibility shim for a caller that predates ownership (see the
 // Task 7 report for the caller inventory; nothing in this stack needs the shim as of this
 // writing). An unrenewed lease is reaped once its TTL lapses (checked lazily on GET /api/pool and
@@ -12106,7 +12106,7 @@ app.post('/api/dispatch/renew', (req, res) => {
 // (owner mismatch / unknown-or-stale leaseId / already-expired lease → rejected, distinct 4xx
 // reasons). {agent} alone (no leaseId, no owner) is the pre-Task-7 legacy shape — rejected by
 // default (`missing_fields`, since it can't prove ownership of anything) unless
-// HAFLEET_ALLOW_LEGACY_RELEASE=1 is set, in which case it releases whatever lease currently
+// HAGENCY_ALLOW_LEGACY_RELEASE=1 is set, in which case it releases whatever lease currently
 // holds that agent, no ownership check. Passing exactly one of leaseId/owner (not both, not
 // neither) is always a malformed request, rejected as `missing_fields` regardless of the flag.
 app.post('/api/dispatch/release', (req, res) => {
@@ -12127,7 +12127,7 @@ app.post('/api/dispatch/release', (req, res) => {
     dispatchLeaseStore.releaseByAgent(name); // shim explicitly enabled — tolerant no-op if nothing to release
   } else {
     return res.status(400).json({
-      error: 'leaseId, agent, and owner are required (set HAFLEET_ALLOW_LEGACY_RELEASE=1 to allow legacy {agent}-only release)',
+      error: 'leaseId, agent, and owner are required (set HAGENCY_ALLOW_LEGACY_RELEASE=1 to allow legacy {agent}-only release)',
       reason: 'missing_fields',
     });
   }
@@ -12559,7 +12559,7 @@ app.post('/api/agents/:name/provision', requireBearer, (req, res) => {
   /*
    * Reload tokens NOW. Provisioning just wrote <state>/agent-token, and until the backend loads it
    * the agent's own calls are checked against a map that has no entry — which under
-   * HAFLEET_AGENT_TOKEN_MODE=hard is the difference between an agent that works and one whose every
+   * HAGENCY_AGENT_TOKEN_MODE=hard is the difference between an agent that works and one whose every
    * request is rejected with nothing said in its pane.
    */
   loadAgentTokens();
@@ -12725,13 +12725,13 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
   if (!framework || !VALID_FRAMEWORKS.has(framework)) {
     return res.status(400).json({ error: `agent has no valid framework (type='${agent.type || 'null'}'). Update agent type to claude or codex first.` });
   }
-  const hafleetBin = path.join(REPO_ROOT, 'bin', 'hafleet');
-  const launchEnv = { ...process.env, HAFLEET_LAUNCH_ENV_READY: '1' };
+  const hagencyBin = path.join(REPO_ROOT, 'bin', 'hagency');
+  const launchEnv = { ...process.env, HAGENCY_LAUNCH_ENV_READY: '1' };
   const rp = agent.runtimeProfile?.primary;
   if (rp?.apiBaseUrl) launchEnv.ANTHROPIC_BASE_URL = rp.apiBaseUrl;
   if (rp?.apiKey) launchEnv.ANTHROPIC_API_KEY = rp.apiKey;
-  if (rp?.model) launchEnv.HAFLEET_LAUNCH_MODEL = rp.model;
-  if (rp?.extraArgs) launchEnv.HAFLEET_LAUNCH_EXTRA_ARGS = rp.extraArgs;
+  if (rp?.model) launchEnv.HAGENCY_LAUNCH_MODEL = rp.model;
+  if (rp?.extraArgs) launchEnv.HAGENCY_LAUNCH_EXTRA_ARGS = rp.extraArgs;
   startingAgents.add(agentName);
   try {
     /*
@@ -12744,7 +12744,7 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
     mkdirSync(logDir, { recursive: true });
     const logPath = path.join(logDir, 'launch.log');
     const logFd = openSync(logPath, 'a');
-    const child = spawn(hafleetBin, ['up-v1', agentName, framework], {
+    const child = spawn(hagencyBin, ['up-v1', agentName, framework], {
       cwd: REPO_ROOT,
       env: launchEnv,
       // stdin stays closed: a launcher that waits for input from a daemon would hang forever, and
@@ -12761,7 +12761,7 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
       startingAgents.delete(agentName);
       try { closeSync(logFd); } catch { /* already closed */ }
       if (code === 0) return;
-      console.error(`[start] hafleet up-v1 ${agentName} exited ${signal ? `on ${signal}` : `with code ${code}`} — see ${logPath}`);
+      console.error(`[start] hagency up-v1 ${agentName} exited ${signal ? `on ${signal}` : `with code ${code}`} — see ${logPath}`);
       /*
        * Undo the optimistic online. The record was marked running on the assumption the launch
        * would work; leaving it there after a failure claims a tmux session that does not exist,
@@ -12786,7 +12786,7 @@ app.post('/api/agents/:name/start', requireBearer, (req, res) => {
     transitionAgent(agentName, 'api_register_with_tmux');
     saveAgents();
     auditLog(req, { agent: agentName, summary: { action: 'start', framework, pid: child.pid } });
-    console.log(`[start] launched hafleet up-v1 ${agentName} ${framework} (pid=${child.pid}, log=${logPath})`);
+    console.log(`[start] launched hagency up-v1 ${agentName} ${framework} (pid=${child.pid}, log=${logPath})`);
     /*
      * `launching`, not `started`. The process exists; whether the agent comes up is decided by the
      * launcher over the next few seconds and reported by its own heartbeat. Saying "ok" alone
@@ -13372,7 +13372,7 @@ function serializeFramework(f) {
     acpModelFlagNote: f.launch?.acpModelFlagNote ?? null,
     commandNote: f.launch?.commandNote ?? null,
     // Flattened from the guard's Set/RegExp forms so the client can list what
-    // hafleet will refuse without reimplementing the matcher.
+    // hagency will refuse without reimplementing the matcher.
     refusedFlags: f.flagGuard
       ? [...f.flagGuard.exact, ...f.flagGuard.prefix].sort()
       : [],
@@ -13388,7 +13388,7 @@ app.get('/api/frameworks', (_req, res) => {
  * What this host can actually run — probed, not declared.
  *
  * The distinction from GET /api/frameworks matters and is the reason both exist:
- * that route answers "which adapters does hafleet know", which is a property of the
+ * that route answers "which adapters does hagency know", which is a property of the
  * manifests and identical on every machine. This one answers "which of them will
  * start HERE", which is a property of the machine and is the only question an
  * onboarding page can be built on. A console that showed the manifest list as
@@ -13407,7 +13407,7 @@ app.get('/api/frameworks', (_req, res) => {
  *    worst possible error here: it would tell a contributor they are ready when the
  *    first real task will fail on auth.
  *
- * hafleet does not install frameworks and does not hold their credentials, so the
+ * hagency does not install frameworks and does not hold their credentials, so the
  * response carries the one command that fixes each gap rather than offering to fix
  * it.
  */
@@ -13445,7 +13445,7 @@ async function probeFramework(f) {
    *
    * The probe used to stop above, so a binary that answered `--version` was
    * reported `state: ready` — and octos 0.1.1 on a fresh machine did exactly that,
-   * then `hafleet acp-up` died with `unrecognized subcommand 'acp'`. The console
+   * then `hagency acp-up` died with `unrecognized subcommand 'acp'`. The console
    * had told the operator the framework was ready for a launch path the installed
    * version does not have. This manifest's own note says it was verified against
    * 2.0.2; nothing checked that.
@@ -13466,7 +13466,7 @@ async function probeFramework(f) {
       const detail = String(e?.stderr || e?.message || '').split('\n')[0].slice(0, 100);
       probeError = e?.killed
         ? `\`${command} ${acpSubcommand}\` probe timed out`
-        : `installed ${command} has no working \`${acpSubcommand}\` subcommand, which is how hafleet starts it: ${detail}`;
+        : `installed ${command} has no working \`${acpSubcommand}\` subcommand, which is how hagency starts it: ${detail}`;
     }
   }
 
@@ -13489,8 +13489,8 @@ async function probeFramework(f) {
    * `launchable: false` does NOT mean "cannot be started".
    *
    * Every ACP manifest carries it, and every one of their reasons says the same
-   * thing: `hafleet up` opens a tmux session and an ACP agent has no pane, so use
-   * `hafleet acp-up` instead. That is a different START COMMAND, not an inability —
+   * thing: `hagency up` opens a tmux session and an ACP agent has no pane, so use
+   * `hagency acp-up` instead. That is a different START COMMAND, not an inability —
    * and reporting it as a state alongside `absent` told a contributor their
    * installed, working framework was unusable. The distinction is carried by
    * `startWith`, which already resolves to the right command per transport.
@@ -13523,7 +13523,7 @@ async function probeFramework(f) {
       : state === 'needs_auth' ? `${command} login`
         : state === 'unusable' ? `check that \`${command} --version\` returns`
           : null,
-    startWith: f.transport === 'acp' ? 'hafleet acp-up' : 'hafleet up',
+    startWith: f.transport === 'acp' ? 'hagency acp-up' : 'hagency up',
   };
 }
 
@@ -14075,11 +14075,11 @@ function remainingFor(agentName, { forAutoJoin = false, excludeEngagementId = nu
  * What is fixed here is the specific escalation — submitting no longer implies
  * deciding.
  *
- * `HAFLEET_REQUESTER_TOKEN` is a separate secret that authorises submission ONLY.
+ * `HAGENCY_REQUESTER_TOKEN` is a separate secret that authorises submission ONLY.
  * The operator token continues to work, because the console and the local operator
  * legitimately submit too (the seed script and the preview both do).
  */
-const REQUESTER_TOKEN = String(process.env.HAFLEET_REQUESTER_TOKEN || '').trim();
+const REQUESTER_TOKEN = String(process.env.HAGENCY_REQUESTER_TOKEN || '').trim();
 
 function requireRequester(req, res, next) {
   const bridgeSecret = getBridgeSecret();
@@ -14105,7 +14105,7 @@ function requireRequester(req, res, next) {
  *     project, that binding names the human who owns it and the DM room the
  *     approval flow uses — reusing it keeps one owner per agent, which is what the
  *     approval machinery assumes.
- *  2. `HAFLEET_OWNER_MXID` + `HAFLEET_OWNER_DM_ROOM`, for the first binding on a
+ *  2. `HAGENCY_OWNER_MXID` + `HAGENCY_OWNER_DM_ROOM`, for the first binding on a
  *     fresh deployment.
  *
  * There is deliberately no third fallback. `POST /api/dm/ensure` only broadcasts a
@@ -14115,8 +14115,8 @@ function requireRequester(req, res, next) {
  * shown in the console. Silently approving without binding is the exact defect this
  * replaces; a silent partial success would be the same defect wearing a hat.
  */
-const OWNER_MXID = String(process.env.HAFLEET_OWNER_MXID || '').trim();
-const OWNER_DM_ROOM = String(process.env.HAFLEET_OWNER_DM_ROOM || '').trim();
+const OWNER_MXID = String(process.env.HAGENCY_OWNER_MXID || '').trim();
+const OWNER_DM_ROOM = String(process.env.HAGENCY_OWNER_DM_ROOM || '').trim();
 
 function resolveOwnerFor(agentName, projectRoomId = null) {
   try {
@@ -14142,7 +14142,7 @@ function resolveOwnerFor(agentName, projectRoomId = null) {
   // ADR-016 makes the configured provider owner a bootstrap fallback only.
   // A configured project side needs its own borrower binding or an explicit verdict owner.
   if (!projectSideStore.getSide(sideIdForRoom(projectRoomId)) && OWNER_MXID && OWNER_DM_ROOM) {
-    return { ownerMxid: OWNER_MXID, ownerDmRoomId: OWNER_DM_ROOM, from: 'HAFLEET_OWNER_MXID' };
+    return { ownerMxid: OWNER_MXID, ownerDmRoomId: OWNER_DM_ROOM, from: 'HAGENCY_OWNER_MXID' };
   }
   return null;
 }
@@ -14233,14 +14233,14 @@ async function sweepProjectRoomMembership() {
  * Take a departing agent OUT of the project rooms it joined, on the customer's homeserver.
  *
  * READ OFF A LIVE HOMESERVER, and this is the reason it exists: four `@ac_e2e-probe-*` accounts still
- * joined to a project room, every one an agent HAFleet had deleted hours earlier. Deleting an agent
+ * joined to a project room, every one an agent Hagency had deleted hours earlier. Deleting an agent
  * removed its record, its scopes, its commitments and its group memberships — and left its identity
  * sitting in somebody else's house. In the 施工队 model every Matrix server belongs to a customer, so what
  * the customer sees is a member list of contractors who left, inside a namespace that still admits them.
  *
  * BEST EFFORT, AND THE DELETE PROCEEDS REGARDLESS. This is the one cleanup in the delete path that
  * depends on a machine we do not run. A customer's homeserver being down must not make an agent
- * unremovable from HAFleet — that would hand the operator a fleet they cannot manage because someone
+ * unremovable from Hagency — that would hand the operator a fleet they cannot manage because someone
  * else's server is unreachable. So every room's outcome is REPORTED and none of them fails the delete:
  * the caller learns exactly which seats are still occupied, which is the honest version of a cleanup that
  * cannot be guaranteed.
@@ -14529,7 +14529,7 @@ function bindEngagement(engagement, resolvedOwner = null) {
     return {
       bound: false,
       error: `no owner known for agent ${engagement.agent} in project room ${engagement.projectRoomId ?? '(none)'}: `
-        + 'let the Matrix bridge create this room binding from its inviter, or set HAFLEET_OWNER_MXID and HAFLEET_OWNER_DM_ROOM',
+        + 'let the Matrix bridge create this room binding from its inviter, or set HAGENCY_OWNER_MXID and HAGENCY_OWNER_DM_ROOM',
     };
   }
   try {
@@ -14578,10 +14578,10 @@ let launchEngagementAgent = async (agent) => {
     return;
   }
   const rp = agent.runtimeProfile?.primary;
-  const env = { ...process.env, HAFLEET_LAUNCH_MODEL: rp?.model || '' };
+  const env = { ...process.env, HAGENCY_LAUNCH_MODEL: rp?.model || '' };
   if (rp?.apiBaseUrl && agent.type === 'claude') env.ANTHROPIC_BASE_URL = rp.apiBaseUrl;
   if (rp?.apiKey && agent.type === 'claude') env.ANTHROPIC_API_KEY = rp.apiKey;
-  await execFileAsync(path.join(REPO_ROOT, 'bin', 'hafleet'), ['up-v1', agent.name, agent.type], {
+  await execFileAsync(path.join(REPO_ROOT, 'bin', 'hagency'), ['up-v1', agent.name, agent.type], {
     cwd: REPO_ROOT, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024,
   });
 };
@@ -14905,7 +14905,7 @@ function unbindEngagement(engagement) {
 /**
  * End an engagement's reachability: the binding AND the seat in the room.
  *
- * THE HALF THAT WAS MISSING. `unbindEngagement` removed HAFleet's own record and stopped there, so a
+ * THE HALF THAT WAS MISSING. `unbindEngagement` removed Hagency's own record and stopped there, so a
  * revoked engagement left the agent joined to the borrower's room forever. Confirmed against the
  * homeserver, not inferred — see `withdrawAgentFromProjectRoom`.
  *
@@ -15460,14 +15460,14 @@ app.get('/api/engagements/preview', requireBearer, (req, res) => {
  *   tokens    NOT MEASURED, at any granularity. Every `usage` and `budget` match in
  *             lib/ and backend-v2.js is a CLI help string.
  *
- * WHY TOKENS CANNOT SIMPLY BE ADDED. It is not a missing field. HAFleet launches a
+ * WHY TOKENS CANNOT SIMPLY BE ADDED. It is not a missing field. Hagency launches a
  * coding-agent CLI and that CLI talks to the provider directly — the API traffic
  * never passes through this process, so there is no response to read a usage header
  * from. This holds in API-key mode too, which is worth saying because it is the
  * intuitive place to expect numbers and they are not there either. The two routes
  * that could work are (a) reading each framework's own session log, which is
  * per-framework and best-effort, or (b) becoming a proxy, which changes what
- * HAFleet is. Both are decisions, not omissions.
+ * Hagency is. Both are decisions, not omissions.
  *
  * So `tokens` is null with a reason on every row, and the `metering` block below
  * declares availability per signal so a client never has to guess which of its
@@ -15478,13 +15478,13 @@ app.get('/api/engagements/preview', requireBearer, (req, res) => {
 /*
  * Why a framework cannot be metered, when it cannot.
  *
- * No longer a blanket statement. HAFleet still never sees an API response — it launches a
+ * No longer a blanket statement. Hagency still never sees an API response — it launches a
  * CLI that talks to the provider directly — but the CLIs write the provider's own figures
  * to disk, and lib/metering reads them. So the reason is now per framework: Claude Code
  * and Codex record usage, octos records none.
  */
 const TOKENS_UNAVAILABLE_REASON =
-  'this framework writes no token accounting hafleet can read: hafleet launches a CLI '
+  'this framework writes no token accounting hagency can read: hagency launches a CLI '
   + 'that talks to the provider directly, so no API response passes through it, and this '
   + "CLI does not record the provider's figures to disk either.";
 
@@ -15679,8 +15679,8 @@ app.get('/api/usage', requireBearer, async (_req, res) => {
           {
             id: 'no-accounting',
             detail: 'frameworks that write no accounting (octos, codex-acp): nothing is on disk '
-              + 'to read, so the only path is hafleet proxying provider traffic — which changes '
-              + 'what hafleet is, and is a decision rather than an oversight.',
+              + 'to read, so the only path is hagency proxying provider traffic — which changes '
+              + 'what hagency is, and is a decision rather than an oversight.',
           },
           {
             id: 'file-budget',
@@ -15734,7 +15734,7 @@ app.get('/api/usage', requireBearer, async (_req, res) => {
  *
  * A ceiling is declared per agent because that is the unit an operator reasons
  * about. But two Claude agents on one host share one authenticated subscription —
- * `$HOME` is never reassigned in the launch path and bin/hafleet-up:1640-1644 only
+ * `$HOME` is never reassigned in the launch path and bin/hagency-up:1640-1644 only
  * unsets ANTHROPIC_API_KEY when no per-agent key is set — so their two ceilings are
  * two claims on one quota, not two quotas. Nothing in the product could say that
  * before this route.
@@ -17545,7 +17545,7 @@ function stopRouterPumpForTest() {
 // Bind address. Loopback by default; see lib/startup-config.js resolveBindHost
 // for why widening it is opt-in and logged.
 function resolvedBindHost() {
-  const { host, warning } = resolveBindHost(process.env.HAFLEET_BACKEND_HOST);
+  const { host, warning } = resolveBindHost(process.env.HAGENCY_BACKEND_HOST);
   if (warning) console.warn(`[bind] ${warning}`);
   return host;
 }

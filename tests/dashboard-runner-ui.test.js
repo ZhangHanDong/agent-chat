@@ -36,9 +36,9 @@ test('carries only public hybrid dispatch activity through the API adapter', asy
   const dispatchActivity = { source: 'router-ledger', activity: 'running', activeDispatchCount: 1,
     queuedDispatchCount: 0, parkedDispatchCount: 0 };
   vi.stubGlobal('fetch', async (url) => ({ ok: true, text: async () => JSON.stringify(
-    url === '/api/hafleet/agents' ? [{ name: 'hybrid', type: 'claude', transport: 'tmux', tmux: 'hybrid:0.0',
+    url === '/api/hagency/agents' ? [{ name: 'hybrid', type: 'claude', transport: 'tmux', tmux: 'hybrid:0.0',
       runner: null, dispatchActivity: { ...dispatchActivity, privatePayload: 'do-not-project' } }]
-      : url === '/api/hafleet/framework-presets' || url === '/api/hafleet/frameworks' ? [] : {},
+      : url === '/api/hagency/framework-presets' || url === '/api/hagency/frameworks' ? [] : {},
   ) }));
   const result = await fetchLive();
   expect(result.data.agents[0]).toMatchObject({ runner: null, transport: 'tmux', tmux: 'hybrid:0.0', dispatchActivity });
@@ -62,8 +62,8 @@ test.each(['resources', 'workforce', 'config'])('renders hybrid dispatch activit
 afterEach(() => vi.unstubAllGlobals());
 test('carries only the public runner projection through the API adapter', async () => {
   vi.stubGlobal('fetch', async (url) => ({ ok: true, text: async () => JSON.stringify(
-    url === '/api/hafleet/agents' ? [{ name: 'local-runner', type: 'codex', runner: { ...agent.runner, privateToken: 'do-not-project' } }]
-      : url === '/api/hafleet/framework-presets' || url === '/api/hafleet/frameworks' ? [] : {},
+    url === '/api/hagency/agents' ? [{ name: 'local-runner', type: 'codex', runner: { ...agent.runner, privateToken: 'do-not-project' } }]
+      : url === '/api/hagency/framework-presets' || url === '/api/hagency/frameworks' ? [] : {},
   ) }));
   const result = await fetchLive();
   expect(result.data.agents[0].runner).toEqual(expect.objectContaining(agent.runner));

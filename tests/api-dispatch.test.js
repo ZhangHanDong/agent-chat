@@ -6,14 +6,14 @@ describe('matrix-Agent capability scheduler', () => {
   let context;
 
   beforeAll(async () => {
-    context = await createBackendTestContext('hafleet-dispatch-test-', {
+    context = await createBackendTestContext('hagency-dispatch-test-', {
       agents: {
         cod1: { name: 'cod1', type: 'claude', kind: 'agent', online: true, role: 'coding', capability: 'medium' },
       },
       // Task 7: this pre-Task-7 suite releases by bare {agent} (no leaseId/owner). That shape is
       // rejected by default post-Task-7 (see the "dispatch leases" describe block below); the
       // compatibility shim keeps this suite's original behavior working unchanged.
-      env: { HAFLEET_ALLOW_LEGACY_RELEASE: '1' },
+      env: { HAGENCY_ALLOW_LEGACY_RELEASE: '1' },
     });
   });
 
@@ -82,13 +82,13 @@ describe('matrix-Agent dispatch leases (Task 7)', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(1_700_000_000_000));
-    context = await createBackendTestContext('hafleet-dispatch-lease-test-', {
+    context = await createBackendTestContext('hagency-dispatch-lease-test-', {
       agents: {
         cod1: { name: 'cod1', type: 'claude', kind: 'agent', online: true, role: 'coding', capability: 'medium' },
         cod2: { name: 'cod2', type: 'claude', kind: 'agent', online: true, role: 'coding', capability: 'medium' },
       },
-      env: { HAFLEET_DISPATCH_LEASE_TTL_MS: '60000' }, // 60s — short enough to fast-forward past in tests
-      // HAFLEET_ALLOW_LEGACY_RELEASE deliberately left unset (default off): this block tests
+      env: { HAGENCY_DISPATCH_LEASE_TTL_MS: '60000' }, // 60s — short enough to fast-forward past in tests
+      // HAGENCY_ALLOW_LEGACY_RELEASE deliberately left unset (default off): this block tests
       // the strict, owner-checked contract. The compatibility-shim describe block below covers
       // the opt-in legacy path.
     });
@@ -272,7 +272,7 @@ describe('matrix-Agent dispatch leases (Task 7)', () => {
     const release = await request(context.app).post('/api/dispatch/release').send({ agent: 'cod1' });
     expect(release.status).toBe(400);
     expect(release.body.reason).toBe('missing_fields');
-    expect(release.body.error).toMatch(/HAFLEET_ALLOW_LEGACY_RELEASE/);
+    expect(release.body.error).toMatch(/HAGENCY_ALLOW_LEGACY_RELEASE/);
 
     // rejected, not silently released — the lease and the agent's busy state are untouched
     expect(context.internals.dispatchLeaseStoreForTest.size).toBe(1);
@@ -302,22 +302,22 @@ describe('matrix-Agent dispatch leases (Task 7)', () => {
   });
 });
 
-// HAFLEET_ALLOW_LEGACY_RELEASE=1: an explicit opt-in escape hatch for callers that predate
+// HAGENCY_ALLOW_LEGACY_RELEASE=1: an explicit opt-in escape hatch for callers that predate
 // ownership (e.g. a reintroduced OpenFab Bridge). Off by default — see "release rejects the
 // legacy {agent}-only shape by default" above for the default-deny behavior this shim overrides.
-describe('matrix-Agent dispatch leases — legacy release compatibility shim (HAFLEET_ALLOW_LEGACY_RELEASE=1)', () => {
+describe('matrix-Agent dispatch leases — legacy release compatibility shim (HAGENCY_ALLOW_LEGACY_RELEASE=1)', () => {
   let context;
 
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(1_700_000_000_000));
-    context = await createBackendTestContext('hafleet-dispatch-lease-shim-test-', {
+    context = await createBackendTestContext('hagency-dispatch-lease-shim-test-', {
       agents: {
         cod1: { name: 'cod1', type: 'claude', kind: 'agent', online: true, role: 'coding', capability: 'medium' },
       },
       env: {
-        HAFLEET_DISPATCH_LEASE_TTL_MS: '60000',
-        HAFLEET_ALLOW_LEGACY_RELEASE: '1',
+        HAGENCY_DISPATCH_LEASE_TTL_MS: '60000',
+        HAGENCY_ALLOW_LEGACY_RELEASE: '1',
       },
     });
   });

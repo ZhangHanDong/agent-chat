@@ -23,15 +23,15 @@ import { useT } from '@/components/Prefs';
  *   reachable" is answered before anything is issued rather than inferred later from silence.
  *
  *   THE CALLBACK URL IS A CHOICE WITH REASONS. `127.0.0.1` is right when the homeserver is a process on
- *   the HAFleet host and is the most common wrong answer when it is a container — where the appservice
+ *   the Hagency host and is the most common wrong answer when it is a container — where the appservice
  *   looks installed and receives nothing. The list says which is which rather than leaving it to be
  *   discovered from silence.
  *
- *   THE APPSERVICE SOCKET IS CHECKED FIRST. With no `HAFLEET_APPSERVICE_PORT` the bridge opens no socket,
+ *   THE APPSERVICE SOCKET IS CHECKED FIRST. With no `HAGENCY_APPSERVICE_PORT` the bridge opens no socket,
  *   so a perfect registration installed at a perfect address still hears nothing. Said before step one.
  *
  * WHAT IT DELIBERATELY DOES NOT DO: it never displays a token. The registration is written to a 0600 file
- * on the HAFleet host and this page is told a path and two fingerprints. The endpoint that returns the
+ * on the Hagency host and this page is told a path and two fingerprints. The endpoint that returns the
  * YAML is not proxied to the browser at all, and that refusal is marked in the proxy as a decision rather
  * than an omission — an `as_token` authorises a whole namespace on someone else's homeserver, and a
  * browser is memory, devtools, history, and whatever extension is watching.
@@ -70,9 +70,9 @@ export default function NewProjectSide() {
    * deployment. The operator said it plainly: 「我的 agent 都在内网，而且接入 matrix 服务器本身不需要公网
    * 地址，你这个设计是错的」.
    *
-   * They are right. An APPSERVICE is inbound: the homeserver PUSHES transactions to HAFleet, so HAFleet
+   * They are right. An APPSERVICE is inbound: the homeserver PUSHES transactions to Hagency, so Hagency
    * must be reachable from it — which for an internal network means exposing it. A REGISTRATION TOKEN is
-   * outbound only: HAFleet registers accounts and talks to the homeserver over the client-server API with
+   * outbound only: Hagency registers accounts and talks to the homeserver over the client-server API with
    * `/sync`, exactly as a phone does, and needs no inbound reachability at all.
    *
    * So the outbound one is the default. The previous version offered only the appservice path and then
@@ -288,12 +288,12 @@ export default function NewProjectSide() {
     setRegToken('');
     setIssued({
       registrationToken: true,
-      representative: `@hafleet:${server}`,
+      representative: `@hagency:${server}`,
       nextSteps: [
-        'Nothing to install on the homeserver, and nothing to restart: HAFleet registers the '
+        'Nothing to install on the homeserver, and nothing to restart: Hagency registers the '
         + 'representative and one account per agent over the client-server API.',
-        'No inbound reachability is needed. HAFleet talks OUT to your homeserver, so this works with '
-        + 'HAFleet behind NAT or on an internal network.',
+        'No inbound reachability is needed. Hagency talks OUT to your homeserver, so this works with '
+        + 'Hagency behind NAT or on an internal network.',
         'The representative arrives in your rooms with users_default power. A default Matrix room needs '
         + 'power 50 to invite, so grant it that or invite each agent yourself.',
       ],
@@ -363,7 +363,7 @@ export default function NewProjectSide() {
           <p className="dim">{appservice.reason}</p>
           <p className="dim">
             现在生成的注册文件本身是对的，但你的 homeserver 推送过来的事务不会有人接。
-            要么开一个入站端口，要么在 homeserver 旁边跑 <span className="mono-s">bin/hafleet-appservice-edge</span>。
+            要么开一个入站端口，要么在 homeserver 旁边跑 <span className="mono-s">bin/hagency-appservice-edge</span>。
           </p>
         </div>
       )}
@@ -519,11 +519,11 @@ export default function NewProjectSide() {
               <div>
                 <strong>注册令牌</strong> <span className="pill ok-text">不需要公网地址</span>
                 <div className="why-inline">
-                  纯出站：HAFleet 主动连你的 homeserver，用客户端 API 和 <span className="mono-s">/sync</span>，
-                  和手机上的 Matrix 客户端一样。HAFleet 在内网、NAT 后面都能用。
+                  纯出站：Hagency 主动连你的 homeserver，用客户端 API 和 <span className="mono-s">/sync</span>，
+                  和手机上的 Matrix 客户端一样。Hagency 在内网、NAT 后面都能用。
                 </div>
                 <div className="why-inline">
-                  代价：HAFleet 会为接单员和每个 agent 各注册一个账号——账号更多，但不用你装任何东西、不用重启。
+                  代价：Hagency 会为接单员和每个 agent 各注册一个账号——账号更多，但不用你装任何东西、不用重启。
                 </div>
               </div>
             </li>
@@ -538,11 +538,11 @@ export default function NewProjectSide() {
               <div>
                 <strong>Appservice</strong> <span className="pill ok-text">Palpo 授权配置支持纯出站</span>
                 <div className="why-inline">
-                  导入 Palpo 纯出站授权配置后，HAFleet 主动领取消息和申请，并自动发布资源、心跳和处理结果。
-                  HAFleet 在内网或 NAT 后也能使用。手工生成的传统回调配置仍要求 homeserver 能访问 HAFleet。
+                  导入 Palpo 纯出站授权配置后，Hagency 主动领取消息和申请，并自动发布资源、心跳和处理结果。
+                  Hagency 在内网或 NAT 后也能使用。手工生成的传统回调配置仍要求 homeserver 能访问 Hagency。
                 </div>
                 <div className="why-inline">
-                  好处：一份凭据覆盖项目方授权的 Agent 命名空间，由 HAFleet 自动准备其中的 Agent 身份。
+                  好处：一份凭据覆盖项目方授权的 Agent 命名空间，由 Hagency 自动准备其中的 Agent 身份。
                 </div>
               </div>
             </li>
@@ -551,7 +551,7 @@ export default function NewProjectSide() {
           {credKind === 'registrationToken' && (
             <>
               <p className="dim">
-                把客户方给你的注册令牌填进来。接单员 <span className="mono-s">@hafleet:{server}</span> 会用它注册，
+                把客户方给你的注册令牌填进来。接单员 <span className="mono-s">@hagency:{server}</span> 会用它注册，
                 之后每个 agent 也用它领自己的账号。
               </p>
               <div className="field-row">
@@ -590,22 +590,22 @@ export default function NewProjectSide() {
           {asMethod === 'import' ? (
             <>
               <p className="dim">
-                在项目方 Palpo 管理页面，用 HAFleet 所有者账号打开 My HAFleet access，
-                点击 Download HAFleet configuration。回到这里选择下载的 JSON 文件即可继续。
-                尚未获授权时，请项目方管理员先完成 Authorize a HAFleet。
+                在项目方 Palpo 管理页面，用 Hagency 所有者账号打开 My Hagency access，
+                点击 Download Hagency configuration。回到这里选择下载的 JSON 文件即可继续。
+                尚未获授权时，请项目方管理员先完成 Authorize a Hagency。
               </p>
               <div className="field-row">
                 <label htmlFor="palpo-registration">Palpo 授权配置 JSON</label>
                 <input id="palpo-registration" type="file" accept="application/json,.json"
                   disabled={busy} onChange={readPalpoImport} />
               </div>
-              <p className="why-inline">连接方式和接单员身份从授权文件读取。纯出站配置保存后会自动连接 Palpo，无需配置 HAFleet 公网地址或 SSH 转发。选择文件只在本页校验，点击保存后才会提交凭据。</p>
+              <p className="why-inline">连接方式和接单员身份从授权文件读取。纯出站配置保存后会自动连接 Palpo，无需配置 Hagency 公网地址或 SSH 转发。选择文件只在本页校验，点击保存后才会提交凭据。</p>
               {readingImport && <p role="status">正在读取配置…</p>}
               {importFile && <p role="status">已读取：{importFile.name}。请核对以下授权配置。</p>}
               {importFile && <dl className="kv" aria-label="授权配置预览">
                 <dt>服务器</dt><dd>{importFile.summary.serverName}</dd>
                 <dt>接单员</dt><dd className="mono-s">{importFile.summary.representative}</dd>
-                <dt>连接方式</dt><dd>{importFile.summary.connectionMode === 'outbound' ? '纯出站 · HAFleet 主动连接 Palpo' : 'Appservice 回调'}</dd>
+                <dt>连接方式</dt><dd>{importFile.summary.connectionMode === 'outbound' ? '纯出站 · Hagency 主动连接 Palpo' : 'Appservice 回调'}</dd>
                 <dt>{importFile.summary.connectionMode === 'outbound' ? 'Palpo 地址' : '回调地址'}</dt><dd className="mono-s">{importFile.summary.endpoint ?? importFile.summary.url}</dd>
                 <dt>命名空间</dt><dd className="mono-s">{importFile.summary.namespace}</dd>
               </dl>}
@@ -622,7 +622,7 @@ export default function NewProjectSide() {
             <>
           <p className="dim">
             接单员不用你手工注册账号——它就是 appservice 的 <span className="mono-s">sender_localpart</span>，
-            装上注册文件后 <span className="mono-s">@hafleet:{server}</span> 自动成为代表，
+            装上注册文件后 <span className="mono-s">@hagency:{server}</span> 自动成为代表，
             <span className="mono-s"> @ac_*</span> 命名空间让所有 agent 无需注册即可寻址。
           </p>
           {/*
@@ -640,22 +640,22 @@ export default function NewProjectSide() {
                 </p>
               ) : (
                 /*
-                 * REFUSED RATHER THAN GUESSED. An edge HAFleet cannot reach collects nothing, and issuing a
+                 * REFUSED RATHER THAN GUESSED. An edge Hagency cannot reach collects nothing, and issuing a
                  * registration here would hand the customer a file that receives nothing while every screen
                  * says the side is fine. The address is not knowable from here; the edge owns it.
                  */
                 <div className="notice">
                   <span className="pill warn-text">还不能生成</span>{' '}
-                  {appservice.edgeNote ?? 'HAFleet 还问不到那个 edge 该用哪个地址。'}
+                  {appservice.edgeNote ?? 'Hagency 还问不到那个 edge 该用哪个地址。'}
                 </div>
               )}
               <p className="why-inline">
-                HAFleet 从 <span className="mono-s">{appservice.edgeUrl}</span> 取件——这是另一个方向，
+                Hagency 从 <span className="mono-s">{appservice.edgeUrl}</span> 取件——这是另一个方向，
                 和上面那个地址不是一回事，不要写进注册文件。
               </p>
             </>
           ) : (
-            <p><strong>你的 homeserver 从它自己那一侧，用哪个地址能找到 HAFleet？</strong></p>
+            <p><strong>你的 homeserver 从它自己那一侧，用哪个地址能找到 Hagency？</strong></p>
           )}
           {/*
             * The one question this flow cannot answer for the operator, stated as such. Matrix has no
@@ -686,7 +686,7 @@ export default function NewProjectSide() {
             <div className="field-row">
               <label htmlFor="callback-url">其他可达的回调地址</label>
               <input id="callback-url" className="inp" type="url" value={callback}
-                onChange={(e) => setCallback(e.target.value)} placeholder="https://hafleet.example:8095" />
+                onChange={(e) => setCallback(e.target.value)} placeholder="https://hagency.example:8095" />
             </div>
           )}
           {cbCheck?.applicable && (
@@ -738,8 +738,8 @@ export default function NewProjectSide() {
                 <dt>{issued.connectionMode === 'outbound' ? 'Palpo 地址' : '回调地址'}</dt><dd className="mono-s">{issued.endpoint ?? issued.url}</dd>
                 <dt>命名空间</dt><dd className="mono-s">{issued.namespace}</dd>
               </dl>
-              <p className="dim">凭据验证检查 HAFleet 能否以接单员身份访问 Matrix。
-                随后在 Palpo 的 My HAFleet access 点击 Verify connection &amp; create reception，
+              <p className="dim">凭据验证检查 Hagency 能否以接单员身份访问 Matrix。
+                随后在 Palpo 的 My Hagency access 点击 Verify connection &amp; create reception，
                 验证事件投递并建立接洽房间；显示 Ready to receive requests 后可以接收项目申请。</p>
             </>
           ) : issued.registrationToken ? (
@@ -752,7 +752,7 @@ export default function NewProjectSide() {
             </>
           ) : (
             <>
-              <p className="dim">注册文件已写到 HAFleet 主机上，权限 {issued.mode}：</p>
+              <p className="dim">注册文件已写到 Hagency 主机上，权限 {issued.mode}：</p>
               <p className="mono-s">{issued.path}</p>
               <dl className="kv">
                 <dt>接单员</dt><dd className="mono-s">{issued.representative}</dd>
@@ -814,11 +814,11 @@ export default function NewProjectSide() {
                 */}
               <p className="dim">
                 {accessState === 'accepted'
-                  ? 'HAFleet 已能以接单员身份访问 Matrix。事件投递状态需要单独验证。'
+                  ? 'Hagency 已能以接单员身份访问 Matrix。事件投递状态需要单独验证。'
                   : accessState === 'rejected'
                   ? '凭据被拒（401/403）——令牌不对或已撤销，需要客户方给一份新的。'
                   : accessState === 'blocked'
-                    ? '服务器是好的，但有东西挡着：接单员那个账号名已经被占用了。要么把那个账号交给 HAFleet，要么换一个 sender_localpart。'
+                    ? '服务器是好的，但有东西挡着：接单员那个账号名已经被占用了。要么把那个账号交给 Hagency，要么换一个 sender_localpart。'
                     : accessState === 'unreachable'
                       ? '连不上那台服务器——这不是对令牌的判决，先检查地址和网络。'
                       : '「凭据被拒」「被占用」「服务器不可达」是三个不同的答案，各自要去不同的地方修。'}

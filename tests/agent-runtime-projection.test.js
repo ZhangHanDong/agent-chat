@@ -8,7 +8,7 @@ afterEach(async () => { vi.restoreAllMocks(); await context?.cleanup(); context 
 
 async function setup() {
   context = await createBackendTestContext('agent-runtime-projection-', {
-    env: { HAFLEET_THREAD_SESSIONS: '1', HAFLEET_ROUTER_TASK_CUTOVER: '1', API_TOKEN: 'projection-test-token' },
+    env: { HAGENCY_THREAD_SESSIONS: '1', HAGENCY_ROUTER_TASK_CUTOVER: '1', API_TOKEN: 'projection-test-token' },
     agents: Object.fromEntries(['worker', 'peer'].map((name) => [name, {
       name, agentId: `agent_${name}`, kind: 'agent', type: 'codex', server: 'local', online: true,
       runtimeProfile: { primary: { framework: 'codex', model: 'gpt-5.3-codex', reasoning: 'high' } },

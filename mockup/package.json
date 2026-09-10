@@ -1,8 +1,8 @@
 {
-  "name": "hafleet-dashboard-mockup",
+  "name": "hagency-dashboard-mockup",
   "private": true,
   "version": "0.1.0",
-  "description": "Clickable mockup of the HAFleet dashboard relayout. Mock data only; talks to no backend.",
+  "description": "Clickable mockup of the Hagency dashboard relayout. Mock data only; talks to no backend.",
   "scripts": {
     "dev": "next dev -p 3100 -H 127.0.0.1",
     "build": "next build",
