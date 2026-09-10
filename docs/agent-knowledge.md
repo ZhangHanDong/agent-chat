@@ -1861,3 +1861,28 @@ Cross-platform evidence is revision-specific. All three native platforms and Nod
 are green at 75f47f1; the integrated Matrix-to-owned-completion checkpoint adds new
 platform paths. Local macOS final-send refusal cannot stand in for Linux/Windows
 positive delivery or for complete migration parity.
+
+
+### Native usage ledger — ADR063 (2026-09-10)
+
+A native usage source is one exact historical dispatch/fence, initially bound from
+its successful opaque Started scope. Framework and Agent/project attribution come
+from the frozen resource/domain records. Source restoration after retirement is
+host-only historical identity, never proof that selected file bytes belong to that
+execution or permission to resume it. Current native dispatch assumes a fresh
+upstream session; resumed cross-dispatch sources need a separate future contract.
+
+Persisted usage distinguishes latest optional counts from durable per-kind observed
+high-water lower bounds. Cross-snapshot regression marks latest incomplete even
+when the parser reports no warning; a later clean snapshot can clear latest flags
+but not historical incomplete coverage. Preserve all normalized parser diagnostics.
+Raw model/workspace hints cannot enter attribution. These untrusted observations
+must not drive quota or be labelled provider-authenticated measurement.
+
+UTC day/month growth, original call receipt and source marks commit together after
+queue/SQLite lock. Exact replay precedes new clock/capacity checks. Retain admitted
+source identities and receipts at hard finite ceilings; never discard a key and
+count a reappearing source again. Explicit zero differs from absent period. With
+one row left, a new day/month must roll both credits back when the second fails.
+The same source/call/body resolves an unknown writer response without recounting;
+a timeout alone says nothing about commit or rollback.

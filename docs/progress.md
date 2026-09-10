@@ -3875,3 +3875,49 @@ changed paths, ADR056 reference correction6/6 using the workspace code root, and
 the coordination/readme checkpoint10/10 with all four explicit paths. The earlier
 package-only ADR056 invocation remains recorded as5pass/1skip; it is not counted
 as passing. No production code changed after the combined native suite.
+
+## 2026-09-10 — Native host-attributed usage ledger
+
+ADR063/schema017 adds host-only binding and recording for one exact Started native
+dispatch/fence. The existing bounded parser creates non-deserializable normalized
+observations; raw paths/models never select an Agent. Immutable historical source
+identity survives retirement/restart and no live scan, runtime source setter,
+provider authentication claim, service hookup or quota authority is introduced.
+
+Per-kind observed high-water growth, UTC daily/monthly buckets, original content-
+bound receipts and the checked writer clock commit in one SQLite transaction.
+Unknown fields and full parser diagnostics remain visible separately from known
+lower bounds. Latest incomplete/regression flags cover cross-snapshot decreases;
+historical incomplete coverage stays sticky. Finite source/receipt/period limits
+refuse admission without evicting prior evidence. Both period inserts roll back
+when a new month needs two rows but only one remains.
+
+The JavaScript oracle produces 16 vectors/80 snapshots against the retained ledger
+for known-count high-water, cache separation and observed UTC arithmetic. Native
+correction fixtures cover unknown/zero, malformed and duplicate evidence, overflow,
+clock reversal, all six row ceilings, foreign and retired source bindings,
+reappearance and actual database rollback. Real writer fixtures qualify timestamp
+after SQLite lock and before/after-commit response loss without wider deadlines.
+
+Validation before final lifecycle: 133 affected tests passed (128 store, 5 parser),
+zero failed/ignored; focused warnings-denied Clippy passed. The first focused run
+was 6 passed/1 failed because the fixture used an unqualified Claude model alias;
+it now uses the existing qualified `claude-sonnet-5` resource without changing
+qualification policy. The initial compile had one temporary-borrow scope error,
+fixed by computing queue weight before moving the opaque scope. Those logs remain
+in the external `usage-*` cache. Full workspace/three-platform integration is
+reserved for the coordinator; source discovery, actual descriptor/process matching,
+automatic archival/retention, enforcement and browser/service integration remain
+explicit gates.
+
+Final scoped verification: latest correction/capacity assertions pass 7/7, and
+agent-spec 1.4 lifecycle passes 9/9 (eight bound selectors, including two real
+writer tests, plus all 30 explicit changed paths), with zero failed/skipped/
+uncertain/pending-review results. One nonblocking lint heuristic requests file-
+output coverage for persistence wording; this slice has no CLI/file formatter.
+The first lifecycle correctly failed only because bare `Cargo.lock` was not
+recognized as a root path; the contract now declares `./Cargo.lock`. That failure
+log is preserved. Final oracle, formatting and whitespace checks pass. Parent
+independent review checked source authority, optional arithmetic, latest flags,
+all six capacity branches and second-period rollback with no remaining blocker.
+No source tests or production deadlines were weakened.

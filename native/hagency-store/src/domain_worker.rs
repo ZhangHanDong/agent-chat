@@ -229,6 +229,117 @@ mod clock_tests {
         (db, cap)
     }
 
+    fn usage_snapshot() -> hagency_metering::observation::UsageObservation {
+        hagency_metering::observation::UsageObservation::parse(
+            hagency_metering::Framework::Codex,
+            r#"{"payload":{"info":{"total_token_usage":{"input_tokens":10,"output_tokens":2,"cached_input_tokens":3,"reasoning_output_tokens":0,"total_tokens":12}}}}"#,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn native_usage_worker_after_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut db, cap) = owned_fixture(root.path());
+        let admission = db.owned_dispatch_scope(&cap, now()).unwrap();
+        let started = db
+            .start_owned_dispatch(&cap, admission.fingerprint(), now())
+            .unwrap();
+        let source = db.bind_usage_source(&cap, &started, now()).unwrap();
+        let store = DomainStore::start(db, 16).unwrap();
+        let lock = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        lock.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let mut record = Box::pin(store.record_usage_observation(
+            source.clone(),
+            "after_lock".into(),
+            usage_snapshot(),
+        ));
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(record.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await; // The real command is now queued; writer must still acquire SQLite.
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let released_at = now();
+        lock.execute_batch("COMMIT").unwrap();
+        let receipt = record.await.unwrap();
+        assert!(receipt.observed_at >= released_at);
+        assert!(!receipt.replayed);
+        assert_eq!(store.usage_source(source).await.unwrap().observations, 1);
+        drop(lock);
+        store.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_usage_worker_receipt_loss() {
+        // A real writer commit may outlive its caller. The private test gate
+        // withholds only acknowledgement and never manufactures durable success.
+        for committed in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let (mut db, cap) = owned_fixture(root.path());
+            let admission = db.owned_dispatch_scope(&cap, now()).unwrap();
+            let started = db
+                .start_owned_dispatch(&cap, admission.fingerprint(), now())
+                .unwrap();
+            let source = db.bind_usage_source(&cap, &started, now()).unwrap();
+            let store = DomainStore::start(db, 16).unwrap();
+            let (entered, ready) = oneshot::channel();
+            let (release, gate) = std::sync::mpsc::channel();
+            let worker = store.clone();
+            let bound = source.clone();
+            let withheld = tokio::spawn(async move {
+                worker
+                    .call(1, move |db| {
+                        if committed {
+                            db.record_usage_observation(
+                                &bound,
+                                "snapshot",
+                                &usage_snapshot(),
+                                now(),
+                            )?;
+                        }
+                        let _ = entered.send(());
+                        gate.recv_timeout(Duration::from_secs(4))
+                            .map_err(|_| Error::Unavailable)?;
+                        Ok(())
+                    })
+                    .await
+            });
+            ready.await.unwrap();
+            if !committed {
+                assert!(matches!(
+                    store
+                        .record_usage_observation(
+                            source.clone(),
+                            "snapshot".into(),
+                            usage_snapshot()
+                        )
+                        .await,
+                    Err(Error::OutcomeUnknown)
+                ));
+            }
+            assert!(matches!(
+                withheld.await.unwrap(),
+                Err(Error::OutcomeUnknown)
+            ));
+            release.send(()).unwrap();
+            let before = store.usage_source(source.clone()).await.unwrap();
+            assert_eq!(before.observations, u64::from(committed));
+            let replay = store
+                .record_usage_observation(source.clone(), "snapshot".into(), usage_snapshot())
+                .await
+                .unwrap();
+            assert_eq!(replay.replayed, committed);
+            let view = store.usage_source(source).await.unwrap();
+            assert_eq!(view.observations, 1);
+            assert_eq!(view.high_water.input, Some(7));
+            store.shutdown().await.unwrap();
+            let reopened = DomainRepository::open(&root.path().join("state")).unwrap();
+            let source = reopened.restore_usage_source(&replay.source_id).unwrap();
+            assert_eq!(reopened.usage_source(&source).unwrap().observations, 1);
+        }
+    }
+
     #[tokio::test]
     async fn native_owned_completion_queue_reply_loss() {
         for committed in [false, true] {
@@ -1650,6 +1761,63 @@ impl DomainStore {
     ) -> Result<(), Error> {
         self.call(weight(&(&id, &token))?, move |db| {
             db.validate_verified_task_notice_send(&id, &token, fence, writer_time()?)
+        })
+        .await
+    }
+}
+
+impl DomainStore {
+    /// All usage methods are host-only; no RunnerCommand or HTTP source setter.
+    pub async fn bind_usage_source(
+        &self,
+        cap: RunnerCapability,
+        scope: crate::OwnedDispatchScope,
+    ) -> Result<crate::UsageSource, Error> {
+        let bytes = weight(&(&cap, scope.queue_value()))?;
+        self.call(bytes, move |db| {
+            db.bind_usage_clock(&cap, &scope, writer_time)
+        })
+        .await
+    }
+    pub async fn restore_usage_source(&self, id: String) -> Result<crate::UsageSource, Error> {
+        self.call(weight(&id)?, move |db| db.restore_usage_source(&id))
+            .await
+    }
+    pub async fn record_usage_observation(
+        &self,
+        source: crate::UsageSource,
+        call_id: String,
+        observation: hagency_metering::observation::UsageObservation,
+    ) -> Result<crate::UsageReceipt, Error> {
+        self.call(
+            weight(&(source.queue_value(), &call_id, &observation))?,
+            move |db| db.record_usage_clock(&source, &call_id, &observation, writer_time),
+        )
+        .await
+    }
+    pub async fn usage_source(
+        &self,
+        source: crate::UsageSource,
+    ) -> Result<crate::SourceUsage, Error> {
+        self.call(weight(&source.queue_value())?, move |db| {
+            db.usage_source(&source)
+        })
+        .await
+    }
+    pub async fn usage_summary(&self, engagement: String) -> Result<crate::UsageSummary, Error> {
+        self.call(weight(&engagement)?, move |db| {
+            db.usage_summary(&engagement)
+        })
+        .await
+    }
+    pub async fn usage_period(
+        &self,
+        engagement: String,
+        kind: crate::UsagePeriodKind,
+        at: u64,
+    ) -> Result<Option<crate::UsagePeriod>, Error> {
+        self.call(weight(&(&engagement, kind, at))?, move |db| {
+            db.usage_period(&engagement, kind, at)
         })
         .await
     }

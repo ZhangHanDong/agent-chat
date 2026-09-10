@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 hagency-core = { path = "../hagency-core" }
+hagency-metering = { path = "../hagency-metering" }
+time = { version = "=0.3.55", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -30,7 +30,14 @@ pub use owned_dispatch::{OwnedDispatchScope, OwnedFailure, OwnedObservation};
 mod peers;
 mod replies;
 mod task_intents;
+mod usage;
 mod verified_ingress;
+pub use usage::{
+    KnownTokens, MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES,
+    MAX_SOURCE_USAGE_RECEIPTS, MAX_USAGE_PERIODS, MAX_USAGE_RECEIPTS, MAX_USAGE_SOURCES,
+    SourceUsage, UsageEvidence, UsagePeriod, UsagePeriodKind, UsageReceipt, UsageSource,
+    UsageSummary,
+};
 
 pub struct DomainRepository {
     db: Connection,
@@ -304,7 +311,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 16,
+                version: 17,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -324,9 +331,14 @@ impl DomainRepository {
                         16,
                         include_str!("migrations/016-owned-task-completions.sql"),
                     ),
+                    (17, include_str!("migrations/017-usage-ledger.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT id,dispatch_id,fence,engagement_id,identity_digest,framework,attribution,high_water,latest_counts,latest_observation,latest_incomplete,latest_regressed,historical_incomplete,regressions,observations,observed_at FROM usage_sources LIMIT 0",
+                    "SELECT source_id,call_id,digest,observation,response FROM usage_receipts LIMIT 0",
+                    "SELECT engagement_id,granularity,period_key,observed_growth,known_growth,incomplete,observations FROM usage_periods LIMIT 0",
+                    "SELECT singleton,observed_at FROM usage_clock LIMIT 0",
                     "SELECT id,fingerprint,deadline,reply_id FROM owned_task_completions LIMIT 0",
                     "SELECT available,invalidation FROM matrix_transports LIMIT 0",
                     "SELECT n.send_fence,n.cancel_requested,n.task_epoch,n.source_event_id,i.digest,i.observation FROM task_notices n CROSS JOIN notice_send_inspections i LIMIT 0",

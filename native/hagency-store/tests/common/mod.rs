@@ -164,6 +164,12 @@ pub fn remove_matrix_transport_schema(db: &rusqlite::Connection) {
 
 /// Restore schema15 without manufacturing completion or owner authority.
 pub fn remove_owned_completion_schema(db: &rusqlite::Connection) {
+    remove_usage_schema(db);
     db.execute_batch("DROP TABLE owned_task_completions;")
         .unwrap();
+}
+
+/// Restore schema16 without inventing usage for historical execution paths.
+pub fn remove_usage_schema(db: &rusqlite::Connection) {
+    db.execute_batch("DROP TABLE usage_receipts; DROP TABLE usage_periods; DROP TABLE usage_sources; DROP TABLE usage_clock;").unwrap();
 }

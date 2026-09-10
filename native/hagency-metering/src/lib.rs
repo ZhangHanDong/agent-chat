@@ -2,6 +2,7 @@
 //! attribution, provider authenticity, quota availability or task completion.
 
 mod json;
+pub mod observation;
 
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -38,7 +39,7 @@ pub enum MeteringError {
 }
 
 /// Null is unknown, including when a contributing record omitted that field.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenCounts {
     pub input: Option<u64>,
@@ -85,7 +86,7 @@ fn add(a: u64, b: u64) -> Result<u64, MeteringError> {
         .ok_or(MeteringError::Overflow)
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostics {
     pub malformed_lines: u32,
