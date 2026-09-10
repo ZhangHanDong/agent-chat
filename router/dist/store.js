@@ -1561,6 +1561,13 @@ export class RouterStore {
             throw error;
         }
     }
+    approvalThreadOrigin(approvalId, agentId, roomId) {
+        const row = this.db.prepare(`SELECT s.thread_root_event_id FROM approval_waits a
+       JOIN dispatches d ON d.dispatch_id = a.dispatch_id
+       JOIN sessions s ON s.session_id = d.session_id
+       WHERE a.approval_id = ? AND s.agent_id = ? AND s.room_id = ? AND s.scope_kind = 'thread'`).get(approvalId, agentId, roomId);
+        return row?.thread_root_event_id ?? null;
+    }
     readApprovalDecision(input) {
         const checked = this.validateCapability(input);
         if ('ok' in checked)

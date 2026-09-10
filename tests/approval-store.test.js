@@ -256,6 +256,26 @@ describe('owner approval store', () => {
     expect(store.listBindings()).toEqual([]);
   });
 
+  test('router approval provenance is trusted-only, durable, and exact for pending idempotency', () => {
+    const { store, file } = makeStore();
+    store.upsertBinding(binding());
+    const input = request({ router_approval_id: 'body-forgery' });
+    const legacy = store.createRequest(input);
+    expect(store.getRequest(legacy.id, { matrix: true }).router_approval_id).toBeNull();
+    expect(() => store.createRequest(input, { routerApprovalId: input.upstream_request_id }))
+      .toThrow(/already belongs to a different approval origin/);
+
+    store.denyPending(legacy.id, 'fixture-complete');
+    const native = store.createRequest(input, { routerApprovalId: input.upstream_request_id });
+    expect(store.getRequest(native.id, { matrix: true }).router_approval_id)
+      .toBe(input.upstream_request_id);
+    expect(new ApprovalStore(file).getRequest(native.id, { matrix: true }).router_approval_id)
+      .toBe(input.upstream_request_id);
+    expect(store.createRequest(input, { routerApprovalId: input.upstream_request_id }).id)
+      .toBe(native.id);
+    expect(() => store.createRequest(input)).toThrow(/already belongs to a different approval origin/);
+  });
+
   test('ambiguous room ownership denies instead of selecting an administrator', () => {
     /*
      * REQ-OWNER-UI-APPROVAL-FAIL-CLOSED, the "ambiguous" state — the one where a fallback is

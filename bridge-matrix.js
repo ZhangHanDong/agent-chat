@@ -840,8 +840,10 @@ state.roomGroupMap = state.roomGroupMap || {};
 {
   let migrated = 0;
   for (const [key, roomId] of Object.entries({ ...state.groupRoomMap })) {
-    const at = key.lastIndexOf('@');
-    if (at > 0 && key.slice(at + 1).includes('.')) continue;      // already qualified
+    const rawServer = typeof roomId === 'string' && roomId.includes(':') ? roomId.slice(roomId.indexOf(':') + 1) : null;
+    const qualifiedSuffix = rawServer ? `@${rawServer}` : null;
+    if (qualifiedSuffix && key.length > qualifiedSuffix.length
+      && key.toLowerCase().endsWith(qualifiedSuffix.toLowerCase())) continue;
     /*
      * At this point in module evaluation there is no bridge instance, so
      * sideForRoom is unavailable — but the room id NAMES its own server, and a
@@ -850,13 +852,10 @@ state.roomGroupMap = state.roomGroupMap || {};
      * exists is irrelevant to the KEY's identity and is re-derived per use.
      */
     /*
-     * CASE: the room id's server segment keeps its original case (`sideB.example`)
-     * while a lowercased comparison (`sideb.example`) would write a key no
-     * caller can produce. Use the RAW server segment — sideForRoom's ids match
-     * the room id, and roomForGroup(name, side) builds keys from the id it was
-     * given, so the migration key and the lookup key agree byte-for-byte.
+     * Keep the historical room-server spelling (`sideB.example`) in persisted
+     * keys. Live side IDs are canonical lowercase; mapRoom and roomForGroup
+     * compare only the side segment without case so these keys remain usable.
      */
-    const rawServer = typeof roomId === 'string' && roomId.includes(':') ? roomId.slice(roomId.indexOf(':') + 1) : null;
     const server = rawServer ? rawServer.toLowerCase() : null;
     if (!rawServer || server === MATRIX_SERVER_NAME.toLowerCase()) continue; // own-server rooms stay bare
     const qualified = `${key}@${rawServer}`;
@@ -2153,12 +2152,53 @@ function groupKey(groupName, side) {
   return side ? `${groupName}@${side}` : groupName;
 }
 
-function mapRoom(roomId, groupName, { side = null, logger = console } = {}) {
-  const key = groupKey(groupName, side);
-  const prevGroup = state.roomGroupMap[roomId];
-  if (prevGroup && prevGroup !== key && state.groupRoomMap[prevGroup] === roomId) {
-    delete state.groupRoomMap[prevGroup];
+function qualifiedGroupEntries(groupName, side) {
+  const prefix = `${groupName}@`;
+  const canonicalSide = String(side).toLowerCase();
+  return Object.entries(state.groupRoomMap).filter(([key]) =>
+    key.startsWith(prefix) && key.slice(prefix.length).toLowerCase() === canonicalSide);
+}
+
+function groupSideAmbiguity(groupName, side, entries) {
+  return `group "${groupName}" on side ${side} is ambiguous: case-equivalent keys map to different rooms `
+    + `${[...new Set(entries.map(([, room]) => room))].join(', ')}; refusing to choose a room.`;
+}
+
+function qualifiedGroupIdentityForRoom(roomId, key, explicitSide = null) {
+  if (typeof key !== 'string') return null;
+  for (const side of [explicitSide, projectServerFromRoomId(roomId)]) {
+    if (!side) continue;
+    const suffix = `@${side}`;
+    if (key.length > suffix.length && key.toLowerCase().endsWith(suffix.toLowerCase())) {
+      return { name: key.slice(0, -suffix.length), side: key.slice(-side.length) };
+    }
   }
+  const legacyName = bareGroupName(key);
+  return legacyName !== key ? { name: legacyName, side: key.slice(legacyName.length + 1) } : null;
+}
+
+function removeRoomGroupAliases(roomId, key, side = null) {
+  const identity = qualifiedGroupIdentityForRoom(roomId, key, side);
+  const matches = identity
+    ? qualifiedGroupEntries(identity.name, identity.side)
+    : [[key, state.groupRoomMap[key]]];
+  for (const [alias, mappedRoom] of matches) {
+    if (mappedRoom === roomId) delete state.groupRoomMap[alias];
+  }
+}
+
+function mapRoom(roomId, groupName, { side = null, logger = console } = {}) {
+  const matches = side ? qualifiedGroupEntries(groupName, side) : [];
+  if (new Set(matches.map(([, room]) => room)).size > 1) {
+    const message = groupSideAmbiguity(groupName, side, matches);
+    (logger?.error ?? console.error)?.(`[group-map] ${message}`);
+    try { postGroupMapConflict({ groupName, side, toRoom: roomId, message }); } catch { /* reporting must not break the room handler */ }
+    return false;
+  }
+  const prevGroup = state.roomGroupMap[roomId];
+  // Retain an existing spelling, including a room's own equivalent aliases.
+  const key = matches.find(([candidate]) => candidate === prevGroup)?.[0]
+    ?? matches[0]?.[0] ?? groupKey(groupName, side);
   const prevRoom = state.groupRoomMap[key];
   if (prevRoom && prevRoom !== roomId) {
     /*
@@ -2174,6 +2214,7 @@ function mapRoom(roomId, groupName, { side = null, logger = console } = {}) {
     try { postGroupMapConflict({ groupName, side, fromRoom: prevRoom, toRoom: roomId, message }); } catch { /* reporting must not break the room handler */ }
     return false;
   }
+  if (prevGroup && prevGroup !== key) removeRoomGroupAliases(roomId, prevGroup, side);
   state.roomGroupMap[roomId] = key;
   state.groupRoomMap[key] = roomId;
   markRoomTrusted(roomId, { group: key });
@@ -2213,7 +2254,10 @@ function bareGroupName(key) {
   if (at > 0 && key.slice(at + 1).includes('.')) return key.slice(0, at);
   return key;
 }
-function groupForRoom(roomId) { return bareGroupName(state.roomGroupMap[roomId]) || null; }
+function groupForRoom(roomId) {
+  const key = state.roomGroupMap[roomId];
+  return qualifiedGroupIdentityForRoom(roomId, key)?.name ?? bareGroupName(key) ?? null;
+}
 function groupMappingKey(roomId) { return state.roomGroupMap[roomId] || null; }
 /*
  * 15-r2: THE single deletion path. Every unmap goes through here so the two
@@ -2247,7 +2291,7 @@ function sweepLeftRoomsOnSides(sideId, roomIds) {
 function unmapRoom(roomId) {
   const key = groupMappingKey(roomId);
   if (!key) return null;
-  if (state.groupRoomMap[key] === roomId) delete state.groupRoomMap[key];
+  removeRoomGroupAliases(roomId, key);
   delete state.roomGroupMap[roomId];
   saveState();
   return key;
@@ -2258,8 +2302,12 @@ function unmapRoom(roomId) {
 // side the lookup stays on the legacy single-side form for DM/own-server rooms.
 function roomForGroup(groupName, side = null) {
   if (side) {
-    const qualified = state.groupRoomMap[groupKey(groupName, side)];
-    if (qualified) return qualified;
+    const matches = qualifiedGroupEntries(groupName, side);
+    if (new Set(matches.map(([, room]) => room)).size > 1) {
+      console.warn(`[group-route] ${groupSideAmbiguity(groupName, side, matches)}`);
+      return null;
+    }
+    if (matches.length) return matches[0][1];
     // F03-r1: fall back to the BARE key — pre-migration states (and rooms whose
     // side was not derivable at load) hold bare entries; missing them would let
     // a fresh name event create a duplicate mapping.
@@ -2530,6 +2578,8 @@ export function approvalRoomPowerLevels(botUserId) {
 export function buildPublicApprovalNotice(approval) {
   const agent = String(approval?.agent || '').trim();
   const project = String(approval?.project || '').trim();
+  const threadRoot = typeof approval?.thread_root_event_id === 'string'
+    ? approval.thread_root_event_id : '';
   return {
     msgtype: APPROVAL_STATUS_MSGTYPE,
     body: `Agent ${agent} is waiting for approval from its owner.`,
@@ -2540,6 +2590,10 @@ export function buildPublicApprovalNotice(approval) {
       project,
       state: 'waiting_for_owner',
     },
+    ...(threadRoot ? { 'm.relates_to': {
+      rel_type: 'm.thread', event_id: threadRoot, is_falling_back: true,
+      'm.in_reply_to': { event_id: threadRoot },
+    } } : {}),
   };
 }
 
@@ -3891,7 +3945,9 @@ export class MatrixBridge {
   // !bindroom primitive: bind an EXISTING room to an existing backend group
   // (multi-instance shared rooms — no room/group creation). Reuses mapRoom for
   // rebind cleanup, trust marking, and state persistence.
-  bindRoom(roomId, groupName) { mapRoom(roomId, groupName); }
+  bindRoom(roomId, groupName) {
+    mapRoom(roomId, groupName, { side: this.sideForRoom(roomId)?.side?.id ?? null });
+  }
   groupForRoom(roomId) { return groupForRoom(roomId); }
   recordRoomAgentBinding(roomId, agentName, ownerMxid, options = {}) {
     const result = upsertRoomAgentBinding(roomId, agentName, ownerMxid, options);
@@ -5287,10 +5343,11 @@ export class MatrixBridge {
 
   /** The acting credential for a homeserver, in the shape the representative helpers take. */
   actingSideFor(serverNameValue) {
-    const row = this.actingCredentials?.get(String(serverNameValue || '').toLowerCase());
+    const sideId = String(serverNameValue || '').toLowerCase();
+    const row = this.actingCredentials?.get(sideId);
     if (!row) return null;
     return {
-      side: { id: row.sideId, apiBaseUrl: row.apiBaseUrl, serverName: row.serverName, representative: row.representative },
+      side: { id: sideId, apiBaseUrl: row.apiBaseUrl, serverName: row.serverName, representative: row.representative },
       credential: row.kind === 'appservice'
         ? {
           kind: 'appservice', asToken: row.asToken, senderLocalpart: row.senderLocalpart,
@@ -9939,7 +9996,7 @@ export class MatrixBridge {
   sideForRoom(roomId) {
     if (typeof roomId !== 'string' || !roomId.includes(':')) return null;
     const server = roomId.slice(roomId.indexOf(':') + 1).toLowerCase();
-    if (server === MATRIX_SERVER_NAME) return null;
+    if (server === MATRIX_SERVER_NAME.toLowerCase()) return null;
     const acting = this.actingSideFor(server);
     if (!acting || acting.credential?.kind !== 'appservice') return null;
     return acting;

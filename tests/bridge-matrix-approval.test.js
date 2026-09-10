@@ -102,7 +102,7 @@ describe('Matrix owner approval bridge', () => {
   });
 
   test('scoped approval cards preserve private details and validate all four structured decisions', () => {
-    const scoped = { ...approval, runtime: 'codex', reusable_scope: {
+    const scoped = { ...approval, runtime: 'codex', thread_root_event_id: '$scoped-thread', reusable_scope: {
       description: 'Network host: aapt.org\nProtocol: https', workspace: '/work/edison', task_id: 'task-1',
     } };
     const content = buildOwnerApprovalRequest(scoped);
@@ -111,6 +111,7 @@ describe('Matrix owner approval bridge', () => {
     expect(detail.description).toContain('aapt.org');
     expect(detail.description).toContain(approval.project);
     expect(JSON.stringify(buildPublicApprovalNotice(scoped))).not.toMatch(/aapt|\/work|reusable_scope|approve_always/);
+    expect(buildPublicApprovalNotice(scoped)['m.relates_to']?.event_id).toBe('$scoped-thread');
     for (const action of ['approve_once', 'approve_task', 'approve_always', 'deny']) {
       const event = { sender: approval.owner_mxid, event_id: '$decision', content: {
         msgtype: 'com.agentchat.approval.verdict.v1', 'com.agentchat.approval': { ...detail, kind: 'verdict', action },
@@ -122,6 +123,15 @@ describe('Matrix owner approval bridge', () => {
       expect(parseApprovalVerdictEvent(approval.owner_dm_room_id, event)).toBeNull();
     }
     expect(buildOwnerApprovalRequest(approval)['com.agentchat.approval'].actions).toHaveLength(2);
+  });
+
+  test('thread approval notices remain in the originating task thread', () => {
+    const content = buildPublicApprovalNotice({ ...approval, thread_root_event_id: '$original-thread' });
+    expect(content['m.relates_to']).toEqual({ rel_type: 'm.thread', event_id: '$original-thread',
+      is_falling_back: true, 'm.in_reply_to': { event_id: '$original-thread' } });
+    expect(JSON.stringify(content)).not.toContain(approval.input_preview);
+    expect(content['com.agentchat.approval']).not.toHaveProperty('actions');
+    expect(buildPublicApprovalNotice(approval)).not.toHaveProperty('m.relates_to');
   });
 
   test('owner_dm_approval_request_contains_structured_actions', () => {
