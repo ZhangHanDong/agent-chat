@@ -449,17 +449,22 @@ async fn execute(
         if !stopped(report.cleanup) {
             return Err(Failure::CleanupUnknown);
         }
-        // This finite writer commit is not cancellation-raced: after this
-        // checkpoint cancellation cannot undo an already committed final intent.
+        // Keep the receipt future alive. The writer checks this original signal
+        // and monotonic deadline after queue/lock before admitting final content;
+        // cancellation after that eligibility decision cannot undo its commit.
         domain
-            .publish_owned_completion(cap.clone(), started, reference, cancel.clone())
+            .publish_owned_completion(
+                cap.clone(),
+                started,
+                reference,
+                cancel.clone(),
+                until.into_std(),
+            )
             .await
             .map_err(|_| {
-                if cancel.load(Ordering::Acquire) {
-                    Failure::Cancelled
-                } else {
-                    Failure::SettlementUnknown
-                }
+                checkpoint(cancel, until)
+                    .err()
+                    .unwrap_or(Failure::SettlementUnknown)
             })?;
         report.settlement = Settlement::CanonicalReplyReady;
         report.text = None; // Stored explicit content is the sole final body.

@@ -3795,3 +3795,11 @@ with zero failures, skips, pending reviews or uncertain results. Live key upload
 missing-session claims, trust establishment, automatic uncertain-send recovery,
 receipt compaction, media, production wiring and overall M5 completion remain
 explicit gates. No native availability toggle, domain migration or deployment.
+
+ADR-060 review closure: pass the original operation Instant into queued publication
+and check it together with cancellation after writer queue/DB lock acquisition.
+The new actual queued-expiry test preserves held body/lease even when the separate
+persisted completion deadline is later. Three completion worker tests and five
+actual helper/MCP tests pass, as does native all-target Clippy. Documentation now
+distinguishes decoded body32KiB, native MCP/client encoded32KiB, and direct private
+HTTP encoded64KiB limits; no handler or permission limit was relaxed.

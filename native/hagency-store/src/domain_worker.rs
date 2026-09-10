@@ -324,6 +324,13 @@ mod clock_tests {
     }
     #[tokio::test]
     async fn native_owned_completion_queued_cancellation() {
+        queued_publication(false).await;
+    }
+    #[tokio::test]
+    async fn native_owned_completion_queued_deadline() {
+        queued_publication(true).await;
+    }
+    async fn queued_publication(expire: bool) {
         let root = tempfile::tempdir().unwrap();
         let (mut db, cap) = owned_fixture(root.path());
         let admission = db.owned_dispatch_scope(&cap, now()).unwrap();
@@ -359,13 +366,20 @@ mod clock_tests {
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let signal = cancel.clone();
         let worker = store.clone();
-        let mut queued = Box::pin(worker.publish_owned_completion(cap, scope, reference, signal));
+        let deadline =
+            std::time::Instant::now() + Duration::from_millis(if expire { 30 } else { 1000 });
+        let mut queued =
+            Box::pin(worker.publish_owned_completion(cap, scope, reference, signal, deadline));
         std::future::poll_fn(|cx| {
             assert!(std::future::Future::poll(queued.as_mut(), cx).is_pending());
             std::task::Poll::Ready(())
         })
         .await; // call() has enqueued its command before its first Pending.
-        cancel.store(true, std::sync::atomic::Ordering::Release);
+        if expire {
+            tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
+        } else {
+            cancel.store(true, std::sync::atomic::Ordering::Release);
+        }
         release.send(()).unwrap();
         hold.await.unwrap().unwrap();
         assert!(matches!(queued.await, Err(Error::State)));
@@ -645,13 +659,17 @@ impl DomainStore {
         scope: crate::OwnedDispatchScope,
         reference: crate::OwnedCompletion,
         cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        deadline: std::time::Instant,
     ) -> Result<hagency_core::completions::CompletionReceipt, Error> {
         let bytes = weight(&(&cap, scope.queue_value(), reference.id()))?;
         self.call(bytes, move |db| {
             db.publish_completion_clock(&cap, &scope, &reference, || {
                 // Linearizes publication eligibility after writer queue and DB
-                // lock, against the original operation cancellation signal.
-                if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                // lock, against the original cancellation signal and absolute
+                // monotonic operation deadline, not a renewed queue-time budget.
+                if cancel.load(std::sync::atomic::Ordering::Acquire)
+                    || std::time::Instant::now() >= deadline
+                {
                     return Err(Error::State);
                 }
                 writer_time()

@@ -72,6 +72,12 @@ Scenario: Cancellation reaches the actual queued publication
   When the original operation is cancelled before publication eligibility
   Then no final reply or lease release is committed
 
+Scenario: Original operation deadline remains enforced after queue delay
+  Test: native_owned_completion_queued_deadline
+  Given a held completion and an actual queued publication
+  When the original monotonic operation deadline expires before writer eligibility
+  Then final content stays held with no lease release despite a later persisted completion deadline
+
 Scenario: Completion capacity rolls back the full transition
   Test: native_owned_completion_capacity_rolls_back_done
   Given a full bounded per-session completion history

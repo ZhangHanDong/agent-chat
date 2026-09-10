@@ -50,8 +50,10 @@ The finish transaction:
    existing stop queue, capability retirement, dirty lease and session quarantine.
 
 No `final_replies` row exists at this point. The body is at most 32 KiB UTF-8;
-encoded HTTP and MCP frames have their existing 32 KiB limit and fail visibly if
-escaping/metadata exceeds it. Nothing truncates a final result. Completion custody
+native task-client HTTP requests and MCP frames have their existing 32 KiB limit
+and fail visibly if escaping/metadata exceeds it. The direct private HTTP handler
+uses the existing 64 KiB request limit and still validates the decoded body at
+32 KiB. Nothing truncates a final result. Completion custody
 has a 30,000 row global ceiling and 128 row ceiling per session (including history;
 no automatic pruning is claimed). Capacity refusal rolls back Done, the epoch,
 operation receipt and stop fence together. The deadline is the earlier of original
@@ -102,8 +104,10 @@ body into the existing final outbox, finish the original frozen input bookkeepin
 settle this stop/attempt, and remove this attempt's leases. The final outbox keeps
 its original route/body/transaction and existing send/uncertainty fences.
 
-The original operation cancellation signal is checked inside the publication
-transaction after the queue and DB lock. That eligibility decision is the
+The original operation cancellation signal and absolute monotonic `Instant`
+deadline are checked inside the publication transaction after the queue and DB
+lock. The stored finish/cap deadline is an additional fence; it never extends the
+original operation budget. That eligibility decision is the
 linearization point; a later cancellation cannot undo the committed intent.
 Cancellation, deadline, unsupported approval or a negative/unknown cleanup path
 never publishes. Negative observation cancels a still-held row without deleting
@@ -153,8 +157,9 @@ scope and wrong reference, finite deadline, task epoch drift, revocation, DM
 promotion and device rotation, unrelated stop/lease custody, capacity rollback,
 schema migration and ownerless restart. Worker queue fixtures use real transactions
 with only response delivery withheld before/after finish; cancelled futures are
-never repolled. Another actual queued publication sees cancellation after enqueue
-and before its writer eligibility check, preserving held body and lease.
+never repolled. Other actual queued publications see cancellation or the original monotonic
+deadline expire after enqueue and before writer eligibility, preserving held body
+and lease.
 
 The actual offline app-server executable consumes generated configuration and
 launches the real native MCP helper through retained child pipes against the same

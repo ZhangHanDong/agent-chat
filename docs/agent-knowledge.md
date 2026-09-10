@@ -1829,3 +1829,6 @@ responses as well as exact identity, route and content digests. The 64-receipt
 hard stop never evicts dedup history; continuous production operation needs a
 separate retention/recovery lifecycle. Live key provisioning, media and native
 service cutover remain gates.
+- Owned completion publication carries the original operation's monotonic deadline
+  through the writer queue/DB lock. The persisted finish/cap deadline cannot extend
+  it; expiry before writer eligibility preserves held content and leases.
