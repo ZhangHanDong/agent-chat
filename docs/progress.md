@@ -2412,3 +2412,22 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   route integration, encryption/send/inspection, arbitrary first invited groups,
   non-owner/federated DM policy, taskless/front-desk output and live end-to-end
   tests remain open. No deployed service, credential, model or live room changed.
+
+## 2026-09-10 — Integrate inventory and private final-reply custody
+
+- Integrated source inventory as bf7a47d and final-reply custody as b89c576.
+  Only append-only coordination files conflicted; all independent records were
+  retained. The native README now states the current checkpoint and reply API.
+- Combined native workspace: 122 passed, zero failed or ignored, plus Clippy and
+  rustfmt. All 95 native selectors resolve. The integrated final-reply lifecycle
+  passes six scenarios plus boundary, with zero skipped or uncertain results.
+- Exact inventory Vitest: three passed, zero failed/skipped. Inventory reproduction,
+  ESLint, diff and README link checks pass. All 533 Node selectors resolve. Its
+  Cargo-only lifecycle limitation remains non-passing as recorded above; the
+  successful Vitest run is the applicable test evidence.
+- Prior transport head c1daf95 passed Native CI 34509445157 on all three OSes.
+  New integrated CI is still required. No live runtime or Matrix state was touched.
+- Parallel work continues on verified Matrix ingress/task-intent integration,
+  Codex one-turn session handling and durable outbound custody. Machine-token
+  rotation is separate from AS registration replacement; already received work
+  must survive the former. No migration phase is declared complete by this check.

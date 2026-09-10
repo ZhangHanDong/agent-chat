@@ -5,6 +5,12 @@ replacement for the deployed Hagency application**. Resource allocation, Agents,
 Palpo transport, the console API and Matrix chat still run in the existing JS/TS
 implementation. Native capability responses explicitly mark these unavailable.
 
+The current developer checkpoint includes domain schema 11: scoped tasks,
+internal groups, durable graphs and final-reply custody. The independent runtime
+crate provides a Codex protocol and bounded stream driver. Verified Matrix input
+still needs its task-intent integration, and neither runtime execution nor actual
+Matrix delivery is enabled. The sections below record the successive checkpoints.
+
 Build and run from this worktree, using a new state directory:
 
 ```sh
@@ -168,6 +174,8 @@ resource management. Responses use `Cache-Control: no-store`.
 | `POST /peer-messages` | Send a scoped peer message to current internal recipients |
 | `GET /peer-inbox` | Read the current dispatch's frozen peer input |
 | `GET /inbox` | Page only the current dispatch's frozen input |
+| `POST /final-replies` | Persist bounded final content for the exact canonical Done task epoch |
+| `GET /final-replies/{id}` | Read a scoped metadata-only reply receipt |
 
 A mutation body is `{"call_id":"heartbeat-1","operation":{"action":"execution","heartbeat":true}}`.
 The domain writer obtains its own clock after body reading and queueing, then
@@ -296,3 +304,27 @@ missing unknown leases left by earlier native versions. Retired assignment histo
 is retained without consuming live queue capacity or fabricating an acknowledgement.
 See [ADR-031](../knowledge/decisions/adr-031-native-task-graph-custody.md). Model
 execution, MCP graph tools, final reply delivery and production parity remain open.
+
+Schema 11 freezes Matrix server, room, sender/device, owner, explicit privacy and
+generations before a fresh session receives reply authority. Legacy sessions are
+not upgraded from current room state. Full member snapshots and negative evidence
+retire old sessions and pending replies; restored access needs a fresh session.
+DM promotion also fences sessions with a null thread root.
+
+Final content uses `{"call_id":"final-1","body":"Completed result"}`. Admission
+requires the exact canonical Done epoch or an inspected report grant and creates
+one immutable intent per task epoch. Host claim, send-start, observed delivery and
+inspection are separate operations. Possible sends remain uncertain after restart
+or cancellation. A later NotSent inspection cannot revive explicitly cancelled
+output. Runtime receipts expose no route, private owner room or transport token.
+See [ADR-033](../knowledge/decisions/adr-033-native-final-reply-custody.md) for the
+remaining verified-ingress, taskless, room-admission and live-transport boundaries.
+
+The `hagency-runtime` crate implements bounded Codex 0.153.4 JSONL protocol state
+and an asynchronous driver for host-owned streams. A complete write and flush is
+a transport receipt only. Cancellation, timeout, EOF and queue pressure close the
+connection with unresolved progress; they prove no process cleanup or task result.
+Protocol requests and events cannot grant approval. The crate remains unlinked
+from Agent execution; typed session, sandbox and guardian integration are open.
+See [ADR-032](../knowledge/decisions/adr-032-native-codex-protocol.md) and
+[ADR-034](../knowledge/decisions/adr-034-native-codex-transport.md).
