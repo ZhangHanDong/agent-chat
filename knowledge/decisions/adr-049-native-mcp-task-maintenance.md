@@ -59,4 +59,4 @@ Sources:
 - https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
 - https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
 - https://modelcontextprotocol.io/specification/2025-11-25/server/tools
-- https://github.com/modelcontextprotocol/rust-sdk/tree/rmcp-v1.8.0/crates/rmcp/src/transport
+- https://github.com/modelcontextprotocol/rust-sdk/tree/25220361d5540715294c501c289d79de4bec2bfc/crates/rmcp/src/transport

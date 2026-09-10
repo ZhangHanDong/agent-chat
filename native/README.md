@@ -5,16 +5,19 @@ replacement for the deployed Hagency application**. Resource allocation, Agents,
 Palpo transport, the console API and Matrix chat still run in the existing JS/TS
 implementation. Native capability responses explicitly mark these unavailable.
 
-The current developer checkpoint includes domain schema 14: scoped tasks,
+The current developer checkpoint includes domain schema 15: scoped tasks,
 internal groups, durable graphs, verified-input task activation, owner approvals
-and notice/final-reply send custody. Independent custody schema 2 preserves outbound work and publication
+and notice/final-reply send custody, with exact negative Matrix transport fencing. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
 with independent polling and publication. The runtime crate provides a bounded
 Codex one-turn session connected to guardian-owned Unix pipes and Windows
 overlapped pipes under atomic Job Object custody for offline fixtures. The native CLI and MCP helper maintain an assigned task through the scoped API.
 The opt-in permissions coordinator consumes durable owner authority before an
 exact typed Codex response; upstream application remains explicitly unproven.
-Service Agent execution and actual Matrix delivery remain disabled.
+The new hagency-matrix library collects authenticated account and full room state
+with encrypted SDK custody. Event admission, key publication and sends remain
+gated; the service does not yet construct this adapter. Service Agent execution
+and actual Matrix delivery remain disabled.
 The sections below record the successive checkpoints.
 
 Build and run from this worktree, using a new state directory:
@@ -57,7 +60,8 @@ Operator-only development resource endpoints under `/api/native/v1`:
 List endpoints accept `after` (last returned ID) and `limit` (1–100). These routes
 share the operator bearer and exact-host/origin checks. They are not the existing
 console API. Requests, approvals and effect receipts cannot be submitted through
-fixture HTTP routes; there is no native runner or authenticated Matrix transport yet.
+fixture HTTP routes; the development service does not launch runners or connect
+the authenticated Matrix collector yet.
 
 Checks:
 
@@ -75,8 +79,8 @@ node native/scripts/check-rust-spec-bindings.mjs
 The binary test clears PATH, launches native HTTP, submits a request, kills the
 process and verifies the original receipt after restart. The offline Matrix SDK
 proof tests encrypted device persistence and strict cross-signing; it does not
-contact a homeserver. Crypto proof dependencies are dev dependencies and are not
-linked into the current `hagency` binary. SQLite is bundled; other native library
+contact a homeserver. The offline proof uses dev dependencies; hagency-matrix uses the SDK as a
+production library dependency, but neither is linked into the current `hagency` binary. SQLite is bundled; other native library
 requirements still need a final packaging audit.
 
 Canonical vectors execute the pure encoder from the pinned existing JS source.
@@ -389,3 +393,19 @@ library service function. The pinned Rust MCP SDK is a test-only dependency.
 
 Delegation, graphs, files, approvals, generated runner configuration and live
 rollout are separate work; existing deployed MCP configuration is unchanged.
+
+
+Schema 15 and [ADR-047](../knowledge/decisions/adr-047-native-matrix-transport.md)
+add authenticated Matrix observation collection. Exact whoami account/device
+matching precedes encrypted SDK bootstrap. Bounded HTTPS sync and full room state
+feed the domain writer, which atomically fences stale sessions, grants and
+possible notice/final sends after negative transport or shared-room evidence.
+A stale failed request cannot retire a newer incarnation.
+
+The collector owns SDK state, crypto and an explicitly encrypted sync journal.
+An interrupted pending response is retained and requires inspection; completed
+cursors are not assumed to prove SDK application. The current bounds are 16
+host-pinned rooms and 64 completed sync receipts, with finite HTTP/storage/queue
+budgets. Capacity exhaustion is visible. Room-set rotation, pending-sync recovery,
+continuous retention, event provenance, key publication and encrypted sends remain
+separate gates. No live device or service is connected by this checkpoint.

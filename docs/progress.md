@@ -3023,3 +3023,26 @@ unchanged.
   or production cutover. If negative persistence itself is unavailable/unknown,
   a future live host must stop using that incarnation; a failed database cannot
   promise immediate retirement. This bounded slice does not complete M5.
+
+
+### 2026-09-10 — Integrated Matrix collector and three-platform MCP/approval CI
+
+Integrated Matrix transport a2c5621 as d898211, preserving the current Palpo,
+permissions and Matrix workspace members without baseline dependency upgrades.
+The combined workspace passed 241 unique tests plus the isolated proxy child
+check (242 printed passes), zero failed/ignored. Clippy with warnings denied and
+all 159 native selector bindings pass. Integrated Matrix lifecycle passes 8/8
+with all 31 changed paths bound and zero fail/skip/uncertain. Evidence:
+`combined-matrix-mcp-approval-*` and `integrated-matrix-lifecycle.*` in the
+2026-09-10 migration cache.
+
+At prior head 911f1f5, Native CI 34522180950 passed on actual Linux, macOS and
+Windows runners, and Node CI 34522180924 passed. This closes the prior macOS
+child-progress fixture failure and qualifies the MCP/approval integration on
+those runners. Matrix collector CI requires the next push; local validation
+is not substituted for that result.
+
+Three parallel agents remain active: MCP coordination/delegation/task graphs,
+Matrix formatting with JS vectors, and namespace-qualified Linux cgroup cleanup
+fixtures. Production execution, Matrix event admission/sends, retained migration
+phases and controlled cutover are still open; original/live state is unchanged.

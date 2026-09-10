@@ -1541,3 +1541,10 @@ ownership stays locked through accepted commands, store close and runtime drop,
 even after a caller timeout. Successful close is acknowledged after release;
 close errors stay unknown. Live encrypted send, key publication/identity matching,
 event provenance and recovery of pending SDK work remain unimplemented gates.
+
+
+Integrated Matrix baseline d898211 has 241 unique local workspace tests plus the
+proxy isolation child (242 printed passes), 159 bound selectors, and 8/8 Matrix
+lifecycle checks. The preceding 911f1f5 Native CI passed Linux/macOS/Windows
+(run34522180950) and Node CI passed (34522180924). Do not confuse that CI
+qualification with the newly integrated Matrix collector until its own run ends.
