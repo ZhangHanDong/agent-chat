@@ -35,7 +35,9 @@ pub fn directory(path: &Path) -> Result<(), Error> {
     }
 }
 
-fn check(file: &File, path: &Path) -> Result<(), Error> {
+fn check(file: &File, path: &Path, sqlite_journal: bool) -> Result<(), Error> {
+    #[cfg(not(windows))]
+    let _ = sqlite_journal;
     let meta = file.metadata()?;
     let path_meta = fs::symlink_metadata(path)?;
     if !meta.is_file() || path_meta.file_type().is_symlink() {
@@ -51,7 +53,7 @@ fn check(file: &File, path: &Path) -> Result<(), Error> {
         return Err(Error::Private);
     }
     #[cfg(windows)]
-    windows::check(file, path)?;
+    windows::check_with_policy(file, path, sqlite_journal)?;
     #[cfg(not(any(unix, windows)))]
     return Err(Error::PlatformUnavailable);
     #[cfg(any(unix, windows))]
@@ -66,7 +68,7 @@ pub fn open(path: &Path, create: bool) -> Result<File, Error> {
     #[cfg(windows)]
     if create {
         let file = windows::create_file(path)?;
-        check(&file, path)?;
+        check(&file, path, false)?;
         return Ok(file);
     }
     let file = if create {
@@ -74,7 +76,16 @@ pub fn open(path: &Path, create: bool) -> Result<File, Error> {
     } else {
         options.open(path)?
     };
-    check(&file, path)?;
+    check(&file, path, false)?;
+    Ok(file)
+}
+
+/// SQLite auxiliary files inherit the private directory ACL. In an elevated
+/// Windows process their owner can be Builtin Administrators; never accept a
+/// different unprivileged owner or any additional ACL principal.
+pub fn open_journal(path: &Path) -> Result<File, Error> {
+    let file = OpenOptions::new().read(true).write(true).open(path)?;
+    check(&file, path, true)?;
     Ok(file)
 }
 
@@ -104,3 +115,31 @@ pub fn read_secret(path: &Path) -> Result<Vec<u8>, Error> {
 #[cfg(windows)]
 #[allow(unsafe_code)] // Audited Windows FFI boundary; the rest of this crate denies unsafe.
 mod windows;
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn private_storage_rejects_public_access() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("state");
+        directory(&root).unwrap();
+        let token = root.join("operator.token");
+        write_new(&token, b"fixture-secret").unwrap();
+        fs::set_permissions(&token, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(read_secret(&token), Err(Error::Private)));
+        fs::set_permissions(&token, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::hard_link(&token, root.join("hard-link")).unwrap();
+        assert!(matches!(read_secret(&token), Err(Error::Private)));
+        fs::remove_file(root.join("hard-link")).unwrap();
+        std::os::unix::fs::symlink(&token, root.join("symbolic-link")).unwrap();
+        assert!(matches!(
+            read_secret(&root.join("symbolic-link")),
+            Err(Error::Private)
+        ));
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(directory(&root), Err(Error::Private)));
+    }
+}

@@ -43,7 +43,7 @@ impl Repository {
             "custody.sqlite3-journal",
         ] {
             if directory.join(suffix).symlink_metadata().is_ok() {
-                private::open(&directory.join(suffix), false)?;
+                private::open_journal(&directory.join(suffix))?;
             }
         }
         let mut db =

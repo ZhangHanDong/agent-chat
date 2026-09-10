@@ -132,7 +132,15 @@ pub(super) fn directory(path: &Path) -> Result<(), Error> {
     check(&file, path)
 }
 
-pub(super) fn check(file: &File, path: &Path) -> Result<(), Error> {
+fn check(file: &File, path: &Path) -> Result<(), Error> {
+    check_with_policy(file, path, false)
+}
+
+pub(super) fn check_with_policy(
+    file: &File,
+    path: &Path,
+    sqlite_journal: bool,
+) -> Result<(), Error> {
     if std::fs::symlink_metadata(path)?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(Error::Private);
     }
@@ -172,7 +180,8 @@ pub(super) fn check(file: &File, path: &Path) -> Result<(), Error> {
         let _descriptor = Allocation(descriptor);
         if owner.is_null()
             || dacl.is_null()
-            || EqualSid(owner, expected) == 0
+            || (EqualSid(owner, expected) == 0
+                && !(sqlite_journal && IsWellKnownSid(owner, WinBuiltinAdministratorsSid) != 0))
             || !IsValidAcl(dacl).is_positive()
         {
             return Err(Error::Private);
@@ -245,5 +254,67 @@ pub(super) fn create_file(path: &Path) -> Result<File, Error> {
             return Err(std::io::Error::last_os_error().into());
         }
         Ok(File::from_raw_handle(handle))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn private_storage_rejects_public_access() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("state");
+        directory(&root).unwrap();
+        let token = root.join("operator.token");
+        drop(create_file(&token).unwrap());
+        let sid = current_sid().unwrap();
+        // Fixture ACL deliberately adds World read access. It must fail closed.
+        let sddl: Vec<_> = format!("D:P(A;;FA;;;{sid})(A;;GR;;;WD)\0")
+            .encode_utf16()
+            .collect();
+        let name = wide(&token).unwrap();
+        // SAFETY: The descriptor and all output storage live through the synchronous
+        // ACL calls; only this test-owned file is changed and allocations are released.
+        unsafe {
+            let mut descriptor = ptr::null_mut();
+            assert_ne!(
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl.as_ptr(),
+                    SDDL_REVISION_1,
+                    &mut descriptor,
+                    ptr::null_mut()
+                ),
+                0
+            );
+            let _allocated = Allocation(descriptor);
+            let mut present = 0;
+            let mut defaulted = 0;
+            let mut dacl = ptr::null_mut();
+            assert_ne!(
+                GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted),
+                0
+            );
+            assert_ne!(present, 0);
+            assert_eq!(
+                SetNamedSecurityInfoW(
+                    name.as_ptr(),
+                    SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    dacl,
+                    ptr::null()
+                ),
+                0
+            );
+        }
+        assert!(matches!(
+            crate::private::read_secret(&token),
+            Err(Error::Private)
+        ));
+        assert!(matches!(
+            crate::private::open_journal(&token),
+            Err(Error::Private)
+        ));
     }
 }

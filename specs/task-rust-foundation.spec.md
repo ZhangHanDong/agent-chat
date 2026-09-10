@@ -73,6 +73,12 @@ Scenario: HTTP authority and limits fail closed
   When a protected HTTP request is submitted
   Then it is refused before any state mutation and large bodies are rejected
 
+Scenario: Private files reject broader local access
+  Test: private_storage_rejects_public_access
+  Given a state credential whose permissions allow another local user to read it
+  When the native credential reader opens it
+  Then it refuses the credential without reading its contents
+
 Scenario: Background work does not stall control requests
   Test: bounded_work_keeps_health_responsive
   Given a stalled database worker and a full bounded queue

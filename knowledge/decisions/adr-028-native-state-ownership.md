@@ -90,3 +90,12 @@ M7 API/UI shell work can start after M2/M3, but integrated M7 acceptance also
 requires M5 transport/crypto and M6 approvals/files. M8/M9 remain closed until
 those workflows and platform proofs pass. There is no authorization for a live
 cutover in this checkpoint.
+
+Windows crash recovery also validates SQLite auxiliary files inherited from the
+private state directory. Elevated Windows processes can assign those files the
+Builtin Administrators owner SID. Only for these literal journal/WAL/SHM paths,
+that privileged owner is accepted alongside the service SID; every access ACE
+must still name only the service SID, and reparse/hardlink checks remain enforced.
+Credentials, database and ownership-lock files retain exact owner-SID validation.
+Administrator/root privileges are outside protection against ordinary local users.
+The private-file regression also rejects public-read ACLs for journal files.
