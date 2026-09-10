@@ -2314,3 +2314,20 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   lease, canonical completion or Matrix delivery. The existing guardian's inactive
   stdio launch, actual runtime qualification and permission/sandbox integration
   are unchanged and remain gates before enabling native Agent execution.
+
+## 2026-09-10 — Verify integrated native transport
+
+- Combined protocol head 63b84b4 passed Native CI 34507529088 on all three
+  operating systems and Node CI 34507529055. The graph checkpoint's Node CI
+  34506422137 also completed successfully after the earlier progress entry.
+- Integrated the reviewed host-stream transport as 00155ac. The only conflict
+  was append-only progress text; both independent work records are preserved.
+- All 111 combined native tests pass, zero failed or ignored. Workspace Clippy,
+  rustfmt and diff checks pass. All 89 native selectors resolve, and the transport
+  lifecycle passes four scenarios plus boundary in this integrated tree. The
+  first lifecycle invocation had an invalid CLI argument layout; the corrected
+  invocation used repeated --change options and executed the actual selectors.
+- These results validate bounded stream transport, not actual model execution,
+  effective sandbox permissions or process cleanup. The parallel agent continues
+  with typed thread/turn handling while final-reply custody and source inventory
+  work remain under independent review. Deployed services remain unchanged.
