@@ -3071,3 +3071,45 @@ phases and controlled cutover are still open; original/live state is unchanged.
   cache's `matrix-format-*` files. Task lifecycle passes all four scenarios
   plus the explicit boundary, with zero skips or uncertainty. Selector inventory
   resolves every native test binding on this isolated baseline.
+
+## 2026-09-10 — Linux protected cgroup guardian-recovery foundation
+
+Started from `552801b` in a separate worktree. Kernel v6.12 source inspection
+confirmed that cgroup.kill is not a close-triggered Job Object equivalent and
+that migration checks the control file opener's credentials. Ordinary same-UID
+delegation does not provide the required private reassignment boundary. ADR-048
+records exact mechanical checks, privileged host obligations and remaining gates.
+
+The optional CgroupRecovery API consumes exact preopened host descriptors and
+requires protected full-mount ancestry, an empty domain, equal nonroot UIDs,
+NNP, nondumpability and zero capabilities including bounding/ambient sets. Host
+SIGCHLD/reaping ownership is checked before using its retained guardian identity
+for migration. The same launcher puts that guardian in the boundary before
+Prepare/Start; no second workspace launcher or PID-derived kill path was added.
+Channel failure or explicit stop uses retained cgroup.kill and bounded recursive
+empty-population proof. Unknown outcomes retain explicit uncertainty; observed
+absence of live execution is not descendant zombie reaping or canonical task done.
+
+During this slice, the coordinator reported the unrelated macOS child heartbeat
+assertion failure. Investigation and its separate fixture correction were
+committed independently as `5e8c317`; they are not included in this cgroup batch.
+The coordinator also confirmed actual Windows owned-IO CI passed.
+
+The cgroup qualification executable requires explicit host-provisioned FDs and
+privileges. Its real native modes cover guardian death with a double-fork detached
+descendant, stream closure before stop, failed spawn and full-guarantee refusal.
+Missing provisioning exits 78 without a qualification result. No system cgroup,
+privileged host configuration, live model or deployment was changed. Actual
+protected Linux execution and escape/reassignment fixtures remain open; local
+macOS parser/refusal tests and Linux cross-compilation cannot close those gates.
+
+Verification passed: 20 macOS platform tests and six owned-runner integration
+tests; all-target Clippy with warnings denied on macOS plus Linux/Windows GNU
+cross-targets; formatting and diff checks. Agent-spec 1.4 passed the two limited
+scenarios and explicit 12-file boundary (3/3, quality 97%, zero fail/skip/uncertain).
+These are admission/regression results, not execution of the provisioned Linux
+fixture. Logs are in the operator cache under `codex-protocol/cgroup-*`.
+Final source review replaced fdinfo reads with descriptor statx mount identity:
+nondumpability can restrict proc fdinfo access and must not be relaxed to work
+around it. Known guardian signal failures remain recorded after independent
+empty-subtree proof. No push, merge or deployment was performed.

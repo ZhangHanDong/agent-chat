@@ -91,7 +91,7 @@ fn main() -> io::Result<()> {
             // No wait and no destructor: its child must be adopted by the kernel.
             std::process::exit(0);
         }
-        Some("detached-root") | Some("detached-early") => {
+        Some("detached-root") | Some("detached-early") | Some("detached-kill-guardian") => {
             let mut child = detached_command()?
                 .arg("detached-middle")
                 .arg(marker)
@@ -110,6 +110,24 @@ fn main() -> io::Result<()> {
             }
             if args[0] == "detached-early" {
                 return Ok(());
+            }
+            #[cfg(target_os = "linux")]
+            if args[0] == "detached-kill-guardian" {
+                // Deliberate fault injection in this offline fixture only. The
+                // host first confirms Started, then releases this test gate.
+                let until = Instant::now() + Duration::from_secs(3);
+                while !marker.with_extension("kill").exists() {
+                    if Instant::now() >= until {
+                        return Err(io::Error::other("guardian fault gate timed out"));
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let parent = rustix::process::getppid()
+                    .ok_or_else(|| io::Error::other("no guardian parent"))?;
+                if parent.as_raw_pid() <= 1 {
+                    return Err(io::Error::other("invalid fixture guardian"));
+                }
+                rustix::process::kill_process(parent, rustix::process::Signal::KILL)?;
             }
             std::thread::sleep(Duration::from_secs(8));
             Ok(())

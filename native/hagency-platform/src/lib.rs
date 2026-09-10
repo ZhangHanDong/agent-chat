@@ -9,6 +9,13 @@ pub use supervisor::run_guardian;
 pub use supervisor::{StopCause, SupervisedProcess, SupervisedReport};
 mod stdio;
 pub use stdio::StdioPipes;
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+mod cgroup;
+#[cfg(any(target_os = "linux", test))]
+mod cgroup_checks;
+#[cfg(target_os = "linux")]
+pub use cgroup::CgroupRecovery;
 #[cfg(windows)]
 pub use windows::stdio::Pipe as WindowsPipe;
 

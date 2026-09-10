@@ -9,6 +9,17 @@
   CI log does not establish whether that child exited. Kernel identity and
   audit-token signal guards were unchanged.
 
+- **Linux protected cgroup recovery foundation, 2026-09-10:** ADR-048 adds an
+  optional host-only recovery capability to the existing guardian launcher.
+  Exact cgroup FDs, full protected ancestry, empty population and privilege
+  separation are admission conditions. The guardian joins before Prepare;
+  retained cgroup kill/events can prove no live subtree execution after its
+  channel fails. The host must actively observe it. Full POSIX crash containment,
+  simultaneous owner loss and production availability remain unqualified.
+  Normal user delegation, parser vectors and unprovisioned refusal tests are not
+  containment evidence. A separate mandatory-provisioning native fixture exits
+  78 on refusal; no system cgroups were created or changed.
+
 - **Account/Agent lifecycle merge, 2026-09-09:** HAFleet `1e2d279` and Palpo
   `3d63ae11` contain the signup, Unicode, project-label and retirement changes.
   Local main-branch integration retains website work separately. Final CI505,

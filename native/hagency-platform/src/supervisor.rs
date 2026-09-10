@@ -22,6 +22,9 @@ pub enum StopCause {
     OwnerLost,
     ProtocolFailure,
     ObservationFailure,
+    /// The trusted guardian channel failed. Does not independently assert that
+    /// the guardian process exited; the retained cgroup supplies cleanup proof.
+    GuardianLost,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupervisedReport {
@@ -32,6 +35,34 @@ pub struct SupervisedProcess {
     inner: Supervisor,
 }
 impl SupervisedProcess {
+    /// Linux-only, explicitly provisioned guardian-loss recovery. This does not
+    /// satisfy `require_crash_containment` or enable production runner dispatch.
+    #[cfg(target_os = "linux")]
+    pub fn spawn_with_recovery(
+        guardian: &Path,
+        launch: &Launch,
+        recovery: crate::CgroupRecovery,
+    ) -> io::Result<Self> {
+        launch.validate()?;
+        if !guardian.is_absolute() {
+            return Err(crate::invalid());
+        }
+        let (inner, _) = Supervisor::spawn_with_recovery(guardian, launch, false, recovery)?;
+        Ok(Self { inner })
+    }
+    #[cfg(target_os = "linux")]
+    pub fn spawn_piped_with_recovery(
+        guardian: &Path,
+        launch: &Launch,
+        recovery: crate::CgroupRecovery,
+    ) -> io::Result<(Self, crate::StdioPipes)> {
+        launch.validate()?;
+        if !guardian.is_absolute() {
+            return Err(crate::invalid());
+        }
+        let (inner, pipes) = Supervisor::spawn_with_recovery(guardian, launch, true, recovery)?;
+        Ok((Self { inner }, pipes.ok_or_else(crate::invalid)?))
+    }
     /// Return one-use pipes while retaining the same guardian/job custody path.
     pub fn spawn_piped(guardian: &Path, launch: &Launch) -> io::Result<(Self, crate::StdioPipes)> {
         launch.validate()?;

@@ -65,8 +65,20 @@ impl Configuration {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Request {
-    Prepare { version: u32, launch: Configuration },
-    PreparePiped { version: u32, launch: Configuration },
+    Prepare {
+        version: u32,
+        launch: Configuration,
+    },
+    PreparePiped {
+        version: u32,
+        launch: Configuration,
+    },
+    #[cfg(target_os = "linux")]
+    PrepareRecovery {
+        version: u32,
+        launch: Configuration,
+        piped: bool,
+    },
     Start,
     Stop,
 }
@@ -100,22 +112,42 @@ pub(super) struct Supervisor {
     pid: u32,
     stop_requested: bool,
     report: Option<SupervisedReport>,
+    #[cfg(target_os = "linux")]
+    recovery: Option<crate::CgroupRecovery>,
 }
 impl Supervisor {
     pub(super) fn spawn(guardian: &Path, launch: &Launch) -> io::Result<Self> {
-        Self::spawn_inner(guardian, launch, false).map(|(owner, _)| owner)
+        Self::spawn_inner(guardian, launch, false, |_| Ok(())).map(|(owner, _)| owner)
     }
     pub(super) fn spawn_piped(
         guardian: &Path,
         launch: &Launch,
     ) -> io::Result<(Self, crate::StdioPipes)> {
-        let (owner, pipes) = Self::spawn_inner(guardian, launch, true)?;
+        let (owner, pipes) = Self::spawn_inner(guardian, launch, true, |_| Ok(()))?;
         Ok((owner, pipes.ok_or_else(protocol_error)?))
+    }
+    #[cfg(target_os = "linux")]
+    pub(super) fn spawn_with_recovery(
+        guardian: &Path,
+        launch: &Launch,
+        piped: bool,
+        recovery: crate::CgroupRecovery,
+    ) -> io::Result<(Self, Option<crate::StdioPipes>)> {
+        crate::cgroup::validate_host()?;
+        Self::spawn_inner(guardian, launch, piped, |owner| {
+            owner.recovery = Some(recovery);
+            owner
+                .recovery
+                .as_mut()
+                .ok_or_else(protocol_error)?
+                .attach_before_prepare(&owner.child)
+        })
     }
     fn spawn_inner(
         guardian: &Path,
         launch: &Launch,
         piped: bool,
+        before_prepare: impl FnOnce(&mut Self) -> io::Result<()>,
     ) -> io::Result<(Self, Option<crate::StdioPipes>)> {
         if launch.require_crash_containment {
             return Err(unsupported());
@@ -150,8 +182,11 @@ impl Supervisor {
             pid: 0,
             stop_requested: false,
             report: None,
+            #[cfg(target_os = "linux")]
+            recovery: None,
         };
         let until = Instant::now() + Duration::from_secs(5);
+        before_prepare(&mut result)?;
         let request = if piped {
             Request::PreparePiped {
                 version: 1,
@@ -162,6 +197,16 @@ impl Supervisor {
                 version: 1,
                 launch: configuration,
             }
+        };
+        #[cfg(target_os = "linux")]
+        let request = if result.recovery.is_some() {
+            Request::PrepareRecovery {
+                version: 1,
+                launch: Configuration::from_launch(launch),
+                piped,
+            }
+        } else {
+            request
         };
         result.pipe.send(&request, until)?;
         if let Some(pipes) = child_pipes {
@@ -184,6 +229,32 @@ impl Supervisor {
         self.pid
     }
     pub(super) fn wait(&mut self, timeout: Duration) -> io::Result<Option<SupervisedReport>> {
+        #[cfg(target_os = "linux")]
+        if self.recovery.is_some() {
+            if self.report.is_some() {
+                return Ok(self.report);
+            }
+            let until = Instant::now() + timeout;
+            let cause = match self.wait_inner(timeout) {
+                Ok(None) => return Ok(None),
+                Ok(Some(report)) => {
+                    if !report.scope.signals_accepted {
+                        self.recovery
+                            .as_mut()
+                            .ok_or_else(protocol_error)?
+                            .remember_signal_failure();
+                    }
+                    report.cause
+                }
+                Err(_) => StopCause::GuardianLost,
+            };
+            // A peer report is not the independent cgroup observation.
+            self.report = None;
+            return self.recover(cause, until).map(Some);
+        }
+        self.wait_inner(timeout)
+    }
+    fn wait_inner(&mut self, timeout: Duration) -> io::Result<Option<SupervisedReport>> {
         if self.report.is_some() {
             return Ok(self.report);
         }
@@ -219,6 +290,10 @@ impl Supervisor {
             return Ok(report);
         }
         let until = Instant::now() + timeout;
+        #[cfg(target_os = "linux")]
+        if self.recovery.is_some() {
+            return self.recover(StopCause::Requested, until);
+        }
         if !self.stop_requested {
             self.stop_requested = true;
             if let Err(error) = self.pipe.send(&Request::Stop, until) {
@@ -239,13 +314,33 @@ impl Supervisor {
                 )
             })
     }
+    #[cfg(target_os = "linux")]
+    fn recover(&mut self, cause: StopCause, until: Instant) -> io::Result<SupervisedReport> {
+        let scope = self
+            .recovery
+            .as_mut()
+            .ok_or_else(protocol_error)?
+            .stop(until)?;
+        // Empty population proves no live execution, not adoption/reaping of all
+        // zombies. Only our retained guardian Child is reaped by this host.
+        let _ = self.child.try_wait();
+        let report = SupervisedReport { cause, scope };
+        self.report = Some(report);
+        Ok(report)
+    }
 }
 impl Drop for Supervisor {
     fn drop(&mut self) {
+        let until = Instant::now() + Duration::from_secs(3);
+        #[cfg(target_os = "linux")]
+        if self.recovery.is_some() && self.report.is_none() {
+            // This explicitly optional path can kill a failed guardian safely:
+            // its workspace inherited the independently retained cgroup first.
+            let _ = self.recover(StopCause::OwnerLost, until);
+        }
         let _ = self.pipe.stream.shutdown(Shutdown::Both);
         // EOF authorizes cleanup, not killing the guardian. Retain its independent
         // execution if observation times out; a forced kill could strand work.
-        let until = Instant::now() + Duration::from_secs(3);
         loop {
             match self.child.try_wait() {
                 Ok(Some(_)) | Err(_) => break,
@@ -277,6 +372,15 @@ pub fn run_guardian() -> io::Result<()> {
     let (launch, piped) = match pipe.required::<Request>(until, FRAME_LIMIT)? {
         Request::Prepare { version: 1, launch } => (launch, false),
         Request::PreparePiped { version: 1, launch } => (launch, true),
+        #[cfg(target_os = "linux")]
+        Request::PrepareRecovery {
+            version: 1,
+            launch,
+            piped,
+        } => {
+            crate::cgroup::prepare_guardian()?;
+            (launch, piped)
+        }
         _ => return Err(protocol_error()),
     };
     let launch = launch.into_launch()?;
