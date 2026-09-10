@@ -248,6 +248,29 @@ describe('structured one-shot runners', () => {
     router.close();
   });
 
+  test.each([0, 1])('Claude structured result errors stay outcome_unknown with a safe primary diagnostic at exit %i', async (exitCode) => {
+    const { root, router, queued, claim } = setup('claude', { prompt: 'sentinel-prompt-secret' });
+    await expect(runClaudeDispatch({
+      router,
+      claim,
+      cwd: root,
+      executable: path.join(fixtures, 'fake-claude-runner.mjs'),
+      env: {
+        FAKE_CLAUDE_RESULT_ERROR: '1',
+        FAKE_CLAUDE_RESULT_ERROR_EXIT: String(exitCode),
+      },
+    })).resolves.toMatchObject({ state: 'outcome_unknown', text: '', exitCode });
+    const dispatch = router.db.prepare('SELECT state, terminal_reason FROM dispatches WHERE dispatch_id=?')
+      .get(queued.dispatchId);
+    expect(dispatch).toMatchObject({ state: 'outcome_unknown' });
+    expect(dispatch.terminal_reason).toContain('Claude usage limit reached');
+    expect(dispatch.terminal_reason).not.toContain('sentinel-hook-detail');
+    expect(dispatch.terminal_reason).not.toContain('sentinel-result-secret');
+    expect(dispatch.terminal_reason).not.toContain('sentinel-prompt-secret');
+    expect(router.claimDispatch({ runnerId: 'retry', leaseMs: 1000, capabilityTtlMs: 1000, maxLiveRunners: 8 })).toBeNull();
+    router.close();
+  });
+
   test('test_delivery_effect_requires_verified_child_stdin_ack', async () => {
     const { root, router, queued, claim } = setup('claude', { prompt: 'x'.repeat(2_000_000) });
     await expect(runClaudeDispatch({
