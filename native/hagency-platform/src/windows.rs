@@ -12,9 +12,10 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
-    Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
+    Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::{JobObjects::*, Threading::*},
 };
+pub(crate) mod stdio;
 
 fn wide(value: &OsStr) -> Vec<u16> {
     value.encode_wide().chain(Some(0)).collect()
@@ -45,12 +46,12 @@ impl Attributes {
     fn pointer(&mut self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
         self.storage.as_mut_ptr().cast()
     }
-    fn new() -> io::Result<Self> {
+    fn new(count: u32) -> io::Result<Self> {
         let mut bytes = 0;
         // SAFETY: The first documented sizing call has a null list and valid
         // size output. The second uses pointer-aligned owned storage of that size.
         unsafe {
-            InitializeProcThreadAttributeList(ptr::null_mut(), 1, 0, &mut bytes);
+            InitializeProcThreadAttributeList(ptr::null_mut(), count, 0, &mut bytes);
         }
         if bytes == 0 || bytes > 65536 {
             return Err(io::Error::last_os_error());
@@ -59,7 +60,8 @@ impl Attributes {
             storage: vec![0; bytes.div_ceil(size_of::<usize>())],
         };
         // SAFETY: Its allocation remains alive until DeleteProcThreadAttributeList.
-        if unsafe { InitializeProcThreadAttributeList(result.pointer(), 1, 0, &mut bytes) } == 0 {
+        if unsafe { InitializeProcThreadAttributeList(result.pointer(), count, 0, &mut bytes) } == 0
+        {
             // An uninitialized attribute list must not enter the normal Drop path.
             let error = io::Error::last_os_error();
             result.storage.clear();
@@ -85,6 +87,12 @@ pub(super) struct Process {
 }
 impl Process {
     pub(super) fn spawn(launch: &Launch) -> io::Result<Self> {
+        Self::spawn_inner(launch, None)
+    }
+    pub(super) fn spawn_piped(launch: &Launch, pipes: stdio::ChildPipes) -> io::Result<Self> {
+        Self::spawn_inner(launch, Some(pipes))
+    }
+    fn spawn_inner(launch: &Launch, pipes: Option<stdio::ChildPipes>) -> io::Result<Self> {
         if !launch.executable.extension().is_some_and(|v| {
             v.to_str()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
@@ -143,8 +151,15 @@ impl Process {
         {
             return Err(io::Error::last_os_error());
         }
-        let mut attributes = Attributes::new()?;
         let jobs = [job.as_raw_handle()];
+        let handles = pipes.as_ref().map(|pipes| {
+            [
+                pipes.stdin.as_raw_handle(),
+                pipes.stdout.as_raw_handle(),
+                pipes.stderr.as_raw_handle(),
+            ]
+        });
+        let mut attributes = Attributes::new(if handles.is_some() { 2 } else { 1 })?;
         // SAFETY: The handle array and the referenced job outlive both the
         // attribute list and CreateProcess. No breakaway limit is enabled.
         if unsafe {
@@ -164,10 +179,41 @@ impl Process {
         let mut startup = STARTUPINFOEXW::default();
         startup.StartupInfo.cb = size_of_val(&startup) as u32;
         startup.lpAttributeList = attributes.pointer();
+        if let Some(handles) = &handles {
+            for &handle in handles {
+                // SAFETY: Only these three retained child endpoints become
+                // inheritable. HANDLE_LIST below excludes every unrelated handle.
+                if unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) }
+                    == 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            // SAFETY: This fixed array and every endpoint outlive the attribute
+            // list. JOB_LIST and HANDLE_LIST are applied by the same creation.
+            if unsafe {
+                UpdateProcThreadAttribute(
+                    attributes.pointer(),
+                    0,
+                    PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                    handles.as_ptr().cast(),
+                    size_of_val(handles),
+                    ptr::null_mut(),
+                    ptr::null(),
+                )
+            } == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            startup.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+            startup.StartupInfo.hStdInput = handles[0];
+            startup.StartupInfo.hStdOutput = handles[1];
+            startup.StartupInfo.hStdError = handles[2];
+        }
         let mut info = PROCESS_INFORMATION::default();
         // SAFETY: Every string is NUL-terminated and validated; command is mutable
         // as required. The explicit environment is double-NUL-terminated. Handles
-        // are not inherited; the JOB_LIST attribute establishes ownership before
+        // are inherited only through the exact list; JOB_LIST establishes ownership before
         // user code executes. Returned handles immediately gain RAII ownership.
         if unsafe {
             CreateProcessW(
@@ -175,7 +221,7 @@ impl Process {
                 command.as_mut_ptr(),
                 ptr::null(),
                 ptr::null(),
-                0,
+                i32::from(handles.is_some()),
                 EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
                 environment.as_ptr().cast(),
                 directory.as_ptr(),

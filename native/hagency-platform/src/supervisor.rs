@@ -33,25 +33,13 @@ pub struct SupervisedProcess {
 }
 impl SupervisedProcess {
     /// Return one-use pipes while retaining the same guardian/job custody path.
-    /// Windows piped IO is explicitly unavailable until its cancellable adapter
-    /// is implemented; ordinary Windows Job Object launch is unchanged.
     pub fn spawn_piped(guardian: &Path, launch: &Launch) -> io::Result<(Self, crate::StdioPipes)> {
         launch.validate()?;
         if !guardian.is_absolute() {
             return Err(crate::invalid());
         }
-        #[cfg(unix)]
-        {
-            let (inner, pipes) = Supervisor::spawn_piped(guardian, launch)?;
-            Ok((Self { inner }, pipes))
-        }
-        #[cfg(windows)]
-        {
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "cancellable Windows runner pipes are not implemented",
-            ))
-        }
+        let (inner, pipes) = Supervisor::spawn_piped(guardian, launch)?;
+        Ok((Self { inner }, pipes))
     }
     /// On Unix the trusted executable must implement `guardian` using run_guardian.
     /// Windows owns the job directly and does not need a helper process.

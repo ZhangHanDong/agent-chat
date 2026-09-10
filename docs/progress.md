@@ -2786,3 +2786,57 @@ the repository. No changes were pushed, merged or deployed from this worktree.
 - Actual Matrix sends, crypto/recipient handling, runtime approval application
   and Windows owned pipes remain in progress. No deployed service, credential
   or original dirty checkout changed; no migration phase is declared complete.
+
+## 2026-09-10 — M4 Windows owned stdio adapter (ADR-044)
+
+Added Windows local self-connected pipes with owner-only access and exact child
+handle inheritance through the existing atomic Job Object launcher. Host endpoints
+are overlapped and non-inheritable. OwnedSession now shares its original guards
+between platforms through an owned/session.rs extraction; its Unix conversion and
+guardian path are retained. Incomplete stop observations remain explicit and can
+be retried. Native service execution stays disabled.
+
+Local dependency inspection found that Tokio/Mio flush and drop behavior cannot
+establish the required write/cancel boundary. A private platform adapter now
+bounds each write, waits for the pinned Mio previous-write completion check, and
+disconnects plus requests cancellation of every pending operation before drop.
+No blocking IO reader or alternate child launcher was added. ADR-044 records
+source versions/hashes and the implementation dependency that future upgrades
+must requalify. Complete write still does not establish domain acknowledgement.
+
+Windows fixtures now use actual child IO for the full offline Codex lifecycle,
+partial writes, EOF, silence, stderr pressure, ordinary and new-group descendants.
+Separate tests exercise exact handle exclusion, job membership before input,
+blocked single-write completion, disconnecting pending IO, denied breakaway and
+owner exit without Drop. Shared test cleanup keeps true platform guarantees.
+No model, external service, runtime token or deployed process was touched.
+
+A shared fixture regression was caught locally: allowing the Unix child to read
+a small prefix freed enough anonymous-pipe capacity for the entire request, so
+the timeout moved from write to response. Prefix consumption is now Windows-only,
+where confirmed write counts may remain zero despite partial delivery. The Unix
+fixture retains its original blocked-write proof. Cross-target Clippy also caught
+a Windows-only unused fixture assignment; it was removed without suppressing lint.
+
+All 59 platform/runtime tests passed on macOS, zero failed or ignored. All-target
+Clippy with warnings denied passed for Windows GNU and Linux GNU cross-targets;
+cross-compilation does not execute the Windows fixtures. Real Windows CI remains
+an open qualification gate, as do effective sandbox/runtime tests, POSIX guardian
+loss, macOS complete detached-child proof and authenticated dispatch/approval
+integration. This code does not close M4 or advertise runtime availability.
+
+Final source review found upstream Mio #1944: reactor teardown can abandon late
+pipe completions and retain handles. With coordinator agreement, Windows pipes
+now register on one private process-lifetime completion reactor with one fixed
+worker. It exposes no arbitrary spawn or command API. A Windows fixture cycles
+32 short-lived caller runtimes, cancels pending reads, observes disconnect/EOF,
+and checks actual process handle counts. This adds explicit completion custody
+without another process launcher or blocking pipe reader; Windows execution of
+the fixture remains pending CI.
+
+Final macOS Clippy, Windows cross-target Clippy, formatting and diff checks pass.
+Agent-spec 1.4 lifecycle passes four shared scenarios and the explicit 18-file
+boundary (5/5, quality 97%, zero fail/skip/uncertain). That lifecycle executed six
+shared runtime tests on macOS; it did not execute Windows-only scenarios.
+Exact commands and logs are saved under the operator migration cache's
+codex-protocol/windows-io-* paths. No push, merge or deployment was performed.

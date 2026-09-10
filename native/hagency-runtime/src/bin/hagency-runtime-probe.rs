@@ -84,6 +84,29 @@ fn fake(mode: &str, marker: &Path) -> io::Result<()> {
     if mode == "keepalive" || mode == "silent" {
         return pulse(marker);
     }
+    #[cfg(windows)]
+    if mode == "breakaway" {
+        use std::os::windows::process::CommandExt;
+        let attempted = Command::new(std::env::current_exe()?)
+            .arg("pulse")
+            .arg(marker.with_file_name("escape"))
+            .creation_flags(windows_sys::Win32::System::Threading::CREATE_BREAKAWAY_FROM_JOB)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        match attempted {
+            Err(error) if error.raw_os_error() == Some(5) => {
+                fs::write(marker.with_extension("breakaway"), b"access-denied")?;
+            }
+            Err(error) => return Err(error),
+            Ok(mut escaped) => {
+                let _ = escaped.kill();
+                let _ = escaped.wait();
+                return Err(io::Error::other("fixture escaped its job"));
+            }
+        }
+    }
     let mut child = if mode == "descendant" || mode == "detached" {
         let child_marker = marker.with_file_name(format!("{mode}-child"));
         let mut command = Command::new(std::env::current_exe()?);
@@ -97,6 +120,11 @@ fn fake(mode: &str, marker: &Path) -> io::Result<()> {
         if mode == "detached" {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
+        }
+        #[cfg(windows)]
+        if mode == "detached" {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
         }
         let mut child = command.spawn()?;
         // Observe a distinct child's output before protocol completion can cause
@@ -145,6 +173,13 @@ fn fake(mode: &str, marker: &Path) -> io::Result<()> {
         "cwd": params["cwd"], "model": params["model"], "modelProvider": "offline", "approvalPolicy": "on-request", "approvalsReviewer": "user", "sandbox": { "type": "workspaceWrite" } }),
     )?;
     if mode == "blocked" {
+        #[cfg(windows)]
+        {
+            use std::io::Read;
+            let mut partial = [0u8; 4096];
+            stdin.read_exact(&mut partial)?;
+            fs::write(marker.with_extension("partial"), partial)?;
+        }
         return pulse(marker);
     }
     let request = read(&mut stdin, marker)?;
@@ -191,6 +226,8 @@ fn main() -> io::Result<()> {
         return hagency_platform::run_guardian();
     }
     match args.as_slice() {
+        #[cfg(windows)]
+        [mode, marker] if mode == "owner-crash" => owner_crash(Path::new(marker)),
         [mode, marker] if mode == "pulse" => pulse(Path::new(marker)),
         [command, mode, marker] if command == "fake-server" => fake(
             mode.to_str().ok_or(io::ErrorKind::InvalidInput)?,
@@ -198,4 +235,36 @@ fn main() -> io::Result<()> {
         ),
         _ => Err(io::Error::other("offline fixture mode required")),
     }
+}
+
+#[cfg(windows)]
+fn owner_crash(marker: &Path) -> io::Result<()> {
+    let binary = std::env::current_exe()?;
+    let mut environment = std::collections::BTreeMap::new();
+    environment.insert("PATH".into(), "".into());
+    if let Some(value) = std::env::var_os("SystemRoot") {
+        environment.insert("SystemRoot".into(), value);
+    }
+    let launch = hagency_platform::Launch {
+        executable: binary.clone(),
+        arguments: vec![
+            "fake-server".into(),
+            "descendant".into(),
+            marker.as_os_str().into(),
+        ],
+        directory: marker.parent().ok_or(io::ErrorKind::InvalidInput)?.into(),
+        environment,
+        require_crash_containment: true,
+    };
+    let (_owner, _pipes) = hagency_platform::SupervisedProcess::spawn_piped(&binary, &launch)?;
+    let until = Instant::now() + Duration::from_secs(3);
+    while fs::metadata(marker.with_file_name("descendant-child.pulse")).map_or(0, |m| m.len()) < 3 {
+        if Instant::now() >= until {
+            return Err(io::Error::other("owned descendant did not start"));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // Deliberately bypass Drop: only kill-on-close job ownership can stop the
+    // already-running descendant when the controller's process exits.
+    std::process::exit(0);
 }

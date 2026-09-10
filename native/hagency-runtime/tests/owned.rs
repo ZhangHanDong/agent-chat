@@ -3,7 +3,6 @@ use hagency_runtime::{
     codex::{session::Settings, transport::Limits},
     owned::{OwnedSession, StartError},
 };
-#[cfg(unix)]
 use hagency_runtime::{
     codex::{
         session::{Error, Outcome, Update},
@@ -15,7 +14,6 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
-#[cfg(unix)]
 use std::{
     fs,
     time::{Duration, Instant},
@@ -48,7 +46,6 @@ fn limits() -> Limits {
         lifetime_ms: 10_000,
     }
 }
-#[cfg(unix)]
 fn spawn(root: &Path, mode: &str, marker: &Path) -> OwnedSession {
     OwnedSession::spawn(
         &binary(),
@@ -59,7 +56,6 @@ fn spawn(root: &Path, mode: &str, marker: &Path) -> OwnedSession {
     )
     .unwrap()
 }
-#[cfg(unix)]
 fn stopped(marker: &Path) {
     let path = marker.with_extension("pulse");
     std::thread::sleep(Duration::from_millis(80));
@@ -67,17 +63,18 @@ fn stopped(marker: &Path) {
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(fs::metadata(&path).map_or(0, |m| m.len()), before);
 }
-#[cfg(unix)]
 fn cleanup(runner: &OwnedSession) {
     match runner.cleanup() {
         Cleanup::Observed(report) => {
             assert!(report.scope.leader_exited);
-            assert_eq!(report.scope.whole_tree_stopped, cfg!(target_os = "linux"));
+            assert_eq!(
+                report.scope.whole_tree_stopped,
+                cfg!(any(target_os = "linux", windows))
+            );
         }
         other => panic!("fixture cleanup must be observed: {other:?}"),
     }
 }
-#[cfg(unix)]
 async fn lifecycle(runner: &mut OwnedSession) {
     runner.initialize().await.unwrap();
     assert_eq!(runner.start_thread().await.unwrap(), "owned-thread");
@@ -110,32 +107,32 @@ async fn lifecycle(runner: &mut OwnedSession) {
 async fn native_owned_runner_admission_failed_spawn_and_guarantees() {
     let root = tempfile::tempdir().unwrap();
     let marker = root.path().join("refused");
-    let request = launch(root.path(), "keepalive", &marker);
-    #[cfg(unix)]
-    let mut request = request;
-    #[cfg(windows)]
+    let mut request = launch(root.path(), "keepalive", &marker);
     {
-        assert!(matches!(
-            OwnedSession::spawn(&binary(), &request, settings(root.path()), limits(), 1500),
-            Err(StartError::Unsupported)
-        ));
-        assert!(
-            matches!(SupervisedProcess::spawn_piped(&binary(), &request), Err(error) if error.kind() == std::io::ErrorKind::Unsupported)
-        );
-    }
-    #[cfg(unix)]
-    {
-        request.executable = root.path().join("missing-executable");
+        request.executable = root.path().join("missing-executable.exe");
         assert!(matches!(
             OwnedSession::spawn(&binary(), &request, settings(root.path()), limits(), 1500),
             Err(StartError::Uncertain { .. })
         ));
-        request = launch(root.path(), "keepalive", &marker);
-        request.require_crash_containment = true;
-        assert!(matches!(
-            OwnedSession::spawn(&binary(), &request, settings(root.path()), limits(), 1500),
-            Err(StartError::Unsupported)
-        ));
+        #[cfg(unix)]
+        {
+            request = launch(root.path(), "keepalive", &marker);
+            request.require_crash_containment = true;
+            assert!(matches!(
+                OwnedSession::spawn(&binary(), &request, settings(root.path()), limits(), 1500),
+                Err(StartError::Unsupported)
+            ));
+        }
+        #[cfg(windows)]
+        {
+            let mut positive = launch(root.path(), "keepalive", &root.path().join("job-contained"));
+            positive.require_crash_containment = true;
+            let mut owned =
+                OwnedSession::spawn(&binary(), &positive, settings(root.path()), limits(), 1500)
+                    .unwrap();
+            owned.stop();
+            cleanup(&owned);
+        }
         request = launch(root.path(), "keepalive", &marker);
         request.arguments.push("bad\0argument".into());
         assert!(
@@ -151,7 +148,6 @@ async fn native_owned_runner_admission_failed_spawn_and_guarantees() {
     assert!(!marker.with_extension("entered").exists());
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn native_owned_runner_lifecycle_real_owned_pipes() {
     let root = tempfile::tempdir().unwrap();
@@ -160,11 +156,13 @@ async fn native_owned_runner_lifecycle_real_owned_pipes() {
     let marker = directory.join("normal");
     // An unrelated socket must remain in this host only; the platform guardian
     // suite separately covers descriptors whose CLOEXEC bit was cleared.
+    #[cfg(unix)]
     let _unrelated = std::os::unix::net::UnixStream::pair().unwrap();
     let mut runner = spawn(&directory, "normal", &marker);
     let pid = runner.id();
     assert!(pid > 1);
     lifecycle(&mut runner).await;
+    #[cfg(unix)]
     assert_eq!(
         fs::read_to_string(marker.with_extension("sockets")).unwrap(),
         "0"
@@ -192,7 +190,6 @@ async fn native_owned_runner_lifecycle_real_owned_pipes() {
     );
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn native_owned_runner_failures_eof_timeout_and_noisy_stderr() {
     let root = tempfile::tempdir().unwrap();
@@ -230,7 +227,6 @@ async fn native_owned_runner_failures_eof_timeout_and_noisy_stderr() {
     cleanup(&runner);
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn native_owned_runner_failures_mid_write_cancel_retains_cleanup() {
     let root = tempfile::tempdir().unwrap();
@@ -260,12 +256,22 @@ async fn native_owned_runner_failures_mid_write_cancel_retains_cleanup() {
         .unconfirmed_write
         .as_ref()
         .unwrap();
-    assert!(unconfirmed.accepted_bytes > 0 && unconfirmed.accepted_bytes < unconfirmed.total_bytes);
+    assert!(unconfirmed.accepted_bytes < unconfirmed.total_bytes);
+    #[cfg(unix)]
+    assert!(unconfirmed.accepted_bytes > 0);
+    // Windows reports only confirmed writes. The peer marker proves that even
+    // an accepted_bytes lower bound of zero may already have partial effects.
+    #[cfg(windows)]
+    assert_eq!(
+        fs::metadata(marker.with_extension("partial"))
+            .unwrap()
+            .len(),
+        4096
+    );
     cleanup(&runner);
     stopped(&marker);
 }
 
-#[cfg(unix)]
 #[test]
 fn native_owned_runner_custody_stream_close_does_not_stop_child() {
     let root = tempfile::tempdir().unwrap();
@@ -285,15 +291,17 @@ fn native_owned_runner_custody_stream_close_does_not_stop_child() {
     assert!(fs::metadata(marker.with_extension("pulse")).unwrap().len() > before);
     let report = owner.stop(Duration::from_secs(3)).unwrap();
     assert!(report.scope.leader_exited);
-    assert_eq!(report.scope.whole_tree_stopped, cfg!(target_os = "linux"));
+    assert_eq!(
+        report.scope.whole_tree_stopped,
+        cfg!(any(target_os = "linux", windows))
+    );
     stopped(&marker);
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn native_owned_runner_custody_descendants_follow_existing_scope_guarantees() {
     let root = tempfile::tempdir().unwrap();
-    let modes = if cfg!(target_os = "linux") {
+    let modes = if cfg!(any(target_os = "linux", windows)) {
         vec!["descendant", "detached"]
     } else {
         vec!["descendant"]
@@ -314,37 +322,58 @@ async fn native_owned_runner_custody_descendants_follow_existing_scope_guarantee
     }
 }
 
-// These scenarios execute the explicit platform refusal on Windows. They do not
-// substitute a fake successful model/pipe/descendant test for missing support.
 #[cfg(windows)]
-fn assert_unavailable() {
+#[test]
+fn native_windows_owned_runner_owner_exit_closes_job_without_drop() {
+    use std::process::{Child, Command, Stdio};
+    struct Guard(Child);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
     let root = tempfile::tempdir().unwrap();
-    let marker = root.path().join("unavailable");
-    assert!(matches!(
-        OwnedSession::spawn(
-            &binary(),
-            &launch(root.path(), "normal", &marker),
-            settings(root.path()),
-            limits(),
-            1500
-        ),
-        Err(StartError::Unsupported)
-    ));
-    assert!(!marker.with_extension("entered").exists());
+    let marker = root.path().join("owner");
+    let mut controller = Guard(
+        Command::new(binary())
+            .arg("owner-crash")
+            .arg(&marker)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let until = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(status) = controller.0.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < until, "owner fixture did not exit");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let descendant = marker.with_file_name("descendant-child");
+    assert!(
+        fs::metadata(descendant.with_extension("pulse"))
+            .unwrap()
+            .len()
+            >= 3
+    );
+    stopped(&descendant);
 }
 
 #[cfg(windows)]
-#[test]
-fn native_owned_runner_lifecycle_unavailable_on_windows() {
-    assert_unavailable();
-}
-#[cfg(windows)]
-#[test]
-fn native_owned_runner_failures_unavailable_on_windows() {
-    assert_unavailable();
-}
-#[cfg(windows)]
-#[test]
-fn native_owned_runner_custody_unavailable_on_windows() {
-    assert_unavailable();
+#[tokio::test]
+async fn native_windows_owned_runner_job_refuses_breakaway() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("breakaway");
+    let mut runner = spawn(root.path(), "breakaway", &marker);
+    lifecycle(&mut runner).await;
+    assert_eq!(
+        fs::read(marker.with_extension("breakaway")).unwrap(),
+        b"access-denied"
+    );
+    assert!(!root.path().join("escape.pulse").exists());
 }

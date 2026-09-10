@@ -1437,3 +1437,35 @@ Old development claims lack epoch/send-start proof and migrate conservatively;
 never adopt current task or room state for old output. The actual Matrix adapter
 still needs current membership/encryption recipient and cancellation coordination
 before IO; durable intent state alone cannot retract an accepted event.
+
+Windows owned runner IO (2026-09-10): ADR-044 replaces the adapter's Unsupported
+path with three self-connected local byte named pipes and native overlapped host
+IO. Child handles are inherited only through the exact HANDLE_LIST in the same
+CreateProcess call as atomic JOB_LIST assignment. Owner SID ACL, random private
+names, first-instance refusal and both endpoint PID self-checks precede launch.
+The host pipe, process and job handles are never in that inheritance list.
+
+Pinned Tokio 1.53.1/Mio 1.2.3 named pipes do not provide the required defaults:
+flush is a no-op, writes may be internally pending, and Drop leaves writes
+running. The platform adapter bounds submissions to 16 KiB and uses the pinned
+Mio pending-write check on a zero-payload probe before reporting bytes. A pending
+comparison copy is bounded, and changed input is refused. Disconnect then
+CancelIoEx(all) precedes dropping the IOCP adapter; cancellation is a request and
+buffers stay owned until kernel completion. Neither a confirmed write nor drop
+proves input application, process termination or task completion. Requalify this
+seam when Tokio/Mio changes. A single blocked write test guards premature reports.
+
+OwnedSession retains the same platform stop guard and retries a report that lacks
+whole-tree proof. Windows-specific actual fixtures cover handle exclusion, job
+membership, partial input cancellation, EOF, pressure, descendants, rejected
+breakaway and owner exit without Drop. Cross-target Clippy and shared macOS tests
+are not Windows execution evidence; native Windows CI remains required. Unix
+guardian code and its unresolved POSIX/macOS guarantees remain unchanged.
+
+Windows pipe completion registration uses one private process-lifetime Tokio
+reactor (one fixed worker, no public spawn handle). Mio's caller-reactor teardown
+can miss late cancellations; do not put these pipe registrations on disposable
+per-Agent runtimes. The fixed reactor services buffers until completion and OS
+process exit supplies final lifetime closure. Windows tests cycle caller runtimes,
+cancel pending reads, observe EOF and compare process handle counts. These tests
+still require Windows CI; the static reactor is not process/task authority.

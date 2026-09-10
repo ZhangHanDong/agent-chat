@@ -9,6 +9,8 @@ pub use supervisor::run_guardian;
 pub use supervisor::{StopCause, SupervisedProcess, SupervisedReport};
 mod stdio;
 pub use stdio::StdioPipes;
+#[cfg(windows)]
+pub use windows::stdio::Pipe as WindowsPipe;
 
 #[cfg(unix)]
 mod unix;
@@ -99,6 +101,16 @@ impl OwnedProcess {
     }
     #[cfg(unix)]
     pub(crate) fn spawn_piped(launch: &Launch, pipes: stdio::ChildPipes) -> io::Result<Self> {
+        launch.validate()?;
+        Ok(Self {
+            inner: Process::spawn_piped(launch, pipes)?,
+        })
+    }
+    #[cfg(windows)]
+    pub(crate) fn spawn_piped(
+        launch: &Launch,
+        pipes: windows::stdio::ChildPipes,
+    ) -> io::Result<Self> {
         launch.validate()?;
         Ok(Self {
             inner: Process::spawn_piped(launch, pipes)?,

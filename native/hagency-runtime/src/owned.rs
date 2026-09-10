@@ -3,10 +3,8 @@
 use hagency_platform::SupervisedReport;
 use std::io;
 
-#[cfg(unix)]
-mod unix;
-#[cfg(unix)]
-pub use unix::OwnedSession;
+mod session;
+pub use session::OwnedSession;
 
 /// Exact platform observations, deliberately distinct from upstream completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,21 +27,4 @@ pub enum StartError {
         kind: io::ErrorKind,
         cleanup: Cleanup,
     },
-}
-
-#[cfg(windows)]
-pub struct OwnedSession {
-    _unavailable: (),
-}
-#[cfg(windows)]
-impl OwnedSession {
-    pub fn spawn(
-        _guardian: &std::path::Path,
-        _launch: &hagency_platform::Launch,
-        _settings: crate::codex::session::Settings,
-        _limits: crate::codex::transport::Limits,
-        _response_timeout_ms: u64,
-    ) -> Result<Self, StartError> {
-        Err(StartError::Unsupported)
-    }
 }

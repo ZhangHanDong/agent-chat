@@ -11,6 +11,20 @@ pub(super) struct Supervisor {
     report: Option<SupervisedReport>,
 }
 impl Supervisor {
+    pub(super) fn spawn_piped(
+        _guardian: &Path,
+        launch: &Launch,
+    ) -> io::Result<(Self, crate::StdioPipes)> {
+        let (host, child) = crate::StdioPipes::pair()?;
+        let process = OwnedProcess::spawn_piped(launch, child)?;
+        Ok((
+            Self {
+                process,
+                report: None,
+            },
+            host,
+        ))
+    }
     pub(super) fn spawn(_guardian: &Path, launch: &Launch) -> io::Result<Self> {
         Ok(Self {
             process: OwnedProcess::spawn(launch)?,

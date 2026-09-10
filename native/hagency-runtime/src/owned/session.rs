@@ -4,8 +4,13 @@ use crate::codex::{
     session::{self, InterruptDisposition, Outcome, Phase, SessionDriver, Settings, Update},
     transport,
 };
+#[cfg(windows)]
+use hagency_platform::WindowsPipe as Receiver;
+#[cfg(windows)]
+use hagency_platform::WindowsPipe as Sender;
 use hagency_platform::{Launch, SupervisedProcess};
 use std::{io, path::Path, time::Duration};
+#[cfg(unix)]
 use tokio::net::unix::pipe::{Receiver, Sender};
 
 type Session = SessionDriver<Receiver, Sender, Receiver>;
@@ -46,14 +51,21 @@ impl OwnedSession {
                     }
                 }
             })?;
-        let (stdin, stdout, stderr) = pipes.into_parts();
         let session = (|| {
             // These consume checked FIFO descriptors and make only the host
             // endpoint nonblocking. Work keeps ordinary blocking stdio. No
             // spawn_blocking wrappers or uncancellable pipe-reader tasks exist.
-            let stdin = Sender::from_owned_fd(stdin)?;
-            let stdout = Receiver::from_owned_fd(stdout)?;
-            let stderr = Receiver::from_owned_fd(stderr)?;
+            #[cfg(unix)]
+            let (stdin, stdout, stderr) = {
+                let (stdin, stdout, stderr) = pipes.into_parts();
+                (
+                    Sender::from_owned_fd(stdin)?,
+                    Receiver::from_owned_fd(stdout)?,
+                    Receiver::from_owned_fd(stderr)?,
+                )
+            };
+            #[cfg(windows)]
+            let (stdin, stdout, stderr) = pipes.into_async_parts()?;
             Session::new(stdout, stdin, stderr, settings, limits, response_timeout_ms).map_err(
                 |_| io::Error::new(io::ErrorKind::InvalidInput, "invalid runner session limits"),
             )
@@ -96,7 +108,7 @@ impl OwnedSession {
     /// error stays explicit; neither result frees a domain lease or task.
     pub fn stop(&mut self) -> Cleanup {
         self.session.close();
-        if !matches!(self.cleanup, Cleanup::Observed(_)) {
+        if !matches!(self.cleanup, Cleanup::Observed(report) if report.scope.whole_tree_stopped) {
             self.cleanup = observe_stop(&mut self.owner);
         }
         self.cleanup

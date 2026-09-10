@@ -10,7 +10,41 @@ pub struct StdioPipes {
     #[cfg(unix)]
     stderr: OwnedFd,
     #[cfg(windows)]
-    _unavailable: (),
+    stdin: std::os::windows::io::OwnedHandle,
+    #[cfg(windows)]
+    stdout: std::os::windows::io::OwnedHandle,
+    #[cfg(windows)]
+    stderr: std::os::windows::io::OwnedHandle,
+}
+#[cfg(windows)]
+impl StdioPipes {
+    pub(crate) fn pair() -> std::io::Result<(Self, crate::windows::stdio::ChildPipes)> {
+        let (stdin, child_stdin) = crate::windows::stdio::pair(true)?;
+        let (stdout, child_stdout) = crate::windows::stdio::pair(false)?;
+        let (stderr, child_stderr) = crate::windows::stdio::pair(false)?;
+        Ok((
+            Self {
+                stdin,
+                stdout,
+                stderr,
+            },
+            crate::windows::stdio::ChildPipes {
+                stdin: child_stdin,
+                stdout: child_stdout,
+                stderr: child_stderr,
+            },
+        ))
+    }
+    /// Consume the verified host endpoints once on the private completion reactor.
+    pub fn into_async_parts(
+        self,
+    ) -> std::io::Result<(crate::WindowsPipe, crate::WindowsPipe, crate::WindowsPipe)> {
+        Ok((
+            crate::WindowsPipe::new(self.stdin, true)?,
+            crate::WindowsPipe::new(self.stdout, false)?,
+            crate::WindowsPipe::new(self.stderr, false)?,
+        ))
+    }
 }
 #[cfg(unix)]
 pub(crate) struct ChildPipes {
