@@ -2263,3 +2263,19 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   coalesced suffix. Also verified simultaneous host/server requests sharing the
   exact same ID remain separate. All nine expanded tests, focused Clippy and the
   four-scenario-plus-boundary lifecycle pass again; production code is unchanged.
+
+## 2026-09-10 — Integrate the reviewed Codex protocol foundation
+
+- Task graph commit a41ab10 passed Native Rust CI 34506422131 on Windows, macOS
+  and Linux, including release builds. Its existing Node CI 34506422137 is still
+  running; no uncompleted run is counted as passing.
+- Integrated the independent protocol implementation as 13113ad and its review
+  regressions as bd0ce65. Append-only coordination conflicts were resolved by
+  preserving both the graph work and protocol work. No runtime logic conflicted.
+- Combined workspace validation passed 103 tests, zero failed or ignored, plus
+  Clippy, rustfmt and diff checks. All 85 native spec selectors resolve. The
+  protocol lifecycle passed four scenarios plus boundary in the integrated tree.
+- The new crate remains unlinked from native Agent execution. Its observations
+  confer no dispatch, approval, task-completion or process-custody authority.
+  Actual bounded transport and final-reply privacy/outbox work are proceeding in
+  separate worktrees, along with the remaining source inventory classification.
