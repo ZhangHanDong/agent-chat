@@ -1,9 +1,14 @@
+use hagency_core::tasks::RunnerCapability;
 use hagency_platform::Launch;
-use hagency_runtime::codex::{session::Settings, transport};
+use hagency_runtime::codex::{
+    session::{Settings, TASK_MCP_ENV, TaskMcp},
+    transport,
+};
 use hagency_store::OwnedDispatchScope;
 use std::{
     collections::BTreeMap,
     ffi::OsString,
+    net::SocketAddr,
     path::{Path, PathBuf},
 };
 
@@ -35,6 +40,7 @@ pub struct Host {
     executable: PathBuf,
     environment: BTreeMap<OsString, OsString>,
     workspaces: BTreeMap<String, PathBuf>,
+    task_helper: Option<(PathBuf, SocketAddr)>,
     #[cfg(test)]
     pub(crate) discard_start_reply: bool,
 }
@@ -80,13 +86,66 @@ impl Host {
             executable,
             environment,
             workspaces,
+            task_helper: None,
             #[cfg(test)]
             discard_start_reply: false,
         })
     }
+    /// Host-selected native executable and literal loopback endpoint only. The
+    /// task/capability are supplied later from the validated owned dispatch.
+    /// The host must protect the executable, workspace and Codex config/home;
+    /// these path checks are not physical directory or executable custody.
+    pub fn with_task_helper(
+        mut self,
+        executable: PathBuf,
+        address: SocketAddr,
+    ) -> Result<Self, super::Failure> {
+        if !address.ip().is_loopback()
+            || address.port() == 0
+            || matches!(address, SocketAddr::V6(v) if v.scope_id()!=0 || v.flowinfo()!=0)
+            || !executable.is_file()
+            || self.environment.keys().any(|key| {
+                TASK_MCP_ENV
+                    .iter()
+                    .any(|reserved| key.to_string_lossy().eq_ignore_ascii_case(reserved))
+            })
+        {
+            return Err(super::Failure::Admission);
+        }
+        TaskMcp::new(
+            executable.clone(),
+            "validation_only".into(),
+            self.system_root()?,
+        )
+        .map_err(|_| super::Failure::Admission)?;
+        self.task_helper = Some((executable, address));
+        Ok(self)
+    }
+    fn system_root(&self) -> Result<Option<String>, super::Failure> {
+        let mut roots = self
+            .environment
+            .iter()
+            .filter(|(key, _)| key.to_string_lossy().eq_ignore_ascii_case("SystemRoot"));
+        let first = roots
+            .next()
+            .map(|(_, v)| {
+                v.to_str()
+                    .map(str::to_owned)
+                    .ok_or(super::Failure::Admission)
+            })
+            .transpose()?;
+        if roots.next().is_some() {
+            return Err(super::Failure::Admission);
+        }
+        Ok(first)
+    }
+    pub(crate) fn task_helper_enabled(&self) -> bool {
+        self.task_helper.is_some()
+    }
     pub(crate) fn prepare(
         &self,
         scope: &OwnedDispatchScope,
+        capability: &RunnerCapability,
         limits: Limits,
     ) -> Result<(Launch, Settings, transport::Limits, String), super::Failure> {
         let [workspace] = scope.input().resources.as_slice() else {
@@ -112,7 +171,7 @@ impl Host {
         if Path::new(path).canonicalize().ok().as_ref() != Some(path) {
             return Err(super::Failure::Admission);
         }
-        let settings = Settings::new(path.clone(), resource.model.clone(), effort.into())
+        let mut settings = Settings::new(path.clone(), resource.model.clone(), effort.into())
             .map_err(|_| super::Failure::Admission)?;
         // Every byte comes from the immutable dispatch payload. This informational
         // text grants neither task maintenance, process authority nor approval.
@@ -121,11 +180,29 @@ impl Host {
         if input.len() > hagency_runtime::codex::session::MAX_TEXT_BYTES {
             return Err(super::Failure::Admission);
         }
+        let mut environment = self.environment.clone();
+        if let Some((executable, address)) = &self.task_helper {
+            let helper = TaskMcp::new(
+                executable.clone(),
+                scope.task().id.clone(),
+                self.system_root()?,
+            )
+            .map_err(|_| super::Failure::Admission)?;
+            let encoded =
+                serde_json::to_string(capability).map_err(|_| super::Failure::Admission)?;
+            if encoded.len() > 4096 {
+                return Err(super::Failure::Admission);
+            }
+            environment.insert(TASK_MCP_ENV[0].into(), address.to_string().into());
+            environment.insert(TASK_MCP_ENV[1].into(), encoded.into());
+            environment.insert(TASK_MCP_ENV[2].into(), scope.task().id.clone().into());
+            settings = settings.with_task_mcp(helper);
+        }
         let launch = Launch {
             executable: self.executable.clone(),
             arguments: vec!["app-server".into()],
             directory: path.clone(),
-            environment: self.environment.clone(),
+            environment,
             require_crash_containment: false,
         };
         launch.validate().map_err(|_| super::Failure::Admission)?;

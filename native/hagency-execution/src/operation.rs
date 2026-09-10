@@ -1,5 +1,5 @@
 use crate::{Host, Limits};
-use hagency_core::tasks::{RunnerCapability, TaskState};
+use hagency_core::tasks::{RunnerCapability, RunnerCommand, Task, TaskState};
 use hagency_runtime::{
     codex::session::{self, Outcome, Update},
     owned::{Cleanup, OwnedSession},
@@ -307,7 +307,7 @@ async fn execute(
         .await?
         .map_err(|_| Failure::Admission)?;
     let expected = scope.fingerprint().to_owned();
-    let (launch, settings, io_limits, input) = host.prepare(&scope, limits)?;
+    let (launch, settings, io_limits, input) = host.prepare(&scope, cap, limits)?;
     checkpoint(cancel, until)?;
     let start_reply = bounded(
         domain.start_owned_dispatch(cap.clone(), expected.clone()),
@@ -413,6 +413,24 @@ async fn execute(
     };
     report.cleanup = runner.stop();
     report.owner = Some(runner);
+    if host.task_helper_enabled() {
+        // Observation only, after actual owner stop and before negative fencing.
+        // This adds one bounded (2 s) fresh-clock writer read. Done changes the
+        // epoch and still fails the exact renewal/settlement fingerprint. Never
+        // use this status as execution, release, retry or reply authority.
+        report.canonical_status = domain
+            .runner_command(
+                cap.clone(),
+                RunnerCommand::Task {
+                    id: scope.task().id.clone(),
+                },
+            )
+            .await
+            .ok()
+            .and_then(|value| serde_json::from_value::<Task>(value).ok())
+            .filter(|task| task.id == scope.task().id && task.session_id == scope.task().session_id)
+            .map(|task| task.status);
+    }
     drive?;
     checkpoint(cancel, until)?;
     if report.protocol != Protocol::Completed {
