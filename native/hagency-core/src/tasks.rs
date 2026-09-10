@@ -110,7 +110,7 @@ impl DispatchInput {
         {
             return Err(InvalidInput("dispatch exceeds object payload limit"));
         }
-        crate::canonical::digest(&self.payload)?;
+        crate::canonical::payload_digest(&self.payload)?;
         Ok(())
     }
 }

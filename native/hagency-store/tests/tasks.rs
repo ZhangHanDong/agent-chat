@@ -69,6 +69,34 @@ fn count(db: &rusqlite::Connection, table: &str) -> u64 {
 }
 
 #[test]
+fn native_payload_dispatch_replay() {
+    let (root, mut db, _) = setup();
+    let mut d = input("numeric", "s1", None, false);
+    d.payload = json!({"score":0.25,"nested":{"weight":1e-7},"results":[true,null,0.1+0.2]});
+    d.payload["large_data"] = json!(9007199254740993u64);
+    let expected: serde_json::Value =
+        serde_json::from_str(&hagency_core::canonical::encode_payload(&d.payload).unwrap())
+            .unwrap();
+    assert_eq!(expected["large_data"], json!(9007199254740992u64)); // JS Number data, never an authority identifier.
+    db.enqueue_dispatch(&d).unwrap();
+    db.enqueue_dispatch(&d).unwrap();
+    let mut changed = d.clone();
+    changed.payload["score"] = json!(0.5);
+    assert!(matches!(
+        db.enqueue_dispatch(&changed),
+        Err(Error::Conflict)
+    ));
+    drop(db);
+    let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
+    db.enqueue_dispatch(&d).unwrap();
+    let cap = claim(&mut db, 1001);
+    assert_eq!(db.start_dispatch(&cap, 1002).unwrap(), expected);
+    db.complete_dispatch(&cap, &json!({"score":0.75}), 1003)
+        .unwrap();
+    db.enqueue_dispatch(&d).unwrap();
+}
+
+#[test]
 fn native_task_capability_scope() {
     let (_root, mut db, engagement) = setup();
     db.create_canonical_task("task", "s1", "Scoped work", 1000)

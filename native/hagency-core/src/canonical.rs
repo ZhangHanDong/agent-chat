@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 pub fn encode(value: &Value) -> Result<String, InvalidInput> {
     let mut output = String::new();
-    write(value, &mut output, 0)?;
+    write(value, &mut output, 0, false)?;
     Ok(output)
 }
 
@@ -14,12 +14,38 @@ pub fn digest(value: &Value) -> Result<String, InvalidInput> {
     Ok(format!("{:x}", Sha256::digest(encode(value)?)))
 }
 
+/// Structured execution data, not signed authority DTOs. Integral identity fields
+/// still require explicit host validation; data numbers follow IEEE-754 doubles
+/// including JavaScript rounding outside the JSON-safe integer range.
+pub fn encode_payload(value: &Value) -> Result<String, InvalidInput> {
+    let mut output = String::new();
+    write(value, &mut output, 0, true)?;
+    Ok(output)
+}
+pub fn payload_digest(value: &Value) -> Result<String, InvalidInput> {
+    Ok(format!("{:x}", Sha256::digest(encode_payload(value)?)))
+}
+fn finite_number(number: &serde_json::Number) -> Result<f64, InvalidInput> {
+    // Payload numbers follow JavaScript Number semantics. In particular, JS may
+    // serialize an integral double using a shorter decimal integer spelling that
+    // is not its exact mathematical value. Signed DTOs use the strict path above.
+    number
+        .as_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(InvalidInput("payload number must be finite"))
+}
+
 fn array_index(key: &str) -> Option<u32> {
     let n: u32 = key.parse().ok()?;
     (n < u32::MAX && n.to_string() == key).then_some(n)
 }
 
-fn write(value: &Value, output: &mut String, depth: usize) -> Result<(), InvalidInput> {
+fn write(
+    value: &Value,
+    output: &mut String,
+    depth: usize,
+    payload: bool,
+) -> Result<(), InvalidInput> {
     if depth > 64 {
         return Err(InvalidInput("JSON nesting exceeds 64 levels"));
     }
@@ -27,7 +53,11 @@ fn write(value: &Value, output: &mut String, depth: usize) -> Result<(), Invalid
         Value::Null => output.push_str("null"),
         Value::Bool(b) => output.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
+            if payload {
+                let value = finite_number(n)?;
+                let mut buffer = ryu_js::Buffer::new();
+                output.push_str(buffer.format_finite(value));
+            } else if let Some(i) = n.as_i64() {
                 if i.unsigned_abs() > JSON_SAFE_MAX {
                     return Err(InvalidInput("integer exceeds JSON safe range"));
                 }
@@ -49,7 +79,7 @@ fn write(value: &Value, output: &mut String, depth: usize) -> Result<(), Invalid
                 if i > 0 {
                     output.push(',');
                 }
-                write(item, output, depth + 1)?;
+                write(item, output, depth + 1, payload)?;
             }
             output.push(']');
         }
@@ -73,7 +103,7 @@ fn write(value: &Value, output: &mut String, depth: usize) -> Result<(), Invalid
                     &serde_json::to_string(key).map_err(|_| InvalidInput("invalid key"))?,
                 );
                 output.push(':');
-                write(&items[key], output, depth + 1)?;
+                write(&items[key], output, depth + 1, payload)?;
             }
             output.push('}');
         }

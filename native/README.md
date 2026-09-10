@@ -210,3 +210,18 @@ Prototype methods are modeled only as inert comparison/truthiness values and
 blocked path segments remain blocked. No JavaScript code is evaluated in Rust.
 Durable graph storage, canonical observation authority, group/mailbox routing and
 native graph execution are not implemented by this pure policy step.
+
+Execution payload encoding now accepts finite fractional values and follows
+JavaScript IEEE-754 Number semantics, including rounding beyond the safe integer
+range. Enqueue stores that canonical representation and hashes those exact bytes,
+so a retry cannot hash one numeric value while running another representation.
+Authority DTO encoding remains a separate strict integer path; token counts,
+generations and timestamps retain their explicit typed bounds. Prototype fields
+and excessive nesting remain rejected. Identifiers remain strings.
+
+The pinned [ryu-js 1.0.3 formatter](https://docs.rs/ryu-js/1.0.3/ryu_js/)
+provides ECMAScript shortest formatting through its safe finite-number API.
+It adds no default runtime dependencies; its Apache-2.0/BSL-1.0 license and Rust
+1.71 minimum were checked. serde_json float_roundtrip preserves parsed doubles.
+CI compares 271 deterministic numeric payload vectors against the unchanged JS
+canonicalizer; store tests cover numeric content conflict and restart replay.

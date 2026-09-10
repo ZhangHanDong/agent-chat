@@ -1880,3 +1880,27 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   observations, internal/local session routes and mailbox/group delivery still need
   integration. Proposed dispatch status is never evidence of actual task execution.
   The full M0–M9 migration remains active.
+
+## 2026-09-10 — Structured numeric runner payloads
+
+- Graph-policy commit a818f0f passed native three-OS CI (34468571499); its Node
+  CI (34468571496) is still running. The migration continues in the isolated tree.
+- Removed the integer-only restriction from execution data while preserving it for
+  signed authority DTOs. Queued input now stores and hashes the same canonical
+  representation. Finite numbers follow existing JavaScript double semantics;
+  exact identity/count/generation fields keep their typed authority validation.
+- Used the Rust ecosystem integration skill to inspect pinned ryu-js 1.0.3, its
+  safe finite formatting API, license and minimum Rust version. Enabled JSON float
+  round-trip parsing. No authority endpoint or policy was broadened.
+- The unchanged JS canonicalizer generates 271 numeric vectors, including exponent
+  boundaries, subnormals, negative zero, very large values and deterministic double
+  bit patterns. Those exposed why exact-integer-literal rejection is incompatible
+  with JS shortest formatting; the final data contract uses JS Number semantics.
+- All 48 native tests passed, zero failed/ignored. Numeric dispatch replay and
+  conflicting content were verified across repository restart. Both scenarios and
+  the lifecycle boundary passed with no skip/uncertainty; all 43 native selectors
+  resolve. Clippy, rustfmt and fixture checks passed. The initial boundary check
+  required explicit ./ prefixes for root Cargo paths; the corrected exact scope
+  passed without broadening the intended changes.
+- Internal session/group/mailbox routes and graph-to-canonical-task integration
+  remain next. Real process/transport, console and cutover work remain open.

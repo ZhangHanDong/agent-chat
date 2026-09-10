@@ -1014,3 +1014,11 @@ the integer-only signing canonicalizer for arbitrary fractional graph results.
 Graph/group/MCP storage and routing remain open; current SessionBinding still only
 represents project-engaged Matrix rooms, requiring explicit internal/local route
 modeling before repeated graph nodes can run on the same Agent independently.
+
+Native payload JSON (2026-09-10): canonical::encode/digest remain integer-only for
+signed authority DTOs. encode_payload/payload_digest use finite JS Number semantics
+and ryū-js shortest formatting; the dispatcher stores exactly that canonical JSON.
+Use this payload path for fractional graph/peer results, not authority identities.
+serde_json float_roundtrip is enabled. Canonical data may round integers outside
+the safe range as JS does; exact identifiers must stay strings/typed authority DTOs.
+No internal peer/session or graph-store integration is implied by this change.

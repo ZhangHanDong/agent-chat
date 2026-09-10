@@ -213,7 +213,8 @@ pub(super) fn create_task(
 }
 pub(super) fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(), Error> {
     input.validate()?;
-    let digest = canonical::digest(&serde_json::to_value(input)?)?;
+    let encoded = canonical::encode_payload(&serde_json::to_value(input)?)?;
+    let digest = hagency_core::project::hash(encoded.as_bytes());
     let old: Option<String> = tx
         .query_row(
             "SELECT digest FROM runner_dispatches WHERE id=?1",
@@ -238,7 +239,7 @@ pub(super) fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(),
         super::task_intents::check_enqueue(tx, &t)?;
     }
     bounded_row(tx, "runner_dispatches", "id", &input.id, 30_000)?;
-    tx.execute("INSERT INTO runner_dispatches(id,session_id,task_id,input,digest,state) VALUES(?1,?2,?3,?4,?5,'queued')",params![input.id,input.session_id,input.task_id,serialize(input)?,digest])?;
+    tx.execute("INSERT INTO runner_dispatches(id,session_id,task_id,input,digest,state) VALUES(?1,?2,?3,?4,?5,'queued')",params![input.id,input.session_id,input.task_id,encoded,digest])?;
     for r in &input.resources {
         let dirty: bool = tx
             .query_row(
