@@ -1,5 +1,5 @@
 use super::{StopCause, SupervisedReport};
-use crate::{Launch, OwnedProcess, StopReport};
+use crate::{Launch, StopReport};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod pipe;
+mod scope;
 use pipe::{FRAME_LIMIT, Pipe};
 
 // Private wire data on an anonymous inherited socket. Deserialization is not
@@ -163,7 +164,7 @@ impl Supervisor {
                 } => {
                     // This backend has no complete detached-child proof. Refuse
                     // an impossible stronger report rather than forwarding it.
-                    if whole_tree_stopped {
+                    if whole_tree_stopped && !cfg!(target_os = "linux") {
                         return Err(protocol_error());
                     }
                     self.report = Some(SupervisedReport {
@@ -245,17 +246,15 @@ pub fn run_guardian() -> io::Result<()> {
         return Err(protocol_error());
     };
     let launch = launch.into_launch()?;
+    let mut process = scope::Scope::prepare()?;
     pipe.send(&Reply::Prepared { version: 1 }, until)?;
     if !matches!(pipe.required::<Request>(until, 1024)?, Request::Start) {
         return Err(protocol_error());
     }
-    let mut process = match OwnedProcess::spawn(&launch) {
-        Ok(process) => process,
-        Err(error) => {
-            let _ = pipe.send(&Reply::Failed, Instant::now() + Duration::from_secs(1));
-            return Err(error);
-        }
-    };
+    if let Err(error) = process.start(&launch) {
+        let _ = pipe.send(&Reply::Failed, Instant::now() + Duration::from_secs(1));
+        return Err(error);
+    }
     // If the owner disappeared during spawn, failed notification drops the
     // owned scope. Work has never existed without a live guardian owner.
     pipe.send(

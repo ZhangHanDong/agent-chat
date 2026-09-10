@@ -39,5 +39,9 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    owner EOF, malformed input and leader exit cancel the owned process group.
    Continue detached-descendant adoption and guardian-loss recovery; a POSIX
    group report still does not establish full cleanup or sandbox enforcement.
+   Linux now adopts orphaned descendants through a dedicated subreaper and
+   validates pidfd waitability before signalling; only kernel ECHILD after root
+   reaping can establish observed full cleanup. Actual Linux/Windows detached
+   fixtures remain a CI gate for this step; macOS still refuses that guarantee.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

@@ -106,7 +106,10 @@ fn native_guardian_start_stop() {
     let report = owned.stop(Duration::from_secs(3)).unwrap();
     assert_eq!(report.cause, StopCause::Requested);
     assert!(report.scope.leader_exited);
-    assert_eq!(report.scope.whole_tree_stopped, cfg!(windows));
+    assert_eq!(
+        report.scope.whole_tree_stopped,
+        cfg!(any(windows, target_os = "linux"))
+    );
     assert_eq!(owned.stop(Duration::from_secs(1)).unwrap(), report);
     #[cfg(unix)]
     for fd in [&_inherited.0, &_inherited.1] {
@@ -117,8 +120,18 @@ fn native_guardian_start_stop() {
     }
     stopped(&marker);
     let before = length(&other);
-    std::thread::sleep(Duration::from_millis(80));
-    assert!(length(&other) > before);
+    let until = Instant::now() + Duration::from_secs(1);
+    while length(&other) <= before {
+        assert!(
+            unrelated.is_leader_running().unwrap(),
+            "cancellation stopped an unrelated process"
+        );
+        assert!(
+            Instant::now() < until,
+            "unrelated live process did not make fresh progress"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
     unrelated.stop(Duration::from_secs(2)).unwrap();
     let marker = directory.join("drop");
     let owned =
@@ -161,7 +174,10 @@ fn native_guardian_early_exit() {
         .expect("supervisor must observe leader exit");
     assert_eq!(report.cause, StopCause::LeaderExited);
     assert!(report.scope.leader_exited);
-    assert_eq!(report.scope.whole_tree_stopped, cfg!(windows));
+    assert_eq!(
+        report.scope.whole_tree_stopped,
+        cfg!(any(windows, target_os = "linux"))
+    );
     assert!(marker.with_extension("child").is_file());
     stopped(&marker);
 }
@@ -296,7 +312,7 @@ fn unix_admission(root: &Path, marker: &Path) {
     let report = reply(&mut socket);
     assert_eq!(report["kind"], "stopped");
     assert_eq!(report["cause"], "protocol_failure");
-    assert_eq!(report["whole_tree_stopped"], false);
+    assert_eq!(report["whole_tree_stopped"], cfg!(target_os = "linux"));
     wait(&mut child.0);
     stopped(&marker);
     let mut request = launch(root, "leaf", &marker);

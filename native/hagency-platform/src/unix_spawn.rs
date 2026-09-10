@@ -3,6 +3,23 @@
 //! usable until exec succeeds, so descriptors are marked CLOEXEC instead.
 use std::{io, os::unix::process::CommandExt, process::Command};
 
+/// Only the independent guardian calls this before starting its sole workload.
+/// An embedding host may have ignored SIGCHLD; that must not auto-reap identities.
+pub(crate) fn retain_child_exits() -> io::Result<()> {
+    // SAFETY: Fully initialized native sigaction; the private guardian owns this
+    // signal disposition. No handler pointer or borrowed storage outlives the call.
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = libc::SIG_DFL;
+        if libc::sigemptyset(&mut action.sa_mask) != 0
+            || libc::sigaction(libc::SIGCHLD, &action, std::ptr::null_mut()) != 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn seal(command: &mut Command) {
     // SAFETY: The callback runs only direct native syscalls on initialized stack
     // storage. It captures no state, allocates nothing and takes no locks. Stdio

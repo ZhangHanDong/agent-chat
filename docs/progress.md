@@ -2094,3 +2094,35 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   ignored; workspace Clippy and rustfmt passed. Linux and Windows all-target
   Clippy cross-compilation passed. Four guardian scenarios plus boundary passed
   again. The corrected OS CI remains a gate; no deployed service changed.
+
+## 2026-09-10 — Linux detached-descendant custody
+
+- Descriptor-sealing commit df52fd3 passed Ubuntu/Windows native CI and the strict
+  socket check on macOS. macOS then failed the unrelated-progress assertion that
+  assumed a write within exactly 80 ms. The test now checks native process liveness
+  while requiring fresh writes within a bounded deadline; death or stalled work
+  still fails. Run 34482313701 therefore remains failed, not waived or green.
+- Added Linux guardian subreaper custody before workload startup. The guardian
+  must be single-threaded with no pre-existing children, restores normal SIGCHLD
+  disposition, and verifies pidfd wait support before admitting work. Native CLI
+  guardian mode now runs before constructing Tokio.
+- Discovery is a bounded prefix of the kernel child list. Each candidate requires
+  P_PIDFD waitability before a pidfd signal; stale or unrelated candidates supply
+  no signal authority. The root retains its exclusive std Child reaper. Only a
+  reaped root plus kernel ECHILD with __WALL can establish full observed cleanup;
+  empty/truncated discovery is never sufficient. Timeout/errors remain unknown.
+- Added native detached-session/double-fork fixtures for cancellation, controller
+  exit without Drop and early root exit. Windows uses its existing Job Object
+  path. macOS refuses the unsupported custody requirement before starting these
+  fixtures; it does not claim detached-descendant cleanup.
+- All 76 native tests passed locally on macOS, zero failed/ignored; three new
+  descendant selectors prove the explicit macOS refusal. Linux and Windows
+  all-target Clippy cross-compilation passed. The three bound scenarios plus
+  boundary passed, and all 70 native selectors resolve. Actual Linux/Windows
+  descendant execution remains a required CI gate for this implementation.
+- Workspace Clippy/rustfmt and diff checks passed. The guardian suite passed again
+  after strengthening its liveness observation. Guardian-death recovery, complete
+  macOS custody, actual runner/sandbox adapters and the remaining migration phases
+  are still open. Full requested POSIX crash containment continues to refuse;
+  observed successful cleanup is distinct from a promise that every cleanup will
+  succeed. No deployed service, credential or live model was touched.

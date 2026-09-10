@@ -29,6 +29,25 @@ fn pulse(marker: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+fn detached_command() -> io::Result<std::process::Command> {
+    let mut command = std::process::Command::new(std::env::current_exe()?);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // The leaf calls setsid itself, after it is a non-group-leader child.
+        command.process_group(rustix::process::getpgrp().as_raw_pid());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
+    }
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    Ok(command)
+}
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     #[cfg(unix)]
@@ -43,6 +62,44 @@ fn main() -> io::Result<()> {
         Some("leaf") => {
             fs::write(marker.with_extension("entered"), b"entered")?;
             pulse(marker)
+        }
+        Some("detached-leaf") => {
+            #[cfg(unix)]
+            rustix::process::setsid()?;
+            fs::write(marker.with_extension("entered"), b"detached")?;
+            pulse(marker)
+        }
+        Some("detached-middle") => {
+            let child = detached_command()?
+                .arg("detached-leaf")
+                .arg(marker)
+                .spawn()?;
+            fs::write(marker.with_extension("detached"), child.id().to_string())?;
+            // No wait and no destructor: its child must be adopted by the kernel.
+            std::process::exit(0);
+        }
+        Some("detached-root") | Some("detached-early") => {
+            let mut child = detached_command()?
+                .arg("detached-middle")
+                .arg(marker)
+                .spawn()?;
+            let status = child.wait()?;
+            if !status.success() {
+                return Err(io::Error::other("detached intermediate failed"));
+            }
+            fs::write(marker.with_extension("middle-exited"), b"exited")?;
+            let until = Instant::now() + Duration::from_secs(3);
+            while fs::metadata(marker.with_extension("pulse")).map_or(true, |v| v.len() < 2) {
+                if Instant::now() >= until {
+                    return Err(io::Error::other("detached leaf did not start"));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if args[0] == "detached-early" {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_secs(8));
+            Ok(())
         }
         #[cfg(unix)]
         Some("exec-on-command") => {
@@ -133,13 +190,20 @@ fn main() -> io::Result<()> {
             // Models abrupt owner exit: destructors are intentionally not run.
             std::process::exit(0);
         }
-        Some("supervisor-crash") => {
+        Some("supervisor-crash") | Some("supervisor-detached-crash") => {
             let executable = std::env::current_exe()?;
             let _owned = SupervisedProcess::spawn(
                 &executable,
                 &Launch {
                     executable: executable.clone(),
-                    arguments: vec!["leader".into(), marker.as_os_str().into()],
+                    arguments: vec![
+                        if args[0] == "supervisor-detached-crash" {
+                            "detached-root".into()
+                        } else {
+                            "leader".into()
+                        },
+                        marker.as_os_str().into(),
+                    ],
                     directory: std::env::current_dir()?,
                     environment: environment(),
                     require_crash_containment: cfg!(windows),

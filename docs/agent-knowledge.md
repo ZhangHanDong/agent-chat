@@ -1115,3 +1115,17 @@ misreport failed exec as successful spawn. Linux uses close_range(CLOEXEC), kern
 5.11+ required. macOS uses post-fork PROC_PIDLISTFDS with 4096 fixed stack entries,
 rejects a full/partial table, then fcntl marks entries CLOEXEC. The callback must
 never allocate or lock. The parent's own descriptor flags remain unchanged.
+
+Linux descendant custody (2026-09-10): guardian startup is synchronous and runs
+before Tokio. It checks one thread/no pre-existing children, restores normal
+SIGCHLD disposition, probes P_PIDFD wait support and enables child-subreaper mode.
+rustix 1.1 represents its nonzero flag as Option<Pid>; Some(getpid()) sets the
+attribute on the current process, not on another PID. The Reaper is not Send/Sync.
+Its /proc/thread-self/children prefix is only discovery and can omit live entries
+while another child exits. The kernel's P_PIDFD waitability is the ownership check
+before a pidfd signal. Root reaping remains exclusively with std Child. Only
+ECHILD after root reaping confirms all descendants gone; include __WALL so clone
+children without SIGCHLD are counted. Empty/truncated census or observation errors
+must not become full stop. Guardian-death recovery and macOS complete custody
+remain open; requested full POSIX crash containment still refuses. New macOS
+descendant tests prove refusal, not execution of detached cleanup.

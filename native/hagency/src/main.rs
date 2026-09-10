@@ -35,17 +35,28 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let command = Cli::parse().command;
+    #[cfg(unix)]
+    if matches!(command, Command::Guardian) {
+        hagency_platform::run_guardian()?;
+        return Ok(());
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .with_writer(std::io::stderr)
         .init();
-    match Cli::parse().command {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(command))
+}
+async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
         #[cfg(unix)]
-        Command::Guardian => hagency_platform::run_guardian()?,
+        Command::Guardian => return Err("guardian requires isolated synchronous startup".into()),
         Command::Init { state_dir } => {
             private::directory(&state_dir)?;
             if std::fs::read_dir(&state_dir)?.next().is_some() {

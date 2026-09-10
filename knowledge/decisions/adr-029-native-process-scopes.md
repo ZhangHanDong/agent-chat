@@ -97,3 +97,26 @@ libproc wrapper is a direct syscall, with no allocator or lock in the callback.
 A table reaching the 4096-record bound refuses before exec. This avoids a racy
 parent census and avoids guessing that the current soft FD limit bounds existing
 descriptors. The already locked libc dependency supplies the platform ABI.
+
+Linux guardian cleanup now uses [subreaper adoption](https://man7.org/linux/man-pages/man2/PR_SET_CHILD_SUBREAPER.2const.html)
+before work starts. Startup requires one guardian thread and no pre-existing
+children; the CLI dispatches guardian mode before constructing Tokio. The guardian
+restores normal SIGCHLD disposition so an embedding host cannot cause automatic
+reaping. It checks pidfd wait support before acknowledging preparation.
+
+The kernel adopts orphaned descendants, including double-forked processes and
+processes that create a new session. The bounded proc children list only supplies
+candidate IDs: the [interface can omit live children during concurrent exit](https://man7.org/linux/man-pages/man5/proc_tid_children.5.html).
+Each candidate becomes an owned pidfd, then P_PIDFD waitability must confirm that
+the same process is this guardian's child before signalling or reaping it. There
+is no numeric-PID signal fallback. The root's std Child keeps its exclusive reaper
+until its final group/individual signal attempts and confirmed exit.
+
+A full Linux cleanup report requires the reaped root plus kernel ECHILD from
+[waitid](https://man7.org/linux/man-pages/man2/waitpid.2.html) using __WALL to include
+clone children with non-SIGCHLD exit signals. An empty census cannot supply that
+proof. Discovery is bounded and repeated; errors or deadline expiry preserve an
+unknown outcome. This is an observation after cleanup, not a promise that cleanup
+will always succeed. Full requested POSIX crash containment still refuses while
+guardian-death recovery remains open. macOS retains group-only reporting and its
+explicit refusal of unsupported descendant custody. Windows retains Job Objects.

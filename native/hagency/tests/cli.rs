@@ -169,7 +169,10 @@ fn native_guardian_cli_entry() {
         .expect("native guardian did not report leader exit");
     assert_eq!(report.cause, StopCause::LeaderExited);
     assert!(report.scope.leader_exited);
-    assert_eq!(report.scope.whole_tree_stopped, cfg!(windows));
+    assert_eq!(
+        report.scope.whole_tree_stopped,
+        cfg!(any(windows, target_os = "linux"))
+    );
     assert!(state.join("operator.token").is_file());
     assert!(state.join("domain.sqlite3").is_file());
 }
