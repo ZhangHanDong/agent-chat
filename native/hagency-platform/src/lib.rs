@@ -1,0 +1,100 @@
+//! Host-only process scope primitives. Not runner authorization or a sandbox.
+use std::{collections::BTreeMap, ffi::OsString, io, path::PathBuf, time::Duration};
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix::Process;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows;
+#[cfg(windows)]
+use windows::Process;
+
+/// Explicit host configuration; no serde constructor and no environment inheritance.
+pub struct Launch {
+    pub executable: PathBuf,
+    pub arguments: Vec<OsString>,
+    pub directory: PathBuf,
+    pub environment: BTreeMap<OsString, OsString>,
+    pub require_crash_containment: bool,
+}
+impl Launch {
+    fn validate(&self) -> io::Result<()> {
+        if !self.executable.is_absolute()
+            || !self.directory.is_absolute()
+            || !self.directory.is_dir()
+            || self.arguments.len() > 256
+            || self.environment.len() > 256
+        {
+            return Err(invalid());
+        }
+        let values = [self.executable.as_os_str(), self.directory.as_os_str()]
+            .into_iter()
+            .chain(self.arguments.iter().map(|v| v.as_os_str()))
+            .chain(
+                self.environment
+                    .iter()
+                    .flat_map(|(k, v)| [k.as_os_str(), v.as_os_str()]),
+            );
+        let mut length = 0usize;
+        for value in values {
+            let bytes = value.as_encoded_bytes();
+            length = length.checked_add(bytes.len() + 1).ok_or_else(invalid)?;
+            if bytes.contains(&0) || length > 64 * 1024 {
+                return Err(invalid());
+            }
+        }
+        for key in self.environment.keys() {
+            let bytes = key.as_encoded_bytes();
+            if bytes.is_empty()
+                || !bytes
+                    .iter()
+                    .all(|v| v.is_ascii_alphanumeric() || *v == b'_')
+            {
+                return Err(invalid());
+            }
+        }
+        Ok(())
+    }
+}
+fn invalid() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "invalid native launch configuration",
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StopReport {
+    pub leader_exited: bool,
+    /// POSIX group-only cancellation always leaves this false. Detached children
+    /// and owner-crash cleanup require the later guardian/identity adapter.
+    pub whole_tree_stopped: bool,
+}
+pub struct OwnedProcess {
+    inner: Process,
+}
+impl OwnedProcess {
+    pub fn spawn(launch: &Launch) -> io::Result<Self> {
+        launch.validate()?;
+        Ok(Self {
+            inner: Process::spawn(launch)?,
+        })
+    }
+    /// Informational only: ownership is the private child/job handle, never this PID.
+    pub fn id(&self) -> u32 {
+        self.inner.id()
+    }
+    pub fn stop(&mut self, timeout: Duration) -> io::Result<StopReport> {
+        if timeout.is_zero() || timeout > Duration::from_secs(5) {
+            return Err(invalid());
+        }
+        self.inner.stop(timeout)
+    }
+}
+impl Drop for OwnedProcess {
+    fn drop(&mut self) {
+        let _ = self.inner.stop(Duration::from_secs(2));
+    }
+}

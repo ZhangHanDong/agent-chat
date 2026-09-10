@@ -1984,3 +1984,32 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
 - This grants neither filesystem access nor external delivery authority. Real
   process stop/ownership proof, group lifecycle, graph/task linkage, final output,
   transport, console and cutover gates remain open. Live services are unchanged.
+
+## 2026-09-10 — Initial native process scope proof
+
+- Recovery-report commit c043ea1 passed native three-OS CI (34475309134) and Node
+  CI (34475309167). Peer commit 17246a0 Node CI (34474218712) also passed.
+- Added the separate hagency-platform library and native probe binary. Its host
+  launch DTO has explicit absolute executable/cwd, bounded argument/environment
+  data and no inherited environment or shell wrapper. Existing locked rustix and
+  windows-sys dependencies are reused; no dependency versions changed.
+- Windows JOB_LIST establishes kill-on-close Job Object ownership inside process
+  creation. Microsoft documents a crash window in suspended-then-assign startup;
+  this implementation avoids that window. Cancellation uses owned handles and
+  reports whole-tree stop only after zero active job processes and leader exit.
+- POSIX establishes a process group before exec and holds the unreaped leader until
+  final signals. Early-exit and repeated-stop tests preserve cancellation authority
+  without signalling a reaped PID again. Group cancellation does not claim detached
+  child or owner-crash containment; required crash guarantees refuse before spawn.
+- ADR-029 records the API guarantee, exclusive host child-reaper requirement and
+  separation from sandbox permission. Probe tests cover grandchildren, early exit,
+  Drop cleanup, Unicode/quote/backslash/literal shell characters, explicit env,
+  invalid/missing executable, embedded NUL and unrelated-process isolation.
+- All 64 native tests passed locally on macOS, zero failed/ignored. Three scoped
+  scenarios plus boundary passed; 59 native selectors resolve. Workspace Clippy,
+  rustfmt and diff checks passed. Windows all-target Clippy cross-compilation also
+  passed. Windows actual owner-crash Job Object execution remains a CI gate for
+  this commit; the POSIX scenario proves refusal, not unimplemented containment.
+- Agent execution remains disabled. POSIX guardian and detached-descendant identity,
+  actual sandbox/runner IO, M3 graph/group/final delivery and M5–M9 remain open.
+  No live deployment or model was contacted.

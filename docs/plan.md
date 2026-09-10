@@ -28,6 +28,9 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    graph/task linkage before graph execution. Schema 8 now binds inspected-result
    reporting to the completed task epoch, separately from work creation authority.
    Actual final reply delivery remains to implement.
-   Real runner adapters still need the early platform ownership and sandbox proofs.
+   The initial hagency-platform proof now launches explicit native probes: Windows
+   atomic Job Object assignment and POSIX unreaped-leader group cancellation.
+   Continue native Windows CI validation, POSIX guardian/detached-child ownership,
+   bounded runner IO and effective sandbox proofs before real runner adapters.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

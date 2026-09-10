@@ -1058,3 +1058,18 @@ after the task completes again. Historical native report migration requires the
 original dispatch's durable done receipt for that same epoch; task state or payload
 text alone is insufficient. A report grant is not filesystem write permission or
 proof that an external result has been delivered; M4/M5 must enforce those gates.
+
+Native process scope proof (2026-09-10, ADR-029): hagency-platform is a separate
+workspace library with controlled fixture binary; it is not wired to Agent dispatch.
+Launch is explicit executable/argv/cwd/environment with no inherited environment.
+Windows uses JOB_LIST at CreateProcessW with kill-on-close, avoiding the suspended
+but unassigned crash window. Job handles authorize cancellation; active-count zero
+plus leader-handle exit proves job stop. The Windows FFI is locally allow-scoped.
+POSIX process_group(0) runs before exec; never reap/try_wait the leader before final
+signals. After reaping, repeated stop never signals that PID again. The host must
+exclusively own child reaping. Group-only stop always reports whole_tree_stopped
+false; require_crash_containment=true refuses POSIX launch until its guardian is
+implemented. Neither backend grants filesystem/network sandbox permission. Native
+probes test ordinary/early-exit cleanup and literal Unicode/quote/backslash argv.
+Windows owner-exit-without-Drop coverage runs only on Windows; macOS checks the
+explicit Unsupported path instead. Cross-compilation is not runtime evidence.
