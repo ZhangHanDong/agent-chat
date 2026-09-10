@@ -3202,3 +3202,26 @@ Formatting and diff checks passed. Log prefix: `mcp-coordination-` in the extern
 cache. No dependency or schema changes. Discovery, file/media tools, Matrix
 history, progress hooks, generated MCP configuration, runtime cutover and other
 platform acceptance remain separate migration gates.
+
+
+### 2026-09-10 — Qualify the hosted Linux 6.17 kernel family
+
+At2c7b402, actual Linux native tests and all five Python helper checks passed.
+The cgroup qualifier then created its isolated subtree and refused kernel
+6.17.0-1022-azure because only6.8/6.12/6.14 had been source-inspected. The failure
+is retained in `ci-2c7b402-linux.log`; no containment pass is claimed.
+
+Inspected ten upstream files at Linuxv6.17 commit
+e5f0a698b34ed76002dc5cff3804a61c80233a7a, cached with SHA256 manifest in
+`linux-6.17-source`. Reserved inode constants now live in a UAPI header, but
+initial identity/owner, dynamic range, proc task resolution, credential-bound
+migration and recursive kill/fork rules preserve this adapter's assumptions.
+Added6.17 to the explicit family gate and its exact observed release vector;
+adjacent unqualified families remain refused. ADR048 records pinned source
+links. Real hosted positive/refusal qualification still must run after this fix.
+
+The follow-up passes two exact cgroup parser tests, Linux-target platform Clippy
+with warnings denied, and lifecycle 4/4 including all four changed paths. The
+integrated native inventory resolves 172 selectors. These checks establish
+source eligibility and refusal behavior; they do not replace the pending actual
+hosted cgroup qualification. Evidence: `cgroup-617-*` in the migration cache.

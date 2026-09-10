@@ -46,8 +46,8 @@ parents on the same verified proc mount, then verifies nsfs filesystem magic,
 caller-supplied namespace descriptor, compare against `/proc/1`, or treat
 `NS_GET_PARENT` returning EPERM as an initial-namespace proof.
 
-The supported kernel release families are explicitly restricted to 6.8, 6.12 and
-6.14. Other releases return Unsupported; changed namespace identities do too.
+The supported kernel release families are explicitly restricted to 6.8, 6.12,
+6.14 and 6.17. Other releases return Unsupported; changed namespace identities do too.
 These are source-inspected implementation constants, **not a portable Linux
 ABI**: user `0xEFFFFFFD`, cgroup `0xEFFFFFFB`, nsfs `0x6e736673`, and namespace
 types `CLONE_NEWUSER`/`CLONE_NEWCGROUP`. Initial constants agree in
@@ -80,6 +80,22 @@ exclude concurrent privileged namespace/mount replacement and use a kernel
 whose source implements the inspected contracts. A version string alone does
 not prove a vendor kernel's implementation; real execution qualification on its
 exact kernel release is also required.
+
+### Linux 6.17 source qualification
+
+Hosted CI reached a protected subtree on `6.17.0-1022-azure`, then correctly
+refused the uninspected family. The follow-up admits 6.17 after inspecting
+upstream commit `e5f0a698b34ed76002dc5cff3804a61c80233a7a` (v6.17):
+
+- Reserved namespace identities moved into [uapi/linux/nsfs.h](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/include/uapi/linux/nsfs.h); proc_ns.h aliases them. Dynamic inodes still start above the reserved range in [proc/generic.c](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/fs/proc/generic.c#L194).
+- [nsfs.c](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/fs/nsfs.c#L198) preserves inode/type identity and returns a fresh CLOEXEC owner descriptor. [ns_get_owner](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/kernel/user_namespace.c#L1380) still requires the calling user namespace in the owner ancestry.
+- [Proc namespace links](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/fs/proc/namespaces.c#L43) resolve the actual task, and [base.c](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/fs/proc/base.c#L3667) preserves the traversable namespace directory mode.
+- [cgroup.c](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/kernel/cgroup/cgroup.c) preserves the initial owner and namespace-relative mount path, uses opener credentials for migration, and serializes recursive kill with the cgroup mutex. Its fork path compares kill sequence numbers before userspace execution. The [versioned cgroup contract](https://github.com/torvalds/linux/blob/e5f0a698b34ed76002dc5cff3804a61c80233a7a/Documentation/admin-guide/cgroup-v2.rst#L1030) retains recursive live-population and fork/migration semantics.
+
+This source check permits testing the observed vendor kernel; it does not replace
+the seven actual hosted qualification cases or widen any filesystem, namespace,
+privilege, lease or complete-crash-containment condition. Unknown families
+(including 6.16 and 6.18) remain refused. No local privileged test is enabled.
 
 The calling host must already have equal nonzero real/effective/saved/fs UIDs,
 zero effective/permitted/inheritable/bounding/ambient capabilities, NNP=1 and

@@ -1609,3 +1609,10 @@ Lost mutation responses stay unknown; POST dependency hydration stays read-only.
 Generated runtime configuration, discovery, files, Matrix history, progress and
 live execution remain separate migration gates. See the scoped contract and
 ADR-051 for the advertised catalog and offline validation boundary.
+
+
+Linux CI2c7b402 reached cgroup setup but failed closed on6.17.0-1022-azure.
+ADR048 now records source qualification of upstreamv6.17/e5f0a698; initial
+namespace constants moved to UAPI without changing values/owner/kill semantics.
+The6.17 family gate is permitted for actual CI testing; it is not itself a
+positive cgroup execution result or full POSIX crash-containment guarantee.
