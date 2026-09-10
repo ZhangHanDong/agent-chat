@@ -374,8 +374,7 @@ async fn native_task_client_cli() {
     let address = f.address.to_string();
     let capability = serde_json::to_string(&f.cap).unwrap();
     let output = tokio::task::spawn_blocking(move || {
-        std::process::Command::new(env!("CARGO_BIN_EXE_hagency"))
-            .env_clear()
+        isolated_cli()
             .env("HAGENCY_RUNNER_API_ADDR", address)
             .env("HAGENCY_RUNNER_CAPABILITY", capability)
             .env("HAGENCY_TASK_ID", "task")
@@ -395,8 +394,7 @@ async fn native_task_client_cli() {
     assert!(value["task"]["heartbeat_at"].is_number());
     assert!(!String::from_utf8_lossy(&output.stdout).contains(&f.cap.secret));
     let output = tokio::task::spawn_blocking(|| {
-        std::process::Command::new(env!("CARGO_BIN_EXE_hagency"))
-            .env_clear()
+        isolated_cli()
             .env("HAGENCY_RUNNER_CAPABILITY", "private_context_canary")
             .args(["task", "get"])
             .output()
@@ -408,4 +406,17 @@ async fn native_task_client_cli() {
     assert!(output.stdout.is_empty());
     assert!(!String::from_utf8_lossy(&output.stderr).contains("private_context_canary"));
     f.close().await;
+}
+
+fn isolated_cli() -> std::process::Command {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_hagency"));
+    command.env_clear();
+    // Windows socket initialization needs its system directory, as do our
+    // existing owned-process fixtures. No proxy, PATH or user credentials pass.
+    #[cfg(windows)]
+    command.env(
+        "SystemRoot",
+        std::env::var_os("SystemRoot").expect("Windows system root"),
+    );
+    command
 }
