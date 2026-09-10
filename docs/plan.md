@@ -72,14 +72,16 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    fixtures remain a CI gate for this step; macOS still refuses that guarantee.
    Schema 14 now fences verified task-notice sends before activation and keeps
    late/cancelled delivery distinct from current task authority. Native MCP and
-   CLI task helpers use the same scoped API; host-generated configuration and
-   general coordination/file tools remain open. The opt-in Codex approval
+   CLI task helpers use the same scoped API. The MCP helper now has 19 task,
+   delegation, conversation, peer and graph tools; host-generated configuration,
+   discovery and file tools remain open. The opt-in Codex approval
    coordinator now consumes durable decisions before typed responses, but the
    pinned upstream has no application acknowledgement: resolved is not Applied.
    Windows owned IO passed actual Windows CI; macOS identity observation fixtures
    were strengthened after CI's short heartbeat sample failed. Linux protected
-   cgroup recovery, authenticated Matrix collection and native formatting remain
-   in isolated parallel worktrees; no operational cutover is enabled.
+   cgroup recovery is integrated but still needs successful hosted qualification.
+   Authenticated Matrix observation collection and formatting are integrated;
+   event intake and actual sends remain open. No operational cutover is enabled.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.
 
@@ -89,7 +91,11 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    private-route/crypto integration and actual client round-trip qualification
    before calling this complete M6 formatting or media parity.
 
-6. M6 progress policy/coalescing proof is now isolated in `hagency-progress`
+7. M6 progress policy/coalescing proof is now isolated in `hagency-progress`
    (ADR052): fixed redacted summaries, exact JS policy/CLI vectors and bounded
    host-run receipts. Runtime attachment, persistent uncertain-attempt recovery,
    editable Matrix status and route/crypto/delivery qualification remain open.
+
+8. M7 bounded transcript normalization is in `hagency-metering` (ADR055).
+   Continue transcript discovery, authenticated provenance, persistent ledger,
+   exact Agent/project attribution, quota enforcement and console integration.

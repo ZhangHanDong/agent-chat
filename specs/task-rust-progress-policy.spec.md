@@ -34,6 +34,7 @@ progress acceptance, observed answer delivery and canonical task truth separate.
 ## Boundaries
 
 ### Allowed Changes
+- native/README.md
 - native/hagency-progress/**
 - native/scripts/progress-vectors.mjs
 - native/fixtures/progress.json

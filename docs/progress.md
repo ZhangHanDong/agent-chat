@@ -3293,3 +3293,21 @@ Cargo added only the local metering package; existing versions remain pinned.
 - No legacy runtime/hook/Matrix code was edited. Evidence uses external-cache
   `progress-*` logs. This is not operational status, durable outbox, Matrix
   display or full ADR026/M6 parity; actual host attachment remains unimplemented.
+
+### 2026-09-10 — Progress integration and regression findings
+
+Integrated f4cdead retains the formatter, metering and prior workspace packages.
+All 181 native selectors resolve; workspace Clippy and all three content/progress/
+metering oracles pass. Progress lifecycle passes 5/5 with all 17 integrated paths.
+The full workspace regression remains failed: native_guardian_cli_entry received
+no leader-exit report within its five-second fixture wait. The archived log does
+not establish whether initialization was slow or the guardian failed. A separate
+agent is investigating with the existing native process contract. Evidence:
+`combined-progress-metering-*` and `integrated-progress-lifecycle.*`.
+
+At 431b2ec, native macOS and Windows CI passed. Linux failed two Matrix room
+fixtures waiting for a scripted HTTP request, so cgroup qualification did not run.
+The fixture used a three-second wait despite allowing a longer SDK operation
+between requests; it also hid early collector errors. A separate reviewed fix
+aligns the test wait with the existing budgets and reports early refusal, with
+new controlled regressions. Neither failed run is reclassified as passing.

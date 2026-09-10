@@ -445,3 +445,12 @@ missing or contradictory evidence. Its 135 vectors execute the retained JS
 parser; separate correction fixtures reject coerced/unsafe numbers, duplicate
 keys and conflicting message identities. This library does not read transcript
 files, authenticate usage, attribute it to an Agent/project, or enforce a quota.
+
+[Native progress policy](../knowledge/decisions/adr-052-native-progress-policy.md)
+binds bounded event receipts and throttled redacted summaries to one immutable
+host run. Tool titles, arguments and errors never enter outgoing text. ACP calls
+with no terminal result remain explicitly pending or unresolved; a claimed
+pending snapshot cannot hide a later completion. Unknown submission outcomes
+block retries until host inspection. This is an in-memory projection, with 275
+unchanged JS vectors and 20 documented corrections; runtime attachment, durable
+status delivery and actual Matrix edits remain separate integration work.
