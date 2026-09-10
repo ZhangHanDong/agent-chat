@@ -10992,6 +10992,14 @@ function boundedMarkerFetch(bridge, expectedActor, row, control = {}) {
   };
 }
 
+function markerStateSendError(httpStatus) {
+  const error = new Error('approval marker state send failed');
+  error.code = Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599
+    ? `matrix_state_http_${httpStatus}`
+    : 'matrix_state_send_failed';
+  return error;
+}
+
 async function sendMarkerStateWithBridge(bridge, plan, actor, row, control = {}) {
   control.check?.();
   if (!sameProjectionActor(actor, markerActorForBridge(bridge, row))) {
@@ -11013,7 +11021,7 @@ async function sendMarkerStateWithBridge(bridge, plan, actor, row, control = {})
       bridge, actor, row, endpoint, 'PUT', plan.prepared_payload, control,
     );
     if (!response.ok) {
-      throw new Error(`approval marker state send failed with HTTP ${response.status}`);
+      throw markerStateSendError(response.status);
     }
     return response.body?.event_id || null;
   }
@@ -11030,7 +11038,7 @@ async function sendMarkerStateWithBridge(bridge, plan, actor, row, control = {})
     expectedPublisherMxid: plan.publisher_mxid,
     fetchImpl: boundedMarkerFetch(bridge, actor, row, control),
   });
-  if (!result.sent) throw new Error(result.reason || 'side approval marker state send failed');
+  if (!result.sent) throw markerStateSendError(result.httpStatus);
   return result.eventId;
 }
 

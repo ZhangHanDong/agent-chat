@@ -17,13 +17,16 @@ Connect canonical approval-room marker rows to the existing Matrix bridge and pr
 - Local-bot state captures the initialized SDK client's exact homeserver and token, then uses owned HTTP with one whole-response deadline. Side state uses `sendEmptyStateToRoomOnSide` with one whole-response deadline and exact representative or appservice identity.
 - State PUT has no transaction deduplication or remote CAS. Exact receipts may arrive after actor rotation; failed or indeterminate sends remain canonical retry work.
 - An authenticated bridge observation of a nonempty v1 state key may request exact-room retirement reconciliation without fabricating a legacy receipt.
+- A completed failed JSON state response carries only a finite integer HTTP status into a controlled retry code such as `matrix_state_http_403`. Unreadable or interrupted responses retain the generic unknown code; neither outcome changes credentials or records a receipt.
 
 ## Boundaries
 
 ### Allowed Changes
 - bridge-matrix.js
 - lib/approval-marker-bridge.js
+- lib/matrix-representative.js
 - tests/bridge-approval-room-marker.test.js
+- tests/matrix-representative.test.js
 - specs/task-approval-room-marker-bridge.spec.md
 
 ### Forbidden
@@ -85,6 +88,18 @@ Scenario: Lost legacy response is reconciled from observed state
   Given accepted v2 history and a completed prior retirement
   When the concrete bridge reads a nonempty v1 empty-key state under current private authority
   Then it requests bounded canonical re-retirement without inventing a legacy event receipt.
+
+Scenario: Failed state responses retain sanitized diagnostics
+  Test: marker failure diagnostics persist completed HTTP status without a receipt
+  Given local-bot and both representative credential kinds attempt a canonical marker
+  When Matrix completes a 403 response or interrupts its body
+  Then the real bridge and protected API persist a specific HTTP code or the generic unknown code with uncertain state, no event receipt, and unchanged credentials.
+
+Scenario: Side state diagnostics require a complete response
+  Test: approval marker exposes only completed finite HTTP failure status
+  Given a failed Matrix state response or an exception carrying a forged status
+  When the representative helper consumes the response
+  Then only a completed response with an integer HTTP status exposes that status and no failed result claims a sent event.
 
 ## Out of Scope
 

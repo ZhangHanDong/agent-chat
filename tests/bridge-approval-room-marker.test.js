@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { ReadableStream } from 'node:stream/web';
 import { MatrixClient } from 'matrix-bot-sdk';
 import request from 'supertest';
 import { createBackendTestContext } from './helpers/backend-test-runtime.js';
@@ -112,6 +114,72 @@ async function dueMarkers() {
 }
 
 describe('approval room marker production adapter', () => {
+  test.each(['local_bot', 'appservice', 'registrationToken'].flatMap(kind => (
+    ['http', 'timeout'].map(outcome => ({ kind, outcome }))
+  )))('marker failure diagnostics persist completed HTTP status without a receipt ($kind/$outcome)', async ({ kind, outcome }) => {
+    const server = kind === 'local_bot' ? 'test' : `diagnostic-${kind.toLowerCase()}.test`;
+    const room = `!diagnostic-${kind}-${outcome}:${server}`;
+    const bridge = concreteBridge(vi.fn());
+    if (kind !== 'local_bot') {
+      const sides = context.internals.projectSideStoreForTest;
+      sides.upsertSide({ server_name: server, api_base_url: `https://${server}`, credential: kind === 'appservice'
+        ? { kind, asToken: 'diagnostic-as-token', hsToken: 'diagnostic-hs-token', senderLocalpart: 'representative', namespace: '@ac_.*' }
+        : { kind, registrationToken: 'diagnostic-registration', representativeToken: 'diagnostic-representative-token' } });
+      sides.setRepresentative(server, { mxid: `@representative:${server}` });
+      sides.observeAccess(server, { state: 'accepted' });
+      delete bridge.actingSideFor;
+      bridge.actingCredentials = new Map();
+      bridge.forgetRoomsOnSides = () => {};
+      bridge.backendApiForActing = () => api('GET', '/api/project-sides/acting-credentials');
+      await bridge.refreshActingCredentials();
+    }
+    await api('PUT', '/api/approval-bindings', {
+      agent: 'claude', project: `diagnostic-${kind}-${outcome}`, project_room_id: `!project-${outcome}:${server}`,
+      owner_mxid: `@owner:${server}`, owner_dm_room_id: room,
+    });
+    await bridge.syncApprovalRoomMarker({ agent: 'claude', owner_mxid: `@owner:${server}`, approval_room_id: room });
+    const row = (await dueMarkers()).find(item => item.approval_room_id === room && item.marker_channel === 'room_marker_v2');
+    expect(row).toBeDefined();
+    const actorBefore = await bridgeModule.approvalMarkerIoForTest(bridge).resolveActor(row);
+    const credentialBefore = kind === 'local_bot' ? null : context.internals.projectSideStoreForTest.credentialFor(server);
+    const backendCalls = [];
+    bridge.callBackendApi = (method, route, body) => {
+      backendCalls.push({ method, route, body });
+      return api(method, route, body);
+    };
+    bridge.approvalMarkerMatrixTimeoutMs = 5;
+    bridge.approvalMarkerFetchImpl = vi.fn(async (_url, init) => {
+      expect(init.method).toBe('PUT');
+      if (outcome === 'http') {
+        return new Response(JSON.stringify({ errcode: 'M_FORBIDDEN', error: 'private-diagnostic-detail-do-not-persist' }), { status: 403 });
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{'));
+          init.signal.addEventListener('abort', () => controller.error(new Error('aborted body')), { once: true });
+        },
+      }), { status: 403 });
+    });
+    const result = await bridge.publishApprovalMarker(row);
+    expect(result).toMatchObject({ ok: false, uncertain: true });
+    expect(result.retry_error).toBeUndefined();
+    expect(bridge.approvalMarkerFetchImpl).toHaveBeenCalledTimes(1);
+    expect(backendCalls.map(call => call.route.split('/').pop())).toEqual(['prepare', 'begin-send', 'retry']);
+    const diskText = readFileSync(`${context.runtimeDir}/data/approvals.json`, 'utf8');
+    const durable = JSON.parse(diskText).markerOutbox.find(item => item.approvalRoomId === room && item.markerChannel === 'room_marker_v2');
+    expect(durable.attemptState).toBe('uncertain');
+    expect(durable.eventId).toBeFalsy();
+    expect(durable.lastErrorCode).toBe(outcome === 'http' ? 'matrix_state_http_403' : 'matrix_state_send_failed');
+    expect(diskText).not.toContain('private-diagnostic-detail-do-not-persist');
+    expect((await dueMarkers()).some(item => item.approval_room_id === room && item.marker_channel === 'room_marker_v1_retirement')).toBe(false);
+    const actorAfter = await bridgeModule.approvalMarkerIoForTest(bridge).resolveActor(row);
+    expect(actorAfter).toEqual(actorBefore);
+    if (kind !== 'local_bot') {
+      expect(context.internals.projectSideStoreForTest.credentialFor(server)).toEqual(credentialBefore);
+      expect(context.internals.projectSideStoreForTest.getSide(server).accessState).toBe('accepted');
+    }
+  });
+
   test('concrete bridge sync and publish preserve the four-binding canonical manifest', async () => {
     await seedFourBindings();
     const calls = [];

@@ -1314,6 +1314,33 @@ describe('approval room marker state transport', () => {
   const TYPE = 'com.agentchat.approval.room.v1';
   const CONTENT = { version: 1, agent: 'alpha' };
 
+  test('approval marker exposes only completed finite HTTP failure status', async () => {
+    for (const status of [403, 500, NaN, Infinity, '403', 403.5, 99, 600]) {
+      const result = await sendEmptyStateToRoomOnSide({
+        side: SIDE, credential: asCred(), roomId: ROOM, eventType: TYPE, stateKey: '',
+        content: CONTENT, expectedPublisherMxid: `@hafleet:${SERVER}`,
+        fetchImpl: fakeFetch([fail(status, { errcode: 'M_FORBIDDEN', error: 'private response detail' })]),
+      });
+      expect(result.sent).toBe(false);
+      expect(result.eventId).toBeNull();
+      expect(result.httpStatus).toBe(status === 403 || status === 500 ? status : undefined);
+    }
+    for (const response of [
+      () => { throw Object.assign(new Error('timeout'), { status: 403 }); },
+      { ok: false, status: 403, json: async () => { throw new Error('body aborted'); } },
+      failNonJson(403),
+      ok({}),
+    ]) {
+      const result = await sendEmptyStateToRoomOnSide({
+        side: SIDE, credential: asCred(), roomId: ROOM, eventType: TYPE, stateKey: '',
+        content: CONTENT, expectedPublisherMxid: `@hafleet:${SERVER}`, fetchImpl: fakeFetch([response]),
+      });
+      expect(result.sent).toBe(false);
+      expect(result.eventId).toBeNull();
+      expect(result.httpStatus).toBeUndefined();
+    }
+  });
+
   test('approval marker writes custom empty state key through actor binding', async () => {
     const impl = fakeFetch([ok({ event_id: '$marker' })]);
     const r = await sendEmptyStateToRoomOnSide({
