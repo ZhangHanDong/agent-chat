@@ -985,3 +985,11 @@ and inspected recovery update only the owning session; quarantined sessions reta
 new input. Source timestamps are data; commit sequence is native arrival order.
 Ingress is non-deserializable and host-only until actual authenticated M5 adapters.
 Group management, task graph/delegation and narrow runner APIs remain outstanding.
+
+Native runner API (2026-09-10): /api/native/v1/runner exposes current-capability
+scoped tasks/comments/mutations/inbox, with separate operator authorization. Use
+bearer runner secret plus X-Hagency-Dispatch/Runner/Fence headers. Requests must
+use exact loopback Host, no browser/proxy or URL credentials. RunnerCommand gets
+its clock inside the domain writer, after queueing. Keep future M4/M6 adapters on
+this service API rather than direct repository writes. Real agent_execution stays
+false; task graph/delegation, reply delivery and MCP transport remain unfinished.

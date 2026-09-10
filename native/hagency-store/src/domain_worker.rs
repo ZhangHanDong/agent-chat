@@ -5,13 +5,17 @@ use hagency_core::{
     messages::{InboundMessage, InboxItem, MessageReceipt, MessageTarget},
     project::{CatalogResource, ConfiguredResource, Engagement, Resource, Seat},
     tasks::{
-        DispatchInput, MutationResult, RunnerCapability, SessionBinding, Task, TaskComment,
-        TaskEvent, TaskMutation,
+        DispatchInput, MutationResult, RunnerCapability, RunnerCommand, SessionBinding, Task,
+        TaskComment, TaskEvent, TaskMutation,
     },
 };
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
+
+#[cfg(test)]
+#[path = "../tests/common/mod.rs"]
+mod clock_fixtures;
 
 type Operation = Box<dyn FnOnce(&mut DomainRepository) + Send>;
 enum Job {
@@ -20,6 +24,97 @@ enum Job {
         _bytes: OwnedSemaphorePermit,
     },
     Shutdown(oneshot::Sender<()>),
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+    use clock_fixtures::{proof, registration, request, resource};
+    use serde_json::json;
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+
+    #[tokio::test]
+    async fn native_runner_clock_after_queue() {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let mut db = DomainRepository::open(&state).unwrap();
+        db.register(&registration()).unwrap();
+        let pool = resource("pool", "seat", 100);
+        db.put_resource(&pool).unwrap();
+        let proof = proof(&request("request", "Worker", &pool, 10));
+        let e = db.admit(&proof, 1000).unwrap();
+        db.approve("approve", &proof, 1000).unwrap();
+        let effect = db.claim_effect().unwrap().unwrap();
+        db.observe_effect(
+            &effect.id,
+            effect.fence,
+            &EffectOutcome::Applied {
+                receipt: "fixture_identity".into(),
+            },
+        )
+        .unwrap();
+        db.register_session(&SessionBinding {
+            id: "session".into(),
+            engagement_id: e.id,
+            room_id: "!project:example.test".into(),
+            thread_root: None,
+        })
+        .unwrap();
+        db.enqueue_dispatch(&DispatchInput {
+            id: "dispatch".into(),
+            session_id: "session".into(),
+            task_id: None,
+            resources: vec![],
+            payload: json!({}),
+        })
+        .unwrap();
+        let cap = db
+            .claim_dispatch("runner", now(), 60_000, 60_000, 1)
+            .unwrap()
+            .unwrap();
+        db.start_dispatch(&cap, now()).unwrap();
+        let store = DomainStore::start(db, 16).unwrap();
+        store
+            .runner_command(cap.clone(), RunnerCommand::Check)
+            .await
+            .unwrap();
+        let (entered, entered_rx) = oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel::<()>();
+        let blocking = store.clone();
+        let blocker = tokio::spawn(async move {
+            blocking
+                .call(1, move |_| {
+                    let _ = entered.send(());
+                    let _ = release_rx.recv();
+                    Ok(())
+                })
+                .await
+        });
+        entered_rx.await.unwrap();
+        let queued = store.runner_command(cap, RunnerCommand::Check);
+        tokio::pin!(queued);
+        tokio::select! {
+            result=&mut queued=>panic!("writer is blocked; command unexpectedly completed: {result:?}"),
+            _=tokio::time::sleep(Duration::from_millis(20))=>{}
+        }
+        assert_eq!(store.tx.capacity(), 15); // The request has entered the bounded queue.
+        let inspect = rusqlite::Connection::open(state.join("domain.sqlite3")).unwrap();
+        inspect
+            .execute(
+                "UPDATE runner_dispatches SET lease_until=?1 WHERE id='dispatch'",
+                [now()],
+            )
+            .unwrap();
+        release.send(()).unwrap();
+        assert!(matches!(queued.await, Err(Error::RunnerAuthority)));
+        blocker.await.unwrap().unwrap();
+        store.shutdown().await.unwrap();
+    }
 }
 #[derive(Clone)]
 pub struct DomainStore {
@@ -34,6 +129,49 @@ fn weight(value: &impl Serialize) -> Result<u32, Error> {
     Ok(len.max(1) as u32)
 }
 impl DomainStore {
+    /// Obtain wall time inside the writer, after queueing; callers cannot freeze
+    /// authorization at request arrival or supply a historical clock.
+    pub async fn runner_command(
+        &self,
+        cap: RunnerCapability,
+        command: RunnerCommand,
+    ) -> Result<serde_json::Value, Error> {
+        self.call(weight(&(&cap, &command))?, move |db| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|d| u64::try_from(d.as_millis()).ok())
+                .ok_or(Error::Unavailable)?;
+            Ok(match command {
+                RunnerCommand::Check => {
+                    db.check_runner(&cap, now)?;
+                    serde_json::Value::Null
+                }
+                RunnerCommand::Task { id } => {
+                    serde_json::to_value(db.runner_task(&cap, &id, now)?)?
+                }
+                RunnerCommand::Tasks { after, limit } => {
+                    serde_json::to_value(db.runner_tasks(&cap, &after, limit, now)?)?
+                }
+                RunnerCommand::Comments { id, after, limit } => {
+                    serde_json::to_value(db.runner_comments(&cap, &id, after, limit, now)?)?
+                }
+                RunnerCommand::Inbox { after, limit } => {
+                    serde_json::to_value(db.runner_inbox(&cap, after, limit, now)?)?
+                }
+                RunnerCommand::Mutate {
+                    id,
+                    call_id,
+                    operation,
+                } => serde_json::to_value(db.mutate_task(&cap, &id, &call_id, &operation, now)?)?,
+            })
+        })
+        .await
+    }
+    pub async fn check_runner(&self, cap: RunnerCapability, now: u64) -> Result<(), Error> {
+        self.call(weight(&cap)?, move |db| db.check_runner(&cap, now))
+            .await
+    }
     pub async fn resolve_session(&self, binding: SessionBinding) -> Result<SessionBinding, Error> {
         self.call(weight(&binding)?, move |db| db.resolve_session(&binding))
             .await

@@ -1,6 +1,7 @@
 use hagency_core::custody::{Delivery, MAX_DELIVERY_BYTES};
 use hagency_store::{DomainStore, Error, Store};
 mod resources;
+mod runner;
 use salvo::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
@@ -50,6 +51,7 @@ impl App {
         Router::new()
             .hoop(self)
             .push(Router::with_path("health").get(health))
+            .push(runner::router())
             .push(
                 Router::with_path("api/native/v1")
                     .hoop(authorize)
@@ -74,7 +76,7 @@ async fn capabilities(depot: &mut Depot, res: &mut Response) {
         .is_ok_and(|app| app.domain.is_some());
     res.render(Json(
         serde_json::json!({"custody":true, "agent_execution":false, "palpo_transport":false,
-        "matrix_crypto":false, "resource_management":management, "project_request_transport":false, "production_api_parity":false}),
+        "matrix_crypto":false, "resource_management":management, "runner_task_api":management, "project_request_transport":false, "production_api_parity":false}),
     ));
 }
 
@@ -83,26 +85,38 @@ fn refusal(res: &mut Response, status: StatusCode, code: &str) {
     res.render(Json(serde_json::json!({"ok":false,"code":code})));
 }
 
-#[handler]
-async fn authorize(req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
+fn local_authority(req: &Request, depot: &Depot, res: &mut Response) -> bool {
     res.headers_mut()
         .insert("cache-control", "no-store".parse().expect("static header"));
     let Ok(app) = depot.get_typed::<App>() else {
         refusal(res, StatusCode::SERVICE_UNAVAILABLE, "unavailable");
-        ctrl.skip_rest();
-        return;
+        return false;
     };
     let headers = req.headers();
-    let forbidden = headers.contains_key("origin")
+    let forbidden = headers.get_all("host").iter().count() != 1
+        || headers.contains_key("origin")
         || headers.contains_key("sec-fetch-site")
         || headers.contains_key("forwarded")
         || headers.contains_key("x-forwarded-for")
         || headers.get("host").and_then(|v| v.to_str().ok()) != Some(app.authority.as_str());
     if forbidden {
         refusal(res, StatusCode::FORBIDDEN, "local_authority_required");
+        return false;
+    }
+    true
+}
+
+#[handler]
+async fn authorize(req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
+    if !local_authority(req, depot, res) {
         ctrl.skip_rest();
         return;
     }
+    let Ok(app) = depot.get_typed::<App>() else {
+        ctrl.skip_rest();
+        return;
+    };
+    let headers = req.headers();
     let bearer = if headers.get_all("authorization").iter().count() == 1 {
         headers
             .get("authorization")

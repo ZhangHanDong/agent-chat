@@ -21,7 +21,7 @@ pub(crate) fn router() -> Router {
         .push(Router::with_path("roles").get(role_publications))
         .push(Router::with_path("roles/{role}/publication").post(publish_role))
 }
-fn domain(depot: &Depot, res: &mut Response) -> Option<DomainStore> {
+pub(super) fn domain(depot: &Depot, res: &mut Response) -> Option<DomainStore> {
     let store = depot.get_typed::<App>().ok().and_then(|a| a.domain.clone());
     if store.is_none() {
         refusal(res, StatusCode::SERVICE_UNAVAILABLE, "domain_unavailable");
@@ -40,7 +40,7 @@ fn failure(res: &mut Response, error: Error) {
     };
     refusal(res, status, code);
 }
-async fn body<T: DeserializeOwned>(
+pub(super) async fn body<T: DeserializeOwned>(
     req: &mut Request,
     depot: &Depot,
     res: &mut Response,

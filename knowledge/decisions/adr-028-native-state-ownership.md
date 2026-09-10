@@ -175,3 +175,22 @@ membership, room privacy and mention/DM policy. No HTTP endpoint exposes this
 constructor. The compiler assertion and local fixtures prove the internal boundary,
 not live homeserver authentication. Group/MCP surfaces, task graph/delegation,
 reply delivery and continuous retention remain later migration work.
+
+## Private runner service boundary
+
+The native runner HTTP surface exposes task reads, comments, typed mutations and
+frozen inbox pages. It uses the exact loopback authority and a full current runner
+capability in headers. Operator and runner credentials are separate. No runtime
+command variant can admit a session, claim/start a dispatch, inspect recovery or
+configure resources. Browser/forwarded requests and duplicate or URL credentials
+are refused; responses are private and do not disclose storage errors or tokens.
+
+The service sends a typed RunnerCommand to the bounded domain writer. That writer
+obtains the current host clock after queueing and revalidates the started capability
+at the actual operation. An initial HTTP authorization check cannot extend a lease
+through body-reading or queue delay. A deterministic queue-delay regression expires
+an already queued request before releasing the writer and proves rejection. Structured
+request parsing rejects arbitrary identity/status fields, unknown actions and caller
+clocks. Current task mutation receipts preserve exact replay and rollback behavior.
+M4/M6 adapters must use this service boundary; this checkpoint launches no processes
+and does not provide MCP transport or full task graph/delegation behavior.

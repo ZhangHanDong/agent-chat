@@ -1808,3 +1808,25 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   native ingress has no public HTTP constructor. Next implement narrow runner APIs,
   task input activation/follow-up, dependency/delegation and reply delivery. The
   complete migration remains active and production services remain unchanged.
+
+## 2026-09-10 — Native scoped runner service API
+
+- Message/input commit 22fc509 passed native three-OS CI (34462648100) and existing
+  Node CI (34462648110). Continued the full migration goal in the same worktree.
+- Added a narrow private runner API for tasks, comments, typed mutations and frozen
+  input pages. Current runner headers authorize this surface separately from
+  operator resource management; browser/proxy, duplicated and URL credentials fail.
+  Unknown actions, caller clock/identity fields and oversized bodies are rejected.
+- RunnerCommand now obtains its clock inside the bounded domain writer. A request
+  that entered with valid credentials is rejected if its lease expires while queued.
+  Each final operation also rechecks parked/revoked/current task authority. Canonical
+  completion still requires an explicit transition and advances the task epoch.
+- Validation: 38 native tests passed, zero failed/ignored; four new scenarios plus
+  lifecycle boundary passed with no skip/uncertainty. All 33 native spec selectors
+  resolve. Clippy and rustfmt passed. HTTP tests exercise the real Salvo handlers
+  with in-process requests and fixture allocations; they do not prove live runtime
+  or homeserver integration. The queue-time authority test exercises the actual
+  dedicated writer and expires its queued capability before releasing that writer.
+- Next: task metadata/input activation, graph/delegation, authenticated follow-up,
+  durable reply delivery and real runtime/platform ownership. Full migration remains
+  active. Native execution is still unavailable and production services are intact.

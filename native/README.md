@@ -144,3 +144,25 @@ enqueue, processing and schema migration are covered by rollback tests. The
 non-deserializable ingress command is a host adapter boundary; real Matrix event
 authentication and mention/DM classification are still required from M5. This
 checkpoint does not implement room history, group management or task delegation.
+
+The private runner API is available at `/api/native/v1/runner` when the domain
+store is configured. It requires the exact loopback Host, a bearer runner secret,
+and `X-Hagency-Dispatch`, `X-Hagency-Runner`, `X-Hagency-Fence` headers. Duplicate
+headers, URL credentials and browser/forwarded requests are refused. Operator
+credentials do not authorize this surface; runner credentials do not authorize
+resource management. Responses use `Cache-Control: no-store`.
+
+| Route | Operation |
+| --- | --- |
+| `GET /tasks` | Page the bound task and this session's coordinator creations |
+| `GET /tasks/{id}` | Read a visible task |
+| `GET /tasks/{id}/comments` | Page comments for a visible task |
+| `POST /tasks/{id}/operations` | Submit a call ID and typed task mutation |
+| `GET /inbox` | Page only the current dispatch's frozen input |
+
+A mutation body is `{"call_id":"heartbeat-1","operation":{"action":"execution","heartbeat":true}}`.
+The domain writer obtains its own clock after body reading and queueing, then
+rechecks current authority. There is no runtime-supplied clock, author or arbitrary
+endpoint command. Claim/start/recovery, session admission and configuration remain
+host operations. The `runner_task_api` capability describes this interface;
+`agent_execution` remains false until real native runner adapters are available.

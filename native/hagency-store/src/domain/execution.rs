@@ -255,6 +255,10 @@ fn visible(t: &Task, d: &Dispatch) -> bool {
     d.task_id.as_deref() == Some(&t.id) || t.creator_session_id.as_deref() == Some(&d.session_id)
 }
 impl DomainRepository {
+    pub fn check_runner(&self, cap: &RunnerCapability, now: u64) -> Result<(), Error> {
+        authorize(&self.db, cap, now, &["started"])?;
+        Ok(())
+    }
     /// Host-only route binding, after the transport verifies room membership and scope.
     /// No native ingress currently exposes this constructor.
     pub fn register_session(&mut self, binding: &SessionBinding) -> Result<(), Error> {

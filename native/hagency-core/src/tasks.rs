@@ -172,6 +172,33 @@ pub struct MutationResult {
     pub task: Task,
     pub replayed: bool,
 }
+/// The service supplies the clock when this command reaches the domain writer.
+/// Runtime commands have no operator, session-admission or process-control variant.
+#[derive(Debug, Clone, Serialize)]
+pub enum RunnerCommand {
+    Check,
+    Task {
+        id: String,
+    },
+    Tasks {
+        after: String,
+        limit: usize,
+    },
+    Comments {
+        id: String,
+        after: u64,
+        limit: usize,
+    },
+    Inbox {
+        after: u64,
+        limit: usize,
+    },
+    Mutate {
+        id: String,
+        call_id: String,
+        operation: TaskMutation,
+    },
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskComment {
     pub sequence: u64,
