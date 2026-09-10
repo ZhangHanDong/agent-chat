@@ -1,5 +1,5 @@
 [workspace]
-members = ["native/hagency-core", "native/hagency-store", "native/hagency", "native/hagency-crypto-proof", "native/hagency-platform", "native/hagency-runtime", "native/hagency-palpo", "native/hagency-permissions", "native/hagency-matrix", "native/hagency-matrix-format", "native/hagency-metering", "native/hagency-progress", "native/hagency-execution", "native/hagency-progress-runtime", "native/hagency-files"]
+members = ["native/hagency-core", "native/hagency-store", "native/hagency", "native/hagency-crypto-proof", "native/hagency-platform", "native/hagency-runtime", "native/hagency-palpo", "native/hagency-permissions", "native/hagency-matrix", "native/hagency-matrix-format", "native/hagency-metering", "native/hagency-progress", "native/hagency-execution", "native/hagency-progress-runtime", "native/hagency-files", "native/hagency-media"]
 resolver = "3"
 
 [workspace.package]

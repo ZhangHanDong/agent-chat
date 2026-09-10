@@ -1752,3 +1752,11 @@ disk-full runs are not successful validation. The88534b0 Windows default suite
 passes with unchanged Palpo transport code, but its serial diagnostic is skipped;
 this does not identify the prior OutcomeUnknown cause. Node's exact-four-child-
 events timeout likewise lacks enough evidence to justify relaxing its assertion.
+
+Attachment crypto boundary (2026-09-10): Matrix SDK0.18 decrypts chunks before
+checking its ciphertext hash at EOF. Drain privately through EOF and expose no
+partial plaintext. A correct ciphertext hash alone cannot validate the key or
+sender; only authenticated encrypted-event provenance can supply that trust.
+The legacy Node Matrix binding0.4 requires a postinstall native download, so its
+interop oracle belongs after ordinary npm ci in Node CI, not the scripts-disabled
+Rust job. Fixed public fixture keys are never runtime credentials.

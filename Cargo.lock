@@ -1170,6 +1170,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hagency-media"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "cap-std",
+ "hagency-files",
+ "matrix-sdk-crypto",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "hagency-metering"
 version = "0.1.0"
 dependencies = [

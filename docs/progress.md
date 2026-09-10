@@ -3629,3 +3629,42 @@ supervisor evidence. The failed log is retained and no assertion is relaxed.
 ADR059 actual Matrix sender and ADR060 atomic completion with held reply custody
 are being implemented in separate worktrees. The current native service still
 does not launch Agents, send Matrix messages or replace the deployed application.
+
+## 2026-09-10 — Bounded attachment crypto (ADR061)
+
+Added a host-only hagency-media codec on the pinned Matrix SDK0.18 attachment
+primitive and retained workspace snapshots. Encrypted results keep the original
+snapshot/file permits, immutable ciphertext and private encryption metadata;
+checked decryption validates the complete bounded ciphertext and SDK EOF before
+returning plaintext. Static errors and opaque data types keep secrets out of
+automatic projections. Size/count admission covers concurrent cloned owners.
+
+Four focused native tests pass, including eight fixed independent Node AES
+vectors verified by the actual existing Matrix crypto binding, real retained
+files, SDK round trips, malformed/duplicate metadata, corruption/truncation,
+capacity and concurrent custody. A regression deliberately demonstrates that
+a changed valid key with the same ciphertext hash can produce different bytes:
+descriptor provenance must still come from an authenticated encrypted event.
+This primitive does not claim sender identity, durable staging or file delivery.
+
+Focused Clippy and formatting pass; the only new locked package identity is
+hagency-media. Independent review caught that the Rust CI job disables native
+addon install scripts, so the actual Node crypto oracle now runs in the existing
+Node test job after its normal npm ci. The Rust jobs consume those checked
+fixtures without enabling postinstall scripts. Fresh CI qualification and the
+bounded contract lifecycle remain separate from this local evidence.
+
+The preceding79b036c Linux job103059541895 now passes the whole native workspace,
+all12 ordinary staging tests and all seven actual cgroup cases on6.17.0-1022-azure:
+guardian-death, stop, failed-spawn, guarantee-refused, nested-user, nested-cgroup
+and custodians-abort. Every subtree was independently observed empty. This closes
+the hosted probe-execution blocker; it does not establish complete simultaneous
+backend/guardian crash containment or enable a production runner. The full log
+is retained as ci-79b036c-linux.log.
+
+ADR061 final local contract lifecycle passes5/5, including all13 explicit changed
+paths, with no fail/skip/uncertain. Descriptor boundary tests include a valid
+1024-byte input, its refused1025-byte extension, duplicate fields and padded or
+noncanonical base64. Independent review found no further code blocker after the
+CI oracle correction. The16 MiB maximum is a deliberate bounded subset of the
+legacy20 MiB surface; this does not claim full file-feature parity.
