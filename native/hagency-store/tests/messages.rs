@@ -165,7 +165,7 @@ async fn native_message_identity_and_scope() {
     store.shutdown().await.unwrap();
     // Model an older native schema with conflicting host-created session IDs.
     // Its migration must fail atomically instead of silently selecting an owner.
-    inspect.execute_batch("DROP VIEW task_followup_ready; DROP TABLE task_notices; DROP TABLE task_input_receipts; DROP TABLE task_inputs; DROP TABLE task_intents; DROP INDEX canonical_runner_session; DROP TABLE dispatch_inputs; DROP TABLE session_inputs; DROP TABLE admitted_messages; PRAGMA user_version=3; INSERT INTO runner_sessions(id,engagement_id,binding) SELECT 'duplicate_old',engagement_id,json_set(binding,'$.id','duplicate_old') FROM runner_sessions WHERE id='a';").unwrap();
+    inspect.execute_batch("DROP TABLE internal_participants; DROP TABLE internal_conversations; DROP VIEW task_followup_ready; DROP TABLE task_notices; DROP TABLE task_input_receipts; DROP TABLE task_inputs; DROP TABLE task_intents; DROP INDEX canonical_runner_session; DROP TABLE dispatch_inputs; DROP TABLE session_inputs; DROP TABLE admitted_messages; PRAGMA user_version=3; INSERT INTO runner_sessions(id,engagement_id,binding) SELECT 'duplicate_old',engagement_id,json_set(binding,'$.id','duplicate_old') FROM runner_sessions WHERE id='a';").unwrap();
     drop(inspect);
     assert!(DomainRepository::open(&root.path().join("state")).is_err());
     let inspect = sql(&root);

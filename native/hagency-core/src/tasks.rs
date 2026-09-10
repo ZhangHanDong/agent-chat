@@ -186,6 +186,10 @@ pub struct MutationResult {
 /// Runtime commands have no operator, session-admission or process-control variant.
 #[derive(Debug, Clone, Serialize)]
 pub enum RunnerCommand {
+    OpenConversation(crate::conversations::ConversationRequest),
+    Conversation {
+        id: String,
+    },
     Delegate(crate::task_intents::Delegation),
     Check,
     Task {

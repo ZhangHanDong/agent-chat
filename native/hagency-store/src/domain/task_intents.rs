@@ -31,7 +31,7 @@ fn add_notice(
     body: String,
     now: u64,
 ) -> Result<TaskNotice, Error> {
-    let session = execution::admission_session(tx, &task.session_id)?;
+    let session = execution::matrix_admission_session(tx, &task.session_id)?;
     let id = notice_id(&task.id, kind)?;
     let value = TaskNotice {
         id: id.clone(),
@@ -136,7 +136,7 @@ fn create_intent(
     if let Some(parent) = &input.definition.parent_id {
         let t = execution::task(tx, parent)?;
         let s = execution::admission_session(tx, &t.session_id)?;
-        let (f, p, _) = active_engagement(tx, &s.engagement_id)?;
+        let (f, p, _) = active_engagement(tx, s.engagement_id())?;
         if f != fleet || p != project {
             return Err(Error::RunnerAuthority);
         }
@@ -373,7 +373,7 @@ impl DomainRepository {
             return Err(Error::RunnerAuthority);
         }
         let s = execution::admission_session(&tx, &d.session_id)?;
-        let (f, p, _) = active_engagement(&tx, &s.engagement_id)?;
+        let (f, p, _) = active_engagement(&tx, s.engagement_id())?;
         let (tf, tp, _) = active_engagement(&tx, &input.assignee_engagement)?;
         if f != tf || p != tp {
             return Err(Error::RunnerAuthority);
@@ -496,7 +496,7 @@ impl DomainRepository {
         let ids=tx.prepare("SELECT id FROM task_notices WHERE not_before<=?1 AND (state='pending' OR (state='claimed' AND claim_until<=?1)) ORDER BY rowid LIMIT 128")?.query_map([now],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
         for id in ids {
             let value = notice(&tx, &id)?;
-            match execution::admission_session(&tx, &value.session_id) {
+            match execution::matrix_admission_session(&tx, &value.session_id) {
                 Ok(_) => {}
                 Err(Error::RunnerAuthority) => {
                     tx.execute("UPDATE task_notices SET state='cancelled',claim_hash=NULL,claim_until=NULL,error_code='allocation_inactive' WHERE id=?1",[&id])?;
@@ -535,7 +535,7 @@ impl DomainRepository {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let command = notice(&tx, id)?;
-        execution::admission_session(&tx, &command.session_id)?;
+        execution::matrix_admission_session(&tx, &command.session_id)?;
         if command.server_name != delivery.server_name
             || command.room_id != delivery.room_id
             || command.transaction_id != delivery.transaction_id
@@ -613,7 +613,7 @@ impl DomainRepository {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let n = notice(&tx, id)?;
-        execution::admission_session(&tx, &n.session_id)?;
+        execution::matrix_admission_session(&tx, &n.session_id)?;
         if tx.execute("UPDATE task_notices SET state='pending',error_code=NULL,not_before=?2 WHERE id=?1 AND state='failed'",params![id,now])?!=1 {return Err(Error::State);}
         tx.commit()?;
         Ok(())

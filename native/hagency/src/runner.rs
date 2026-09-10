@@ -1,6 +1,7 @@
 //! Private runner task surface. Host dispatch/process and operator APIs are separate.
 use crate::{local_authority, refusal, resources};
 use hagency_core::{
+    conversations::ConversationRequest,
     project::identifier,
     task_intents::Delegation,
     tasks::{RunnerCapability, RunnerCommand, TaskMutation},
@@ -18,6 +19,8 @@ pub(super) fn router() -> Router {
         .hoop(authenticate)
         .push(Router::with_path("tasks").get(list_tasks))
         .push(Router::with_path("delegations").post(delegate))
+        .push(Router::with_path("conversations").post(open_conversation))
+        .push(Router::with_path("conversations/{id}").get(conversation))
         .push(Router::with_path("tasks/{id}").get(get_task))
         .push(Router::with_path("tasks/{id}/comments").get(comments))
         .push(Router::with_path("tasks/{id}/operations").post(mutate))
@@ -28,6 +31,39 @@ fn single_header<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
         return None;
     }
     req.headers().get(name)?.to_str().ok()
+}
+#[handler]
+async fn open_conversation(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let Some(c) = context(depot, res) else {
+        return;
+    };
+    let Some(input) = resources::body::<ConversationRequest>(req, depot, res).await else {
+        return;
+    };
+    match c
+        .store
+        .runner_command(c.cap, RunnerCommand::OpenConversation(input))
+        .await
+    {
+        Ok(value) => res.render(Json(value)),
+        Err(error) => failure(res, error),
+    }
+}
+#[handler]
+async fn conversation(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let Some(c) = context(depot, res) else {
+        return;
+    };
+    let result = async {
+        c.store
+            .runner_command(c.cap, RunnerCommand::Conversation { id: task_id(req)? })
+            .await
+    }
+    .await;
+    match result {
+        Ok(value) => res.render(Json(value)),
+        Err(error) => failure(res, error),
+    }
 }
 #[handler]
 async fn delegate(req: &mut Request, depot: &mut Depot, res: &mut Response) {

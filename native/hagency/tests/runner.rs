@@ -164,6 +164,52 @@ async fn operation(f: &Fixture, call: &str, operation: Value) -> (StatusCode, Va
 }
 
 #[tokio::test]
+async fn native_runner_http_conversations() {
+    let f = Fixture::new(true).await;
+    let body = json!({"call_id":"conversation","label":"内部协作","participant_engagements":[f.engagement]});
+    let send = |body: Value| {
+        auth(
+            TestClient::post(format!("{BASE}/runner/conversations")),
+            &f.cap,
+        )
+        .json(&body)
+    };
+    let mut forged = body.clone();
+    forged["creator_session_id"] = json!("operator");
+    assert_eq!(
+        send(forged).send(&f.service).await.status_code,
+        Some(StatusCode::BAD_REQUEST)
+    );
+    let mut foreign = body.clone();
+    foreign["participant_engagements"] = json!(["missing"]);
+    assert_eq!(
+        send(foreign).send(&f.service).await.status_code,
+        Some(StatusCode::FORBIDDEN)
+    );
+    let mut res = send(body.clone()).send(&f.service).await;
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let result: Value = res.take_json().await.unwrap();
+    let group = &result["conversation"];
+    assert_eq!(group["creator_session_id"], "session");
+    assert_eq!(group["participants"][0]["kind"], "internal");
+    assert!(group["participants"][0].get("room_id").is_none());
+    let path = format!("conversations/{}", group["id"].as_str().unwrap());
+    assert_eq!(
+        get(&path, &f.cap).send(&f.service).await.status_code,
+        Some(StatusCode::OK)
+    );
+    let mut res = send(body.clone()).send(&f.service).await;
+    assert_eq!(res.take_json::<Value>().await.unwrap()["replayed"], true);
+    let (status, _) = operation(&f, "done", json!({"action":"transition","status":"done"})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        send(body).send(&f.service).await.status_code,
+        Some(StatusCode::CONFLICT)
+    );
+    f.close().await;
+}
+
+#[tokio::test]
 async fn native_runner_http_delegation() {
     let f = Fixture::with_thread(true, None).await;
     let body = json!({"call_id":"delegate","assignee_engagement":f.engagement,"root_sequence":f.source_sequence,"definition":{"title":"编写测试","parent_id":"task"}});

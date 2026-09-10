@@ -1,15 +1,12 @@
 //! Private host/runner boundary. No public HTTP route constructs these host commands.
 use super::{DomainRepository, bounded_row, read_engagement, serialize};
 use crate::Error;
+use hagency_core::conversations::StoredSession;
 use hagency_core::{JSON_SAFE_MAX, canonical, project::identifier, tasks::*};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::{Value, json};
 
-fn load_session(
-    db: &Connection,
-    id: &str,
-    allow_quarantine: bool,
-) -> Result<SessionBinding, Error> {
+fn load_session(db: &Connection, id: &str, allow_quarantine: bool) -> Result<StoredSession, Error> {
     let value: Option<(String, bool)> = db
         .query_row(
             "SELECT binding,quarantined FROM runner_sessions WHERE id=?1",
@@ -21,18 +18,34 @@ fn load_session(
     if quarantined && !allow_quarantine {
         return Err(Error::Quarantined);
     }
-    let binding: SessionBinding = serde_json::from_str(&value)?;
-    let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM engagements e JOIN registrations r ON r.fleet_id=e.fleet_id WHERE e.id=?1 AND e.state='active' AND e.generation=r.generation)",[&binding.engagement_id],|r|r.get(0))?;
+    let binding: StoredSession = serde_json::from_str(&value)?;
+    binding.validate()?;
+    if binding.id() != id {
+        return Err(Error::RunnerAuthority);
+    }
+    let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM engagements e JOIN registrations r ON r.fleet_id=e.fleet_id WHERE e.id=?1 AND e.state='active' AND e.generation=r.generation)",[binding.engagement_id()],|r|r.get(0))?;
     if !active {
         return Err(Error::RunnerAuthority);
     }
+    if let StoredSession::Internal(internal) = &binding {
+        let member:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM internal_participants p JOIN internal_conversations c ON c.id=p.conversation_id JOIN engagements e ON e.id=p.engagement_id WHERE p.session_id=?1 AND p.engagement_id=?2 AND p.conversation_id=?3 AND c.state='active' AND c.fleet_id=e.fleet_id AND c.project_id=e.project_id AND c.generation=e.generation)",params![id,internal.engagement_id,internal.conversation_id],|r|r.get(0))?;
+        if !member {
+            return Err(Error::RunnerAuthority);
+        }
+    }
     Ok(binding)
 }
-pub(super) fn session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
+pub(super) fn session(db: &Connection, id: &str) -> Result<StoredSession, Error> {
     load_session(db, id, false)
 }
-pub(super) fn admission_session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
+pub(super) fn admission_session(db: &Connection, id: &str) -> Result<StoredSession, Error> {
     load_session(db, id, true)
+}
+pub(super) fn matrix_admission_session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
+    admission_session(db, id)?
+        .matrix()
+        .cloned()
+        .ok_or(Error::RunnerAuthority)
 }
 pub(super) fn task(db: &Connection, id: &str) -> Result<Task, Error> {
     let value: String = db
@@ -337,7 +350,7 @@ impl DomainRepository {
         let creator = authorize(&tx, cap, now, &["started"])?;
         let a = session(&tx, &creator.session_id)?;
         let b = session(&tx, target_session)?;
-        let same_project: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM engagements a JOIN engagements b ON a.fleet_id=b.fleet_id AND a.project_id=b.project_id WHERE a.id=?1 AND b.id=?2)",params![a.engagement_id,b.engagement_id],|r|r.get(0))?;
+        let same_project: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM engagements a JOIN engagements b ON a.fleet_id=b.fleet_id AND a.project_id=b.project_id WHERE a.id=?1 AND b.id=?2)",params![a.engagement_id(),b.engagement_id()],|r|r.get(0))?;
         if !same_project {
             return Err(Error::RunnerAuthority);
         }
@@ -390,7 +403,7 @@ impl DomainRepository {
             tx.commit()?;
             return Ok(None);
         }
-        let id:Option<String>=tx.query_row("SELECT d.id FROM runner_dispatches d JOIN runner_sessions s ON s.id=d.session_id JOIN engagements e ON e.id=s.engagement_id JOIN registrations g ON g.fleet_id=e.fleet_id WHERE d.state='queued' AND d.not_before<=?1 AND (d.task_id IS NULL OR EXISTS(SELECT 1 FROM canonical_tasks t WHERE t.id=d.task_id AND (json_extract(t.config,'$.status')<>'done' OR EXISTS(SELECT 1 FROM task_followup_ready followup WHERE followup.dispatch_id=d.id AND followup.task_id=t.id)) AND NOT EXISTS(SELECT 1 FROM task_intents ti WHERE ti.task_id=t.id AND (ti.state<>'active' OR NOT EXISTS(SELECT 1 FROM dispatch_inputs di JOIN task_inputs tin ON tin.message_sequence=di.message_sequence WHERE di.dispatch_id=d.id AND tin.task_id=t.id))))) AND NOT EXISTS(SELECT 1 FROM task_intents current_task WHERE current_task.session_id=d.session_id AND (current_task.state<>'active' OR current_task.task_id IS NOT d.task_id)) AND s.quarantined=0 AND e.state='active' AND e.generation=g.generation AND NOT EXISTS(SELECT 1 FROM runner_dispatches live WHERE live.session_id=d.session_id AND live.state IN ('leased','started','parked')) AND NOT EXISTS(SELECT 1 FROM dispatch_resources dr JOIN workspace_resources w ON w.id=dr.resource_id WHERE dr.dispatch_id=d.id AND (w.dirty=1 OR EXISTS(SELECT 1 FROM resource_leases l WHERE l.resource_id=dr.resource_id AND (l.exclusive=1 OR dr.exclusive=1)))) ORDER BY d.rowid LIMIT 1",[now],|r|r.get(0)).optional()?;
+        let id:Option<String>=tx.query_row("SELECT d.id FROM runner_dispatches d JOIN runner_sessions s ON s.id=d.session_id JOIN engagements e ON e.id=s.engagement_id JOIN registrations g ON g.fleet_id=e.fleet_id WHERE d.state='queued' AND d.not_before<=?1 AND (d.task_id IS NULL OR EXISTS(SELECT 1 FROM canonical_tasks t WHERE t.id=d.task_id AND (json_extract(t.config,'$.status')<>'done' OR EXISTS(SELECT 1 FROM task_followup_ready followup WHERE followup.dispatch_id=d.id AND followup.task_id=t.id)) AND NOT EXISTS(SELECT 1 FROM task_intents ti WHERE ti.task_id=t.id AND (ti.state<>'active' OR NOT EXISTS(SELECT 1 FROM dispatch_inputs di JOIN task_inputs tin ON tin.message_sequence=di.message_sequence WHERE di.dispatch_id=d.id AND tin.task_id=t.id))))) AND NOT EXISTS(SELECT 1 FROM task_intents current_task WHERE current_task.session_id=d.session_id AND (current_task.state<>'active' OR current_task.task_id IS NOT d.task_id)) AND (json_extract(s.binding,'$.kind') IS NULL OR (json_extract(s.binding,'$.kind')='internal' AND EXISTS(SELECT 1 FROM internal_participants ip JOIN internal_conversations ic ON ic.id=ip.conversation_id WHERE ip.session_id=s.id AND ip.engagement_id=e.id AND ip.conversation_id=json_extract(s.binding,'$.conversation_id') AND ic.state='active' AND ic.fleet_id=e.fleet_id AND ic.project_id=e.project_id AND ic.generation=e.generation))) AND s.quarantined=0 AND e.state='active' AND e.generation=g.generation AND NOT EXISTS(SELECT 1 FROM runner_dispatches live WHERE live.session_id=d.session_id AND live.state IN ('leased','started','parked')) AND NOT EXISTS(SELECT 1 FROM dispatch_resources dr JOIN workspace_resources w ON w.id=dr.resource_id WHERE dr.dispatch_id=d.id AND (w.dirty=1 OR EXISTS(SELECT 1 FROM resource_leases l WHERE l.resource_id=dr.resource_id AND (l.exclusive=1 OR dr.exclusive=1)))) ORDER BY d.rowid LIMIT 1",[now],|r|r.get(0)).optional()?;
         let Some(id) = id else {
             tx.commit()?;
             return Ok(None);
@@ -770,7 +783,7 @@ impl DomainRepository {
                     return Err(Error::Capacity);
                 }
                 let binding = session(&tx, &d.session_id)?;
-                let agent = read_engagement(&tx, &binding.engagement_id)?;
+                let agent = read_engagement(&tx, binding.engagement_id())?;
                 tx.execute(
                     "INSERT INTO task_comments(task_id,author,body,created_at) VALUES(?1,?2,?3,?4)",
                     params![id, agent.agent_name.as_str(), body, now],

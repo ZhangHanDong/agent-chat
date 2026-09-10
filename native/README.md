@@ -159,6 +159,8 @@ resource management. Responses use `Cache-Control: no-store`.
 | `GET /tasks/{id}/comments` | Page comments for a visible task |
 | `POST /tasks/{id}/operations` | Submit a call ID and typed task mutation |
 | `POST /delegations` | Create a scoped task intent for a project Agent |
+| `POST /conversations` | Create an internal conversation with current project participants |
+| `GET /conversations/{id}` | Read a conversation from its exact creator/participant session |
 | `GET /inbox` | Page only the current dispatch's frozen input |
 
 A mutation body is `{"call_id":"heartbeat-1","operation":{"action":"execution","heartbeat":true}}`.
@@ -225,3 +227,19 @@ It adds no default runtime dependencies; its Apache-2.0/BSL-1.0 license and Rust
 1.71 minimum were checked. serde_json float_roundtrip preserves parsed doubles.
 CI compares 271 deterministic numeric payload vectors against the unchanged JS
 canonicalizer; store tests cover numeric content conflict and restart replay.
+
+Schema 6 adds explicit internal conversation routes. Matrix bindings retain their
+room/thread wire format; internal bindings carry kind=internal and a conversation
+ID, with no room fields. Both share canonical tasks, runner attempts, leases and
+restart recovery. Internal routes cannot receive Matrix input or use its inbox
+API. Mixed/unknown wire shapes fail, and Matrix uniqueness is preserved through
+migration. All session loads check current allocation and internal membership.
+
+A started runner creates a bounded same-project conversation using a call ID,
+label and participant engagement IDs. The creator Agent is included automatically.
+Conversation identity, content receipt and every participant session commit in one
+transaction. Access is limited to the exact creator session or the internal session
+bound to that conversation; another Matrix session for the same Agent is refused.
+Completed tasks cannot create conversations. Revocation invalidates the affected
+participant's existing execution capability. Conversation creation does not deliver
+messages: durable peer mailbox, group lifecycle and graph-task linkage remain open.

@@ -2,6 +2,7 @@
 pub mod allocation;
 pub mod authority;
 pub mod canonical;
+pub mod conversations;
 pub mod custody;
 pub mod graphs;
 pub mod messages;

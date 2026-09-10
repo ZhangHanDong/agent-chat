@@ -72,7 +72,7 @@ impl DomainRepository {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(id) = find_session(&tx, binding)? {
-            let existing = execution::admission_session(&tx, &id)?;
+            let existing = execution::matrix_admission_session(&tx, &id)?;
             tx.commit()?;
             return Ok(existing);
         }
@@ -89,7 +89,7 @@ impl DomainRepository {
             "INSERT INTO runner_sessions(id,engagement_id,binding) VALUES(?1,?2,?3)",
             params![binding.id, binding.engagement_id, serialize(binding)?],
         )?;
-        execution::admission_session(&tx, &binding.id)?;
+        execution::matrix_admission_session(&tx, &binding.id)?;
         tx.commit()?;
         Ok(binding.clone())
     }
@@ -117,7 +117,7 @@ impl DomainRepository {
             if !seen.insert(&target.session_id) {
                 return Err(hagency_core::InvalidInput("duplicate message target").into());
             }
-            let binding = execution::admission_session(&tx, &target.session_id)?;
+            let binding = execution::matrix_admission_session(&tx, &target.session_id)?;
             if binding.room_id != input.room_id || binding.thread_root != input.thread_root {
                 return Err(Error::RunnerAuthority);
             }
@@ -209,7 +209,7 @@ impl DomainRepository {
         limit: usize,
         kind: Option<&str>,
     ) -> Result<Vec<InboxItem>, Error> {
-        execution::admission_session(&self.db, session)?;
+        execution::matrix_admission_session(&self.db, session)?;
         clock(after)?;
         if !(1..=100).contains(&limit) {
             return Err(hagency_core::InvalidInput("inbox page must be 1..100").into());
@@ -239,6 +239,7 @@ impl DomainRepository {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         execution::session(&tx, &input.session_id)?;
+        execution::matrix_admission_session(&tx, &input.session_id)?;
         let mut items = Vec::new();
         for seq in ordered {
             let (wake,assigned,processed):(bool,Option<String>,Option<u64>)=tx.query_row("SELECT wake,dispatch_id,processed_at FROM session_inputs WHERE session_id=?1 AND message_sequence=?2",params![input.session_id,seq],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(Error::RunnerAuthority)?;
@@ -285,7 +286,8 @@ impl DomainRepository {
         limit: usize,
         now: u64,
     ) -> Result<Vec<InboxItem>, Error> {
-        execution::authorize(&self.db, cap, now, &["started"])?;
+        let dispatch = execution::authorize(&self.db, cap, now, &["started"])?;
+        execution::matrix_admission_session(&self.db, &dispatch.session_id)?;
         clock(after)?;
         if !(1..=100).contains(&limit) {
             return Err(hagency_core::InvalidInput("inbox page must be 1..100").into());

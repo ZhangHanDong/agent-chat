@@ -200,6 +200,12 @@ impl DomainStore {
         self.call(weight(&(&cap, &command))?, move |db| {
             let now = writer_time()?;
             Ok(match command {
+                RunnerCommand::OpenConversation(input) => {
+                    serde_json::to_value(db.create_internal_conversation(&cap, &input, now)?)?
+                }
+                RunnerCommand::Conversation { id } => {
+                    serde_json::to_value(db.runner_conversation(&cap, &id, now)?)?
+                }
                 RunnerCommand::Delegate(input) => {
                     serde_json::to_value(db.delegate_task(&cap, &input, now)?)?
                 }

@@ -22,8 +22,9 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    fenced notice outbox, scoped delegation and start-time human follow-up. The scoped runner HTTP API now exposes task reads,
    comments, mutations and frozen inbox through the bounded writer, using its
    execution-time clock. The pure graph planner now matches the existing dependency policy using
-   JavaScript-derived vectors. Add explicit internal session routes, durable
-   mailbox/group admission and atomic graph/task linkage before graph execution.
+   JavaScript-derived vectors. Schema 6 now provides explicit internal routes and atomic scoped conversation
+   admission. Add durable peer mailbox, group lifecycle and atomic graph/task
+   linkage before graph execution.
    Real runner adapters still need the early platform ownership and sandbox proofs.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.

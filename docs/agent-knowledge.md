@@ -1022,3 +1022,14 @@ Use this payload path for fractional graph/peer results, not authority identitie
 serde_json float_roundtrip is enabled. Canonical data may round integers outside
 the safe range as JS does; exact identifiers must stay strings/typed authority DTOs.
 No internal peer/session or graph-store integration is implied by this change.
+
+Native internal sessions (2026-09-10): schema 6 introduces internal_conversations,
+internal_participants and a route-aware canonical session index. StoredSession is
+a strict union of existing Matrix wire and kind=internal bindings. Generic executor
+loads accept both; matrix_admission_session explicitly rejects internal routes.
+All internal loads validate active allocation/generation and participant binding.
+Runner POST /conversations creates all same-project participant sessions atomically;
+GET /conversations/{id} permits only its exact creator or bound internal session.
+Do not broaden this to arbitrary Matrix sessions of a participant Agent. Peer
+mailbox, group close/membership lifecycle and graph observation linkage remain to
+implement; creation alone delivers no message and launches no runner.

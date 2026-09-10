@@ -1904,3 +1904,30 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   passed without broadening the intended changes.
 - Internal session/group/mailbox routes and graph-to-canonical-task integration
   remain next. Real process/transport, console and cutover work remain open.
+
+## 2026-09-10 — Internal conversation session ownership
+
+- Numeric payload commit bcd028e passed native three-OS CI (34469526457) and Node
+  CI (34469526454). Graph-policy Node CI (34468571496) also passed.
+- Schema 6 adds explicit internal routes under the existing task/dispatch owner,
+  without fake Matrix rooms. Matrix and internal wire variants reject mixed or
+  unknown fields. Canonical route uniqueness and old-schema migration tests remain.
+- Conversation creation requires a current started creator, active participants
+  from the same project/generation, and an idempotent content-bound call ID. Its
+  conversation row and all participant session/membership rows commit atomically.
+  The private API obtains authority time inside the bounded domain writer.
+- Reads allow the exact creator session or the internal session belonging to that
+  conversation. Another Matrix session of the same Agent is denied. Revoked
+  participants lose current capability access. Matrix ingress and inbox reads
+  explicitly refuse internal routes. Completed tasks cannot create conversations.
+- Tests cover injected write rollback, replay/conflict, foreign/parked/expired and
+  revoked callers, independent tasks for one Agent in two conversations, and
+  unknown-attempt recovery across restart. An initial recovery test reused the old
+  payload and was correctly refused; the test now asserts that refusal and submits
+  a distinct inspected recovery instruction without weakening the guard.
+- All 53 native tests passed, zero failed/ignored. Five internal-session scenarios
+  plus lifecycle boundary passed without skip/uncertainty; all 48 native selectors
+  resolve. Clippy, rustfmt and diff checks passed. No live service changed.
+- Peer mailbox and group lifecycle, atomic graph/message/task linkage, standalone
+  local Agents and the remaining M4–M9 work remain open. Conversation admission
+  alone is not peer delivery, model execution or complete migration parity.
