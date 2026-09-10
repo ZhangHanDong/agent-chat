@@ -17,12 +17,24 @@ fn environment() -> BTreeMap<std::ffi::OsString, std::ffi::OsString> {
     env
 }
 fn pulse(marker: &Path) -> io::Result<()> {
+    pulse_with_gate(marker, false)
+}
+fn pulse_with_gate(marker: &Path, pausable: bool) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(marker.with_extension("pulse"))?;
     let until = Instant::now() + Duration::from_secs(8);
     while Instant::now() < until {
+        if pausable && marker.with_extension("pause").exists() {
+            fs::write(marker.with_extension("paused"), b"paused")?;
+            while marker.with_extension("pause").exists() {
+                if Instant::now() >= until {
+                    return Err(io::Error::other("fixture heartbeat pause timed out"));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
         file.write_all(b"x")?;
         file.flush()?;
         std::thread::sleep(Duration::from_millis(20));
@@ -63,6 +75,7 @@ fn main() -> io::Result<()> {
             fs::write(marker.with_extension("entered"), b"entered")?;
             pulse(marker)
         }
+        Some("pausable-leaf") => pulse_with_gate(marker, true),
         Some("detached-leaf") => {
             #[cfg(unix)]
             rustix::process::setsid()?;

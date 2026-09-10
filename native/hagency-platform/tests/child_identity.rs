@@ -43,10 +43,31 @@ impl Fixture {
     fn pulse(&self) -> u64 {
         fs::metadata(self.marker.with_extension("pulse")).map_or(0, |v| v.len())
     }
-    fn running(&self) {
+    fn progress(&mut self) -> io::Result<()> {
         let prior = self.pulse();
-        std::thread::sleep(Duration::from_millis(80));
-        assert!(self.pulse() > prior, "unrelated child was signalled");
+        let until = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(status) = self.child.try_wait()? {
+                return Err(io::Error::other(format!("observed child exit: {status}")));
+            }
+            if self.pulse() > prior {
+                if let Some(status) = self.child.try_wait()? {
+                    return Err(io::Error::other(format!("observed child exit: {status}")));
+                }
+                return Ok(());
+            }
+            if Instant::now() >= until {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "child remained unexited but no new heartbeat was observed",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    fn running(&mut self) {
+        self.progress()
+            .expect("unrelated child must remain alive and make progress");
     }
     fn exited(&mut self) {
         let until = Instant::now() + Duration::from_secs(3);
@@ -67,7 +88,7 @@ impl Drop for Fixture {
 fn native_child_identity_signal() {
     let root = tempfile::tempdir().unwrap();
     let mut target = Fixture::spawn(root.path(), "target", "leaf");
-    let other = Fixture::spawn(root.path(), "other", "leaf");
+    let mut other = Fixture::spawn(root.path(), "other", "leaf");
     let owned = OwnedChildIdentity::capture(&target.child).unwrap();
     assert_eq!(owned.identity().pid, target.child.id());
     assert!(owned.is_current().unwrap());
@@ -86,7 +107,7 @@ fn native_child_identity_expiry() {
     let owned = OwnedChildIdentity::capture(&target.child).unwrap();
     target.child.kill().unwrap();
     target.exited(); // Explicitly reap while retaining native signal authority.
-    let replacement = Fixture::spawn(root.path(), "replacement", "leaf");
+    let mut replacement = Fixture::spawn(root.path(), "replacement", "leaf");
     assert!(!owned.is_current().unwrap());
     assert_eq!(
         owned.terminate(owned.identity()).unwrap(),
@@ -98,6 +119,38 @@ fn native_child_identity_expiry() {
         matches!(owned.terminate(replacement_identity.identity()),Err(e) if e.kind()==io::ErrorKind::PermissionDenied)
     );
     replacement.running();
+}
+
+#[test]
+fn native_child_identity_observation() {
+    let root = tempfile::tempdir().unwrap();
+    let mut child = Fixture::spawn(root.path(), "delayed", "pausable-leaf");
+    fs::write(child.marker.with_extension("pause"), b"pause").unwrap();
+    let until = Instant::now() + Duration::from_secs(3);
+    while !child.marker.with_extension("paused").exists() {
+        assert!(Instant::now() < until, "fixture did not acknowledge pause");
+        assert!(child.child.try_wait().unwrap().is_none());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Reproduce the old false diagnosis without sending any signal: its single
+    // 80 ms heartbeat sample is unchanged although the retained child is alive.
+    let prior = child.pulse();
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(child.pulse(), prior);
+    assert!(child.child.try_wait().unwrap().is_none());
+    let gate = child.marker.with_extension("pause");
+    let resume = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(180));
+        fs::remove_file(gate).unwrap();
+    });
+    child.running();
+    resume.join().unwrap();
+    // The stronger observation still rejects a real exit, even if a heartbeat
+    // from before termination remains in the marker file.
+    child.child.kill().unwrap();
+    child.exited();
+    let failure = child.progress().unwrap_err();
+    assert!(failure.to_string().contains("observed child exit"));
 }
 #[test]
 fn native_child_identity_generation() {

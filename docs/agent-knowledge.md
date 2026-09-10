@@ -1,5 +1,14 @@
 # Repository audit knowledge
 
+- **Native child progress evidence, 2026-09-10:** CI at `68af16c` failed an
+  unrelated-child assertion that sampled heartbeat growth once after 80 ms and
+  never read the retained child's exit status. A native, host-paused heartbeat
+  reproduces that diagnostic without any signal. Identity expiry and mismatch
+  paths were traced to return before the macOS signal call. Fixtures now require
+  fresh progress within three seconds and reject an observed exit; the original
+  CI log does not establish whether that child exited. Kernel identity and
+  audit-token signal guards were unchanged.
+
 - **Account/Agent lifecycle merge, 2026-09-09:** HAFleet `1e2d279` and Palpo
   `3d63ae11` contain the signup, Unicode, project-label and retirement changes.
   Local main-branch integration retains website work separately. Final CI505,

@@ -56,6 +56,14 @@ Scenario: Native generation checks reject stale process versions
   When the platform validates or signals through its generation guard
   Then stale metadata cannot supply authority and only the original process lifetime can be refreshed
 
+Scenario: Child progress observations distinguish delayed scheduling from exit
+  Test: native_child_identity_observation
+  Level: integration
+  Test Double: native child heartbeat with a host-controlled pause
+  Given a live child that temporarily pauses its heartbeat without a signal
+  When the fixture observes bounded progress and retained child exit status
+  Then resumed work passes and an actually exited child still fails observation
+
 ## Out of Scope
 
 Descendant discovery, native guardian startup and owner-crash handoff, process IO,

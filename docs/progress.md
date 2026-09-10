@@ -2883,7 +2883,31 @@ generated MCP configuration changed.
 Final focused verification passed all eight MCP/task-client tests, and the added
 fresh-connection replay/conflict test passed separately. Workspace Clippy with
 warnings denied, formatting and diff checks passed. Agent-spec 1.4 lifecycle
-passed all four scenarios plus the explicit 16-file boundary (5/5), zero
+passed all four scenarios plus the explicit 17-file boundary (5/5), zero
 fail/skip/uncertain. Review independently exercised the rebuilt executable's
 protocol-error recovery. SDK remains pinned as a dev dependency; native packaging
 has no SDK requirement. New three-OS execution remains a CI gate.
+
+## 2026-09-10 — Diagnose macOS child identity CI observation failure
+
+Native CI 34519683281 failed `native_child_identity_expiry` at `68af16c` with
+the fixture's "unrelated child was signalled" message. Its only evidence was no
+heartbeat change during a fixed 80 ms sleep; it never checked child exit status.
+The test finished within 0.84 seconds, below the probe's eight-second lifetime.
+Tracing both rejected operations confirms they return before the native signal
+call. The saved CI output cannot retrospectively establish the child's status.
+
+A bounded, host-controlled native heartbeat pause now reproduces the unchanged
+sample without any signal and verifies that the child is alive. The fixture
+waits at most three seconds for fresh progress and checks the retained Child for
+actual exit before accepting it. A killed-child negative case still fails even
+with old heartbeat bytes present. Existing expiry, unrelated-survival and
+generation assertions remain; production signal identity code is unchanged.
+This was isolated from the unfinished Linux cgroup worktree.
+
+Verification: all 20 macOS platform tests passed, including four child identity
+tests; Clippy with warnings denied, formatting and diff checks passed. Agent-spec
+1.4 lifecycle passed four scenarios and the five-file boundary (5/5, quality 93%,
+zero fail/skip/uncertain). Evidence is in the operator cache at
+`codex-protocol/child-progress-tests.log` and `child-progress-lifecycle.json`.
+This local result is not a rerun of the failed GitHub macOS job.
