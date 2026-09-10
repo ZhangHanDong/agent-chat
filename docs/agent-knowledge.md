@@ -1954,3 +1954,12 @@ Creation-only Windows sealing sets current SID on the fresh relative empty handl
 before any bytes, then uses the same strict checker. Existing journals are never
 repaired. Directory handles are actual custody; pathname checks and file flushes
 do not prove physical namespace or hardware power-loss guarantees.
+
+ADR046 approval cancellation fixtures must synchronize on actual write entry.
+A 30 ms cancellation timer started before consume returns may observe durable
+Applying with no byte attempt, which is already covered by the exact real
+lost-response fixture. Windows c0afefc failed only the unqualified seen assertion;
+the original log does not prove its exact scheduling interleaving. Gate the
+blocked-write case on WireGate's real durable Applying check, then use the same
+30 ms cancellation and retain restart uncertainty/no replay. Do not change
+production deadlines or count later transport diagnostics as approval evidence.

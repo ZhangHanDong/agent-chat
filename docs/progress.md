@@ -4052,3 +4052,30 @@ prove returned and retained failure custody also keeps the original resource
 owner alive. The final replay selector passes 2/2; both Clippy targets, formatting
 and whitespace checks pass after those assertions. All evidence is retained under
 the external media-staging-final-* cache logs.
+
+## 2026-09-10 — Windows approval cancellation fixture phase
+
+Retrieved the completed c0afefc Windows job 103078328251 from native run
+34539380960. Its sole failed target was hagency-permissions coordinator: seven
+passed and native_codex_approval_uncertainty_write_cancel_restart failed at the
+unqualified seen assertion. Shutdown and all other original targets passed,
+including three ADR062 real owned Matrix tests. No ShutdownSnapshot failure
+was present. Later serial Matrix/Palpo transport diagnostics passed, including
+an expected should-panic Identity case; they do not supersede the original
+approval failure or establish a historical shutdown cause.
+
+The original cancellation timer covered database consumption before write entry.
+Its assertion incorrectly excluded the real committed-Applying/no-byte state
+already proven by the passed attach/consume lost-response fixture. Exact original
+instruction timing is not observable in the log. In an isolated c0afefc worktree,
+the four original uncertainty tests also passed locally; that is separate evidence.
+The correction gates cancellation on the actual blocked writer with a bounded
+phase wait, retains the same 30 ms cancellation interval and all restart/no-retry
+assertions, and adds mode labels. No production, authority, deadline or cleanup
+code changed. Logs are retained in the external windows-c0afefc evidence files.
+
+Final fixture verification completed before the parallel agent reached its usage
+limit: all eight coordinator tests, native and Windows GNU Clippy, and strict
+lifecycle3/3 over all five explicit paths pass. The coordinator verified those
+retained logs and source diff, then completed the commit. Actual Windows rerun
+remains required; cross-compilation and local success do not replace it.

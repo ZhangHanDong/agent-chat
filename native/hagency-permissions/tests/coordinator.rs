@@ -542,13 +542,39 @@ async fn native_codex_approval_uncertainty_write_cancel_restart() {
             }
             "cancel" => {
                 f.block.store(true, Ordering::SeqCst);
+                let seen = f.seen.clone();
+                let mut apply = Box::pin(f.coordinator.apply(&a.id));
+                // Applying commits before its reply reaches this caller. A timer
+                // started before that reply can cancel without attempting bytes.
+                // Poll the actual operation until the blocked writer witnesses
+                // durable Applying; the existing lost-response test covers the
+                // earlier phase separately.
+                timeout(
+                    Duration::from_secs(2),
+                    std::future::poll_fn(|cx| {
+                        assert!(
+                            apply.as_mut().poll(cx).is_pending(),
+                            "{mode}: apply completed before the blocked-write gate"
+                        );
+                        if seen.load(Ordering::SeqCst) {
+                            Poll::Ready(())
+                        } else {
+                            Poll::Pending
+                        }
+                    }),
+                )
+                .await
+                .expect("cancel: first blocked write was not observed");
                 assert!(
-                    timeout(Duration::from_millis(30), f.coordinator.apply(&a.id))
+                    timeout(Duration::from_millis(30), apply.as_mut())
                         .await
-                        .is_err()
+                        .is_err(),
+                    "{mode}: blocked write unexpectedly completed"
                 );
-                assert!(f.coordinator.is_closed());
-                assert_eq!(f.state(&a.id).await, "applying");
+                // Drop exactly once after timeout; never poll a canceled future.
+                drop(apply);
+                assert!(f.coordinator.is_closed(), "{mode}: session stayed open");
+                assert_eq!(f.state(&a.id).await, "applying", "{mode}");
             }
             _ => {
                 f.coordinator.apply(&a.id).await.unwrap();
@@ -556,8 +582,11 @@ async fn native_codex_approval_uncertainty_write_cancel_restart() {
                 assert_eq!(f.state(&a.id).await, "applying");
             }
         }
-        assert!(f.seen.load(Ordering::SeqCst));
-        assert!(f.coordinator.apply(&a.id).await.is_err());
+        assert!(
+            f.seen.load(Ordering::SeqCst),
+            "{mode}: no write was attempted"
+        );
+        assert!(f.coordinator.apply(&a.id).await.is_err(), "{mode}: retried");
         f.store.shutdown().await.unwrap();
         let mut reopened = DomainRepository::open(&f.root.path().join("state")).unwrap();
         assert_eq!(reopened.approval_summary(&a.id).unwrap().state, "uncertain");

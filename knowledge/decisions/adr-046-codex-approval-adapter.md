@@ -110,3 +110,36 @@ No Matrix cards/sends, automatic process attachment, live model, runner cutover,
 new taskless path, or operational grant compaction is enabled. Requests racing
 startup before the validated turn response remain refused. This is a bounded
 integration seam, not completed native approval feature parity.
+
+## Windows cancellation fixture correction
+
+Native CI run 34539380960, Windows job 103078328251, failed at revision c0afefc
+in `native_codex_approval_uncertainty_write_cancel_restart`: its final `seen`
+assertion was false. The original log did not label the loop mode or capture the
+instruction schedule. This establishes a failed fixture assertion, not a proven
+production write-loss or shutdown defect. Every other original Windows test
+target passed, including the three ADR062 owned Matrix workflow tests. The later
+serial Matrix/Palpo diagnostic also passed; it did not rerun the failed approval
+selector and does not replace the original failed verdict.
+
+The cancellation branch had a concrete phase race: its 30 ms timer covered both
+awaiting durable approval consumption and the blocked native response write.
+SQLite can commit Applying before the awaiting caller receives its application
+descriptor. Cancellation at that point correctly closes the session with
+`seen=false`, although the test asserted a byte attempt must already have
+occurred. The existing real `attach_and_consume_lost_response` fixture proves
+that exact valid state by holding the transaction briefly, polling the actual
+operation once, observing its real committed row, and dropping it without a
+further poll. It passed both the original Windows job and the local check.
+
+The corrected blocked-write case polls the real operation under the existing
+2 second fixture handshake bound until WireGate verifies durable Applying and
+reports the first write attempt. Only then does it begin the same 30 ms
+cancellation interval. The future is dropped exactly once after timeout, with
+no canceled-future repoll. Completion or failure before the gate is an explicit
+test failure; mode labels identify the failed subcase. Closed-session, Applying,
+restart-to-Uncertain and no-duplicate-application assertions remain intact.
+Production runtime/store deadlines, permission semantics and cleanup guarantees
+are unchanged. Local macOS success and Windows cross-compilation cannot establish
+that the corrected fixture passes actual Windows CI; that remains an integration
+gate. No missing Applied proof or native approval cutover is inferred.
