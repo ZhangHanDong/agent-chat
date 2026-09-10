@@ -128,3 +128,19 @@ and process ownership still require the real transport/runtime adapters; no HTTP
 route exposes fixture authority or recovery. Mailbox/graph/delegation and reply
 outbox delivery are still open M3 work. A task event outbox is not proof of Matrix
 delivery. No native runner is launched by this checkpoint.
+
+Schema 4 adds canonical conversation uniqueness and message/input ownership.
+Each source event has one content-bound identity and an independent projection
+for every eligible session. Fresh native state uses committed arrival sequence
+for total ordering; the external timestamp is retained as source data. Inbox reads
+are bounded and do not acknowledge messages. A dispatch claims selected admitted
+input and freezes the inbox payload in the same transaction; ordinary work requires
+at least one wake input. A runner can read only its own frozen inbox.
+
+Completion acknowledges only that session's input. Unknown work retains its input
+for inspected recovery; superseded unstarted work releases its input back to the
+pending inbox. Quarantined sessions can still receive messages. Failed admission,
+enqueue, processing and schema migration are covered by rollback tests. The
+non-deserializable ingress command is a host adapter boundary; real Matrix event
+authentication and mention/DM classification are still required from M5. This
+checkpoint does not implement room history, group management or task delegation.

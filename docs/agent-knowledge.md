@@ -977,3 +977,11 @@ only inspected host recovery supersedes old queued work. Host session admission
 and process inspection are internal adapter contracts, not HTTP authority input.
 The four store scenario tests plus exhaustive 25-pair JS transition vectors cover
 this kernel; mailbox/dependencies/delegation/replies and real processes remain open.
+
+Native message/input checkpoint (2026-09-10): domain schema 4 resolves one session
+per allocation/room/thread and stores content-bound source events with independent
+session projections. Frozen inbox claims commit with dispatch enqueue. Completion
+and inspected recovery update only the owning session; quarantined sessions retain
+new input. Source timestamps are data; commit sequence is native arrival order.
+Ingress is non-deserializable and host-only until actual authenticated M5 adapters.
+Group management, task graph/delegation and narrow runner APIs remain outstanding.

@@ -2,6 +2,7 @@ use crate::{DomainRepository, Effect, EffectOutcome, Error};
 use hagency_core::{
     allocation::Budget,
     authority::{Registration, VerifiedRequest},
+    messages::{InboundMessage, InboxItem, MessageReceipt, MessageTarget},
     project::{CatalogResource, ConfiguredResource, Engagement, Resource, Seat},
     tasks::{
         DispatchInput, MutationResult, RunnerCapability, SessionBinding, Task, TaskComment,
@@ -33,6 +34,57 @@ fn weight(value: &impl Serialize) -> Result<u32, Error> {
     Ok(len.max(1) as u32)
 }
 impl DomainStore {
+    pub async fn resolve_session(&self, binding: SessionBinding) -> Result<SessionBinding, Error> {
+        self.call(weight(&binding)?, move |db| db.resolve_session(&binding))
+            .await
+    }
+    pub async fn ingest_message(
+        &self,
+        input: InboundMessage,
+        targets: Vec<MessageTarget>,
+        now: u64,
+    ) -> Result<MessageReceipt, Error> {
+        input.validate()?;
+        self.call(weight(&(&input, &targets))?, move |db| {
+            db.ingest_message(&input, &targets, now)
+        })
+        .await
+    }
+    pub async fn inbox(
+        &self,
+        session: String,
+        after: u64,
+        limit: usize,
+        kind: Option<String>,
+    ) -> Result<Vec<InboxItem>, Error> {
+        self.call(weight(&(&session, &kind))?, move |db| {
+            db.inbox(&session, after, limit, kind.as_deref())
+        })
+        .await
+    }
+    pub async fn enqueue_inbox_dispatch(
+        &self,
+        input: DispatchInput,
+        sequences: Vec<u64>,
+    ) -> Result<(), Error> {
+        input.validate()?;
+        self.call(weight(&(&input, &sequences))?, move |db| {
+            db.enqueue_inbox_dispatch(&input, &sequences)
+        })
+        .await
+    }
+    pub async fn runner_inbox(
+        &self,
+        cap: RunnerCapability,
+        after: u64,
+        limit: usize,
+        now: u64,
+    ) -> Result<Vec<InboxItem>, Error> {
+        self.call(weight(&cap)?, move |db| {
+            db.runner_inbox(&cap, after, limit, now)
+        })
+        .await
+    }
     pub async fn register_session(&self, binding: SessionBinding) -> Result<(), Error> {
         self.call(weight(&binding)?, move |db| db.register_session(&binding))
             .await

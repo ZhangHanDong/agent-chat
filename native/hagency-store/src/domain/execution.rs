@@ -5,7 +5,11 @@ use hagency_core::{JSON_SAFE_MAX, canonical, project::identifier, tasks::*};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::{Value, json};
 
-fn session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
+fn load_session(
+    db: &Connection,
+    id: &str,
+    allow_quarantine: bool,
+) -> Result<SessionBinding, Error> {
     let value: Option<(String, bool)> = db
         .query_row(
             "SELECT binding,quarantined FROM runner_sessions WHERE id=?1",
@@ -14,7 +18,7 @@ fn session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
         )
         .optional()?;
     let (value, quarantined) = value.ok_or(Error::NotFound)?;
-    if quarantined {
+    if quarantined && !allow_quarantine {
         return Err(Error::Quarantined);
     }
     let binding: SessionBinding = serde_json::from_str(&value)?;
@@ -23,6 +27,12 @@ fn session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
         return Err(Error::RunnerAuthority);
     }
     Ok(binding)
+}
+pub(super) fn session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
+    load_session(db, id, false)
+}
+pub(super) fn admission_session(db: &Connection, id: &str) -> Result<SessionBinding, Error> {
+    load_session(db, id, true)
 }
 fn task(db: &Connection, id: &str) -> Result<Task, Error> {
     let value: String = db
@@ -47,8 +57,8 @@ fn save_task(tx: &Transaction<'_>, value: &Task, kind: &str) -> Result<(), Error
     )?;
     Ok(())
 }
-struct Dispatch {
-    session_id: String,
+pub(super) struct Dispatch {
+    pub(super) session_id: String,
     task_id: Option<String>,
     state: String,
     fence: u64,
@@ -77,7 +87,7 @@ fn matches_secret(hash: &str, secret: &str) -> Result<bool, Error> {
         .fold(0u8, |a, (b, c)| a | (b ^ c))
         == 0)
 }
-fn authorize(
+pub(super) fn authorize(
     db: &Connection,
     cap: &RunnerCapability,
     now: u64,
@@ -196,7 +206,7 @@ fn create_task(
     save_task(tx, &t, "created")?;
     Ok(t)
 }
-fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(), Error> {
+pub(super) fn enqueue(tx: &Transaction<'_>, input: &DispatchInput) -> Result<(), Error> {
     input.validate()?;
     let digest = canonical::digest(&serde_json::to_value(input)?)?;
     let old: Option<String> = tx
@@ -265,6 +275,9 @@ impl DomainRepository {
                 return Err(Error::Conflict);
             }
         } else {
+            if super::messages::find_session(&tx, binding)?.is_some() {
+                return Err(Error::Conflict);
+            }
             bounded_row(&tx, "runner_sessions", "id", &binding.id, 10_000)?;
             tx.execute(
                 "INSERT INTO runner_sessions(id,engagement_id,binding) VALUES(?1,?2,?3)",
@@ -516,6 +529,7 @@ impl DomainRepository {
             params![cap.dispatch_id, cap.fence],
         )?;
         tx.execute("UPDATE runner_dispatches SET state='completed',capability_hash=NULL,lease_until=NULL,capability_until=NULL WHERE id=?1",[&cap.dispatch_id])?;
+        super::messages::complete_inputs(&tx, &cap.dispatch_id, now)?;
         tx.execute(
             "DELETE FROM resource_leases WHERE dispatch_id=?1",
             [&cap.dispatch_id],
@@ -631,7 +645,9 @@ impl DomainRepository {
         tx.execute("UPDATE workspace_resources SET dirty=0 WHERE id IN (SELECT resource_id FROM dispatch_resources WHERE dispatch_id=?1 AND exclusive=1)",[original])?;
         // Older queued instructions cannot outrun an explicit recovery instruction.
         tx.execute("UPDATE runner_dispatches SET state='superseded' WHERE session_id=?1 AND state='queued'",[&d.session_id])?;
-        enqueue(&tx, replacement)?;
+        let replacement = super::messages::recovery_input(&tx, original, replacement)?;
+        enqueue(&tx, &replacement)?;
+        super::messages::transfer_inputs(&tx, original, &replacement.id)?;
         tx.execute("INSERT INTO dispatch_recoveries(original_id,replacement_id,evidence,created_at) VALUES(?1,?2,?3,?4)",params![original,replacement.id,evidence,now])?;
         tx.commit()?;
         Ok(())

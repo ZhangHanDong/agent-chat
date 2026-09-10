@@ -1784,3 +1784,27 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   admission/inspection still requires the M4/M5 adapters. Next: mailbox and group
   ordering/deduplication, graph/delegation, follow-up and durable reply delivery.
   Full migration goal remains active; the draft PR is not a cutover candidate.
+
+## 2026-09-10 — Native message admission and frozen input
+
+- Previous commit 66168f4 passed native Linux/macOS/Windows CI (34460927082) and
+  existing Node CI (34460927153). Its task/dispatch changes are verified at that head.
+- Added schema 4 canonical session uniqueness, immutable event identity and
+  independent per-session input projections. Committed arrival sequence preserves
+  total order even with equal or reversed source timestamps. Bounded/filtered
+  inbox reads leave unseen work pending.
+- Dispatch enqueue freezes and claims admitted input atomically. Only a wake can
+  start ordinary work, and runner inbox reads are restricted to the current frozen
+  batch. Completing one Agent's dispatch preserves another Agent's copy. Unknown
+  work transfers input only through inspected recovery; superseded unstarted input
+  returns to the pending inbox and quarantine still accepts new messages.
+- Validation: 34 native tests passed, zero failed/ignored. Message lifecycle passed
+  four scenarios plus boundary, zero skips/uncertainty. Native spec catalog has 29
+  selectors, none missing. Clippy and rustfmt passed. Injected admission/input/
+  settlement failures roll back; oversized input remains pending; conflicting old
+  session bindings roll back the schema upgrade. A compiler assertion prevents
+  adding DeserializeOwned to the trusted ingress command.
+- Real Matrix authentication, room privacy/history and mention policy remain M5;
+  native ingress has no public HTTP constructor. Next implement narrow runner APIs,
+  task input activation/follow-up, dependency/delegation and reply delivery. The
+  complete migration remains active and production services remain unchanged.

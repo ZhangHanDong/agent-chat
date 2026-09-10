@@ -3,6 +3,7 @@ pub mod allocation;
 pub mod authority;
 pub mod canonical;
 pub mod custody;
+pub mod messages;
 pub mod project;
 pub mod qualification;
 pub mod tasks;

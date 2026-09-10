@@ -1,0 +1,296 @@
+//! Internal authenticated-adapter ingress and per-session input ownership.
+use super::{DomainRepository, bounded_row, execution, serialize};
+use crate::Error;
+use hagency_core::{canonical, messages::*, project::identifier, tasks::*};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+
+pub(super) fn find_session(
+    db: &Connection,
+    binding: &SessionBinding,
+) -> Result<Option<String>, Error> {
+    Ok(db.query_row("SELECT id FROM runner_sessions WHERE engagement_id=?1 AND json_extract(binding,'$.room_id')=?2 AND COALESCE(json_extract(binding,'$.thread_root'),'')=COALESCE(?3,'')",params![binding.engagement_id,binding.room_id,binding.thread_root],|r|r.get(0)).optional()?)
+}
+fn read_message(db: &Connection, sequence: u64) -> Result<Message, Error> {
+    let encoded: String = db
+        .query_row(
+            "SELECT config FROM admitted_messages WHERE sequence=?1",
+            [sequence],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or(Error::NotFound)?;
+    Ok(serde_json::from_str(&encoded)?)
+}
+fn input_items(db: &Connection, dispatch: &str) -> Result<Vec<InboxItem>, Error> {
+    db.prepare("SELECT m.config,i.wake FROM dispatch_inputs d JOIN admitted_messages m ON m.sequence=d.message_sequence JOIN runner_dispatches r ON r.id=d.dispatch_id JOIN session_inputs i ON i.session_id=r.session_id AND i.message_sequence=m.sequence WHERE d.dispatch_id=?1 ORDER BY m.sequence")?.query_map([dispatch],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
+}
+pub(super) fn complete_inputs(tx: &Transaction<'_>, dispatch: &str, now: u64) -> Result<(), Error> {
+    tx.execute("UPDATE session_inputs SET processed_at=?2 WHERE dispatch_id=?1 AND session_id=(SELECT session_id FROM runner_dispatches WHERE id=?1) AND message_sequence IN (SELECT message_sequence FROM dispatch_inputs WHERE dispatch_id=?1) AND processed_at IS NULL",params![dispatch,now])?;
+    Ok(())
+}
+pub(super) fn recovery_input(
+    tx: &Transaction<'_>,
+    original: &str,
+    replacement: &DispatchInput,
+) -> Result<DispatchInput, Error> {
+    let items = input_items(tx, original)?;
+    let mut next = replacement.clone();
+    if !items.is_empty() {
+        let payload = next
+            .payload
+            .as_object_mut()
+            .ok_or(hagency_core::InvalidInput(
+                "recovery payload must be an object",
+            ))?;
+        if payload.contains_key("inbox") || payload.contains_key("recoveryInbox") {
+            return Err(hagency_core::InvalidInput("recovery input is host-owned").into());
+        }
+        payload.insert("recoveryInbox".into(), serde_json::to_value(items)?);
+    }
+    Ok(next)
+}
+pub(super) fn transfer_inputs(
+    tx: &Transaction<'_>,
+    original: &str,
+    replacement: &str,
+) -> Result<(), Error> {
+    tx.execute("INSERT INTO dispatch_inputs(dispatch_id,message_sequence) SELECT ?2,message_sequence FROM dispatch_inputs WHERE dispatch_id=?1",params![original,replacement])?;
+    tx.execute(
+        "UPDATE session_inputs SET dispatch_id=?2 WHERE dispatch_id=?1 AND processed_at IS NULL",
+        params![original, replacement],
+    )?;
+    // Superseded queued instructions have not run. Release their input so it can
+    // be considered after the explicit recovery rather than disappearing forever.
+    tx.execute("UPDATE session_inputs SET dispatch_id=NULL WHERE processed_at IS NULL AND dispatch_id IN (SELECT id FROM runner_dispatches WHERE state='superseded' AND session_id=(SELECT session_id FROM runner_dispatches WHERE id=?1))",[original])?;
+    Ok(())
+}
+impl DomainRepository {
+    /// Reuse the canonical conversation; quarantine never creates a second session.
+    pub fn resolve_session(&mut self, binding: &SessionBinding) -> Result<SessionBinding, Error> {
+        binding.validate()?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(id) = find_session(&tx, binding)? {
+            let existing = execution::admission_session(&tx, &id)?;
+            tx.commit()?;
+            return Ok(existing);
+        }
+        let existing: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM runner_sessions WHERE id=?1)",
+            [&binding.id],
+            |r| r.get(0),
+        )?;
+        if existing {
+            return Err(Error::Conflict);
+        }
+        bounded_row(&tx, "runner_sessions", "id", &binding.id, 10_000)?;
+        tx.execute(
+            "INSERT INTO runner_sessions(id,engagement_id,binding) VALUES(?1,?2,?3)",
+            params![binding.id, binding.engagement_id, serialize(binding)?],
+        )?;
+        execution::admission_session(&tx, &binding.id)?;
+        tx.commit()?;
+        Ok(binding.clone())
+    }
+    /// The Matrix adapter must verify actual event provenance and room membership
+    /// before constructing this non-deserializable command. DTO validity is not auth.
+    pub fn ingest_message(
+        &mut self,
+        input: &InboundMessage,
+        targets: &[MessageTarget],
+        now: u64,
+    ) -> Result<MessageReceipt, Error> {
+        input.validate()?;
+        clock(now)?;
+        if targets.is_empty() || targets.len() > 64 {
+            return Err(hagency_core::InvalidInput("message requires 1..64 targets").into());
+        }
+        let source_key = input.source_key()?;
+        let digest = canonical::digest(&serde_json::to_value(input)?)?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut seen = std::collections::BTreeSet::new();
+        for target in targets {
+            identifier(&target.session_id, 128)?;
+            if !seen.insert(&target.session_id) {
+                return Err(hagency_core::InvalidInput("duplicate message target").into());
+            }
+            let binding = execution::admission_session(&tx, &target.session_id)?;
+            if binding.room_id != input.room_id || binding.thread_root != input.thread_root {
+                return Err(Error::RunnerAuthority);
+            }
+            let server:String=tx.query_row("SELECT json_extract(r.config,'$.serverName') FROM engagements e JOIN registrations r ON r.fleet_id=e.fleet_id WHERE e.id=?1",[&binding.engagement_id],|r|r.get(0))?;
+            if server != input.server_name {
+                return Err(Error::RunnerAuthority);
+            }
+        }
+        let previous: Option<(u64, String)> = tx
+            .query_row(
+                "SELECT sequence,digest FROM admitted_messages WHERE source_key=?1",
+                [&source_key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let (sequence, created) = if let Some((sequence, old)) = previous {
+            if old != digest {
+                return Err(Error::Conflict);
+            }
+            (sequence, false)
+        } else {
+            bounded_row(&tx, "admitted_messages", "source_key", &source_key, 100_000)?;
+            tx.execute(
+                "INSERT INTO admitted_messages(source_key,digest,config) VALUES(?1,?2,'{}')",
+                params![source_key, digest],
+            )?;
+            let sequence = u64::try_from(tx.last_insert_rowid()).map_err(|_| Error::Capacity)?;
+            clock(sequence)?;
+            let value = Message {
+                sequence,
+                source_key: source_key.clone(),
+                server_name: input.server_name.clone(),
+                room_id: input.room_id.clone(),
+                event_id: input.event_id.clone(),
+                sender_mxid: input.sender_mxid.clone(),
+                thread_root: input.thread_root.clone(),
+                body: input.body.clone(),
+                kind: input.kind.clone(),
+                origin_ts: input.origin_ts,
+                received_at: now,
+            };
+            tx.execute(
+                "UPDATE admitted_messages SET config=?2 WHERE sequence=?1",
+                params![sequence, serialize(&value)?],
+            )?;
+            (sequence, true)
+        };
+        let mut projected = 0;
+        for target in targets {
+            let prior: Option<bool> = tx
+                .query_row(
+                    "SELECT wake FROM session_inputs WHERE session_id=?1 AND message_sequence=?2",
+                    params![target.session_id, sequence],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(wake) = prior {
+                if wake != target.wake {
+                    return Err(Error::Conflict);
+                }
+                continue;
+            }
+            let pending: u64 = tx.query_row(
+                "SELECT COUNT(*) FROM session_inputs WHERE session_id=?1 AND processed_at IS NULL",
+                [&target.session_id],
+                |r| r.get(0),
+            )?;
+            if pending >= 2000 {
+                return Err(Error::Capacity);
+            }
+            tx.execute(
+                "INSERT INTO session_inputs(session_id,message_sequence,wake) VALUES(?1,?2,?3)",
+                params![target.session_id, sequence, target.wake],
+            )?;
+            projected += 1;
+        }
+        tx.commit()?;
+        Ok(MessageReceipt {
+            sequence,
+            created,
+            projected,
+        })
+    }
+    /// Host projection only. Reads never acknowledge, including filtered reads.
+    pub fn inbox(
+        &self,
+        session: &str,
+        after: u64,
+        limit: usize,
+        kind: Option<&str>,
+    ) -> Result<Vec<InboxItem>, Error> {
+        execution::admission_session(&self.db, session)?;
+        clock(after)?;
+        if !(1..=100).contains(&limit) {
+            return Err(hagency_core::InvalidInput("inbox page must be 1..100").into());
+        }
+        if let Some(kind) = kind {
+            text(kind, 64)?;
+        }
+        self.db.prepare("SELECT m.config,i.wake FROM session_inputs i JOIN admitted_messages m ON m.sequence=i.message_sequence WHERE i.session_id=?1 AND i.message_sequence>?2 AND i.processed_at IS NULL AND i.dispatch_id IS NULL AND (?3 IS NULL OR json_extract(m.config,'$.kind')=?3) ORDER BY m.sequence LIMIT ?4")?.query_map(params![session,after,kind,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
+    }
+    pub fn enqueue_inbox_dispatch(
+        &mut self,
+        input: &DispatchInput,
+        sequences: &[u64],
+    ) -> Result<(), Error> {
+        input.validate()?;
+        if input.payload.get("inbox").is_some() || input.payload.get("recoveryInbox").is_some() {
+            return Err(hagency_core::InvalidInput("dispatch input is host-owned").into());
+        }
+        if sequences.is_empty() || sequences.len() > 100 {
+            return Err(hagency_core::InvalidInput("dispatch requires 1..100 input events").into());
+        }
+        let ordered: std::collections::BTreeSet<_> = sequences.iter().copied().collect();
+        if ordered.len() != sequences.len() {
+            return Err(hagency_core::InvalidInput("duplicate input event").into());
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        execution::session(&tx, &input.session_id)?;
+        let mut items = Vec::new();
+        for seq in ordered {
+            let (wake,assigned,processed):(bool,Option<String>,Option<u64>)=tx.query_row("SELECT wake,dispatch_id,processed_at FROM session_inputs WHERE session_id=?1 AND message_sequence=?2",params![input.session_id,seq],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(Error::RunnerAuthority)?;
+            // A replay of the same queued/finished dispatch remains content-checkable;
+            // another dispatch cannot steal this session's input, even after completion.
+            if (assigned.is_some() && assigned.as_deref() != Some(&input.id))
+                || (processed.is_some() && assigned.as_deref() != Some(&input.id))
+            {
+                return Err(Error::State);
+            }
+            items.push(InboxItem {
+                message: read_message(&tx, seq)?,
+                wake,
+            });
+        }
+        if !items.iter().any(|item| item.wake) {
+            return Err(Error::State);
+        }
+        let mut frozen = input.clone();
+        frozen
+            .payload
+            .as_object_mut()
+            .ok_or(hagency_core::InvalidInput(
+                "dispatch payload must be object",
+            ))?
+            .insert("inbox".into(), serde_json::to_value(&items)?);
+        execution::enqueue(&tx, &frozen)?;
+        for item in &items {
+            tx.execute(
+                "INSERT OR IGNORE INTO dispatch_inputs(dispatch_id,message_sequence) VALUES(?1,?2)",
+                params![input.id, item.message.sequence],
+            )?;
+            tx.execute("UPDATE session_inputs SET dispatch_id=?3 WHERE session_id=?1 AND message_sequence=?2",params![input.session_id,item.message.sequence,input.id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// Current disposable runners can read only the input frozen for this attempt.
+    pub fn runner_inbox(
+        &self,
+        cap: &RunnerCapability,
+        after: u64,
+        limit: usize,
+        now: u64,
+    ) -> Result<Vec<InboxItem>, Error> {
+        execution::authorize(&self.db, cap, now, &["started"])?;
+        clock(after)?;
+        if !(1..=100).contains(&limit) {
+            return Err(hagency_core::InvalidInput("inbox page must be 1..100").into());
+        }
+        // Dispatches contain at most 100 events and 64 KiB. The indexed page below
+        // also preserves the bound when a later migration raises the dispatch cap.
+        self.db.prepare("SELECT m.config,i.wake FROM dispatch_inputs d JOIN admitted_messages m ON m.sequence=d.message_sequence JOIN runner_dispatches r ON r.id=d.dispatch_id JOIN session_inputs i ON i.session_id=r.session_id AND i.message_sequence=m.sequence WHERE d.dispatch_id=?1 AND m.sequence>?2 ORDER BY m.sequence LIMIT ?3")?.query_map(params![cap.dispatch_id,after,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,bool>(1)?)))?.map(|row|{let(config,wake)=row?;Ok(InboxItem{message:serde_json::from_str(&config)?,wake})}).collect()
+    }
+}

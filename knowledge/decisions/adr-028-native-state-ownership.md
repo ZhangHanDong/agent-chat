@@ -149,3 +149,29 @@ reopening that task. Room admission and process inspection are still host adapte
 responsibilities; no native HTTP endpoint accepts these fixture authority commands.
 Mailbox ordering, task dependencies, delegation, follow-up reopening and actual
 reply delivery remain subsequent M3 work. This checkpoint does not satisfy M4–M9.
+
+## Message admission and input ownership
+
+Schema 4 enforces one session per allocation/room/thread, with transactional
+resolution and a unique SQLite index. Older conflicting native session records
+stop migration and preserve the old schema for inspection. Message identity binds
+server, room and event ID to immutable content. Each eligible session has its own
+wake/input/processing projection. Fresh native stores use committed arrival order;
+external timestamps remain source data and cannot reorder the consumption cursor.
+No legacy deployment history is imported by this change.
+
+Admitted events and their target projections commit together. Enqueue selects
+bounded admitted input, requires a wake, freezes the inbox and claims the session
+projection in one transaction. Runner reads use the exact current dispatch
+capability and cannot include later arrivals. Successful dispatch settlement marks
+only that session's input processed. Inspected unknown-work recovery retains prior
+input as recovery context and releases superseded unstarted input for later work.
+Quarantine blocks execution while allowing durable admission. Capacity failures
+leave pending messages available; filtered projections do not acknowledge gaps.
+
+The ingress command cannot deserialize external HTTP assertions. Its source data
+must still be constructed by an authenticated Matrix adapter that verifies actual
+membership, room privacy and mention/DM policy. No HTTP endpoint exposes this
+constructor. The compiler assertion and local fixtures prove the internal boundary,
+not live homeserver authentication. Group/MCP surfaces, task graph/delegation,
+reply delivery and continuous retention remain later migration work.

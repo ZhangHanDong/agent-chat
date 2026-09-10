@@ -15,8 +15,10 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
    the shared policy. Complete legacy/project-side/rotation integration.
    The M3 task/dispatch kernel now shares the domain database: current capabilities,
    atomic mutation receipts, frozen payloads, resource leases and conservative
-   restart recovery. Continue mailbox ordering/deduplication, task dependencies,
-   delegation, thread follow-up and durable reply delivery; real runner adapters
+   restart recovery. Canonical session resolution, per-session message projections
+   and atomic dispatch input claims are now implemented in schema 4. Continue the
+   internal group/MCP surfaces, task dependencies, delegation, thread follow-up,
+   scoped runner HTTP API and durable reply delivery; real runner adapters
    still need the early platform ownership and sandbox proofs.
 5. Continue M3–M9 in the migration plan; keep production deployments independent
    until every cutover gate is met. A foundation build is not full migration parity.
