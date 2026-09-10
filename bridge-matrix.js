@@ -11103,6 +11103,7 @@ async function assertSideApprovalPlaintext(bridge, actor, row, assertWorkerActiv
   try {
     const response = await fetch(url.toString(), {
       method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
+      redirect: 'error',
     });
     const limited = await rateLimitGate.observeResponse(response);
     controller.signal.throwIfAborted();
@@ -11139,7 +11140,7 @@ function approvalProjectionFetch(bridge, validateContext) {
     };
     let response;
     try {
-      response = await fetch(url, { ...options, signal: controller.signal });
+      response = await fetch(url, { ...options, signal: controller.signal, redirect: 'error' });
       throwIfDeadlineExpired();
     } catch (error) {
       controller.abort();

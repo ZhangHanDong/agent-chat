@@ -441,6 +441,69 @@ describe('approval projection production request adapter', () => {
     }
   });
 
+  test('side security lookup refuses a 302 without contacting the redirect target', async () => {
+    let redirected = 0;
+    const target = createServer((_req, res) => { redirected += 1; res.end('{}'); });
+    await new Promise(resolve => target.listen(0, '127.0.0.1', resolve));
+    const source = createServer((_req, res) => {
+      res.writeHead(302, { Location: `http://127.0.0.1:${target.address().port}/stolen` });
+      res.end();
+    });
+    await new Promise(resolve => source.listen(0, '127.0.0.1', resolve));
+    const side = { side: { serverName: server, active: true, accessState: 'accepted',
+      apiBaseUrl: `http://127.0.0.1:${source.address().port}` },
+    credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
+      outboundGeneration: 'side-generation' } };
+    const row = { request_id: 'approval_security_redirect', revision: 1, channel: 'private_request',
+      publisher_scope: `side-representative:${server}`, target_room_id: `!owner:${server}`,
+      state: 'pending', migration_kind: 'native_v2', approval: { agent: 'worker', project: 'adapter' } };
+    try {
+      const io = approvalProjectionIoForTest({ actingSideFor: () => side });
+      await expect(io.prepareContent(row, await io.resolveActor(row))).rejects.toThrow();
+      expect(redirected).toBe(0);
+    } finally {
+      source.closeAllConnections(); target.closeAllConnections();
+      await Promise.all([new Promise(resolve => source.close(resolve)), new Promise(resolve => target.close(resolve))]);
+    }
+  });
+
+  test('private final PUT refuses a 307 without exposing its body to the redirect target', async () => {
+    let redirected = 0;
+    let leaked = '';
+    const target = createServer((req, res) => {
+      redirected += 1;
+      req.on('data', chunk => { leaked += chunk; });
+      req.on('end', () => res.end('{"event_id":"$bad"}'));
+    });
+    await new Promise(resolve => target.listen(0, '127.0.0.1', resolve));
+    const source = createServer((_req, res) => {
+      res.writeHead(307, { Location: `http://127.0.0.1:${target.address().port}/stolen` });
+      res.end();
+    });
+    await new Promise(resolve => source.listen(0, '127.0.0.1', resolve));
+    const side = { side: { serverName: server, active: true, accessState: 'accepted',
+      apiBaseUrl: `http://127.0.0.1:${source.address().port}` },
+    credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
+      outboundGeneration: 'side-generation', namespace: '@ac_.*' } };
+    const row = { request_id: 'approval_send_redirect', revision: 1, channel: 'private_request',
+      publisher_scope: `side-representative:${server}`, target_room_id: `!owner:${server}`,
+      state: 'pending', migration_kind: 'native_v2', approval: { agent: 'worker', project: 'adapter' } };
+    try {
+      const bridge = { actingSideFor: () => side, approvalProjectionSendTimeoutMs: 100 };
+      const io = approvalProjectionIoForTest(bridge);
+      const actor = await io.resolveActor(row);
+      await expect(io.send({ publisher_mxid: actor.publisher_mxid,
+        credential_generation: actor.credential_generation, prepared_event_type: 'm.room.encrypted',
+        prepared_payload: { ciphertext: 'private-secret' }, transaction_id: 'redirect-final' }, actor, row))
+        .rejects.toThrow();
+      expect(redirected).toBe(0);
+      expect(leaked).toBe('');
+    } finally {
+      source.closeAllConnections(); target.closeAllConnections();
+      await Promise.all([new Promise(resolve => source.close(resolve)), new Promise(resolve => target.close(resolve))]);
+    }
+  });
+
   test('side security 429 performs one bounded request and defers publication', async () => {
     const side = { side: { serverName: server, active: true, accessState: 'accepted', apiBaseUrl: 'https://side.invalid' },
       credential: { kind: 'appservice', senderLocalpart: 'hafleet', asToken: 'secret',
