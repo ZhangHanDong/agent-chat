@@ -49,7 +49,14 @@ Scenario: Supervised native startup and cancellation preserve scope
   When the host starts and cancels supervised work
   Then its child scope stops without affecting the unrelated process
   And repeated cancellation retains the same observed report
+
+Scenario: Actual native CLI exit has bounded terminal evidence
   Test: native_guardian_cli_entry
+  Level: integration
+  Test Double: actual native CLI executable through owned guardian or Job Object
+  Given a native CLI version command with empty PATH and Unicode cwd
+  When the owned process terminates within the unchanged five-second report window
+  Then LeaderExited and the platform cleanup scope accompany exact version bytes and stderr EOF
 
 Scenario: Native cleanup survives loss of its owner
   Test: native_guardian_owner_loss

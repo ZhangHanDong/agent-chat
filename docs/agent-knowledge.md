@@ -1669,3 +1669,11 @@ Canonicalized resource paths do not prove physical directory/ancestor custody.
 Production workspace/sandbox qualification, helper launch and approval application
 remain gates, and native availability stays false. Operation/report Drop may
 block for bounded retained cleanup; keep it off latency-sensitive HTTP/UI workers.
+
+Guardian CLI fixture (2026-09-10): test native `--version` through the owned
+piped guardian/Job path with exact bounded stdout/stderr and unchanged five-second
+LeaderExited/scope observation. Keep fresh Unicode state initialization in the
+separate crash/restart fixture. A missing report during database initialization
+is not sufficient to attribute failure to guardian identity or to call it a
+scheduling flake; the historical f4cdead timeout remains undiagnosed. The fixture
+split changes no production timing or custody guarantees.

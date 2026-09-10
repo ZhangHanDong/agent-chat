@@ -109,6 +109,10 @@ fn native_binary_survives_crash_without_node() {
         "init failed: {}",
         String::from_utf8_lossy(&init.stderr)
     );
+    // Fresh Unicode initialization remains an actual binary/database check,
+    // independent of the guardian's bounded terminal-observation fixture.
+    assert!(state.join("operator.token").is_file());
+    assert!(state.join("domain.sqlite3").is_file());
     let token = fs::read_to_string(state.join("operator.token")).unwrap();
     assert!(!String::from_utf8_lossy(&init.stdout).contains(&token));
     let before = fs::read(state.join("operator.token")).unwrap();
@@ -137,32 +141,47 @@ fn native_binary_survives_crash_without_node() {
     );
 }
 
-#[test]
-fn native_guardian_cli_entry() {
+#[tokio::test]
+async fn native_guardian_cli_entry() {
     use hagency_platform::{Launch, StopCause, SupervisedProcess};
+    use tokio::io::AsyncReadExt;
     let root = tempfile::tempdir().unwrap();
-    let state = root.path().join("监管 fresh state");
+    let directory = root.path().join("监管 CLI 工作目录");
+    fs::create_dir(&directory).unwrap();
     let executable = std::path::PathBuf::from(env!("CARGO_BIN_EXE_hagency"));
     let mut environment = std::collections::BTreeMap::new();
     environment.insert("PATH".into(), "".into());
     if let Some(value) = std::env::var_os("SystemRoot") {
         environment.insert("SystemRoot".into(), value);
     }
-    let mut process = SupervisedProcess::spawn(
+    let (mut process, pipes) = SupervisedProcess::spawn_piped(
         &executable,
         &Launch {
             executable: executable.clone(),
-            arguments: vec![
-                "init".into(),
-                "--state-dir".into(),
-                state.as_os_str().into(),
-            ],
-            directory: root.path().into(),
+            // Exercise native CLI dispatch/exit, without coupling the guardian
+            // deadline to schema initialization and filesystem throughput.
+            arguments: vec!["--version".into()],
+            directory,
             environment,
             require_crash_containment: cfg!(windows),
         },
     )
     .unwrap();
+    #[cfg(unix)]
+    let (stdout, stderr) = {
+        let (stdin, stdout, stderr) = pipes.into_parts();
+        drop(stdin);
+        (
+            tokio::net::unix::pipe::Receiver::from_owned_fd(stdout).unwrap(),
+            tokio::net::unix::pipe::Receiver::from_owned_fd(stderr).unwrap(),
+        )
+    };
+    #[cfg(windows)]
+    let (stdout, stderr) = {
+        let (stdin, stdout, stderr) = pipes.into_async_parts().unwrap();
+        drop(stdin);
+        (stdout, stderr)
+    };
     let report = process
         .wait(Duration::from_secs(5))
         .unwrap()
@@ -173,6 +192,31 @@ fn native_guardian_cli_entry() {
         report.scope.whole_tree_stopped,
         cfg!(any(windows, target_os = "linux"))
     );
-    assert!(state.join("operator.token").is_file());
-    assert!(state.join("domain.sqlite3").is_file());
+    // StopReport has no exit code: exact version bytes plus stderr EOF prove
+    // that the actual CLI ran, rather than accepting any leader termination.
+    let mut output = Vec::new();
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        stdout.take(256).read_to_end(&mut output),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        output,
+        format!("hagency {}\n", env!("CARGO_PKG_VERSION")).as_bytes()
+    );
+    let mut error = Vec::new();
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        stderr.take(256).read_to_end(&mut error),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(error.is_empty(), "unexpected CLI stderr: {error:?}");
+    assert_eq!(
+        process.wait(Duration::from_millis(1)).unwrap(),
+        Some(report)
+    );
 }

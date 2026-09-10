@@ -120,3 +120,22 @@ unknown outcome. This is an observation after cleanup, not a promise that cleanu
 will always succeed. Full requested POSIX crash containment still refuses while
 guardian-death recovery remains open. macOS retains group-only reporting and its
 explicit refusal of unsupported descendant custody. Windows retains Job Objects.
+
+The guardian CLI fixture now launches the actual native `--version` command in a
+Unicode cwd with empty PATH, through the same owned piped guardian/Job path. It
+keeps the five-second terminal-report deadline and exact LeaderExited/platform
+scope assertions. Since StopReport has no exit code, bounded stdout/stderr reads
+also require the exact compiled version bytes and empty stderr through EOF.
+Fresh Unicode token/database initialization remains in the separate native crash
+and restart test; it is not a guardian responsiveness threshold.
+
+The f4cdead combined macOS run failed when the previous fixture received no report
+within five seconds during fresh initialization. The unchanged fixture later
+passed in isolation (0.70 seconds). Eight bounded diagnostic launches observed
+four valid version and four valid fresh-init exits; after spawn, version reports
+arrived around 25–27 ms and init around 80 ms on that run. These measurements do
+not establish the historical timeout's cause. The old test coupled schema/filesystem
+initialization throughput to guardian exit observation without child-phase evidence.
+The split retains both actual checks and improves exit evidence; it changes no
+production startup, stop, identity or timeout behavior. Any later missing version
+report still fails and requires investigation rather than being called a flake.

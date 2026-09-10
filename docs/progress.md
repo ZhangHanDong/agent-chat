@@ -3367,3 +3367,27 @@ The initial lifecycle's only failure was the known root-file path parser issue;
 explicit ./Cargo.toml and ./Cargo.lock corrected it without broadening scope.
 All 175 native selectors were present with zero missing bindings. Inherited
 project-wide trace warnings remain separate from this bounded M4 qualification.
+
+## 2026-09-10 — Separate guardian CLI exit from database initialization
+
+Investigated f4cdead's combined macOS native_guardian_cli_entry failure in a new
+isolated worktree. The unchanged test passed in isolation in 0.70 seconds; eight
+bounded native diagnostic launches each reported LeaderExited. Those measurements
+showed version exits around 25–27 ms after spawn and fresh init around 80 ms, but
+do not establish the original timeout cause. No production guardian/identity or
+timeout change was justified by the available evidence.
+
+The guardian entry fixture now uses actual native --version, Unicode cwd, empty
+PATH and the same guardian/Job ownership path. It retains the five-second report
+limit and exact platform scope assertions, and additionally checks exact compiled
+version bytes, empty stderr through EOF and stable repeated terminal observation.
+Reads have 256-byte caps and two-second deadlines. The independent real-binary
+crash/restart test retains fresh Unicode initialization and explicit token/domain
+file assertions. Both CLI tests and macOS/Windows GNU focused Clippy passed.
+The temporary measurement fixture was removed; only test/contract/ADR and these
+coordination notes changed. Existing guardian lifecycle verification follows.
+Final guardian agent-spec 1.4 lifecycle passed 6/6, including all five scenarios
+and the five-file boundary, quality 94%, with no fail/skip/uncertain results.
+Baseline, bounded diagnostics, CLI tests, both Clippy targets and lifecycle logs
+are in the operator cache under guardian-cli-*. This is local macOS execution and
+Windows cross-compilation; updated fixture runtime qualification still needs CI.
