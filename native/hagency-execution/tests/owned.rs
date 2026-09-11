@@ -13,6 +13,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "owned/receive.rs"]
+mod receive;
 #[path = "owned/registration.rs"]
 mod registration;
 #[path = "owned/usage.rs"]

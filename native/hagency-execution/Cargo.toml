@@ -14,12 +14,14 @@ hagency-platform = { path = "../hagency-platform" }
 hagency-metering = { path = "../hagency-metering" }
 hagency-files = { path = "../hagency-files" }
 cap-std = "=4.0.3"
+cap-fs-ext = "=4.0.3"
+sha2.workspace = true
 tokio = { workspace = true, features = ["io-util", "net"] }
 serde_json.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 serde.workspace = true

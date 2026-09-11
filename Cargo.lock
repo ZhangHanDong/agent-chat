@@ -1118,6 +1118,7 @@ dependencies = [
 name = "hagency-execution"
 version = "0.1.0"
 dependencies = [
+ "cap-fs-ext",
  "cap-std",
  "hagency-core",
  "hagency-files",
@@ -1128,6 +1129,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",

@@ -9,7 +9,7 @@ pub use host::{Host, Limits};
 pub use operation::{Failure, Operation, Protocol, Report, Settlement};
 pub use registration::{LaunchAck, RegistrationError, WorkspaceRegistration};
 pub use usage::{UsageFailure, UsageStatus};
-pub use workspace::{StartedWorkspace, WorkspaceError};
+pub use workspace::{StartedWorkspace, WorkspaceError, WorkspaceReceive, WorkspaceReceiveError};
 #[cfg(test)]
 #[path = "../tests/support/reply_loss.rs"]
 mod reply_loss;

@@ -2618,3 +2618,15 @@ Incoming serve/MCP/cache materialization and platform qualification remain open.
   original stderr is capped and projects fixed labels only. A phase is not
   authority, cleanup or an explanation of historical failure; see
   `knowledge/context/native-startup-boundary-observation.md`.
+## 2026-09-11 — Receive sink ownership checkpoint
+
+ADR105's isolated workspace sink prepares without IO by retaining the original
+private Binding and consuming the unique write grant. Borrowed materialization
+marks its attempt before any await and stores the actual create_new file before
+sealing or writing. Read-only validation keeps that file and uses a new response
+deadline. Generated names never derive from attachment filename metadata. The
+Windows creation handle needs WRITE_DAC and WRITE_OWNER for the creation-only
+private sealer; it also denies delete sharing while retained. Physical sync uses
+the accepted ADR104 NTFS helper without a fallback. This implementation checkpoint
+still awaits the exact grant-capability and fresh writer-clock prerequisites and
+final lifecycle; it is not full receive workflow or actual Windows qualification.

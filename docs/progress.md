@@ -6033,3 +6033,21 @@ The actual five-test executable FileService target passes locally, including rea
 configuration refusal and missing-journal refusal observation. Historical Linux
 and Windows causes remain unproved; see the bounded startup observation contract
 and knowledge/context/native-startup-boundary-observation.md.
+### 2026-09-11 — Retained receive workspace sink implementation checkpoint
+
+In isolated native-receive-workspace-sink-v2 tree based on5ece94f plus the separately
+qualified ADR104 prerequisite, parsed and linted the exact ten-path ADR105 sink
+contract before source edits. Implemented one original retained destination,
+bounded write/readback checks, original binding checks and fresh read-only replay.
+The application keeps its owner across the borrowed future; no Matrix/media
+source dependency or per-request worker was added.
+
+Actual owned execution suite passes22/22 including five new receive tests. Native
+all-target Clippy passes. Initial cross-Windows Clippy passes, with a follow-up
+creation rights and explicit delete-sharing fix under review. Earlier fixture
+runs failed on invalid attachment metadata and a wrong SQL table name; both
+original logs are retained in the external2026-09-10 migration cache. No failure
+is reinterpreted as passing. This checkpoint awaits the separately bounded exact
+ReceiveWrite capability matcher and fresh writer time after SQLite waits, final
+checks and strict lifecycle. Real Windows file operations and the incoming
+executable workflow remain independent gates.
