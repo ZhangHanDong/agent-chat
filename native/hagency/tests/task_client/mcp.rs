@@ -240,7 +240,11 @@ async fn native_mcp_sdk() {
     f.close().await;
 }
 
-fn file_helper(address: SocketAddr, cap: &RunnerCapability) -> tokio::process::Child {
+fn file_helper(
+    address: SocketAddr,
+    cap: &RunnerCapability,
+    receive: bool,
+) -> tokio::process::Child {
     let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_hagency"));
     command
         .arg("mcp")
@@ -251,7 +255,14 @@ fn file_helper(address: SocketAddr, cap: &RunnerCapability) -> tokio::process::C
             serde_json::to_string(cap).unwrap(),
         )
         .env("HAGENCY_TASK_ID", "task")
-        .env("HAGENCY_FILE_TOOLS", "1")
+        .env(
+            if receive {
+                "HAGENCY_RECEIVE_FILE_TOOLS"
+            } else {
+                "HAGENCY_FILE_TOOLS"
+            },
+            "1",
+        )
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -269,7 +280,11 @@ async fn file_call(
     name: &str,
     args: Value,
 ) -> rmcp::model::CallToolResult {
-    let mut child = file_helper(address, cap);
+    let mut child = file_helper(
+        address,
+        cap,
+        matches!(name, "receive_file" | "list_received_files"),
+    );
     let transport = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
     let result = tokio::time::timeout(Duration::from_secs(5), async {
         let client = ().serve(transport).await.unwrap();
@@ -343,6 +358,159 @@ fn file_response(body: &str) -> String {
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     )
+}
+
+#[tokio::test]
+async fn native_mcp_receive_transport() {
+    // This actual MCP child and counted HTTP peer validate the adapter only.
+    // Response fixtures do not prove SDK verification or a physical Ready file.
+    let view = json!({"event_id":"$original","filename":"报告.txt","mime_type":"text/plain",
+        "size":4,"sha256":"a".repeat(64),"path":format!(".hagency-received-{}.bin", "b".repeat(32)),"replayed":false});
+    let item = json!({"event_id":"$original","sequence":3,"metadata":{"filename":"报告.txt","mime_type":"text/plain","declared_size":4}});
+    let page = json!({"items":[item],"next":3});
+    for (name, args, value, line) in [
+        (
+            "receive_file",
+            json!({"event_id":"$original"}),
+            view.clone(),
+            "POST /api/native/v1/runner/received-files HTTP/1.1",
+        ),
+        (
+            "list_received_files",
+            json!({"after":2,"limit":1}),
+            page.clone(),
+            "GET /api/native/v1/runner/received-files?after=2&limit=1 HTTP/1.1",
+        ),
+        (
+            "list_received_files",
+            json!({}),
+            json!({"items":[],"next":null}),
+            "GET /api/native/v1/runner/received-files?after=0&limit=16 HTTP/1.1",
+        ),
+    ] {
+        let (result, request) =
+            file_exchange(name, args.clone(), file_response(&value.to_string())).await;
+        assert_eq!(result.is_error, Some(false));
+        assert_eq!(result.structured_content.unwrap(), value);
+        assert!(request.starts_with(line));
+        assert!(
+            request.contains(&format!("Authorization: Bearer {}", capability().secret))
+                || request.contains(&format!("authorization: Bearer {}", capability().secret))
+        );
+        assert!(request.contains("x-hagency-dispatch: dispatch"));
+        assert!(request.contains("x-hagency-runner: runner"));
+        assert!(request.contains("x-hagency-fence: 1"));
+        let (_, body) = request.split_once("\r\n\r\n").unwrap();
+        if name == "receive_file" {
+            assert_eq!(serde_json::from_str::<Value>(body).unwrap(), args);
+        } else {
+            assert!(body.is_empty());
+        }
+    }
+    let mut invalid = Vec::new();
+    for (field, value) in [
+        ("event_id", json!("$other")),
+        ("path", json!("../private_response_canary")),
+        ("path", json!("/private_response_canary")),
+        ("path", json!(".hagency-received-ABC.bin")),
+        (
+            "path",
+            json!(format!(".hagency-received-{}.bin/child", "a".repeat(32))),
+        ),
+        ("filename", json!("../private_response_canary")),
+        ("sha256", json!("A".repeat(64))),
+        ("size", json!(4 * 1024 * 1024 + 1)),
+        ("size", json!(-1)),
+        ("replayed", json!("true")),
+    ] {
+        let mut bad = view.clone();
+        bad[field] = value;
+        invalid.push(bad.to_string());
+    }
+    for field in [
+        "room_id",
+        "thread_root",
+        "mxc",
+        "url",
+        "descriptor",
+        "key",
+        "capability",
+        "root",
+    ] {
+        let mut bad = view.clone();
+        bad[field] = "private_response_canary".into();
+        invalid.push(bad.to_string());
+    }
+    invalid.push(format!(
+        "{{\"event_id\":\"$original\",{}",
+        &view.to_string()[1..]
+    ));
+    invalid.push(format!("{view}{}", " ".repeat(4097)));
+    let mut responses: Vec<_> = invalid.iter().map(|body| file_response(body)).collect();
+    responses.extend([
+        "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:1/private_response_canary\r\nContent-Length: 0\r\n\r\n".into(),
+        "HTTP/1.1 503 Unavailable\r\nContent-Length: 23\r\n\r\nprivate_response_canary".into(),
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 200\r\n\r\n{".into(),
+    ]);
+    for response in responses {
+        let (result, _) =
+            file_exchange("receive_file", json!({"event_id":"$original"}), response).await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(result.structured_content.is_none());
+        let encoded = serde_json::to_string(&result).unwrap();
+        assert!(!encoded.contains("private_response_canary"));
+        assert!(!encoded.contains(&capability().secret));
+    }
+    let mut invalid_pages = vec![
+        json!({"items":[],"next":3}),
+        json!({"items":[item.clone()],"next":4}),
+        json!({"items":[item.clone(),item.clone()],"next":3}),
+    ];
+    for (field, value) in [
+        ("sequence", json!(2)),
+        ("sequence", json!(9007199254740992_u64)),
+        ("event_id", json!("bad")),
+        ("key", json!("private_response_canary")),
+    ] {
+        let mut bad = item.clone();
+        bad[field] = value;
+        invalid_pages.push(json!({"items":[bad],"next":null}));
+    }
+    let mut later = item.clone();
+    later["sequence"] = 4.into();
+    invalid_pages.push(json!({"items":[item,later],"next":4})); // Duplicate event with distinct sequence.
+    for page in invalid_pages {
+        let (result, _) = file_exchange(
+            "list_received_files",
+            json!({"after":2,"limit":2}),
+            file_response(&page.to_string()),
+        )
+        .await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(result.structured_content.is_none());
+        assert!(
+            !serde_json::to_string(&result)
+                .unwrap()
+                .contains("private_response_canary")
+        );
+    }
+    let (result, _) = file_exchange(
+        "list_received_files",
+        json!({}),
+        file_response(&format!("{page}{}", " ".repeat(16 * 1024))),
+    )
+    .await;
+    assert_eq!(result.is_error, Some(true));
+    let f = Fixture::new(false).await;
+    for (name, args) in [
+        ("receive_file", json!({"event_id":"$original"})),
+        ("list_received_files", json!({})),
+    ] {
+        let result = file_call(f.address, &f.cap, name, args).await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(result.structured_content.is_none());
+    }
+    f.close().await;
 }
 
 #[tokio::test]

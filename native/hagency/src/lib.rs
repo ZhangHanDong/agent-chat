@@ -3,6 +3,7 @@ use hagency_store::{DomainStore, Error, Store};
 pub mod bootstrap;
 pub(crate) mod file_service;
 pub mod mcp;
+pub(crate) mod receive_service;
 mod resources;
 mod runner;
 pub mod task_client;
@@ -26,6 +27,7 @@ pub struct App {
     requests: Arc<Semaphore>,
     development: Option<bootstrap::StatusHandle>,
     files: Option<file_service::FileHandle>,
+    receives: Option<receive_service::ReceiveHandle>,
 }
 
 impl App {
@@ -48,6 +50,7 @@ impl App {
             requests: Arc::new(Semaphore::new(8)),
             development: None,
             files: None,
+            receives: None,
         })
     }
 
@@ -63,6 +66,11 @@ impl App {
 
     pub(crate) fn with_files(mut self, files: file_service::FileHandle) -> Self {
         self.files = Some(files);
+        self
+    }
+
+    pub(crate) fn with_receive_service(mut self, receives: receive_service::ReceiveHandle) -> Self {
+        self.receives = Some(receives);
         self
     }
 

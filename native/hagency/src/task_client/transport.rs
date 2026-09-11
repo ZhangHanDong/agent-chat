@@ -1,5 +1,5 @@
 //! Closed operation dispatch shares the existing bounded local transport.
-use super::{Context, Error, coordination, files};
+use super::{Context, Error, coordination, files, received};
 use hagency_core::{project::identifier, tasks::TaskMutation};
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, body::Bytes, client::conn::http1};
@@ -16,6 +16,7 @@ pub(super) enum Operation<'a> {
     },
     Coordination(&'a coordination::Command),
     Files(&'a files::Command),
+    Received(&'a received::Command),
 }
 struct Prepared {
     path: String,
@@ -31,12 +32,25 @@ pub(super) async fn request(
     if deadline.is_zero() || deadline > Duration::from_secs(30) {
         return Err(Error::Invalid);
     }
-    let response_limit = if matches!(&operation, Operation::Files(_)) {
-        4096
-    } else {
-        RESPONSE_LIMIT
+    let response_limit = match &operation {
+        Operation::Files(_) => 4096,
+        Operation::Received(command) => command.response_limit(),
+        _ => RESPONSE_LIMIT,
     };
     let (request, limit) = match operation {
+        Operation::Received(command) => {
+            command.validate(context)?;
+            let (path, body, method) = command.wire()?;
+            (
+                Prepared {
+                    path,
+                    body,
+                    method,
+                    mutation: command.mutates(),
+                },
+                16 * 1024,
+            )
+        }
         Operation::Files(command) => {
             command.validate(context)?;
             let (path, body, method) = command.wire()?;

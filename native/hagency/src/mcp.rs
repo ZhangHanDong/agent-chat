@@ -3,7 +3,8 @@ mod catalog;
 mod coordination_catalog;
 mod file_catalog;
 pub(crate) mod json;
-use crate::task_client::{self, Context, coordination, files};
+mod receive_catalog;
+use crate::task_client::{self, Context, coordination, files, received};
 use hagency_core::{JSON_SAFE_MAX, project::identifier, tasks::TaskMutation};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -125,10 +126,14 @@ impl Session {
             }
             "ping" if empty(&request.params) => json!({}),
             "tools/list" if self.phase == Phase::Ready && empty(&request.params) => {
-                catalog::list(self.context.file_tools())
+                catalog::list(self.context.file_tools(), self.context.receive_tools())
             }
             "tools/call" if self.phase == Phase::Ready => {
-                if !valid_call(request.params.as_ref(), self.context.file_tools()) {
+                if !valid_call(
+                    request.params.as_ref(),
+                    self.context.file_tools(),
+                    self.context.receive_tools(),
+                ) {
                     return Ok(Some(
                         json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":"Unknown tool or invalid tool request schema"}}),
                     ));
@@ -178,6 +183,20 @@ impl Session {
                 {
                     Ok(structured) => {
                         json!({"content":[{"type":"text","text":structured.to_string()}],"structuredContent":structured,"isError":false})
+                    }
+                    Err(error) => tool_error(&error.to_string()),
+                },
+            );
+        }
+        if received::NAMES.contains(&name) {
+            let command = match received::Command::parse(name, args) {
+                Ok(command) => command,
+                Err(error) => return Ok(tool_error(&error.to_string())),
+            };
+            return Ok(
+                match received::run(&self.context, &command, task_client::DEFAULT_DEADLINE).await {
+                    Ok(value) => {
+                        json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
                     }
                     Err(error) => tool_error(&error.to_string()),
                 },
@@ -295,12 +314,14 @@ fn tool_error(message: &str) -> Value {
     json!({"content":[{"type":"text","text":message}],"isError":true})
 }
 
-fn valid_call(params: Option<&Value>, file_tools: bool) -> bool {
+fn valid_call(params: Option<&Value>, file_tools: bool, receive_tools: bool) -> bool {
     let Some(p) = params.and_then(Value::as_object) else {
         return false;
     };
     (p.get("name").and_then(Value::as_str).is_some_and(|name| {
-        coordination::NAMES.contains(&name) || (file_tools && files::NAMES.contains(&name))
+        coordination::NAMES.contains(&name)
+            || (file_tools && files::NAMES.contains(&name))
+            || (receive_tools && received::NAMES.contains(&name))
     }) || matches!(
         p.get("name").and_then(Value::as_str),
         Some(

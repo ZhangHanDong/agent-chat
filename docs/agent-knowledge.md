@@ -2658,3 +2658,15 @@ after acquiring its SQLite transaction. Actual pre-effect caller loss while that
 transaction is blocked leaves the attempt spent without creating a destination.
 The same borrowed owner also survives controlled caller unwind after actual file
 creation. This is not evidence that a timed-out kernel call has stopped.
+
+### Native receive adapters (2026-09-11)
+
+The host-only receive-tools marker presents list_received_files and receive_file
+independently of outgoing tools. It grants no backend authority. Both HTTP paths
+stay under current runner authentication; there is no historical file-path route.
+The real service owns every admitted job before its HTTP waiter is polled. The
+adapter accepts only event selection or bounded pagination, and validates closed
+response fields, exact event, ordering, metadata, digest and generated path.
+Task-only Done and actual dispatch completion differ: the former retains original
+final-reply bookkeeping; the latter retires the runner credential. Attachment
+visibility and retained workspace checks remain in the original service.

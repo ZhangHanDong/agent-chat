@@ -1,5 +1,5 @@
 use serde_json::{Value, json};
-pub(super) fn list(file_tools: bool) -> Value {
+pub(super) fn list(file_tools: bool, receive_tools: bool) -> Value {
     let id = json!({"type":"string","minLength":1,"maxLength":128,"description":"Exact assigned canonical task ID"});
     let call = json!({"type":"string","minLength":1,"maxLength":512,"description":"Stable mutation ID; reuse only with identical task operation content"});
     let mut tools = Vec::new();
@@ -54,6 +54,9 @@ pub(super) fn list(file_tools: bool) -> Value {
     tools.extend(super::coordination_catalog::tools());
     if file_tools {
         tools.extend(super::file_catalog::tools());
+    }
+    if receive_tools {
+        tools.extend(super::receive_catalog::tools());
     }
     json!({"tools":tools})
 }

@@ -137,6 +137,134 @@ fn command() -> Command {
     }
     cmd
 }
+
+#[tokio::test]
+async fn native_mcp_receive_presentation() {
+    for flag in ["", "0", "true", " 1", "1\n", "private_receive_marker"] {
+        let output = command()
+            .env("HAGENCY_RECEIVE_FILE_TOOLS", flag)
+            .output()
+            .await
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private_receive_marker"));
+    }
+    for (send, receive) in [(false, false), (true, false), (false, true), (true, true)] {
+        // Retain a real listener: malformed or disabled calls must never connect.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut cmd = command();
+        cmd.env(
+            "HAGENCY_RUNNER_API_ADDR",
+            listener.local_addr().unwrap().to_string(),
+        );
+        if send {
+            cmd.env("HAGENCY_FILE_TOOLS", "1");
+        }
+        if receive {
+            cmd.env("HAGENCY_RECEIVE_FILE_TOOLS", "1");
+        }
+        let mut child = cmd.spawn().unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let mut frames = vec![
+            init(json!(0)),
+            json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+            json!({"jsonrpc":"2.0","id":"catalog","method":"tools/list"}),
+        ];
+        let mut invalid = vec![
+            ("receive_file", json!({"event_id":"missing_prefix"})),
+            ("receive_file", json!({"event_id":""})),
+            (
+                "receive_file",
+                json!({"event_id":format!("${}", "a".repeat(512))}),
+            ),
+            ("receive_file", json!({})),
+            ("list_received_files", json!({"limit":0})),
+            ("list_received_files", json!({"limit":17})),
+            ("list_received_files", json!({"after":-1})),
+            ("list_received_files", json!({"after":1.5})),
+            ("list_received_files", json!({"after":9007199254740992_u64})),
+        ];
+        for field in [
+            "path",
+            "room_id",
+            "url",
+            "key",
+            "descriptor",
+            "capability",
+            "verified",
+            "sdk",
+            "thread_root",
+        ] {
+            let mut args = json!({"event_id":"$original"});
+            args[field] = "private_argument_canary".into();
+            invalid.push(("receive_file", args));
+            let mut args = json!({"limit":1});
+            args[field] = "private_argument_canary".into();
+            invalid.push(("list_received_files", args));
+        }
+        if !receive {
+            invalid.push(("receive_file", json!({"event_id":"$original"})));
+            invalid.push(("list_received_files", json!({})));
+        }
+        let count = invalid.len();
+        for (id, (name, arguments)) in invalid.into_iter().enumerate() {
+            frames.push(json!({"jsonrpc":"2.0","id":id+1,"method":"tools/call","params":{"name":name,"arguments":arguments}}));
+        }
+        let writer = tokio::spawn(async move {
+            for frame in frames {
+                let mut bytes = serde_json::to_vec(&frame).unwrap();
+                bytes.push(b'\n');
+                input.write_all(&bytes).await.unwrap();
+            }
+        });
+        let output = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        writer.await.unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(!text.contains("private_argument_canary"));
+        let replies: Vec<Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(replies.len(), 2 + count);
+        let tools = replies[1]["result"]["tools"].as_array().unwrap();
+        assert_eq!(
+            tools.len(),
+            20 + 2 * usize::from(send) + 2 * usize::from(receive)
+        );
+        for name in ["list_received_files", "receive_file"] {
+            let tool = tools.iter().find(|tool| tool["name"] == name);
+            assert_eq!(tool.is_some(), receive);
+            if let Some(tool) = tool {
+                assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+                assert!(
+                    tool["description"]
+                        .as_str()
+                        .unwrap()
+                        .contains("untrusted user")
+                );
+            }
+        }
+        for reply in &replies[2..] {
+            if receive {
+                assert_eq!(reply["result"]["isError"], true);
+            } else {
+                assert_eq!(reply["error"]["code"], -32602);
+            }
+            assert!(reply["result"].get("structuredContent").is_none());
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+}
 #[tokio::test]
 async fn native_mcp_stdio() {
     let mut missing = command();

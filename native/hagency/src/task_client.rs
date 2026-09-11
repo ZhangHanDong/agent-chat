@@ -10,6 +10,7 @@ use std::{net::SocketAddr, time::Duration};
 pub(crate) mod completion;
 pub(crate) mod coordination;
 pub(crate) mod files;
+pub(crate) mod received;
 mod transport;
 pub const DEFAULT_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -33,6 +34,7 @@ pub struct Context {
     capability: RunnerCapability,
     task_id: String,
     file_tools: bool,
+    receive_tools: bool,
 }
 impl Context {
     pub fn new(
@@ -58,6 +60,7 @@ impl Context {
             capability,
             task_id,
             file_tools: false,
+            receive_tools: false,
         })
     }
     pub(crate) fn task_id(&self) -> &str {
@@ -65,6 +68,9 @@ impl Context {
     }
     pub(crate) fn file_tools(&self) -> bool {
         self.file_tools
+    }
+    pub(crate) fn receive_tools(&self) -> bool {
+        self.receive_tools
     }
     pub fn from_env() -> Result<Self, Error> {
         let get = |name, max| {
@@ -81,6 +87,12 @@ impl Context {
         let mut context = Self::new(address, capability, get("HAGENCY_TASK_ID", 128)?)?;
         context.file_tools =
             match std::env::var(hagency_runtime::codex::session::TaskMcp::FILE_TOOLS_ENV) {
+                Ok(value) if value == "1" => true,
+                Err(std::env::VarError::NotPresent) => false,
+                _ => return Err(Error::Invalid),
+            };
+        context.receive_tools =
+            match std::env::var(hagency_runtime::codex::session::TaskMcp::RECEIVE_TOOLS_ENV) {
                 Ok(value) if value == "1" => true,
                 Err(std::env::VarError::NotPresent) => false,
                 _ => return Err(Error::Invalid),

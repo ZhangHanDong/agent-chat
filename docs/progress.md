@@ -6119,3 +6119,27 @@ not actual Windows execution. The Linux/macOS/Windows incoming executable workfl
 shared service close and live/runtime migration gates remain separate and are not
 marked passing by this result. No live service, user checkout or production state
 was changed.
+
+### 2026-09-11 — Native receive HTTP, MCP and runtime adapters
+
+Integrated exact sink and service checkpoints plus the independent grant/clock
+prerequisite in the isolated adapter tree. Added current runner routes, separate
+host receive-tools opt-in, strict closed MCP selection/response validation and
+untrusted-content guidance without changing sandbox or execution approval.
+
+Actual MCP child presentation and counted HTTP transport tests pass. The affected
+application library18, bootstrap5, MCP4 and task-client8 tests pass; the final
+runner target passes11/11 after correcting its fixture to finish the actual
+dispatch before expecting retired authentication. Host and typed runtime receive
+configuration each pass1/1. All-target app/runtime/execution Clippy passes with
+warnings denied. Initial test failures remain external: Ruma accepts a lone$ so
+that invalid-selector fixture was wrong; authentication rejects with401, not403;
+task-only Done does not itself retire the dispatch. The tests now use actual
+invalid input, exact existing authentication status and actual dispatch completion.
+Catalog event length now matches the existing backend255-byte validator.
+
+The separate reviewer found no additional concrete custody/concurrency defect in
+the service and sink after accounting for exact capability and post-lock clock
+checks. Original partial-write/platform and full encrypted incoming executable
+acceptance remain separate required gates; these HTTP fixtures do not establish
+a real Ready destination. Strict lifecycle and final source hashes follow.

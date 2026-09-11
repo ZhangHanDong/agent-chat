@@ -11,6 +11,7 @@ use hagency_store::{DomainStore, Error};
 use salvo::prelude::*;
 mod completion;
 mod files;
+mod received;
 mod replies;
 mod workflows;
 
@@ -27,6 +28,7 @@ pub(super) fn router() -> Router {
             Router::new()
                 .hoop(authenticate)
                 .push(files::current())
+                .push(received::router())
                 .push(Router::with_path("tasks").get(list_tasks))
                 .push(Router::with_path("delegations").post(delegate))
                 .push(Router::with_path("conversations").post(open_conversation))

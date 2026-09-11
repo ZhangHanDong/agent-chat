@@ -40,6 +40,7 @@ pub struct Host {
     workspaces: Workspaces,
     task_helper: Option<(PathBuf, SocketAddr)>,
     file_tools: bool,
+    receive_tools: bool,
     #[cfg(test)]
     pub(crate) discard_start_reply: bool,
     #[cfg(test)]
@@ -61,6 +62,9 @@ impl Host {
             || environment.keys().any(|key| {
                 key.to_string_lossy()
                     .eq_ignore_ascii_case(TaskMcp::FILE_TOOLS_ENV)
+                    || key
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(TaskMcp::RECEIVE_TOOLS_ENV)
             })
         {
             return Err(super::Failure::Admission);
@@ -83,6 +87,7 @@ impl Host {
             workspaces,
             task_helper: None,
             file_tools: false,
+            receive_tools: false,
             #[cfg(test)]
             discard_start_reply: false,
             #[cfg(test)]
@@ -135,6 +140,14 @@ impl Host {
             return Err(super::Failure::Admission);
         }
         self.file_tools = true;
+        Ok(self)
+    }
+    /// Presentation only, after configuring the original native task helper.
+    pub fn with_receive_tools(mut self) -> Result<Self, super::Failure> {
+        if self.task_helper.is_none() {
+            return Err(super::Failure::Admission);
+        }
+        self.receive_tools = true;
         Ok(self)
     }
     fn system_root(&self) -> Result<Option<String>, super::Failure> {
@@ -212,6 +225,10 @@ impl Host {
                 environment.insert(TaskMcp::FILE_TOOLS_ENV.into(), "1".into());
                 helper = helper.with_file_tools();
             }
+            if self.receive_tools {
+                environment.insert(TaskMcp::RECEIVE_TOOLS_ENV.into(), "1".into());
+                helper = helper.with_receive_tools();
+            }
             settings = settings.with_task_mcp(helper);
         }
         let launch = Launch {
@@ -247,6 +264,51 @@ pub(crate) struct Prepared {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_receive_tools_host_profile() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        hagency_store::private::directory(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let host = |environment| {
+            Host::new(
+                executable.clone(),
+                executable.clone(),
+                environment,
+                BTreeMap::from([("workspace".into(), root.clone())]),
+            )
+        };
+        let default = host(BTreeMap::new()).unwrap();
+        assert!(!default.receive_tools);
+        assert!(matches!(
+            default.with_receive_tools(),
+            Err(super::super::Failure::Admission)
+        ));
+        for send in [false, true] {
+            let mut configured = host(BTreeMap::new())
+                .unwrap()
+                .with_task_helper(executable.clone(), "127.0.0.1:13300".parse().unwrap())
+                .unwrap();
+            if send {
+                configured = configured.with_file_tools().unwrap();
+            }
+            let configured = configured.with_receive_tools().unwrap();
+            assert!(configured.receive_tools);
+            assert_eq!(configured.file_tools, send);
+        }
+        for key in [
+            "HAGENCY_RECEIVE_FILE_TOOLS",
+            "hagency_receive_file_tools",
+            "Hagency_Receive_File_Tools",
+        ] {
+            assert!(matches!(
+                host(BTreeMap::from([(key.into(), "1".into())])),
+                Err(super::super::Failure::Admission)
+            ));
+        }
+    }
 
     #[test]
     fn native_file_tools_host_profile() {

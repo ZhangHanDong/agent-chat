@@ -218,6 +218,128 @@ async fn operation(f: &Fixture, call: &str, operation: Value) -> (StatusCode, Va
 }
 
 #[tokio::test]
+async fn native_runner_receive_current_authority() {
+    let f = Fixture::new(true).await;
+    let receive = |cap: &RunnerCapability| {
+        auth(
+            TestClient::post(format!("{BASE}/runner/received-files")),
+            cap,
+        )
+    };
+    let valid = json!({"event_id":"$original"});
+    // Neither a presentation marker nor current task credentials invent a service.
+    assert_eq!(
+        get("received-files", &f.cap)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::SERVICE_UNAVAILABLE)
+    );
+    assert_eq!(
+        receive(&f.cap)
+            .json(&valid)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::SERVICE_UNAVAILABLE)
+    );
+    for query in [
+        "limit=0",
+        "limit=17",
+        "limit=1&limit=2",
+        "after=-1",
+        "after=1.5",
+        "after=9007199254740992",
+        "after=1&after=2",
+        "path=private_canary",
+        "after=%31",
+        "after=",
+    ] {
+        assert_eq!(
+            get(&format!("received-files?{query}"), &f.cap)
+                .send(&f.service)
+                .await
+                .status_code,
+            Some(StatusCode::BAD_REQUEST),
+            "{query}"
+        );
+    }
+    for payload in [
+        r#"{"event_id":"$original","event_id":"$other"}"#,
+        r#"{"event_id":"$original","path":"private_canary"}"#,
+        r#"{"event_id":"missing_prefix"}"#,
+    ] {
+        let mut response = receive(&f.cap)
+            .add_header("content-type", "application/json", true)
+            .body(payload)
+            .send(&f.service)
+            .await;
+        assert_eq!(response.status_code, Some(StatusCode::BAD_REQUEST));
+        assert!(
+            !response
+                .take_string()
+                .await
+                .unwrap()
+                .contains("private_canary")
+        );
+    }
+    let missing = TestClient::get(format!("{BASE}/runner/received-files"))
+        .add_header("host", "127.0.0.1:13300", true)
+        .send(&f.service)
+        .await;
+    assert!(matches!(
+        missing.status_code,
+        Some(StatusCode::UNAUTHORIZED)
+    ));
+    let mut wrong = f.cap.clone();
+    wrong.secret = "f".repeat(64);
+    let mut successor = f.cap.clone();
+    successor.fence += 1;
+    for cap in [&wrong, &successor] {
+        assert_eq!(
+            get("received-files", cap)
+                .send(&f.service)
+                .await
+                .status_code,
+            Some(StatusCode::UNAUTHORIZED)
+        );
+        assert_eq!(
+            receive(cap).json(&valid).send(&f.service).await.status_code,
+            Some(StatusCode::UNAUTHORIZED)
+        );
+    }
+    assert_eq!(
+        operation(&f, "done", json!({"action":"transition","status":"done"}))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    // Task-only Done still permits original final-reply bookkeeping. Complete
+    // the actual dispatch too before asserting that its credential is retired.
+    f.domain
+        .complete_dispatch(f.cap.clone(), json!({"text":"reported"}), now())
+        .await
+        .unwrap();
+    // Old task-operation replay exists elsewhere; both receive paths stay current.
+    assert_eq!(
+        get("received-files", &f.cap)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::UNAUTHORIZED)
+    );
+    assert_eq!(
+        receive(&f.cap)
+            .json(&valid)
+            .send(&f.service)
+            .await
+            .status_code,
+        Some(StatusCode::UNAUTHORIZED)
+    );
+    f.close().await;
+}
+
+#[tokio::test]
 async fn native_runner_http_replies() {
     let f = Fixture::configured(true, None, true).await;
     let send = |body: Value| {
