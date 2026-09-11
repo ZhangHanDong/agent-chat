@@ -4114,3 +4114,20 @@ usage reads 4/4 across 15; per-event refusal 6/6 across 14 and amended workflow
 Windows fixture 3/3 across five. The documentation checkpoint runs the owned
 dispatch lifecycle at workspace scope, with all four changed documents explicit.
 No fail, skip, uncertain or pending-review verdict was counted as passing.
+
+
+## 2026-09-10 — Scoped runtime usage observations
+
+ADR069 retains the actual SessionDriver tokenUsage notification as a fixed optional
+counter projection with exact source/sequence. The default Update remains Progress.
+Total and last remain separate, missing/invalid/future evidence stays explicit,
+and the progress attachment consumes receipts without manufacturing tool activity.
+Four new actual-stream regressions pass, along with the complete runtime/progress
+affected suites and warnings-denied Clippy. No transcript, ledger, quota or service
+wiring is claimed; this supplies typed capture for the later attribution adapter.
+
+The full affected runtime/progress run passes59 tests. Final strict lifecycle
+passes5/5 across all12 explicit changed paths. Its first attempt recorded one
+uncertain scenario because a concurrently compiled media-test metadata import
+failed before that selector ran. That fixture compile error was corrected and
+the entire lifecycle rerun passed; the original uncertain result is retained.

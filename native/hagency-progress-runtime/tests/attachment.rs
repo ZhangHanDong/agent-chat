@@ -8,6 +8,50 @@ use std::time::Duration;
 fn run() -> RunId {
     RunId::new("host-immutable-run".into()).unwrap()
 }
+#[tokio::test]
+async fn native_progress_attachment_usage_is_quiet() {
+    let (mut s, mut p) = running().await;
+    let mut a = Attachment::for_driver(run(), Filter::default(), &s, 0).unwrap();
+    let before = a.summary(&run()).unwrap();
+    let metrics = note(
+        "thread/tokenUsage/updated",
+        json!({
+            "threadId":"thread-one", "turnId":"turn-one", "tokenUsage":{
+                "total":{"inputTokens":1000,"outputTokens":50},
+                "last":{"inputTokens":100,"outputTokens":5}, "modelContextWindow":null
+            }
+        }),
+    );
+    take(&mut a, &mut s, &mut p, metrics.clone(), 1).await;
+    assert_eq!(a.summary(&run()).unwrap(), before);
+    assert!(s.outcome().is_none());
+    take(
+        &mut a,
+        &mut s,
+        &mut p,
+        tool("a", "commandExecution", "inProgress", false, Value::Null),
+        2,
+    )
+    .await;
+    take(&mut a, &mut s, &mut p, metrics, 3).await;
+    assert_eq!(
+        a.summary(&run()).unwrap().as_deref(),
+        Some("1 attempt pending")
+    );
+    take(
+        &mut a,
+        &mut s,
+        &mut p,
+        tool("a", "commandExecution", "completed", true, json!(0)),
+        4,
+    )
+    .await;
+    take(&mut a, &mut s, &mut p, end("completed"), 5).await;
+    assert_eq!(
+        a.summary(&run()).unwrap().as_deref(),
+        Some("finished — ran commands")
+    );
+}
 async fn take(a: &mut Attachment, s: &mut Session, p: &mut Peer, value: Value, now: u64) {
     write(p, value).await;
     a.next_driver(&run(), s, now).await.unwrap();

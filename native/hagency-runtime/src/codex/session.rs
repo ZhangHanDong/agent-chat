@@ -3,11 +3,13 @@ mod driver;
 mod observation;
 mod state;
 mod task_mcp;
+mod usage;
 pub use driver::SessionDriver;
 pub use observation::{
     Observation, ObservationKind, ObservationSource, ToolEvidence, ToolKind, ToolResult, TurnResult,
 };
 pub use task_mcp::{TASK_MCP_ENV, TASK_MCP_TOOLS, TaskMcp};
+pub use usage::{UsageBreakdown, UsageDiagnostics, UsageEvidence};
 
 use super::transport;
 use serde_json::{Value, json};

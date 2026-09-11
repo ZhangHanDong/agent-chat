@@ -8,6 +8,9 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::time::{sleep, timeout};
 
+#[path = "session/usage.rs"]
+mod usage;
+
 type Session = SessionDriver<DuplexStream, DuplexStream, DuplexStream>;
 struct Peer {
     stdin: DuplexStream,

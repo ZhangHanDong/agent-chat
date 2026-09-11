@@ -483,9 +483,12 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
             self.drain_terminal().await?;
             self.wire.close();
         }
-        self.observation_kind =
+        self.observation_kind = if method == "thread/tokenUsage/updated" {
+            super::ObservationKind::Usage(super::usage::project(&params))
+        } else {
             self.observation_evidence
-                .project(&update, &params, self.state.outcome.as_ref());
+                .project(&update, &params, self.state.outcome.as_ref())
+        };
         Ok(update)
     }
 

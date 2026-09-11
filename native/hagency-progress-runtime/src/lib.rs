@@ -265,7 +265,7 @@ impl Attachment {
                 TurnResult::Interrupted => Retirement::InterruptedTurn,
                 _ => Retirement::Runtime,
             }),
-            ObservationKind::Ignored => {}
+            ObservationKind::Ignored | ObservationKind::Usage(_) => {}
         }
         self.receipts.push(event.clone());
         Ok(hagency_progress::Observation::Recorded)

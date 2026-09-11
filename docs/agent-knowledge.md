@@ -1973,3 +1973,10 @@ Agent collector have independent SDK purposes and cursors. Schema17 usage does
 not authenticate provider billing, and storage namespace does not grant Matrix
 route authority. The failed c0afefc Windows approval assertion remains a failed
 CI result until the corrected revision passes actual Windows execution.
+
+
+ADR069 UsageEvidence holds received counters only; input/cache fields are not
+normalized categories and total/last are not additive. Missing cache-write remains
+unknown even though the pinned upstream deserializer defaults it to zero. The
+existing exact driver source and sequence precede projection; missing metrics do
+not bypass thread/turn validation. Preserve diagnostics before any ADR063 mapping.

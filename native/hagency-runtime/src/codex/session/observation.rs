@@ -74,6 +74,7 @@ impl ToolEvidence {
 pub enum ObservationKind {
     Ignored,
     Invalidated,
+    Usage(super::UsageEvidence),
     Tool(ToolEvidence),
     TurnEnded(TurnResult),
 }
