@@ -66,8 +66,13 @@ upload response bodies now stay in finite attempt custody, and a separate
 encrypted SDK journal retains exact historical acceptance. Its one-use permits
 cannot survive owner replacement as execution grants. Exact protected-row
 settlement can recover after process exit without recreating a runner secret.
-The consuming staged upload owner, cache paths and native file tools remain to
-implement. Schema17 also stores host-attributed token observations and exposes
+The consuming staged upload owner now retains exact original inputs through one
+HTTPS upload, cancellation and historical settlement. It authenticates the current
+token, rejects mismatched or oversized inputs before retained admission, and never
+reissues its send grant. A fresh process can settle SDK acceptance that was not yet
+committed to the domain, without another upload. Already enqueued negative Matrix
+observations survive caller loss. File-event publication, physical workspace
+binding, cache paths, native file tools and service activation remain to implement. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one

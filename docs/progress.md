@@ -5139,3 +5139,39 @@ or ignored), and native/Windows GNU all-target warnings-denied Clippy pass.
 Only the declared16 Matrix/dependency/contract/coordination paths changed in this
 slice. Final exact strict lifecycle and fmt/diff checks are recorded immediately
 before the reviewable commit; parent retains integration and hosted CI ownership.
+
+## 2026-09-10 — Combined upload and invalidation integration
+
+Integrated ADR091 as 6e4e7d4 and ADR089 as ed7c060 after root and independent
+source review. Resolved only independent documentation append conflicts, retaining
+both sides. No production service or live data was changed. The strengthened
+upload fixture confirms actual SDK acceptance, a deliberately aborted first
+domain acceptance, full original-owner teardown, and first settlement in a fresh
+native process without another POST. Capability size bounds and constructor-failure
+roundtrips are covered; the late validated-response cancellation case also passes.
+
+At ed7c060, one locked all-target workspace run passes 510 unique tests plus one
+proxy child (511 printed), across 85 summaries with zero failed or ignored tests.
+Full workspace Clippy with warnings denied, formatting and diff checks pass.
+All 400 Rust spec selectors resolve. Integrated ADR091 strict lifecycle passes
+6/6 with all six actual changed paths, zero failed/skipped/uncertain/pending.
+Integrated ADR089 strict lifecycle also passes 7/7 across all 16 actual changed
+paths, with zero failed/skipped/uncertain/pending-review results.
+External evidence uses staged-owner-integrated-* and
+matrix-invalidation-integrated-lifecycle.*.
+
+Original hosted results at pushed 706172d are now preserved: Node CI 34559411309
+passes 4291 tests with one platform skip. Native CI 34559411277 passes Linux and
+macOS, while Windows fails four Matrix intake cases. Original printed suite totals
+are Linux 501/0, macOS 500/0 and Windows 493/4 passed/failed; all have 85 summaries
+and zero ignored. No original Windows shutdown assertion failed. The four failures
+retain a prime-sync wait, early collector OutcomeUnknown, completed manifest-batch
+HTTP followed by OutcomeUnknown, and an intake receipt OutcomeUnknown. Subsequent
+outgoing and transport diagnostics passed but are distinct observations. Original
+logs and first-suite extracts use windows/linux/macos-706172d-original*; Node uses
+node-706172d-original.log. Root cause of the Windows failures is not yet established.
+
+The next service/MCP file-delivery design is being prepared in an isolated design
+worktree. It must join actual entry points, physical root custody, bounded staging,
+immutable publication metadata and separately acknowledged encrypted file events.
+No new unimplemented selectors or service activation are included in this batch.

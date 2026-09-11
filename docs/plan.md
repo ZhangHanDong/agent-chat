@@ -4,45 +4,42 @@ This is coordination, not canonical runtime task state. There is no provisioned
 `task-writer` in this source checkout. User instruction: execute the Rust migration
 in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
-Current integration priorities (2026-09-10): schema19 now retains original
-upload reservation and stage commitments, current fenced claims, nonrearmable
-possible writes and exact historical acceptance. ADR079 binds the actual encrypted
-material's stable identity before staging IO; ADR077 restores that original
-ciphertext under qualified sync evidence. ADR076 already receives checked bytes
-from verified retained manifests with current-authority revalidation. The actual
-upload owner, cache paths and native file tools remain. ADR083 now retains the
-actual complete checked upload response; ADR084 commits it in separate encrypted
-SDK custody with finite one-use admission and exact historical lookup. ADR085
-settles only the exact protected domain row after process loss without original
-runner secrets. The consuming staged upload owner is separate ADR089 work.
+Current integration priorities (2026-09-10): the staged encrypted upload owner
+now joins original domain reservations, qualified encrypted staging, one actual
+HTTPS upload and protected SDK acceptance. It rechecks exact input association,
+current token identity and current domain scope before upload. Cancellation or a
+lost result cannot rearm the send. A fresh process can record first historical
+domain acceptance from the protected SDK journal without the original runner
+secret or another POST. Upload acceptance still does not publish a room file.
+ADR091 also retains already enqueued Matrix invalidations after caller loss,
+while ordinary abandoned domain work remains cancellable.
 
-At integrated97968d8 the locked full workspace passes496 unique tests plus one
-proxy child (497 printed),85 suite summaries and no failed/ignored tests. Full
-warnings-denied Clippy, rustfmt and diff checks pass. All377 Rust selectors
-resolve. Integrated ADR084 lifecycle passes7/7 across8 changed paths; ADR085
-passes6/6 across9 paths, with zero failed/skipped/uncertain/pending-review.
-Integrated cross-crate ADR082 lifecycle passes5/5 across all6 changed paths,
-including the actual Palpo publication/restart test. ADR079 passes5/5 across9
-paths; ADR081 passes8/8 across7. ADR078 integrated lifecycle passes8/8 across all
-23 paths; its148 store regressions also pass. Independent
-ADR078/079 review found no concrete blocker within their declared primitive scopes.
+At integrated ed7c060, the locked full workspace passes 510 unique tests plus
+one proxy child (511 printed), 85 suite summaries and no failed or ignored tests.
+Full warnings-denied Clippy, rustfmt and diff checks pass. All 400 Rust selectors
+resolve. Integrated ADR091 strict lifecycle passes 6/6 across its six changed
+paths. Integrated ADR089 strict lifecycle passes 7/7 across all 16 changed paths,
+with zero failed, skipped, uncertain or pending-review results. Windows GNU compilation is
+not native Windows workflow evidence, and unconfirmed directory sync remains a
+typed refusal rather than a positive upload qualification.
 
-Latest pushed7cf0dc0 native CI34556196644 failed Windows and macOS; Linux passed.
-Original suites retain Windows475 printed passes plus6 failures, macOS483 plus1,
-and Linux485 plus0, each85 summaries and zero ignored. Windows media restoration
-and transport integration now pass. Four Matrix library failures occur at domain
-shutdown, one during bounded intake and one while a script awaits HTTP; their
-original causes remain unknown. ADR088 adds fixed original phase observations.
-ADR086's actual native liveness plus fresh-progress fixture addresses the macOS
-test's ambiguous80ms heartbeat sample; production process handling is unchanged.
+Latest pushed 706172d Node CI 34559411309 passes: 4291 tests, one platform skip.
+Native CI 34559411277 passes Linux and macOS but fails Windows. Original suites
+contain Linux 501 printed passes, macOS 500, and Windows 493 passes plus four
+Matrix intake failures, each with 85 summaries and zero ignored. Windows failure
+observations identify a prime-sync request wait, an early OutcomeUnknown, a
+completed attachment-batch HTTP script followed by OutcomeUnknown, and an intake
+receipt OutcomeUnknown. No original shutdown assertion failed in this run.
+The subsequent outgoing and transport diagnostics passed separately. Their
+success does not replace the original failure or establish its cause.
 
-Node CI34556196694 has4287 passed,1 failed,1 skipped; its actual wrapper recovery
-timed out without an inner phase. ADR087 separately reproduces and fixes a real
-claim/wake clock race, with88 affected tests passing. Complete local Node checking
-exposed inventory fingerprints/line offsets requiring regeneration after the
-backend edit; that correction is in progress. Two verifier Git fixture setups
-also failed without command outcome detail. Neither a later pass nor an unrelated
-fix supplies those missing historical causes. Fresh hosted CI remains required.
+The next planned user-visible slice is native send_file and get_file_delivery:
+actual MCP admission, retained physical workspace, bounded capture/staging,
+immutable metadata, the existing single upload owner, and separate encrypted
+Matrix file-event acknowledgement. ADR092 is being designed outside this branch;
+its future selectors must not be integrated before implementation. Physical
+workspace custody through the actual runner launch remains a prerequisite.
+This slice must reach service and tool entry points, not only library fixtures.
 
 Keep canonical Done, cleanup, owner decision, runtime application, usage and
 message acceptance separate. Approval application proof, complete room/history
