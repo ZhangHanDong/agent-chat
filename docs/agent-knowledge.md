@@ -3038,3 +3038,14 @@ through cancellation/close timeout; settle that worker before closing either
 Bootstrap writer. The library still checks registration after custody waits and
 before HTTP admission; already admitted bytes cannot be recalled during rotation.
 Worker running status is neither catalog acceptance nor a completed consumer.
+
+
+- **Native private approval card, ADR110, 2026-09-11:**
+  PrivateApprovalCard is an opaque host packet, not send/verdict authority. It
+  combines pending request, current target and private scope in one transaction
+  with a post-lock clock. Its owner cutoff is earlier than or equal to the
+  immutable domain expiry; future senders must retain the original cutoff.
+  Structured content is limited to48KiB and never truncated. Existing v1 client
+  upstream_request_id stays a string; additive upstream_rpc_id preserves type.
+  Native40-hex request IDs still require explicit client qualification. Never
+  project the packet into the console or invent an Agent task/route for the bot.

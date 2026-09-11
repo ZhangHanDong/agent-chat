@@ -14,6 +14,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+pub(super) mod card;
 pub(super) mod responses;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

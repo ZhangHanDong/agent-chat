@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{fs::File, path::Path};
 mod approvals;
+pub use approvals::card::PrivateApprovalCard;
 mod attachments;
 mod catalog_publication;
 pub use attachments::AttachmentTicket;

@@ -3,6 +3,7 @@ mod database;
 mod domain;
 mod domain_worker;
 pub mod private;
+pub use domain::PrivateApprovalCard;
 pub use domain::PublishedCatalog;
 pub use domain::resource_publication::{
     ResourcePublicationAccess, ResourcePublicationCommand, ResourcePublicationResult,

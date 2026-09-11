@@ -1,3 +1,5 @@
+#[path = "approvals/card.rs"]
+mod card;
 #[path = "approvals/clock.rs"]
 mod clock;
 mod common;

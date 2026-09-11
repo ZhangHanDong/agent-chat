@@ -6751,3 +6751,25 @@ reruns overlap the 32 tests and are not additional distinct tests. Warnings-deni
 Clippy, formatting and diff checks passed. All-target Windows cross-compilation
 passed; this is compile evidence only, with actual Windows service execution still
 pending CI. Both earlier fixture failure logs remain separate from final evidence.
+
+
+## 2026-09-11 — ADR110 private approval card prerequisite
+
+The clean native private-card worktree starts from492bc59. Its task contract was
+parsed/linted before code changes. One original domain transaction now returns
+an opaque pending owner-card packet with exact private target, operation digest,
+parameters and persisted reusable scope. The owner cutoff cannot exceed request
+expiry. Queued revalidation resamples the clock after the original SQLite lock.
+Cards use the retained structured v1 fields, retain typed upstream RPC data in
+an additive field, and refuse encoded content above48KiB without truncation.
+
+The four focused behavioral tests passed, and the full approvals target passed
+27/27 after the final human-readable expiry/display-field changes. No grants,
+response admission, SDK sends or public endpoints are created. Actual encrypted
+card transport, approval-purpose enrollment, executable integration and the
+retained client's32-hex versus native40-hex request IDs remain separate gates.
+Warnings-denied all-target store Clippy and fmt/diff checks pass. Strict lifecycle
+passes5/5 (four actual behavioral selectors plus the exact11-path boundary);
+zero-match Cargo targets are excluded. Tests used only isolated local stores.
+The initial four focused tests are retained separately from the final27-test
+qualification; neither is a Matrix send or client-interoperability claim.

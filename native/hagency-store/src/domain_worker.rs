@@ -1477,6 +1477,26 @@ impl DomainStore {
         })
         .await
     }
+    pub async fn private_approval_card(
+        &self,
+        id: String,
+        owner_expires_at: u64,
+    ) -> Result<crate::PrivateApprovalCard, Error> {
+        self.call(weight(&id)? + 8, move |db| {
+            db.private_approval_card_clock(&id, owner_expires_at, writer_time)
+        })
+        .await
+    }
+    /// Retains the original opaque packet across a queued fresh comparison.
+    pub async fn check_private_approval_card(
+        &self,
+        card: Arc<crate::PrivateApprovalCard>,
+    ) -> Result<(), Error> {
+        self.call(weight(card.content())?, move |db| {
+            db.check_private_approval_card_clock(&card, writer_time)
+        })
+        .await
+    }
     pub async fn revoke_approval_grant(&self, id: String) -> Result<(), Error> {
         self.call(weight(&id)?, move |db| db.revoke_approval_grant(&id))
             .await
