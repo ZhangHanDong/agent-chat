@@ -2398,3 +2398,12 @@ is distinct from upload acceptance and canonical task Done.
   change, four actual custody tests, independent review, native workspace Clippy
   and Windows GNU compilation. An acknowledgement timeout still is not actual
   Windows cleanup proof, and the separate157-error knowledge baseline remains.
+
+- **ADR103 Windows directory probe:** cap-std's read-only directory handle lacks
+  FlushFileBuffers' documented write-access prerequisite. A retained RW-dot
+  candidate still needs exact full object identity, current-SID DACL checks,
+  effective ordinary-token execution and actual local NTFS device evidence.
+  MS-FSA footnote80 warns that another filesystem may acknowledge directory
+  flush without the directory-structure operation. This probe changes no
+  production sync evidence or upload gate. A later implementation must retain
+  that filesystem restriction; successful file sync alone remains insufficient.

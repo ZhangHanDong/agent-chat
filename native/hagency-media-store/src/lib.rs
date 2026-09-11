@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Bounded private storage only: no runtime, dispatch, Matrix or sender authority.
 mod frame;
 mod preparation;

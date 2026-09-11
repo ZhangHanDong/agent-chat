@@ -1,0 +1,66 @@
+---
+kind: decision
+id: ADR-103
+title: "Qualify a retained NTFS directory flush with an ordinary token"
+status: Accepted
+tags: [rust, windows, media, probe]
+---
+
+## Context
+
+ADR066 preserves FileSyncedDirectoryUnconfirmed on Windows when the actual
+retained directory flush fails. cap-primitives4.0.3 opens ordinary directory
+capabilities with read access; FlushFileBuffers requires write access. Historical
+negative tests do not identify the exact syscall failure or prove that a
+write-capable retained-object operation cannot work with ordinary permissions.
+
+Microsoft MS-FSA2.1.5.7 describes directory structure persistence during flush;
+Appendix A footnote80 restricts that behavior to NTFS and warns that other
+filesystems may acknowledge without performing it. A successful arbitrary-volume
+flush is therefore insufficient. Sources: [flush algorithm](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fsa/0de7dc40-9627-437e-a4df-c4696cdc3d02),
+[product behavior](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fsa/4e3695bd-7574-4f24-a223-b4679c065b63),
+[FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers).
+
+## Decision
+
+Add only a disposable native Windows example and isolated feature-branch/manual
+workflow. The example requires a restricted same-user effective token, full
+retained-object identity, strict current-SID permissions, actual local NTFS device
+classification, and real file plus directory acknowledgements. The pinned
+capability-relative dot open requests read/write with no create/truncate or
+share-delete, and has no pathname or alternative syscall fallback.
+
+Only a qualifying candidate feeds the unchanged Store through a retained Dir.
+Actual Snapshot, Codec Encrypted, PreparedEncrypted and exact original receipt
+are used, with one record and fixed byte bounds. A second child process validates
+original ciphertext and descriptor commitments after all first-child owners
+exit. Static diagnostics and the first nonzero verdict are preserved. Unsupported
+platforms do not return success. Current production behavior and upload gates
+remain unchanged regardless of probe outcome.
+
+The controller owns a fresh fixture and at most one exact child at a time. Each
+child has a fixed mode and no operator path arguments; the controller supplies
+only its newly created fixture through the child's current directory. Child
+wall expiry is unknown and requires killing and reaping that owned process.
+This is not a promise that a kernel flush is cancellable. At most four direct
+probe file/directory handles coexist, plus the existing single Store/Workspace
+bounded internal custody. Token query memory is fixed and diagnostics contain
+no private identifiers or material. The crate's production unsafe prohibition
+remains explicit; only audited example FFI modules permit unsafe.
+
+## Consequences
+
+A positive result qualifies the observed local NTFS OS-acknowledgement mechanism
+under the tested token and host provisioning. It does not test power loss,
+hardware cache honesty, every Windows filesystem, or application file delivery.
+A refusal retains its exact phase and numeric error; it does not weaken current
+FileAndDirectorySynced requirements. Any later production change requires its
+own contract and an explicit filesystem gate.
+
+## Alternatives Considered
+
+Raw-volume/admin flushes, remote filesystems, data-only/no-sync flags and silent
+ReOpenFile or ambient-path fallbacks are excluded. Merely changing read access
+to write access in production would lack actual platform and filesystem proof.
+Keeping the current negative outcome without measuring the concrete ordinary
+NTFS candidate would leave a potentially supportable mechanism unresolved.

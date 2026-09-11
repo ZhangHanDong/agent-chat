@@ -1,0 +1,37 @@
+name: Windows retained directory probe
+on:
+  push:
+    branches: [feat/windows-directory-flush-probe-20260911]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --locked -p hagency-media-store --example windows_directory_flush -- -D warnings
+      - run: cargo build --locked -p hagency-media-store --example windows_directory_flush
+      - name: Preserve original native Windows probe verdict
+        id: original
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          & target/debug/examples/windows_directory_flush.exe *> windows-directory-probe-original.log
+          $probeExit = $LASTEXITCODE
+          "original_exit=$probeExit" | Set-Content windows-directory-probe-verdict.txt
+          Get-Content windows-directory-probe-original.log
+          exit $probeExit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-directory-probe-original
+          path: |
+            windows-directory-probe-original.log
+            windows-directory-probe-verdict.txt
+          if-no-files-found: warn

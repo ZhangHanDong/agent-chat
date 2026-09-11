@@ -5556,3 +5556,31 @@ review confirms pending timeout receipts and physical process quarantine are
 preserved. Final knowledge gating still exits2 with the exact157 baseline Error
 records and zero added/removed errors. These scoped follow-up results are separate
 from the full564-independent-test integration run above.
+
+### ADR103 isolated Windows directory mechanism probe — 2026-09-11
+
+Created feat/windows-directory-flush-probe-20260911 from5a8f7f7. The approved
+probe derives a write-capable dot handle from the actual retained directory,
+checks full object identity and ordinary-token local NTFS evidence, and requires
+real independent file/directory acknowledgements before actual encrypted
+staging and separate-process restoration. Unknown/refusal remains nonzero.
+Only the probe branch/manual workflow can launch this qualification; existing
+CI and production upload gates remain unchanged.
+
+The task parsed and linted before implementation. Native and Windows GNU
+example warnings-denied Clippy pass. The first compile's three constant-import
+errors and corrected result are preserved externally. Cargo.lock is unchanged.
+Production lib.rs changes only by adding its explicit unsafe-code forbid;
+package deny permits audited FFI solely in the example modules. Native Windows
+execution and its original artifact/verdict remain pending, and cross-build
+results are not a positive Windows media result.
+
+Final Windows GNU all-target Clippy also passes. The example is explicitly
+Cargo-test enabled so its bound Windows selector executes the same controller;
+non-Windows builds expose no passing substitute for that selector. An attempted
+agent-spec lint/boundary-only lifecycle still launched workspace Cargo despite
+the requested layers and was interrupted (exit-2); it is not a lifecycle pass.
+An independent exact11-path source check confirms the allowed boundary, append
+only coordination changes, unchanged lock and production forbid-only attribute.
+The unsafe-checker audit records actual token and handle RAII, bounded aligned
+FFI output storage, complete native status checks and one-child cleanup custody.
