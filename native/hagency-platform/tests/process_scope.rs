@@ -47,6 +47,34 @@ fn stopped(marker: &Path) {
         "fixture child still writes after cancellation"
     );
 }
+fn progress(process: &OwnedProcess, marker: &Path) -> io::Result<()> {
+    let before = length(marker);
+    let until = Instant::now() + Duration::from_secs(3);
+    let timed_out = || {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "unrelated process remains alive but no fresh heartbeat was observed within the deadline",
+        )
+    };
+    loop {
+        if !process.is_leader_running()? {
+            return Err(io::Error::other("observed unrelated process exit"));
+        }
+        if Instant::now() >= until {
+            return Err(timed_out());
+        }
+        if length(marker) > before {
+            if !process.is_leader_running()? {
+                return Err(io::Error::other("observed unrelated process exit"));
+            }
+            if Instant::now() >= until {
+                return Err(timed_out());
+            }
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
 #[test]
 fn native_process_scope_start_stop() {
     let root = tempfile::tempdir().unwrap();
@@ -80,9 +108,7 @@ fn native_process_scope_start_stop() {
     assert!(report.leader_exited);
     assert_eq!(report.whole_tree_stopped, cfg!(windows));
     stopped(&marker);
-    let before = length(&other);
-    std::thread::sleep(Duration::from_millis(80));
-    assert!(length(&other) > before);
+    progress(&unrelated, &other).expect("unrelated process must remain alive and make progress");
     assert_eq!(owned.stop(Duration::from_secs(1)).unwrap(), report); // No reused PID re-signal.
     unrelated.stop(Duration::from_secs(2)).unwrap();
     let mut invalid = launch(&directory, "leaf", &marker, &[]);
@@ -100,6 +126,47 @@ fn native_process_scope_start_stop() {
     invalid.arguments.push("NUL\0argument".into());
     assert!(
         matches!(OwnedProcess::spawn(&invalid),Err(e) if e.kind()==io::ErrorKind::InvalidInput)
+    );
+}
+#[test]
+fn native_process_scope_progress_observation() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("paused");
+    let mut child =
+        OwnedProcess::spawn(&launch(root.path(), "pausable-leaf", &marker, &[])).unwrap();
+    ready(&marker);
+    let gate = marker.with_extension("pause");
+    fs::write(&gate, b"pause").unwrap();
+    let until = Instant::now() + Duration::from_secs(3);
+    while !marker.with_extension("paused").exists() {
+        assert!(Instant::now() < until, "fixture did not acknowledge pause");
+        assert!(child.is_leader_running().unwrap());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // No cancellation occurred: the old short sample can be unchanged while alive.
+    let before = length(&marker);
+    std::thread::sleep(Duration::from_millis(80));
+    assert_eq!(length(&marker), before);
+    assert!(child.is_leader_running().unwrap());
+    assert_eq!(
+        progress(&child, &marker).unwrap_err().kind(),
+        io::ErrorKind::TimedOut
+    ); // Liveness without fresh progress is still a failed observation.
+    assert!(child.is_leader_running().unwrap());
+    let resume = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(180));
+        fs::remove_file(gate).unwrap();
+    });
+    let observed = progress(&child, &marker);
+    resume.join().unwrap();
+    observed.unwrap();
+    assert!(child.stop(Duration::from_secs(2)).unwrap().leader_exited);
+    assert!(length(&marker) > 0); // Retained old progress is not present liveness.
+    assert!(
+        progress(&child, &marker)
+            .unwrap_err()
+            .to_string()
+            .contains("observed unrelated process exit")
     );
 }
 #[test]

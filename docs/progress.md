@@ -4769,3 +4769,29 @@ rustfmt and diff checks pass. Windows cross-compilation is not hosted execution.
 The late synchronous final-check branch has no deterministic fixture hook and is
 explicitly supported by source-order review, not a race-dependent test or a claim
 of durable recovery. Parent review found no blocker in the bounded change.
+
+
+## 2026-09-10 — Native process-scope progress observation (ADR086)
+
+Original macOS7cf0dc0 CI34556196644 failed process_scope start_stop at its80ms
+unrelated-heartbeat sample; the log has no native liveness observation. The
+historical cause remains unknown. Root traced the actual owned process identity
+and stop paths, then replaced only this test sample with native liveness before
+and after fresh heartbeat observation under a strict three-second deadline.
+A stopped process fails immediately; alive without progress still times out.
+Original owned cancellation, repeated-stop, argv/environment and crash checks stay.
+
+The five-path contract parsed/linted before implementation. Actual pausable native
+child coverage demonstrates unchanged short-sample bytes while still alive, a
+real no-progress timeout, resumed fresh progress and refusal after actual stop.
+The first four process_scope tests pass; final lifecycle and native/Windows GNU
+Clippy after strict final-deadline review are recorded externally as
+process-progress-*. No production lifecycle, stop deadline or live state changed.
+
+
+Final ADR086 strict lifecycle passes5/5 across all5 changed paths, with no failed,
+skipped, uncertain or pending-review verdicts. All four actual process-scope
+selectors ran after the strict final-deadline check was added. Native and Windows
+GNU all-target platform Clippy pass with warnings denied; fmt/diff pass. Actual
+hosted qualification remains pending; controlled pause/exit evidence does not
+identify the original macOS CI schedule or turn its failure into success.

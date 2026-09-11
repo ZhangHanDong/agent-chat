@@ -2136,3 +2136,11 @@ None and state is WritePossible; it never permits another POST or event send.
 Future SDK persistence must reserve bounded space before copying this sealed
 borrow and retain the copied response on uncertain persistence. No public raw
 constructor or response extraction transfers the attempt's lifetime permit.
+
+
+A heartbeat file failing to grow within80ms is not native process exit evidence.
+ADR086 process-scope fixtures now require both retained-owner liveness and fresh
+progress within3s; liveness alone and stale pre-exit bytes both fail. Existing
+pausable native probes demonstrate the distinction without changing any production
+signal or cleanup guarantee. Original7cf0dc0 macOS failure remains separate evidence;
+the controlled pause does not identify that uninstrumented historical schedule.
