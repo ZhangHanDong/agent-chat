@@ -5947,3 +5947,20 @@ lifecycle passes8/8: the34 actual changed paths fit the36 allowed paths, and eac
 of the seven selectors ran exactly one passing test with zero failures or ignored
 cases. No skip uncertain or pending result is promoted. Formatting/diff checks
 pass. The full fourteen-scenario workflow still has no sink/MCP/executable verdict.
+
+### 2026-09-11 — Retained regular-file identity prerequisite
+
+Added a handle-only regular-file comparison for the upcoming receive sink. It
+preserves full Unix device/inode and Windows volume/128-bit file ID, refuses
+non-regular objects and failed queries, and never substitutes pathname equality.
+Actual tests distinguish duplicate/reopened/hard-linked originals from equal-byte
+distinct files and a replacement at the old name; directories refuse in both
+argument positions. Identity equality does not grant content, private permission,
+link safety, durability or workspace authority.
+
+All10 platform library tests pass locally with zero failures/ignored. Native and
+Windows GNU all-target platform Clippy pass with warnings denied, and formatting
+passes. Strict lifecycle passes2/2: the real selector and all5 declared paths,
+zero failed skipped uncertain or pending review. The task parsed/linted before
+source edits; advisory lint warnings remain. Windows cross-compilation does not
+prove actual Windows execution, and no receive sink or full workflow is claimed.

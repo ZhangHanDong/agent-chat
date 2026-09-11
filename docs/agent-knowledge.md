@@ -2567,3 +2567,9 @@ Ready owner must release plaintext/result permits and live write-job slots, then
 use a fresh bounded read-only deadline for replay. No receive sink, receive MCP
 route or incoming executable acceptance is implemented by this checkpoint. The
 full fourteen-scenario proposal stays under docs/design until those gates exist.
+
+- **Received-file comparison:** compare the held regular file with another live
+  handle using the full native identity. A hard link correctly identifies the
+  same object, so a receive sink must enforce its separate single-link policy.
+  Equal content and a reused pathname do not establish the original object;
+  comparison alone grants neither current scope nor private-file safety.
