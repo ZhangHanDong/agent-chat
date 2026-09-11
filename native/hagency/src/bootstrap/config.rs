@@ -122,6 +122,7 @@ fn verify_executable(path: &Path, expected: &str) -> Result<(), Failure> {
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 32 * 1024];
     let mut total = 0u64;
+    tracing::trace!(target: "hagency_startup_observation", "native startup boundary: executable_hash_entered");
     loop {
         let count = file.read(&mut buffer).map_err(|_| Failure::Config)?;
         if count == 0 {
@@ -141,6 +142,7 @@ fn verify_executable(path: &Path, expected: &str) -> Result<(), Failure> {
         .iter()
         .map(|v| format!("{v:02x}"))
         .collect();
+    tracing::trace!(target: "hagency_startup_observation", "native startup boundary: executable_hash_completed");
     if digest != expected {
         return Err(Failure::Config);
     }
@@ -160,7 +162,9 @@ impl Prepared {
         {
             return Err(Failure::Config);
         }
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: executable_verify_entered");
         verify_executable(&config.executable, &config.executable_sha256)?;
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: executable_verify_completed");
         let own = std::env::current_exe()
             .map_err(|_| Failure::Config)?
             .canonicalize()

@@ -227,6 +227,7 @@ impl Bootstrap {
         queue_capacity: usize,
         development: bool,
     ) -> Result<Self, Failure> {
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: bootstrap_entered");
         if !listen.ip().is_loopback() || listen.port() == 0 {
             return Err(Failure::Config);
         }
@@ -234,25 +235,30 @@ impl Bootstrap {
         let state = state.canonicalize().map_err(|_| Failure::Startup)?;
         let token =
             private::read_secret(&state.join("operator.token")).map_err(|_| Failure::Startup)?;
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: configuration_entered");
         let mut prepared = if development {
             Some(config::Prepared::load(&state, listen)?)
         } else {
             None
         };
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: custody_entered");
         let store = Store::start(
             Repository::open(&state).map_err(|_| Failure::Startup)?,
             queue_capacity,
         )
         .map_err(|_| Failure::Startup)?;
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: domain_entered");
         let domain = DomainStore::start(
             DomainRepository::open(&state).map_err(|_| Failure::Startup)?,
             queue_capacity,
         )
         .map_err(|_| Failure::Startup)?;
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: shared_entered");
         let shared = prepared
             .as_mut()
             .map(|p| Shared::new(p.matrix.take().ok_or(Failure::Config)?, domain.clone()))
             .transpose()?;
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: files_entered");
         let files = match (&shared, prepared.as_mut().and_then(|p| p.files.take())) {
             (Some(shared), Some(setup)) => Some(
                 crate::file_service::FileOwner::start(shared.clone(), setup)
@@ -260,6 +266,7 @@ impl Bootstrap {
             ),
             _ => None,
         };
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: app_entered");
         let status = StatusHandle::new(development);
         let mut app = crate::App::new(store.clone(), &token, listen)
             .map_err(|_| Failure::Startup)?
@@ -268,6 +275,7 @@ impl Bootstrap {
         if let Some(files) = &files {
             app = app.with_files(files.handle());
         }
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: bootstrap_ready");
         Ok(Self {
             store,
             domain,
@@ -351,16 +359,19 @@ impl Bootstrap {
         Ok(())
     }
     pub async fn serve(&mut self, shutdown: &CancellationToken) -> Result<(), Failure> {
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: bind_entered");
         let acceptor = TcpListener::new(self.listen)
             .try_bind()
             .await
             .map_err(|_| Failure::Server)?;
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: server_poll_entered");
         let server = Server::new(acceptor).max_connections(64);
         let handle = server.handle();
         let mut serving = Box::pin(server.try_serve(self.app.clone().router()));
         // Poll the real server first. Its listener/router exist before any child
         // or helper can try to connect; no fixture-only readiness setter.
         tokio::select! { biased; result=&mut serving=>{result.map_err(|_|Failure::Server)?;return Err(Failure::Server);}, _=tokio::task::yield_now()=>{} }
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: driver_entered");
         if let Some(prepared) = self.prepared.take() {
             self.driver = Some(driver::Driver::start(
                 prepared,
@@ -369,6 +380,7 @@ impl Bootstrap {
                 self.status.clone(),
             )?);
         }
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: serving");
         tracing::info!("native service ready; production Agent execution remains unavailable");
         tokio::select! {
             result=&mut serving=>{ result.map_err(|_|Failure::Server)?; return Err(Failure::Server); },

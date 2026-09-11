@@ -79,6 +79,16 @@ impl Running {
             "last_http":observation.last_http,"requests":observation.requests,
             "status":observation.status,"elapsed_ms":observation.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
             "child":child,"stderr":stderr,"stderr_bytes":bytes.len().min(8192),"stderr_truncated":bytes.len()>8192,
+            "bootstrap_phase":boundary_phase(&bytes, b"native startup boundary: ", &[
+                "runtime_entered", "runtime_ready", "bootstrap_entered", "configuration_entered",
+                "executable_verify_entered", "executable_hash_entered", "executable_hash_completed",
+                "executable_verify_completed", "custody_entered",
+                "domain_entered", "shared_entered", "files_entered", "app_entered",
+                "bootstrap_ready", "bind_entered", "server_poll_entered", "driver_entered", "serving"]),
+            "media_phase":boundary_phase(&bytes, b"native media boundary: ", &[
+                "create_entered", "created", "existing", "create_refused", "private_entered",
+                "private_policy_refused", "private_other_refused", "directory_open_entered",
+                "store_entered", "store_refused", "store_ready"]),
             "service_ready_logged":bytes.windows(b"native service ready; production Agent execution remains unavailable".len())
                 .any(|value|value==b"native service ready; production Agent execution remains unavailable")})
     }
@@ -112,6 +122,23 @@ impl Drop for Running {
             let _ = child.wait();
         }
     }
+}
+fn boundary_phase(bytes: &[u8], marker: &[u8], labels: &[&'static str]) -> &'static str {
+    // Closed vocabulary only. Preserve separate bootstrap and worker phases;
+    // concurrent worker logging cannot overwrite the other operation's phase.
+    bytes
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| {
+            let start = line.windows(marker.len()).position(|part| part == marker)?;
+            let value = &line[start + marker.len()..];
+            labels.iter().copied().find(|label| {
+                value
+                    .strip_prefix(label.as_bytes())
+                    .is_some_and(|rest| rest.iter().all(u8::is_ascii_whitespace))
+            })
+        })
+        .next_back()
+        .unwrap_or("unobserved")
 }
 fn stderr_category(bytes: &[u8]) -> &'static str {
     if bytes.is_empty() {
@@ -590,6 +617,7 @@ impl Fixture {
             command.arg("--development-driver");
         }
         command
+            .env("RUST_LOG", "info,hagency_startup_observation=trace")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -696,6 +724,43 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn native_file_service_media_startup_observation() {
+    let mut f = Fixture::new(false).await;
+    let media = f.state_dir.join("file-media");
+    private::directory(&media).unwrap();
+    let mut child = f.launch(true, "observation.media_refused");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let mut status = Value::Null;
+    for _ in 0..96 {
+        assert!(tokio::time::Instant::now() < deadline);
+        if let Ok(request) =
+            tokio::time::timeout(Duration::from_millis(50), f.next("observation.media_setup")).await
+        {
+            f.respond(request).await;
+        } else {
+            status = f.capabilities().await["development_execution"].clone();
+            if status["state"] == "outcome_unknown" {
+                break;
+            }
+            assert_ne!(status["state"], "unavailable");
+        }
+    }
+    assert_eq!(status["state"], "outcome_unknown");
+    assert_eq!(f.attempts(), 0);
+    assert!(!media.join("media.journal").exists());
+    assert_eq!(f.uploads, 0);
+    let snapshot = child.snapshot();
+    assert_eq!(snapshot["bootstrap_phase"], "serving");
+    assert_eq!(snapshot["media_phase"], "store_refused");
+    assert_eq!(snapshot["child"]["state"], "running");
+    assert_eq!(snapshot["stderr_truncated"], false);
+    assert!(serde_json::to_vec(&snapshot).unwrap().len() <= 1024);
+    f.fake.no_request().await;
+    child.stop_and_reap();
+    f.fake.close().await;
+}
+
+#[tokio::test]
 async fn native_file_service_original_observation() {
     let mut f = Fixture::new(false).await;
     let mut child = f.launch(true, "observation.live");
@@ -709,6 +774,12 @@ async fn native_file_service_original_observation() {
     assert_eq!(live["phase"], "observation.whoami");
     assert_eq!(live["last_http"], "whoami");
     assert_eq!(live["requests"], 1);
+    // The spawned Driver can issue its first request before the parent logs
+    // serving. Both fixed phases follow original bind and initial server poll.
+    assert!(matches!(
+        live["bootstrap_phase"].as_str(),
+        Some("driver_entered" | "serving")
+    ));
     assert!(serde_json::to_vec(&live).unwrap().len() <= 1024);
     let original = child.observation.clone();
     child.stop_and_reap();
@@ -738,6 +809,8 @@ async fn native_file_service_original_observation() {
     assert_eq!(exited["stderr"], "config");
     assert_eq!(exited["requests"], 0);
     assert_eq!(exited["last_http"], "none");
+    assert_eq!(exited["bootstrap_phase"], "configuration_entered");
+    assert_eq!(exited["media_phase"], "unobserved");
     fs::rename(
         f.root.path().join("native.stderr"),
         f.root.path().join("native-observation-refused.stderr"),
@@ -745,6 +818,7 @@ async fn native_file_service_original_observation() {
     .unwrap();
     private::write_new(&f.root.path().join("native.stderr"), b"Error: Startup\n").unwrap();
     assert_eq!(child.snapshot()["stderr"], "config");
+    assert_eq!(child.snapshot()["bootstrap_phase"], "configuration_entered");
     assert_eq!(original.get().variant, "observation.live");
     assert_eq!(original.get().phase, "observation.whoami");
     let rendered = serde_json::to_string(&exited).unwrap();

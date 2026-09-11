@@ -2609,3 +2609,12 @@ Incoming serve/MCP/cache materialization and platform qualification remain open.
   fixed equality regression. This is a test defect, separate from original
   Linux/Windows FileService startup failures; see
   `knowledge/context/native-media-ctr-equality.md`.
+
+
+- **Original startup gap, 2026-09-11:** c677ce0 Ubuntu children were running with
+  empty stderr before first HTTP/ready output; Windows reached 29 Matrix requests
+  before FileService startup refused. TRACE-only original runtime/config/hash/
+  store/server phases and separate media phases now narrow that gap. Retained
+  original stderr is capped and projects fixed labels only. A phase is not
+  authority, cleanup or an explanation of historical failure; see
+  `knowledge/context/native-startup-boundary-observation.md`.

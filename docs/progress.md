@@ -6020,3 +6020,16 @@ actual codec and SDK and still rejects corruption. Production crypto is unchange
 The full media integration target passes5/5 locally; fmt and warnings-denied
 Clippy pass. Original FileService startup failures remain independently open.
 See knowledge/context/native-media-ctr-equality.md and the bounded task contract.
+
+
+## 2026-09-11 — Trace original startup boundaries
+
+Preserved c677ce0 original Native failures and ADR104 storage qualification
+separately. Fixed TRACE markers now distinguish runtime/configuration verification
+and hashing, store/worker setup, bind/server start and original media creation
+refusal. Existing fixture children retain their original capped stderr handle and
+project only closed bootstrap/media phase labels. No deadline or outcome changes.
+The actual five-test executable FileService target passes locally, including real
+configuration refusal and missing-journal refusal observation. Historical Linux
+and Windows causes remain unproved; see the bounded startup observation contract
+and knowledge/context/native-startup-boundary-observation.md.

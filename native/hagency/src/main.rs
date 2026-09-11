@@ -66,10 +66,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_writer(std::io::stderr)
         .init();
-    tokio::runtime::Builder::new_multi_thread()
+    tracing::trace!(target: "hagency_startup_observation", "native startup boundary: runtime_entered");
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .build()?
-        .block_on(run(command))
+        .build()?;
+    tracing::trace!(target: "hagency_startup_observation", "native startup boundary: runtime_ready");
+    runtime.block_on(run(command))
 }
 async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     match command {
