@@ -6176,3 +6176,23 @@ run's underlying protocol cause is unobserved. Later lifecycle selector success
 and the independently passing main-worktree bootstrap run do not replace those
 original failures or establish host contention. Original hosted and local logs,
 measurements, lifecycle output and hashes remain in the external migration cache.
+
+### 2026-09-11 — Qualify original receive integration evidence
+
+The first main-worktree full Cargo command returned success with 623 independent
+passes and one nested proxy child. Subsequent binding inventory found that its
+media integration binary omitted the newly committed CTR equality test. The
+same target directory had previously built the adapter worktree's older source;
+the retained dependency paths are relative and that artifact is newer than the
+main source. Its original four-test output, binary hash, source hash, timestamps
+and fingerprint are preserved in the external migration cache. This command is
+not complete validation of current main-worktree sources. The package-only media
+inventory rebuild actually finds all five tests but is not itself test execution.
+
+Invalidate the affected application/media package artifacts before current-source
+verification. Do not alternate worktrees on a shared Cargo target and assume
+mtime freshness proves source identity. The original full-suite and failing
+binding outputs remain intact; a later result must have separate provenance.
+An additional workspace inventory was terminated after its first test process
+stalled before output; its actual sample shows only dyld entry. That observation
+does not establish the cause of separate runtime handshake failures.

@@ -2698,3 +2698,12 @@ run's underlying protocol cause is unobserved. Later lifecycle selector success
 and the independently passing main-worktree bootstrap run do not replace those
 original failures or establish host contention. Original hosted and local logs,
 measurements, lifecycle output and hashes remain in the external migration cache.
+# Cargo target provenance across migration worktrees
+
+On 2026-09-11 a shared target directory reused an older worktree's media test
+artifact while main contained an additional CTR equality test. Relative dep-info
+and newer artifact timestamps meant a successful workspace command did not test
+all current source. Preserve source/artifact hashes and the actual test inventory;
+invalidate affected package artifacts when switching between differing source
+trees. A zero-missing binding inventory remains required. Original success logs
+are evidence of that command's result, not proof of current-source completeness.
