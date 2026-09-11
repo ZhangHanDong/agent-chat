@@ -58,6 +58,11 @@ pub struct ReceiveWrite {
     facts: ReceivedFileFacts,
 }
 impl ReceiveWrite {
+    /// Read-only association with the complete originally reserved capability.
+    /// A match grants no current authority; the retained writer checks that too.
+    pub fn matches_capability(&self, cap: &RunnerCapability) -> bool {
+        cap_digest(cap).is_ok_and(|digest| digest == self.reservation.binding.capability_digest)
+    }
     pub fn identity(&self) -> &ReceiveIdentity {
         self.reservation.identity()
     }

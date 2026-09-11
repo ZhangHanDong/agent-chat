@@ -2642,3 +2642,11 @@ private sealer; it also denies delete sharing while retained. Physical sync uses
 the accepted ADR104 NTFS helper without a fallback. This implementation checkpoint
 still awaits the exact grant-capability and fresh writer-clock prerequisites and
 final lifecycle; it is not full receive workflow or actual Windows qualification.
+### Current receive workspace authority (2026-09-11)
+
+The original asynchronous workspace check now acquires its SQLite Immediate
+transaction before sampling writer time and inspecting all Started scope facts.
+A read-only ReceiveWrite matcher compares the complete validated original
+capability digest; equal immutable workspace fingerprints alone do not establish
+the same runner fence or secret. The sink must require both the match and current
+original-writer authority. These domain helpers establish no SDK or file proof.

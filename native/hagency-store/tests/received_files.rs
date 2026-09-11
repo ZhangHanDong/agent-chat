@@ -7,6 +7,51 @@ use hagency_core::{
 use hagency_store::{DomainRepository, EffectOutcome, Error, ReceiveAdmission};
 use std::collections::BTreeSet;
 
+#[test]
+fn native_receive_write_capability() {
+    let mut f = Fixture::new(1);
+    let admission = f.reserve(0);
+    let write =
+        f.db.start_received_file_write(
+            &f.cap,
+            &admission.reservation.unwrap(),
+            &ReceivedFileFacts {
+                size: 3,
+                sha256: hagency_core::project::hash(b"abc"),
+            },
+            2011,
+        )
+        .unwrap();
+    assert!(write.matches_capability(&f.cap));
+    for field in [
+        "dispatch",
+        "runner",
+        "fence",
+        "secret",
+        "invalid_secret",
+        "invalid_fence",
+    ] {
+        let mut changed = f.cap.clone();
+        match field {
+            "dispatch" => changed.dispatch_id = "other".into(),
+            "runner" => changed.runner_id = "other".into(),
+            "fence" => changed.fence += 1,
+            "secret" => {
+                changed.secret = if changed.secret == "a".repeat(64) {
+                    "b".repeat(64)
+                } else {
+                    "a".repeat(64)
+                }
+            }
+            "invalid_secret" => changed.secret = "invalid".into(),
+            "invalid_fence" => changed.fence = 0,
+            _ => unreachable!(),
+        }
+        assert!(!write.matches_capability(&changed), "{field}");
+    }
+    assert!(write.matches_capability(&f.cap));
+}
+
 struct Fixture {
     root: tempfile::TempDir,
     db: DomainRepository,

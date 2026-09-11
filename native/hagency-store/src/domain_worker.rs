@@ -950,6 +950,59 @@ mod clock_tests {
     }
 
     #[tokio::test]
+    async fn native_receive_workspace_check_clock() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut db, cap) = owned_fixture_with_attachment(root.path(), true);
+        let scope = db.owned_dispatch_scope(&cap, now()).unwrap();
+        let fingerprint = scope.fingerprint().to_owned();
+        db.start_owned_dispatch(&cap, &fingerprint, now()).unwrap();
+        let inspect = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        inspect.busy_timeout(Duration::ZERO).unwrap();
+        db.check_owned_clock(&cap, &fingerprint, || {
+            let error = inspect.execute_batch("BEGIN IMMEDIATE").unwrap_err();
+            assert_eq!(
+                error.sqlite_error_code(),
+                Some(rusqlite::ErrorCode::DatabaseBusy)
+            );
+            Ok(now())
+        })
+        .unwrap();
+        inspect.execute_batch("BEGIN IMMEDIATE; ROLLBACK").unwrap();
+        let store = DomainStore::start(db, 16).unwrap();
+        let (entered, ready) = oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let blocking = store.clone();
+        let held = tokio::spawn(async move {
+            blocking
+                .call(1, move |_| {
+                    let _ = entered.send(());
+                    gate.recv_timeout(Duration::from_secs(4))
+                        .map_err(|_| Error::Unavailable)?;
+                    Ok(())
+                })
+                .await
+        });
+        ready.await.unwrap();
+        let mut request = Box::pin(store.check_owned_dispatch(cap, fingerprint));
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(request.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(store.tx.capacity(), 15);
+        inspect
+            .execute(
+                "UPDATE runner_dispatches SET lease_until=?1 WHERE id='dispatch'",
+                [now()],
+            )
+            .unwrap();
+        release.send(()).unwrap();
+        held.await.unwrap().unwrap();
+        assert!(matches!(request.await, Err(Error::RunnerAuthority)));
+        store.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn native_runner_clock_after_queue() {
         let root = tempfile::tempdir().unwrap();
         let state = root.path().join("state");
@@ -1073,7 +1126,7 @@ impl DomainStore {
         expected: String,
     ) -> Result<Task, Error> {
         self.call(weight(&(&cap, &expected))?, move |db| {
-            db.check_owned_dispatch(&cap, &expected, writer_time()?)
+            db.check_owned_clock(&cap, &expected, writer_time)
         })
         .await
     }

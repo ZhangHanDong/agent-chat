@@ -323,6 +323,24 @@ impl DomainRepository {
         Ok(value.task)
     }
 
+    pub(crate) fn check_owned_clock(
+        &mut self,
+        cap: &RunnerCapability,
+        expected: &str,
+        clock: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<Task, Error> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = clock()?; // The original queue and SQLite lock waits have ended.
+        let value = scope(&tx, cap, now, &["started"])?;
+        if value.fingerprint != expected {
+            return Err(Error::RunnerAuthority);
+        }
+        tx.commit()?;
+        Ok(value.task)
+    }
+
     pub(crate) fn complete_owned_clock(
         &mut self,
         cap: &RunnerCapability,
