@@ -2210,3 +2210,9 @@ HTTP script: otherwise an early Identity/SDK/domain error could remain hidden
 behind the next request wait. The unobserved helper retains its original join
 behavior. A real wrong-device response verifies the original Identity panic and
 fixed latest phase, without changing HTTP waits or exposing payload values.
+
+The framework detector's promisified Node execFile probes inherit current PATH;
+the backend/helper does not capture or replace PATH for the ACP probe fixture.
+A bounded external all-fake observation confirms exact fixture resolution and
+Claude --version only. The earlier uninstrumented timeout still lacks executable
+identity and scheduling evidence; current successful observation cannot recover it.
