@@ -4499,3 +4499,41 @@ format/diff checks pass after that addition. Windows GNU Clippy passed the
 production slice and initial four tests; actual Windows restoration evidence
 remains for integration CI. External media-restoration-* logs and the independent
 review preserve the exact qualification boundaries.
+
+## 2026-09-10 — Current-dispatch encrypted attachment receive
+
+ADR076 in an isolated worktree adds Collector::receive_attachment with an opaque
+held checked-byte result. The original event determines a sealed current dispatch
+ticket and retained SDK manifest. Configured-origin HTTPS download and complete
+hash/decryption precede final writer revalidation. No caller chooses a URL, room,
+descriptor or cache path. Four early result slots and a lazily shared downloader
+remain bounded across SDK Owner reopen. Lookup releases its Owner/busy locks before
+GET, allowing actual negative room collection while a download is paused.
+
+Six selectors cover actual verified file/image intake, DM and group-thread task
+lineage/follow-up, selected-input visibility, real paused-download revoke/promotion/
+negative encryption/expiry, hash and truncated-body failure, cancellation/future
+drop, retained capacity and one total deadline. Notice activation inside the
+lineage fixture is explicit host domain evidence, not an actual Matrix notice send.
+The100ms blocked-Owner test retains its strict bound. The separate actual TLS
+deadline test uses normal10s SDK preparation/total with longer HTTP sublimits,
+avoiding an assumption that SQLite/SDK work finishes before100ms on loaded CI.
+
+First compile caught two test-future borrow lifetimes, fixed with explicitly owned
+futures. Initial runtime5/6 passed; revocation behavior passed but its teardown
+called Collector::close after the engagement no longer allowed that mutation.
+The fixture now closes its retained SDK and asserts the existing Domain refusal;
+production cleanup was unchanged. Corrected focused6/6 and affected Matrix97/97
+(77 library,6 download,5 upload,9 transport) pass. Native all-target warnings-denied
+Clippy passes. Original logs remain externally under matrix-receive-*; final
+deadline fixture and strict lifecycle validation are recorded separately below.
+No staging cache, safe path/MCP output or production service is enabled.
+
+Final ADR076 deadline-stage selector passes against the actual held TLS request.
+Windows GNU all-target Clippy also passes with warnings denied; this is compile
+qualification only, not actual Windows execution. Strict crate-scoped lifecycle
+passes7/7 (six exact selectors and ten explicit changed paths), with zero failed,
+skipped, uncertain or pending-review verdicts. Formatting and whitespace checks
+pass. Full combined tests and three-platform runtime qualification remain the
+parent integration/CI step; the local affected result is97/97, with the subsequent
+deadline-only fixture refinement covered by focused execution and lifecycle.

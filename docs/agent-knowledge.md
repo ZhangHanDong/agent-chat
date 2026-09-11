@@ -1,5 +1,18 @@
 # Repository audit knowledge
 
+- **Native scoped receive bytes, 2026-09-10:** ADR076 joins exact current
+  dispatch tickets, retained verified encrypted manifests and configured-origin
+  HTTPS decryption. A final writer check fences revocation, null-root promotion,
+  negative room observations and lease expiry during download. Owner/busy locks
+  are released before GET so negative collection can proceed. Four early held
+  results and one shared downloader survive SDK reopen; total cancellation and
+  deadline cover local queues and transport. Returned bytes are host memory,
+  with sender-declared metadata distinguished from actual hash/length. No safe
+  cache path, MCP file tool, persistent receive identity or live activation exists.
+  Revoked Collector::close currently refuses its transport mutation; fixtures
+  explicitly close the retained SDK and preserve that refusal, rather than
+  treating a failed close as success or changing production lifecycle here.
+
 - **Windows worker evidence, 2026-09-10:** a856aa5's original Windows store
   suite failed a shutdown and a short-lease concurrency assertion.100ms can
   validly expire between serialized writer calls; ADR075 separates concurrency

@@ -12,6 +12,7 @@ pub(crate) struct Inner {
     pub(crate) owner: Mutex<Option<Owner>>,
     pub(crate) busy: Arc<Semaphore>,
     pub(crate) attachment_handles: Arc<Semaphore>,
+    pub(crate) receiver: crate::receive::Receiver,
     #[cfg(test)]
     pub(crate) handoff_fault: std::sync::atomic::AtomicU8,
     #[cfg(test)]
@@ -108,6 +109,7 @@ impl Inner {
             owner: Mutex::new(None),
             busy: Arc::new(Semaphore::new(1)),
             attachment_handles: Arc::new(Semaphore::new(crate::attachments::MAX_HANDLES)),
+            receiver: crate::receive::Receiver::new(),
             #[cfg(test)]
             handoff_fault: std::sync::atomic::AtomicU8::new(0),
             #[cfg(test)]

@@ -133,6 +133,17 @@ impl MediaDownloader {
         cancel: &CancellationToken,
     ) -> Result<CheckedBytes, MediaDownloadError> {
         let deadline = Instant::now() + self.0.deadline;
+        self.download_until(id, descriptor, cancel, deadline).await
+    }
+    /// The host coordinator may narrow the absolute deadline, never renew it.
+    pub(crate) async fn download_until(
+        &self,
+        id: &MediaId,
+        descriptor: &Descriptor,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<CheckedBytes, MediaDownloadError> {
+        let deadline = deadline.min(Instant::now() + self.0.deadline);
         checkpoint(cancel, deadline)?;
         // No waiting queue, and this permit owns the whole response buffer until
         // decryption returns. Future drop releases IO/buffer/permit together.

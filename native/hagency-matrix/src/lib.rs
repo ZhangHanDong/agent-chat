@@ -11,6 +11,7 @@ mod intake;
 mod media_download;
 mod media_upload;
 mod outgoing;
+mod receive;
 mod sdk;
 mod wire;
 pub use collector::{Collector, ObservationSummary};
@@ -21,6 +22,7 @@ pub use media_upload::{
     MediaUploadError, MediaUploadLimits, MediaUploader, UploadAttempt, UploadState,
 };
 pub use outgoing::{OutgoingState, OutgoingSummary};
+pub use receive::{ReceiveError, ReceivedAttachment};
 pub use tokio_util::sync::CancellationToken;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
