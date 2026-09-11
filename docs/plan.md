@@ -23,9 +23,11 @@ source passes123 Matrix tests, with three later test-only recovery extensions
 passing their exact selectors. Final publisher strict lifecycle passes8 actual
 scenarios plus the full19-path boundary (9/9); native and Windows GNU Clippy pass.
 The combined five-slice workspace passes564 independent tests (565 printed),
-88 suite summaries and zero failures/ignored tests. A newly reviewed consuming
-SDK-close acknowledgement follow-up is in progress. Node binding catalog resolves
-543 selectors with none missing.
+88 suite summaries and zero failures/ignored tests. The consuming SDK-close
+follow-up passes four custody tests and strict lifecycle8/8 across its four actual
+paths. Final full-workspace Clippy, Windows GNU hagency Clippy and formatting pass.
+459 Rust and543 Node bindings resolve with none missing. These follow-up checks
+remain separate from the earlier full564-independent-test run.
 
 Latest original hosted CI is1da8f1b. Native34563968212 passes Linux/macOS and fails
 six Windows approval tests: four SDK-open acknowledgement timeouts, one SDK-close
