@@ -2497,3 +2497,12 @@ runtime outcome is an expected fault observation, never a delivery receipt.
   files. This joins close-generated jobs only. Preserve safe branch/error details
   in a failed reopen assertion; a later passing run cannot explain a hidden
   original error or prove that a separately found lifetime gap caused it.
+
+
+- **Combined native acceptance:** ADR101/102 now have actual native executable
+  group/DM delivery, original first-Delivered restart and original-context MCP
+  history evidence. Their final local strict passes remain distinct from hosted
+  Windows qualification and production activation. The separate Windows NTFS
+  probe demonstrates ordinary-user staging and fresh-process recovery; translating
+  it into production still requires safe original pending-IO custody rather than
+  copying a disposable probe's process-exit policy.

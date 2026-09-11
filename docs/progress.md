@@ -5802,3 +5802,35 @@ The same final source passes native and Windows GNU all-target Matrix Clippy wit
 warnings denied. The first native Clippy failed on a now-unused CryptoStore trait
 import in the existing-identity fixture; only that obsolete import was removed.
 The initial warning/failure log remains separate from both final successful checks.
+
+
+### 2026-09-11 — Combined native file workflow validation at eb06c35
+
+The actual integrated workspace passes593 independent tests (594 printed with
+one separately spawned proxy child),90 suite summaries, zero failed and zero
+ignored. This run used cargo test --workspace --all-targets --locked
+--no-fail-fast. Workspace all-target Clippy, affected native Windows GNU all-target
+Clippy and rustfmt pass with warnings denied where applicable. All480 Rust spec
+bindings resolve, and all12 cross-language vector checks pass.
+
+Strict ADR101 lifecycle passes9/9: all8 actual scenarios plus all34 actual changed
+paths inside its38-path allowance. Strict ADR102 passes11/11: all10 scenarios plus
+its exact23 changed paths. Both have zero failed skipped uncertain or pending
+review results. The original6e52450 partial failure and diagnostic-only pass remain
+separate evidence; later passes do not explain its hidden error. Knowledge lint
+still exits2 with exactly157 original Error records, none added or removed.
+
+The isolated Windows directory probe also now has an actual positive original
+run34578962296 atdfcad753: ordinary-token private local-NTFS encrypted staging and
+a separate process restoring exact original ciphertext descriptor and plaintext.
+The five earlier original failed runs remain failed. This probe is not integrated
+production support: ADR104 must still qualify the safe production helper, and
+this branch's native Windows positive file-service gate remains unpassed.
+
+These results complete the local ADR101/102 development slices, not the retained
+M0–M9 migration inventory. New-head hosted CI remains separate; originalfed7557
+Windows failures, receive tools, permission application, effective sandbox and
+config-home qualification, full room/history/console parity, quotas/retention,
+measured budgets and deployment cutover remain open. No live service or account
+was changed. Exact command results, failure logs and SHA256 manifests are kept
+in the external migration evidence cache.
