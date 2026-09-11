@@ -2380,3 +2380,21 @@ is distinct from upload acceptance and canonical task Done.
   reencrypt or resend as a cleanup mechanism. ADR098's strict19-path lifecycle
   passes9/9; this does not implement the application file tools or qualify
   positive Windows durability.
+
+- **Consuming shutdown receipts:** Collector.close may have consumed its SDK owner
+  when any error reaches Driver. Cache that original result; a later empty-owner
+  success cannot acknowledge it. Retain an incomplete oneshot across caller
+  timeout, but clear a completed receive error into sticky unknown: repolling the
+  completed receiver can panic. Retained wrappers are not proof of live physical
+  workers. The protocol fixture is not a real SDK shutdown qualification.
+- **Executable file prerequisite:** ADR098 recipient positives provision verified
+  peers and Olm sessions through private test setup. Fresh real Bootstrap lacks
+  enrollment/session creation; ADR101 must not inherit that fixture authority or
+  call its actual encrypted send complete until the separately reviewed real
+  first-use flow exists. ADR102 designs explicit fresh own-account enrollment and
+  pinned peer trust, preserving existing identities and unknown request custody.
+
+- The consuming-close follow-up has8/8 strict results across its exact4-path
+  change, four actual custody tests, independent review, native workspace Clippy
+  and Windows GNU compilation. An acknowledgement timeout still is not actual
+  Windows cleanup proof, and the separate157-error knowledge baseline remains.

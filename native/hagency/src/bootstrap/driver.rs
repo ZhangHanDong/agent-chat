@@ -12,11 +12,25 @@ use tokio::sync::oneshot;
 enum Command {
     Close(oneshot::Sender<Result<(), Failure>>),
 }
+
+// Collector::close consumes its SDK owner before awaiting the close ACK. A
+// subsequent call may see an empty owner and succeed, which cannot establish
+// the outcome of the original consumed attempt. Keep that exact result.
+#[derive(Default)]
+struct CollectorClose {
+    result: Option<Result<(), Failure>>,
+}
+impl CollectorClose {
+    fn attempt(&mut self, close: impl FnOnce() -> Result<(), Failure>) -> Result<(), Failure> {
+        *self.result.get_or_insert_with(close)
+    }
+}
 pub(super) struct Driver {
     cancel: CancellationToken,
     control: SyncSender<Command>,
     thread: Option<JoinHandle<()>>,
     pending_close: Option<oneshot::Receiver<Result<(), Failure>>>,
+    close_reply_unknown: bool,
 }
 impl Driver {
     pub fn start(
@@ -71,6 +85,7 @@ impl Driver {
                         None
                     }
                 };
+                let mut collector_close = CollectorClose::default();
                 while let Ok(Command::Close(reply)) = commands.recv() {
                     signal.cancel();
                     workspace.retire();
@@ -78,9 +93,11 @@ impl Driver {
                     {
                         Err(Failure::OutcomeUnknown)
                     } else {
-                        runtime
-                            .block_on(collector.close())
-                            .map_err(|_| Failure::OutcomeUnknown)
+                        collector_close.attempt(|| {
+                            runtime
+                                .block_on(collector.close())
+                                .map_err(|_| Failure::OutcomeUnknown)
+                        })
                     };
                     if outcome.is_ok() {
                         drop(report.take());
@@ -101,6 +118,7 @@ impl Driver {
             control,
             thread: Some(thread),
             pending_close: None,
+            close_reply_unknown: false,
         })
     }
     pub fn cancel(&self) {
@@ -111,6 +129,9 @@ impl Driver {
         self.cancel();
         if self.thread.is_none() {
             return Ok(());
+        }
+        if self.close_reply_unknown {
+            return Err(Failure::OutcomeUnknown);
         }
         if self.pending_close.is_none() {
             let (send, receive) = oneshot::channel();
@@ -123,7 +144,14 @@ impl Driver {
         let pending = self.pending_close.as_mut().ok_or(Failure::Worker)?;
         let result = match tokio::time::timeout(Duration::from_secs(2), pending).await {
             Ok(Ok(result)) => result,
-            _ => return Err(Failure::OutcomeUnknown),
+            Ok(Err(_)) => {
+                // The receiver is completed, unlike a timed-out pending wait.
+                // Polling it again can panic and cannot recover the lost ACK.
+                self.pending_close = None;
+                self.close_reply_unknown = true;
+                return Err(Failure::OutcomeUnknown);
+            }
+            Err(_) => return Err(Failure::OutcomeUnknown),
         };
         self.pending_close = None;
         result?;
@@ -265,6 +293,53 @@ mod tests {
     use hagency_execution::{Host, Limits};
     use hagency_store::{OwnedClaimProfile, OwnedClaimRoom, private};
     use std::collections::{BTreeMap, BTreeSet};
+
+    #[test]
+    fn native_bootstrap_custody_consumed_close_ack() {
+        // Model the consuming API's documented boundary: first call takes its
+        // owner but loses the ACK; a later empty-owner close would return Ok.
+        // This is a protocol-state test, not evidence of a real SDK shutdown.
+        let mut original_owner = Some(());
+        let calls = std::cell::Cell::new(0);
+        let mut close = CollectorClose::default();
+        let mut upstream = || {
+            calls.set(calls.get() + 1);
+            if original_owner.take().is_some() {
+                Err(Failure::OutcomeUnknown)
+            } else {
+                Ok(())
+            }
+        };
+        assert_eq!(close.attempt(&mut upstream), Err(Failure::OutcomeUnknown));
+        assert_eq!(close.attempt(&mut upstream), Err(Failure::OutcomeUnknown));
+        assert_eq!(calls.get(), 1);
+        assert!(original_owner.is_none());
+
+        let mut known = CollectorClose::default();
+        assert_eq!(known.attempt(|| Ok(())), Ok(()));
+        assert_eq!(known.attempt(|| panic!("repeat consumed close")), Ok(()));
+    }
+
+    #[tokio::test]
+    async fn native_bootstrap_custody_closed_reply() {
+        let (reply, pending) = oneshot::channel();
+        drop(reply);
+        let (control, commands) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || drop(commands));
+        let mut driver = Driver {
+            cancel: CancellationToken::new(),
+            control,
+            thread: Some(worker),
+            pending_close: Some(pending),
+            close_reply_unknown: false,
+        };
+        assert_eq!(driver.close().await, Err(Failure::OutcomeUnknown));
+        assert_eq!(driver.close().await, Err(Failure::OutcomeUnknown));
+        assert!(driver.close_reply_unknown);
+        assert!(driver.pending_close.is_none());
+        assert!(driver.thread.is_some()); // retained wrapper is not a live-worker proof
+        driver.thread.take().unwrap().join().unwrap();
+    }
 
     async fn fixture(f: &test_common::Fixture, endpoint: &str) -> Prepared {
         let transport = f.identity.transport.clone();

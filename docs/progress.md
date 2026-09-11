@@ -5517,3 +5517,42 @@ and direct/thread relations. Windows GNU compilation does not prove native
 Windows execution: unconfirmed directory sync remains an explicit no-upload
 refusal, not positive file delivery qualification. This scoped publisher contract
 is complete; FileService/MCP integration and the full migration remain unfinished.
+
+### 2026-09-10 — Integrated publisher and consuming-close review
+
+The combined096/097/098/099/100 workspace at14f0f3e passes564 independent named
+tests, one proxy child (565 printed),88 suite summaries and zero failures or
+ignored tests. Documentation fd0b459 updates schema20 and explicit one-attempt
+development status; it does not claim live replacement or MCP file availability.
+
+A later source review found two existing096 shutdown gaps. Collector close may
+consume the SDK owner before returning an error; calling the now-empty wrapper
+again cannot prove the original ACK. The Driver now retains the first close
+result and never uses a second empty-owner success to release its writer order.
+A completed oneshot receive error is also recorded as sticky unknown rather than
+left as a pending receiver which could panic on another poll. A timed-out pending
+receiver is still retained and may receive its original eventual result. Actual
+process-report quarantine and cleanup retry remain before Collector closure.
+
+The four actual bootstrap custody tests pass, including a consuming-API protocol
+state fixture and an actual closed oneshot/repeated-close fixture. The protocol
+fixture does not claim a real SDK shutdown observation. Final full Clippy,
+contract/binding and Windows GNU follow-up results are recorded after they finish.
+
+ADR101 now proceeds in an isolated shared implementation worktree with disjoint
+service, adapter and executable proof ownership. Its positive actual-service
+acceptance exposed a missing fresh-SDK trust and Olm-session enrollment path:
+existing publisher positives use private verified-device fixtures. ADR102 is a
+separate prerequisite design; no fixture trust or capability setter will be added
+to the application. Positive executable acceptance remains required and unpassed.
+
+The final consuming-close follow-up passes strict lifecycle8/8: all7 existing
+bootstrap scenarios execute real tests, plus the exact4-path follow-up boundary;
+zero failed, skipped, uncertain or pending review. The custody selector runs4
+actual tests. Native full-workspace all-target warnings-denied Clippy, Windows GNU
+all-target hagency Clippy, formatting and whitespace checks pass. The Rust catalog
+resolves459 bindings and the Node catalog543, with none missing. Independent
+review confirms pending timeout receipts and physical process quarantine are
+preserved. Final knowledge gating still exits2 with the exact157 baseline Error
+records and zero added/removed errors. These scoped follow-up results are separate
+from the full564-independent-test integration run above.

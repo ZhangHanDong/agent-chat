@@ -23,6 +23,7 @@ its original Started workspace before a child or MCP request can begin.
 - Require one successful finite workspace registration acknowledgement before child launch in the explicitly selected mode.
 - Bind workspace access to the original writer capability retained root and operation lifetime.
 - Retain one actual Operation and unresolved Report on a fixed owner thread until owned shutdown or explicit unknown custody.
+- Preserve the original consuming Collector close result and never reinterpret a second empty-owner close as a successful acknowledgement.
 - Keep current execution sandbox approval guardian and whole-tree stop limits unchanged.
 - Keep safe development status separate from production runtime capabilities canonical Done and file delivery.
 
@@ -116,6 +117,8 @@ Scenario: Bootstrap retains the original binding and unresolved owned result thr
   When a foreign capability registration cancellation caller loss or shutdown is attempted
   Then new source access remains exact and retired access cannot be revived
   And the finite original owner and writers remain ordered until whole-tree stop is observed or explicitly retained unknown
+  And a consumed SDK close with an unknown acknowledgement remains unknown across repeated close requests
+  And a completed lost reply stays unknown without polling the completed receiver again
 
 Scenario: Closed private configuration and default capabilities expose no runtime authority
   Level: integration
