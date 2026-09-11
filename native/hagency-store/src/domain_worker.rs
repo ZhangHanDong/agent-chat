@@ -520,7 +520,7 @@ mod clock_tests {
             "actual bounded queue retains this command"
         );
         assert!(now() < deadline);
-        tokio::time::sleep(Duration::from_millis(deadline - now() + 20)).await;
+        tokio::time::sleep(Duration::from_millis(deadline.saturating_sub(now()) + 20)).await;
         release.send(()).unwrap();
         blocker.await.unwrap().unwrap();
         assert!(matches!(queued.await, Err(Error::RunnerAuthority)));
