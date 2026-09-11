@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Migration planning needs reproducible source coverage without mistaking a route inventory for implemented native parity.
+
+## Decision
+
 M0 uses an explicit policy and a deterministic source snapshot. The legacy behavior
 baseline remains `5dbef22dc5ad4e0bb1a886538406ec91a5893f9b`; this expanded inventory
 records source at `a41ab10ca0c5c27e870d331f868757c80d760846`. Each inspected source has
@@ -55,3 +61,11 @@ authority, error, platform and workflow acceptance before becoming release parit
 The inventory cannot close release gates. Exact supported runtime versions,
 embedded hardware/libc and measured budgets, complete event/schema/feature
 traceability, terminal behavior, packaging and controlled cutover stay open.
+
+## Consequences
+
+Hashes, locations and reviewed classifications expose source drift without importing application entrypoints. Every inventory row remains parity-unverified until its complete workflow and platform gates are satisfied.
+
+## Alternatives Considered
+
+Importing helpers to discover behavior could execute runtime side effects. Automatically marking regenerated inventory rows as ported would replace adapter and workflow evidence with source navigation data.

@@ -32,7 +32,7 @@ and make event retries and crash recovery atomic.
 ### Allowed Changes
 - native/**
 - specs/task-rust-message-inputs.spec.md
-- knowledge/decisions/adr-028-native-state-ownership.md
+- knowledge/decisions/adr-095-native-state-ownership.md
 - docs/**
 
 ### Forbidden

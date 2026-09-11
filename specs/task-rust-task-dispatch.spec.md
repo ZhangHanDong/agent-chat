@@ -33,7 +33,7 @@ later adapters; no fixture may become an externally supplied authority claim.
 - native/**
 - ./Cargo.lock
 - specs/task-rust-task-dispatch.spec.md
-- knowledge/decisions/adr-028-native-state-ownership.md
+- knowledge/decisions/adr-095-native-state-ownership.md
 - docs/**
 - .github/workflows/rust.yml
 

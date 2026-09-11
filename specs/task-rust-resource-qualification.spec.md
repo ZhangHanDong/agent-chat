@@ -30,7 +30,7 @@ labels can promote an unqualified model.
 ### Allowed Changes
 - native/**
 - specs/task-rust-resource-qualification.spec.md
-- knowledge/decisions/adr-028-native-state-ownership.md
+- knowledge/decisions/adr-095-native-state-ownership.md
 - docs/**
 - .github/workflows/rust.yml
 

@@ -5,6 +5,12 @@ title: Retain exact native session usage counters before policy attribution
 status: Accepted
 ---
 
+## Context
+
+The typed Codex runtime previously discarded scoped token counters that downstream usage attribution needs to inspect without reconstructing transcript JSON.
+
+## Decision
+
 The pinned Codex0.153.4 protocol exposes thread/tokenUsage/updated with threadId,
 turnId and tokenUsage total/last breakdowns plus modelContextWindow. Source:
 codex-rs/app-server-protocol/src/protocol/v2/thread.rs lines1834–1918 at commit
@@ -41,3 +47,11 @@ ObservationKind match only. Actual stream fixtures prove optional values,
 uncertainty, same-text different-driver identity, retirement, sequence gaps and
 quiet progress. This is the typed capture seam, not durable usage ingestion,
 provider-authenticated billing or completed M7 parity.
+
+## Consequences
+
+Opaque evidence retains optional total and last counters under the original session source and sequence. Counters remain untrusted observations, and their presence proves neither complete capture nor quota authority.
+
+## Alternatives Considered
+
+Adding total and last counters or treating context-window capacity as consumption would invent arithmetic. Fabricating transcript input or deriving authority from textual IDs would lose the original runtime evidence boundary.

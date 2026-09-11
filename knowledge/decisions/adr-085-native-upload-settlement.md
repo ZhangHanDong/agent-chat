@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Full process loss removes original runner secrets, yet an authenticated private upload acceptance must still settle its exact historical domain row.
+
+## Decision
+
 ADR078's restore_upload requires the original RunnerCapability and UploadRequest.
 The capability contains a random secret; runner_dispatches and runner_attempts
 retain only hashes. Original file_uploads rows retain request/capability digests,
@@ -85,3 +91,11 @@ compilation are recorded separately. Cross-compilation is not actual hosted
 Windows runtime qualification. No Matrix network, SDK persistence, upload POST,
 file-event sending, runtime endpoint, service activation or production-readiness
 claim is added by this slice.
+
+## Consequences
+
+The host-only restoration API uses bounded persisted association to settle history without reconstructing execution capability. Fresh-child fixtures remain separate from HTTP, SDK and positive Windows upload qualification.
+
+## Alternatives Considered
+
+Reconstructing a runner secret or treating historical acceptance as a current send grant would revive execution authority. Requiring live in-memory capability for all settlement would prevent the documented owner-loss recovery.

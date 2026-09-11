@@ -1,6 +1,17 @@
+---
+kind: decision
+id: ADR-057
+title: "Host-generated native task MCP configuration for one owned dispatch"
+status: Accepted
+---
+
 # ADR-057: Host-generated native task MCP configuration for one owned dispatch
 
 Status: accepted for the bounded offline integration; service availability remains false.
+
+## Context
+
+An owned native dispatch needs fixed MCP helper configuration derived from its exact host context without exposing private launch values to tool arguments.
 
 ## Decision
 
@@ -122,3 +133,11 @@ retained. Linux and Windows successful settlement branches require actual hosted
 cross-compilation alone is not runtime qualification. Existing POSIX crash-containment
 flags and all migration availability gates are unchanged. No model, external Matrix
 server, production credential or deployed service is used.
+
+## Consequences
+
+Generated configuration preserves existing task, capability and policy checks. Environment forwarding is not hostile-runtime confidentiality, and helper acknowledgement remains separate from canonical Done and cleanup.
+
+## Alternatives Considered
+
+Allowing model-selected executable, cwd or endpoint would break the original dispatch association. Treating required=true or echoed policy settings as successful readiness or sandbox proof would exceed the pinned evidence.

@@ -6,7 +6,13 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS, REQ-THREE-LAYER-COMPLETION]
 ---
 
-## Boundary
+## Context
+
+Owned native execution must attach one actual process session to the exact successful durable dispatch start and preserve uncertainty through cleanup.
+
+## Decision
+
+### Boundary
 
 `hagency-execution` is a host-only library between DomainStore and ADR-040/044's
 OwnedSession. Runtime remains database-independent. One operation consumes an
@@ -33,7 +39,7 @@ throughout the operation; this slice does not establish that protection, effecti
 sandbox efficacy, credential isolation or safe production workspace provisioning.
 Native service availability remains false.
 
-## Exact writer scope and durable start
+### Exact writer scope and durable start
 
 OwnedDispatchScope has private fields and no runtime JSON constructor. The writer
 checks the existing runner secret/fence, lease and capability expiry, active
@@ -61,7 +67,7 @@ start. Negative reconciliation authenticates the historical attempt, so a
 committed-but-unacknowledged start is quarantined while a command never executed
 can relinquish its clean unstarted lease. Neither case launches a child.
 
-## One retained execution worker
+### One retained execution worker
 
 Each Operation owns one OS worker, one current-thread Tokio IO runtime, one
 atomic cancellation signal and one bounded result slot. There are no detached
@@ -86,7 +92,7 @@ request is explicitly unsupported; the existing typed authority/application
 coordinator is not bypassed. There is no implicit approval grant. MCP launch
 configuration and an actual helper Done round-trip are separate remaining work.
 
-## Cancellation, timing and observability
+### Cancellation, timing and observability
 
 The operation deadline is absolute monotonic time, 100 ms through 30 seconds.
 Native response/write waits are 10 ms through 2 seconds and cannot exceed that
@@ -124,7 +130,7 @@ explicit bounded negative-only retry. Cancelling that retry preserves its handle
 It never retries successful settlement or authorizes clearing dirty leases.
 Dropping a report does not silently certify an unresolved cleanup or settlement.
 
-## Settlement and historical fencing
+### Settlement and historical fencing
 
 Protocol Completed alone cannot mark a canonical task Done, send a Matrix reply,
 release a lease or prove clean child termination. Successful dispatch settlement
@@ -153,7 +159,7 @@ or already resolved older fence is untouched. Unknown started/parked work retain
 its leases and marks exclusive workspaces dirty; no negative method can clear
 quarantine or dirty resources.
 
-## Evidence and remaining qualification
+### Evidence and remaining qualification
 
 Fresh repository tests exercise frozen settings, exact input/scope, one-shot start,
 dirty leases, revocation/expiry, forged secrets and historical replacement fences.
@@ -180,3 +186,11 @@ approval application, helper launch/auth, input ACK parity, final Matrix deliver
 warm reuse, terminal mode, global budgets and full M4 remain open. POSIX/macOS
 unsupported crash-containment guarantees are unchanged; this integration does not
 activate the optional cgroup recovery path or claim simultaneous custodian loss.
+
+## Consequences
+
+One retained worker owns cancellation, domain reconciliation and the actual process handle. Upstream completion remains distinct from canonical Done, reply custody and platform qualification.
+
+## Alternatives Considered
+
+Launching before the original Started acknowledgement or reconstructing authority after losing that response could execute unowned work. A general command endpoint or detached cleanup path would bypass the fixed host operation.

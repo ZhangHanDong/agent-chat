@@ -6,6 +6,12 @@ status: Accepted
 tags: [rust, matrix, attachments, privacy]
 ---
 
+## Context
+
+Attachment access must be frozen with the exact dispatch input rather than inferred later from an event's presence in a room.
+
+## Decision
+
 ADR027 requires receiving only authenticated files visible to the current dispatch.
 Domain schema018 stores bounded safe metadata and opaque private SDK manifest
 identities atomically with the exact Matrix event. It never stores MXC URLs,
@@ -33,3 +39,11 @@ nor frozen windows are evicted to admit new work. Restart preserves immutable
 receipts and bounds. Pre-migration dispatches receive no fabricated file window.
 No live service, plaintext attachment, thumbnail, upload recovery or production
 cutover is enabled.
+
+## Consequences
+
+Canonical safe metadata and opaque manifest identity commit with immutable visibility cutoffs. A fresh current-capability check remains necessary after asynchronous retrieval before exposing bytes.
+
+## Alternatives Considered
+
+Annotating an old text event with new file authority or including later projection rows would widen an already frozen dispatch. Treating historical receipts as current tickets would revive retired visibility.

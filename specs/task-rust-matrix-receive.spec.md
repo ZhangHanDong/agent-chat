@@ -1,7 +1,7 @@
 spec: task
 name: "Receive authenticated encrypted attachments within frozen dispatch authority"
 inherits: project
-satisfies: [REQ-RUST-MIGRATION-EXECUTION, ADR-027]
+satisfies: [REQ-RUST-MIGRATION-EXECUTION]
 tags: [active, rust, matrix, attachments, privacy]
 ---
 
@@ -9,6 +9,10 @@ tags: [active, rust, matrix, attachments, privacy]
 
 Compose retained verified manifests and bounded HTTPS decryption with current
 dispatch authorization into a finite host-local checked-byte result.
+
+## Decisions
+
+This contract retains the design boundaries in [ADR-027](../knowledge/decisions/adr-027-session-file-delivery.md).
 
 ## Constraints
 

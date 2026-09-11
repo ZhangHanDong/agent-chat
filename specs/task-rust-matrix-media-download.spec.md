@@ -1,7 +1,7 @@
 spec: task
 name: "Download bounded encrypted media through the configured Matrix origin"
 inherits: project
-satisfies: [REQ-RUST-MIGRATION-EXECUTION, ADR-027]
+satisfies: [REQ-RUST-MIGRATION-EXECUTION]
 tags: [active, rust, matrix, files, transport]
 ---
 
@@ -9,6 +9,10 @@ tags: [active, rust, matrix, files, transport]
 
 Fetch complete bounded ciphertext through authenticated homeserver HTTPS and
 return checked SDK plaintext without inventing event, sender or file authority.
+
+## Decisions
+
+This contract retains the design boundaries in [ADR-027](../knowledge/decisions/adr-027-session-file-delivery.md).
 
 ## Constraints
 

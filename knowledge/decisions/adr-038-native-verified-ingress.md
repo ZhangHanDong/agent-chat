@@ -5,6 +5,12 @@ title: Bind Matrix ingress and canonical task activation to current copied sessi
 status: Accepted
 ---
 
+## Context
+
+Native task activation and follow-up intake need authenticated session provenance that survives copying, retries and changing task epochs.
+
+## Decision
+
 This bounded M3 integration closes the verified-session intake seam recorded in
 ADR-033. It connects authenticated host input, canonical task intent and activation,
 frozen dispatch, original-human follow-up and final reply intent in offline
@@ -98,3 +104,11 @@ preserves background session copies and thread task copies; it does not claim a
 complete discussion-window bridge. Existing bounds reject further intake at 2,000
 pending copies per session, 10,000 task inputs and 100,000 retained request/message
 records. Nothing is silently truncated or counted as delivered.
+
+## Consequences
+
+Exact source receipts and frozen dispatch input preserve separate admission, activation and reply intent. Repository fixtures do not qualify a live Matrix adapter or complete discussion-window behavior.
+
+## Alternatives Considered
+
+Allowing runtime HTTP to supply ingress authority or silently attaching later messages would expand a frozen capability. Reusing old Done epochs for follow-up output would misattribute canonical task authority.

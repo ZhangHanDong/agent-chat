@@ -6,6 +6,12 @@ status: Accepted
 tags: [rust, cli, tasks, security]
 ---
 
+## Context
+
+A native task helper needs to maintain its assigned canonical task through the existing runner API without acquiring operator or database authority.
+
+## Decision
+
 The native task client reads a complete runner capability, literal loopback socket
 and canonical task ID from its inherited environment. It never loads operator
 credentials, opens domain state, writes runner configuration or chooses another
@@ -29,3 +35,11 @@ are checked against the context task ID before returning structured task output.
 This is an executable client integration, not host environment provisioning or
 full replacement of legacy persistent-home task writers. The native runner
 launcher, MCP/helpers and installation workflow must provision it before cutover.
+
+## Consequences
+
+The helper submits exact scoped calls and leaves idempotent receipts with the server. Unknown responses remain unknown, and launch-time context provisioning remains a separate integration obligation.
+
+## Alternatives Considered
+
+Opening the domain database, discovering another task or automatically retrying mutations would bypass the existing scoped writer boundary. Treating helper start as task creation would change the host-owned assignment.

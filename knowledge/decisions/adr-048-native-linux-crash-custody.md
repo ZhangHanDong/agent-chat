@@ -6,7 +6,13 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS, REQ-THREE-LAYER-COMPLETION]
 ---
 
-## Exact guarantee
+## Context
+
+Linux guardian loss needs independently retained process-scope custody, with honest limits when both the host and guardian disappear.
+
+## Decision
+
+### Exact guarantee
 
 This implements an optional host-only recovery path when a Linux guardian dies
 but its owning host remains alive. The existing POSIX launcher still refuses
@@ -16,7 +22,7 @@ loss still needs a separately qualified external service manager or keeper.
 Same-UID workspace code can signal both processes; nondumpability does not block
 those signals. No server, actual runtime or sandbox capability is enabled here.
 
-## Provisioning and admission
+### Provisioning and admission
 
 `CgroupRecovery::from_host_files` consumes an already-open directory and exact
 write-only `cgroup.procs`/`cgroup.kill` descriptors. The trusted provisioner must
@@ -35,7 +41,7 @@ Up to 64 ancestors and their `cgroup.procs`/`cgroup.threads` files must be root
 owned with no group/other write bits. Workspace-created child groups remain
 within that protected boundary.
 
-### Initial namespace qualification
+#### Initial namespace qualification
 
 The mount root string `/` is insufficient by itself: Linux renders it relative
 to the caller's cgroup namespace. UID 0 in file metadata is also relative to the
@@ -81,7 +87,7 @@ whose source implements the inspected contracts. A version string alone does
 not prove a vendor kernel's implementation; real execution qualification on its
 exact kernel release is also required.
 
-### Linux 6.17 source qualification
+#### Linux 6.17 source qualification
 
 Hosted CI reached a protected subtree on `6.17.0-1022-azure`, then correctly
 refused the uninspected family. The follow-up admits 6.17 after inspecting
@@ -113,7 +119,7 @@ or change host privilege/reaping policy during custody. Those are explicit host
 preconditions, not boolean claims derived from a runner or model. Full production
 qualification must validate this provisioning boundary and actual escape attempts.
 
-## Launch and recovery
+### Launch and recovery
 
 The existing launcher starts the trusted guardian waiting on its anonymous
 control socket. Before sending Prepare, the host moves that retained unreaped
@@ -145,7 +151,7 @@ This synchronous five-second upper observation budget can block a worker and is
 not nonblocking service orchestration. Kernel syscalls are not hard-real-time
 operations; deadlines bound retry/poll behavior after syscalls return.
 
-## Pinned kernel contract and remaining qualification
+### Pinned kernel contract and remaining qualification
 
 Linux v6.12 documents inherited cgroup membership, ancestor migration permission
 checks, recursive population and fork/migration-safe `cgroup.kill`; threaded
@@ -181,7 +187,7 @@ prints the fixture's qualification result. No privileged fixture has been run in
 this macOS environment. Provisioned Linux execution and adversarial reassignment/
 ptrace checks remain required before advertising recovery availability.
 
-### Disposable hosted CI provisioner
+#### Disposable hosted CI provisioner
 
 `native/scripts/qualify-linux-cgroup.py` is a CI-only external custodian. It
 requires Linux X64, root and GitHub-hosted runner markers, initial user/cgroup
@@ -236,7 +242,7 @@ availability, hostile ptrace/reassignment qualification and complete POSIX crash
 containment remain closed gates.
 
 
-### Fixed CI binary staging and separate permission reproduction
+#### Fixed CI binary staging and separate permission reproduction
 
 Hosted run34529853081 at ae284b9 passed guardian-death, stop, failed-spawn and
 unchanged guarantee-refused, then nested-user returned unshare exit126 with
@@ -290,3 +296,11 @@ out of its protected path was correctly killed by AMFI and is not used as a
 portable native fixture. Local Python checks and Cargo-bound admission scenarios
 are separate evidence. Real nested-user/cgroup execution, all seven outcomes and
 independent subtree cleanup remain mandatory hosted CI gates.
+
+## Consequences
+
+Protected cgroup capabilities support the documented surviving-host recovery path. A cgroup is not kill-on-close, and namespace and hosted execution qualification remain mandatory separate evidence.
+
+## Alternatives Considered
+
+Treating a cgroup descriptor like a Windows Job Object would falsely promise cleanup on owner loss. Accepting exec permission failure as namespace refusal would replace the intended qualification with an unrelated denial.

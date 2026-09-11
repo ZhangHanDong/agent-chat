@@ -5,6 +5,12 @@ title: Normalize typed untrusted Codex usage without transcript fabrication
 status: Accepted
 ---
 
+## Context
+
+Typed Codex counters have different cache semantics from legacy transcript observations and require explicit bounded normalization with uncertainty preserved.
+
+## Decision
+
 ADR069 retains actual source-bound runtime observations; ADR063 accepts normalized
 usage for separately authenticated host attribution. This pure conversion supplies
 the counter seam only. Its public fixed DTOs are untrusted numerical inputs, never
@@ -47,3 +53,11 @@ An optional skipped-when-absent runtime evidence field leaves existing transcrip
 observation serialization unchanged. Legacy parse failure and diagnostics behavior
 remain intact. No file reading, event admission, storage, live model, HTTP endpoint
 or service toggle is introduced.
+
+## Consequences
+
+The pure conversion separates fresh input, cache read, cache write and output using the pinned evidence. Its digest identifies sanitized content only and does not authenticate source or billing.
+
+## Alternatives Considered
+
+Fabricating a transcript record or applying the legacy transcript arithmetic would miscount typed cache fields. Replacing invalid or absent counters with measured zero would conceal incomplete evidence.

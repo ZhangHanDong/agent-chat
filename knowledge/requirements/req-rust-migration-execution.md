@@ -5,10 +5,14 @@ title: Execute the native Hagency migration in an isolated worktree
 status: Accepted
 ---
 
+## Problem
+
 The operator's follow-up, "executre migration in a clean worktree", authorizes
 implementation of the Rust migration. This extends REQ-RUST-MIGRATION-PLAN's
 earlier documentation-only scope. Use merged master as a pinned baseline and
 preserve the original checkout's uncommitted changes and running services.
+
+## Requirements
 
 Use Salvo and shared Rust domain logic. Preserve generic fleet names and current
 wire identities. Start with fresh development state; never open live runtime or

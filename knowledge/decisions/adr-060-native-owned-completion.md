@@ -1,8 +1,19 @@
+---
+kind: decision
+id: ADR-060
+title: "Explicit native Done and final content with retained owner cleanup"
+status: Accepted
+---
+
 # ADR-060: Explicit native Done and final content with retained owner cleanup
 
 Status: accepted for bounded offline integration; native service availability remains false.
 
-## Problem and chosen transition
+## Context
+
+Explicit canonical Done revokes the old execution epoch, while verified final content still needs publication after the same retained owner has stopped.
+
+## Decision
 
 ADR-057 proved a real native task helper can mark canonical Done. Done increments
 `execution_epoch` and retires task approvals. The owned coordinator then correctly
@@ -171,3 +182,11 @@ MacOS local execution proves refusal on incomplete cleanup; Linux/Windows positi
 owned cleanup and resulting reply admission require their actual CI fixtures.
 No test here is a live Codex model or production Matrix send. ADR-059 separately
 owns the native final Matrix delivery adapter and its offline HTTPS qualification.
+
+## Consequences
+
+Held completion binds original content and exact Started evidence to qualified cleanup before outbox admission. Upstream completion, helper acknowledgement, task Done and final delivery remain separate observations.
+
+## Alternatives Considered
+
+Refreshing the old runner's epoch after Done would authorize more tools. A separate reporting runner needs its own qualified tool-free inventory; neither an echoed readOnly setting nor later model prose supplies that proof.

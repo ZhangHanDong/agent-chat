@@ -5,6 +5,12 @@ title: Bind redacted progress observations to one exact native upstream turn
 status: Accepted
 ---
 
+## Context
+
+A progress adapter needs actual source-bound runtime observations rather than textual thread and turn IDs alone.
+
+## Decision
+
 `hagency-progress-runtime` attaches ADR052's bounded in-memory policy to actual
 ADR036/040 Codex `SessionDriver` and `OwnedSession` events. It produces host-local
 redacted progress emissions only. It does not install hooks, add a runner service,
@@ -139,3 +145,11 @@ non-Codex typed adapters, broader upstream tool evidence qualification, private
 approval status projection, durable editable status intent/custody/recovery, exact
 Matrix privacy/route fencing and actual encrypted transport. This slice closes the
 local typed runtime-to-policy seam only; it is not operational M6 parity.
+
+## Consequences
+
+The adapter consumes exact ordered evidence and emits redacted host-local progress. It does not mutate task truth, send Matrix events or prove durable editable-status parity.
+
+## Alternatives Considered
+
+Attaching by matching textual IDs, accepting skipped observations or treating cloned evidence as fresh activity would lose source continuity. Importing routing or store authority into runtime would reverse the documented dependency boundary.

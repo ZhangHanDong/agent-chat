@@ -6,6 +6,12 @@ status: Accepted
 tags: [rust, matrix, media, privacy]
 ---
 
+## Context
+
+Receiving attachment bytes requires composition of frozen domain visibility, original verified manifests and bounded authenticated HTTPS decryption.
+
+## Decision
+
 ADR027's next bounded receive slice composes ADR073 domain tickets, ADR074 private
 verified manifests and ADR068 authenticated HTTPS decryption inside hagency-matrix.
 No new crate, domain schema, server or runtime endpoint is required.
@@ -82,3 +88,11 @@ MCP tool approval/context wiring and production activation remain absent. Plain
 attachments, arbitrary new groups, taskless sessions, thumbnails, uploads and event
 sends are not enabled. GET is read-only; deliberate later retries must revalidate the
 same original source, and no partial/plaintext fallback or automatic retry is added.
+
+## Consequences
+
+The collector revalidates the same ticket and capability before returning checked bytes. Persistent cache paths, MCP exposure and full receive_file service behavior remain unimplemented gates.
+
+## Alternatives Considered
+
+Allowing callers to choose a descriptor, room or verification flag would bypass original provenance. Returning partial bytes or accepting only a pre-download authority check would ignore retirement during asynchronous work.

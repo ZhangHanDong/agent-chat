@@ -5,6 +5,12 @@ title: Operator-only aggregate usage observations
 status: Accepted
 ---
 
+## Context
+
+Operators need bounded usage aggregates without exposing private source handles or confusing observed totals with authenticated billing.
+
+## Decision
+
 The native management API adds GET `/api/native/v1/engagements/{id}/usage` behind
 its existing exact loopback Host and operator bearer gate. Origin and forwarding
 headers remain refused. Responses are no-store. There is no anonymous, runner or
@@ -35,3 +41,11 @@ enforce quotas or claim provider-authenticated accounting.
 The capability bit describes this development read API only. Browser console
 integration, secure capture, continuous retention and production availability
 are not inferred from this endpoint.
+
+## Consequences
+
+The loopback management read preserves null periods, lower bounds and incomplete flags. It adds no source mutation, runner endpoint, quota enforcement or production console integration.
+
+## Alternatives Considered
+
+Returning transcripts, workspace paths or source credentials would exceed an aggregate read. Filling missing observations with zero or treating a selected date as a ledger-clock mutation would change the evidence semantics.

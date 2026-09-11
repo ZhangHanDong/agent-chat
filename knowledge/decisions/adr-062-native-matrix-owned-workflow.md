@@ -5,7 +5,13 @@ title: "Qualify one authenticated Matrix to native completion workflow offline"
 status: Accepted
 ---
 
-## Decision and scope
+## Context
+
+The native components need an actual offline workflow that joins authenticated Matrix intake, owned execution, MCP completion and final send custody.
+
+## Decision
+
+### Decision and scope
 
 Add an integration test in the native `hagency` binary package. It consumes only
 public `hagency-matrix`, `hagency-store` and `hagency-execution` APIs. The test
@@ -20,7 +26,7 @@ ADR053 retained owned execution, ADR057 generated native MCP configuration and
 ADR060 explicit Done plus held completion. It does not replace their component
 contracts, real platform qualification or the migration plan's remaining gates.
 
-## Actual path
+### Actual path
 
 1. Create a fresh registration, resource allocation and provisioned engagement
    through the native domain admission/effect methods. Provisioning is synthetic
@@ -69,7 +75,7 @@ repository and canonical domain repository share the same fresh directory but
 retain their existing separate database ownership. The test closes the actual
 server, repository and SDK owners after the retained Operation finishes.
 
-## Refusal evidence and bounds
+### Refusal evidence and bounds
 
 - macOS still cannot prove whole-tree cleanup for this ordinary POSIX guardian
   path. Its real subprocess test requires leader exit, explicit CleanupUnknown,
@@ -97,7 +103,7 @@ or defer revocation to force helper acknowledgement. Helper ACK/exit may race th
 real completion fence; canonical writer receipt and actual retained cleanup stay
 the independent evidence.
 
-## Remaining qualification
+### Remaining qualification
 
 Local macOS execution cannot qualify Linux/Windows final publication. The same
 positive branches must run in actual native CI, and that evidence must be reported
@@ -109,3 +115,11 @@ live crypto enrollment, automatic unknown-send recovery or native cutover.
 The pinned Codex configuration/protocol semantics remain those verified in
 ADR036/057 against Codex0.153.4 source3d2ee51ca2d5db578f328aa75e20aa22c0197c9a.
 This integration adds no new upstream protocol assumptions.
+
+## Consequences
+
+The fixture exercises public component APIs and preserves platform-specific publication refusals. It does not introduce an autonomous service driver or qualify live models, enrollment and sandbox behavior.
+
+## Alternatives Considered
+
+Stubbing a successful cleanup or reply receipt would bypass the integration this test is meant to exercise. Treating the fixture driver as production scheduling would also overstate native availability.

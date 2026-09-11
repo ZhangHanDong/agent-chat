@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Two different live uploads can share a fence number, so claim validation alone cannot associate a separate send handle with its original operation.
+
+## Decision
+
 ADR078's current validation accepts a sealed UploadClaim and checks that claim's
 row. A consuming coordinator also holds a separate UploadSend. Before consuming
 the send into private SDK custody it must prove the retained claim refers to the
@@ -33,3 +39,11 @@ real media restoration proves the namespace survives owner close and source
 replacement alongside exact ciphertext and descriptor. Windows unconfirmed
 directory sync still refuses typed restoration; that refusal is not a positive
 Windows upload qualification. HTTP coordination remains separate ADR089 work.
+
+## Consequences
+
+Complete private identity and stage comparisons establish association without minting authority. The consuming owner must still retain the same claim and perform current writer checks.
+
+## Alternatives Considered
+
+Comparing fence numbers alone would let another upload's claim substitute during validation. Reconstructing encrypted source authority or upgrading unconfirmed directory sync would exceed the retained staging evidence.

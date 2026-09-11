@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Attachment encryption and decryption need finite complete-byte handling while remaining separate from authenticated event and room authority.
+
+## Decision
+
 `hagency-media` supplies the next ADR027 primitive after ADR058 snapshots. It
 uses the already pinned `matrix-sdk-crypto` 0.18.0 attachment encryptor/decryptor;
 it neither creates a second room crypto store nor implements its own cipher.
@@ -56,3 +62,11 @@ normal `npm ci`. The Rust jobs keep their scripts-disabled dependency install
 and consume the checked fixture, because that install deliberately omits the
 Matrix addon's postinstall download. A warm local binding does not prove a fresh
 scripts-disabled CI installation can execute the oracle.
+
+## Consequences
+
+The pinned SDK supplies crypto and checked EOF behavior; descriptors and keys remain private custody. A ciphertext digest alone authenticates neither the key nor sender, and staging and delivery stay separate.
+
+## Alternatives Considered
+
+Implementing another cipher or exposing plaintext before complete hash and EOF checks would weaken the existing SDK boundary. Treating valid decryption as sender authentication would confuse integrity with provenance.

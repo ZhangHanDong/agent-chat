@@ -157,7 +157,7 @@ objects and null. It rejects fractional/unsafe numbers and prototype properties;
 it is not a general Matrix canonical JSON replacement. Matrix crypto uses its
 SDK's own encoder.
 
-[State boundaries and remaining gates](../knowledge/decisions/adr-028-native-state-ownership.md)
+[State boundaries and remaining gates](../knowledge/decisions/adr-095-native-state-ownership.md)
 explain the transaction model, bounded work, platform requirements and recovery.
 [Source inventory](fixtures/legacy-inventory.json) now records 138 explicitly classified
 helpers, 199 Express routes plus 3 middleware registrations, 12 custom dispatcher

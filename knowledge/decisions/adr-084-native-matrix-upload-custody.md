@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-MATRIX-DM-PRIVACY]
 ---
 
+## Context
+
+The private SDK owner must preserve exact upload acceptance and its original route, stage and domain fence without issuing replacement live permits after reopen.
+
+## Decision
+
 ADR078's UploadSend is consumed once by a private SDK journal reservation. The
 reference binds its original domain id/fence, complete StageCommitment and frozen
 ReplyRoute to the actual persisted SDK Ed25519/Curve25519 identity and the existing
@@ -65,3 +71,11 @@ acknowledgement. Historical acceptance may settle after revocation/cancellation;
 it cannot revive a task, send permit or room-event authority. SDK file checks and
 SQLite acknowledgements are not ADR066 retained-directory qualification, Windows
 metadata-flush proof, hardware power-loss proof or complete upload delivery.
+
+## Consequences
+
+One durable reservation supplies one ephemeral permit; historical inspection supplies settlement evidence only. A coordinator still must associate the actual response and revalidate current authority before HTTP.
+
+## Alternatives Considered
+
+Turning a Possible summary or restored reference into a new POST grant would repeat unknown effects. Treating any valid response as belonging to this upload would omit the original operation association.

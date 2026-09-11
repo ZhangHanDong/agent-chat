@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREE-LAYER-COMPLETION]
 ---
 
+## Context
+
+Finite graph progress must survive its creator process while remaining tied to canonical tasks, current membership and durable peer assignments.
+
+## Decision
+
 Schema 10 connects the pure graph planner to the domain writer. A current started
 creator submits a bounded definition and exact internal participant session IDs.
 The writer validates conversation membership, project and allocation generation,
@@ -90,3 +96,11 @@ This is the native domain and private runner API. Actual model adapters, graph
 tool exposure, final replies with DM/promotion privacy, scheduling integration,
 Matrix/Palpo transport, effective sandbox policy and cutover remain migration
 gates. Repository inspection fixtures do not prove termination of live processes.
+
+## Consequences
+
+The domain writer commits bounded graph definitions and node tasks together. Graph readiness does not itself qualify model execution, Matrix delivery or process cleanup.
+
+## Alternatives Considered
+
+Keeping graph progress only in the creator's runtime would lose durable scheduling intent. Allowing nested graph creation or unbounded definitions through this command would bypass the recorded finite authority boundary.

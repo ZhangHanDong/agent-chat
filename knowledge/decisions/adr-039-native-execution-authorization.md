@@ -6,6 +6,12 @@ status: Accepted
 tags: [rust, runtime, approval, security]
 ---
 
+## Context
+
+Reusable permission scopes must derive from bounded host-owned metadata before a separate owner-consent transaction can authorize their use.
+
+## Decision
+
 The native core derives supported reusable scopes from host-owned runner
 metadata, never from a writable Agent request or presentation text. A descriptor
 is a candidate for owner consent, not consent itself. Exact command scopes include
@@ -36,3 +42,11 @@ Persistent approval records, exact private owner verdicts, agent and binding
 incarnations, task-completion epochs, grant revocation and per-request native
 decisions must be integrated transactionally before enabling approvals. The module
 has no network, store, endpoint or runtime decision side effects.
+
+## Consequences
+
+Unsupported metadata yields no reusable grant. Lexical path normalization and a scope digest do not establish filesystem containment, current leases or effective sandbox enforcement.
+
+## Alternatives Considered
+
+Deriving grants from Agent presentation text or unknown permission fields would trust unowned input. Treating normalized paths as physical containment would claim protection this pure module cannot provide.

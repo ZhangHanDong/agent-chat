@@ -5,6 +5,12 @@ title: Capture native usage under the exact owned dispatch before ledger attribu
 status: Accepted
 ---
 
+## Context
+
+Runtime usage evidence and durable ledger sources must meet inside the same owned dispatch rather than through a restorable textual session identity.
+
+## Decision
+
 ADR069 supplies actual scoped runtime observations; ADR063 persists historical
 usage sources. Connect them only inside the private owned-execution operation.
 The acknowledged Started scope binds its ledger source before child creation.
@@ -47,3 +53,11 @@ not authenticate provider billing, implement quotas, discover transcripts, expos
 source controls over HTTP, enable runtime services or qualify production sandbox
 and workspace custody. Offline actual native pipes, exact source/sequence guards,
 real writer replay and restart evidence are separate acceptance boundaries.
+
+## Consequences
+
+Capture begins only after acknowledged source binding and consumes exact ordered observations. Report retries preserve historical evidence without reattaching another process or hiding stream incompleteness.
+
+## Alternatives Considered
+
+Launching before source-binding acknowledgement or restoring a source into a new process would lose attribution. Detached per-event retries and unbounded receipt caches would split the operation's finite custody.

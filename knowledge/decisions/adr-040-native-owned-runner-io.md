@@ -6,7 +6,13 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS, REQ-THREE-LAYER-COMPLETION]
 ---
 
-## Scope and ownership
+## Context
+
+Typed runner IO must consume the pipes of the same retained native process owner rather than introduce an independent launcher or cleanup identity.
+
+## Decision
+
+### Scope and ownership
 
 This bounded M4 slice connects ADR-036's typed session to the existing native
 guardian launcher. `SupervisedProcess::spawn_piped` returns the retained owner
@@ -35,7 +41,7 @@ creation uses pipe plus fcntl on macOS; it does not claim atomic creation agains
 unrelated external launch paths. That is also the implementation used by the
 reviewed [Rust 1.94 Unix pipe source](https://github.com/rust-lang/rust/blob/1.94.0/library/std/src/sys/pipe/unix.rs).
 
-## Ancillary bounds and the disposable macOS receiver
+### Ancillary bounds and the disposable macOS receiver
 
 The parser uses initialized, aligned 4 KiB control storage. It clamps the returned
 control length before libc traversal and checks each header/payload bound.
@@ -77,7 +83,7 @@ that the running kernel was built from that published source commit. A disposabl
 subprocess fixture deliberately supplies 64 bytes, verifies fatal truncation,
 and observes EOF after all received writer descriptors have been closed.
 
-## Session IO and stopping
+### Session IO and stopping
 
 `OwnedSession` consumes the returned streams through Tokio's native Unix pipe
 Sender/Receiver adapters, making only host endpoints nonblocking. It requires a
@@ -114,7 +120,7 @@ explicitly not nonblocking server orchestration. A future host must run this
 ownership in a dedicated execution worker or supply an equally strong cancellation
 custody design; spawning detached cleanup is insufficient.
 
-## Offline evidence and remaining gates
+### Offline evidence and remaining gates
 
 The native fixture executes actual initialize, initialized, thread/start,
 turn/start, streamed item output and completion through owned child pipes. It
@@ -133,3 +139,11 @@ remain refused; macOS detached-descendant and POSIX guardian-death recovery rema
 open. No live model, effective sandbox, authenticated dispatch/input ACK, approval
 adapter, usage accounting, canonical task transition or lease settlement was
 qualified. Native service execution remains disabled and M4 remains incomplete.
+
+## Consequences
+
+Pipe transfer, cancellation and process-stop observations remain tied to existing guardian custody. Unsupported platform guarantees and native service activation stay explicit.
+
+## Alternatives Considered
+
+A second launcher, inherited ambient environment or numeric-PID cleanup path would separate execution from its retained owner. Passing guardian control descriptors into work would expose process-custody authority.

@@ -5,6 +5,12 @@ title: Retain authenticated encrypted attachment metadata independently of intak
 status: Accepted
 ---
 
+## Context
+
+Encrypted attachment descriptors must survive intake completion while retaining the original SDK-verified event and sender association.
+
+## Decision
+
 This Matrix-only ADR027 slice extends the actual SDK intake gate to encrypted
 m.file and m.image. Root ADR073 owns canonical attachment metadata and frozen
 per-session projection visibility. This slice owns private transport manifests,
@@ -57,3 +63,11 @@ secret lookup and retains explicit Applying uncertainty, with original raw input
 An actual SQLite abort proves no domain admission and no manifest after validated
 reopen; a lost positive write response would instead require inspecting what the
 journal actually committed. Missing records never imply media transfer absence.
+
+## Consequences
+
+Private manifests remain independent of batch lifetime and canonical safe metadata. Capacity or journal uncertainty never fabricates a download result or revives a previously rejected source.
+
+## Alternatives Considered
+
+Plain URL fallback or caller-supplied descriptors would bypass verified encrypted provenance. Looking up secrets from an unacknowledged journal write would expose memory-only evidence as durable custody.

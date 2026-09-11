@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+The staged upload owner must join original domain, staging, HTTP and SDK custody without repeating a possible POST or confusing upload acceptance with file-event delivery.
+
+## Decision
+
 ADR078 records original upload identity before staging and never reissues a send
 grant after WritePossible. ADR079 commits actual encryption identity before local
 IO; ADR077 restores original qualified ciphertext without reconstructing source
@@ -120,3 +126,11 @@ migration parity remain gates. UploadRequest metadata currently participates in
 the domain request digest; this owner does not pretend it can reconstruct that
 metadata from RestoredEncrypted. Safe receipts carry only upload state/opaque
 identity, never private descriptors, response bytes, MXC, paths or capability keys.
+
+## Consequences
+
+Bounded owned work retains exact response association before historical domain settlement. Windows durability refusals remain negative coverage, and source binding, metadata, MCP and event publication remain separate gates.
+
+## Alternatives Considered
+
+Rearming an attempted upload after cancellation or reopening would repeat unknown external effects. Settling from an unrelated checked response or calling upload acceptance Delivered would bypass distinct association and room-event custody.

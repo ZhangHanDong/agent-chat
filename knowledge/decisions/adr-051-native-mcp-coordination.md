@@ -8,6 +8,12 @@ satisfies: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREE-LAYER-COMPLETION, REQ-THREAD
 
 # Scoped native MCP coordination through the existing runner API
 
+## Context
+
+Native MCP coordination needs canonical conversation, delegation and graph operations without allowing the helper to choose its actor or transport authority.
+
+## Decision
+
 Extend ADR-049's dedicated helper with fourteen implemented coordination tools.
 Keep the five assigned-task tools and their exact task scope. Every operation
 uses the existing canonical runner API and inherited Context; the helper opens
@@ -75,3 +81,11 @@ Agent discovery, files/attachments, Matrix history, progress hooks, generated MC
 configuration and runtime launch/cutover remain separate gates. No live model,
 Matrix account, Palpo server or deployment is exercised. Windows/Linux and broader
 integrated migration acceptance require their own runs after integration.
+
+## Consequences
+
+Implemented tools reuse current runner API checks and durable receipts. Discovery, files, generated runtime configuration and production MCP parity remain separate gates.
+
+## Alternatives Considered
+
+Accepting arbitrary URLs, methods or capabilities in tool arguments would turn scoped coordination into a generic host endpoint. Direct store access would create a second authority path outside the runner writer.

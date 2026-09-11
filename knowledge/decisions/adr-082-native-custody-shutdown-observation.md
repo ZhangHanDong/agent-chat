@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+A failed custody-worker shutdown needs phase observations from its original call, independently of later closure and unrelated domain-store diagnostics.
+
+## Decision
+
 At25c01ee the original Windows Palpo transport target passed13/13. A later
 failure-only serial diagnostic passed12/13 and failed1/13: native_outbound_http_publication_
 frozen_restart_and_rotation panicked at transport.rs620 with OutcomeUnknown.
@@ -58,3 +64,11 @@ lifecycle would not discover both stores' and Palpo's selectors and must not be
 reported as complete. Native/Windows GNU compilation is separate from actual
 hosted Windows runtime qualification. No live server, service or credential is
 accessed.
+
+## Consequences
+
+Fixed snapshots preserve the original result, queue and acknowledgement waits. Local phase tests and cross-compilation remain separate from actual hosted Windows runtime evidence.
+
+## Alternatives Considered
+
+Issuing a second shutdown or treating eventual lock release as the first call's success would erase uncertainty. Reusing domain-store evidence for a custody-store failure would observe the wrong owner.

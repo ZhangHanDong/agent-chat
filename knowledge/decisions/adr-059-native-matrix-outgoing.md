@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-MATRIX-DM-PRIVACY, REQ-THREAD-SCOPED-SESSIONS]
 ---
 
+## Context
+
+Sending a frozen Matrix intent crosses domain, SDK and external HTTP outcomes, each of which can lose an acknowledgement independently.
+
+## Decision
+
 The native host may send an existing final-reply or verified task-notice claim
 through `hagency-matrix::Collector`. This extends ADR047/054's bounded transport
 and owned SDK; it does not enable a service runner, enroll Matrix accounts,
@@ -15,7 +21,7 @@ Encrypted sending requires identities, cross-signing and Olm sessions already
 provisioned in the protected SDK store. The fixture-only provisioning code is
 absent from production builds.
 
-## Host inputs and exact authority
+### Host inputs and exact authority
 
 `send_final(ReplyClaim)`, `send_notice(VerifiedNoticeClaim)` and
 `resume_outgoing_custody` are host APIs. They expose no arbitrary HTTP operation,
@@ -51,7 +57,7 @@ This does not make a remote request atomic with future room/server changes: once
 the PUT starts, concurrent remote revocation may race with acceptance. Such work
 retains external outcome custody instead of assuming it was not sent.
 
-## Content and cryptographic derivation
+### Content and cryptographic derivation
 
 ADR050 formats only the frozen domain body. Notice msgtype is m.notice; final
 msgtype is m.text. The thread relation is constructed solely from the frozen
@@ -87,7 +93,7 @@ plaintext fallback for encrypted rooms and no trust-on-first-use path. Actual
 fixtures decrypt the transmitted to-device and room ciphertext with CrossSigned
 trust and assert the new session differs from a seeded historical session.
 
-## Journal, response loss and restart
+### Journal, response loss and restart
 
 The outgoing attempt and receipts extend the existing encrypted StoreCipher
 journal in the SDK state store; there is no new schema or second domain store.
@@ -134,7 +140,7 @@ response shapes. Complete cannot omit an earlier acceptance. Duplicate settled
 receipts or overlap with a retained attempt are rejected. Protected encryption
 is not a reason to accept an inconsistent old journal.
 
-## Finite resources and remaining gates
+### Finite resources and remaining gates
 
 The collector has one active network job and one SDK owner. The worker accepts
 one bounded queued command alongside one executing command. Start is capped at
@@ -162,3 +168,11 @@ production host/service wiring remain explicit gates. The 64-receipt hard stop
 must be addressed before continuous operation; history is never silently dropped.
 Actual Windows/Linux execution is CI qualification, not inferred from macOS tests.
 This slice neither enables native availability nor claims live UX/cutover parity.
+
+## Consequences
+
+Protected send history preserves possible writes and exact accepted responses without granting automatic resend. Live enrollment, trust lifecycle, receipt compaction and service wiring remain open.
+
+## Alternatives Considered
+
+Retrying an uncertain PUT or deriving a new recipient route from current state would abandon original send custody. Plaintext fallback for failed encrypted recipient checks would violate the frozen privacy boundary.

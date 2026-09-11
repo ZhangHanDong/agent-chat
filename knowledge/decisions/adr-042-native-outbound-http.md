@@ -6,12 +6,18 @@ status: Accepted
 requirements: [REQ-PALPO-OUTBOUND, REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Actual outbound HTTPS effects must preserve the registration custody kernel's finite queues, frozen publication and explicit uncertain outcomes.
+
+## Decision
+
 `hagency-palpo` implements the next M5 transport slice over ADR-037 custody. It
 does not replace canonical domain admission, authenticate Matrix sender/member
 evidence, run an Agent or complete the Rust migration. The existing custody
 database remains schema 2; no domain schema is changed.
 
-## Host identity and actual transport
+### Host identity and actual transport
 
 Only trusted host code constructs `HostConfig`. It binds the exact fleet URL,
 registration identity, machine credential and machine generation. It has no
@@ -43,7 +49,7 @@ cancels; an uninterruptible OS lookup may occupy a slot, never create unlimited
 abandoned lookups. This is a bound per Adapter instance, not a global guarantee
 for arbitrary host-created instances or dependency runtime tasks.
 
-## Framing, deadlines and finite custody
+### Framing, deadlines and finite custody
 
 Default connect/header/body-idle budgets are 5 seconds. A normal request has a
 10-second absolute deadline; a long poll adds its explicit wait (at most 25
@@ -90,7 +96,7 @@ accepted, stale and retired leases. It uses existing schema-2 columns; no schema
 or canonical state is duplicated. Old-generation pending Matrix/request rows
 survive rotation with retired ACK observations, never invented remote acceptance.
 
-## Independent loops, publication and cancellation
+### Independent loops, publication and cancellation
 
 Matrix polling waits for host consumption after local custody is acknowledged
 or retained across rotation. Its FIFO Head cannot be bypassed by later work.
@@ -120,7 +126,7 @@ durable identity. No ACK is sent ahead of persistence, and no received record is
 deleted to implement shutdown. Old in-flight poll/ACK/publication responses are
 fenced when the host activates a new machine generation.
 
-## Evidence and remaining gates
+### Evidence and remaining gates
 
 Protocol reference is read-only Palpo commit
 `c7c400e04ab05479a63c30f14679ec0180457d85`: `web-admin/server.mjs` lines 52-77
@@ -147,7 +153,7 @@ secure host configuration persistence, Agent retirement HTTP endpoint parity,
 or live end-to-end UX. Those M5-M9 gates stay open. CI must still exercise this
 slice on every supported platform before native production cutover.
 
-## Windows CI diagnostic after ae284b9
+### Windows CI diagnostic after ae284b9
 
 The Windows full-suite run reports OutcomeUnknown during transport attachment
 and domain observations; several subsequent scripts therefore receive no HTTP
@@ -159,3 +165,11 @@ an eight-minute outer bound. The original verdict remains failed regardless of
 the diagnostic result. Assertions, worker/HTTP deadlines and production
 concurrency remain unchanged. The comparison supplies additional evidence about
 concurrent fixture load; a serial pass alone does not establish a root cause.
+
+## Consequences
+
+Authenticated local TLS fixtures qualify transport boundaries, not Matrix provenance or native deployment parity. Failure-only diagnostic runs preserve the original failed full-suite verdict.
+
+## Alternatives Considered
+
+Redirects, environment proxies or implicit HTTP retries could change the destination or repeat uncertain effects. Replacing a failed full run with a serial diagnostic pass would also discard original evidence.

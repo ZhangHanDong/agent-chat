@@ -1,15 +1,21 @@
 ---
 kind: decision
-id: ADR-028
+id: ADR-095
 status: Accepted
 title: Native state ownership and migration recovery boundaries
 ---
+
+## Context
+
+The native migration needs explicit transaction owners before its independent transport, domain and crypto stores can recover interrupted work safely. This native state decision is renumbered from ADR-028 to ADR-095 to preserve the existing ADR-028 execution-authorization identifier; the ownership decision and its qualification limits are unchanged.
+
+## Decision
 
 Implements the operator's REQ-RUST-MIGRATION-EXECUTION. Baseline is
 `5dbef22dc5ad4e0bb1a886538406ec91a5893f9b`; production continues using JS/TS.
 Fresh native state is the default. No old router, JSON or SDK store is imported.
 
-## Owners and commit boundaries
+### Owners and commit boundaries
 
 | Command | Owner | One atomic commit | Replay identity | Crash recovery |
 | --- | --- | --- | --- | --- |
@@ -61,7 +67,7 @@ from the existing embedded role-capacity policy and current provider/reasoning
 fields. Review counts active allocated model families on the same registration;
 unprovisioned configurations and another registration cannot satisfy that guard.
 
-## Latency and storage
+### Latency and storage
 
 SQLite commands run on a dedicated thread. Defaults: 16 queued commands, 16 MiB
 of serialized queued payload, 4 MiB per delivery, eight HTTP body/command slots,
@@ -85,7 +91,7 @@ heartbeat and health p95 below 250 ms locally while collection is running, with
 an explicit hardware record and memory ceiling. This workload gate is still open.
 The foundation saturation test proves custody-worker separation only.
 
-## Platform and dependency choices
+### Platform and dependency choices
 
 Rust edition 2024, pinned toolchain 1.95.0, Salvo 0.96.0 (requires Rust 1.94).
 SQLite 0.37 is selected to share the native SQLite library required by
@@ -105,7 +111,7 @@ and decrypts under `CrossSigned` trust. It rejects wrong device IDs and encrypti
 keys. This is not a connected Palpo test, NAPI crypto import, multi-user trust
 proof, device recovery flow or production authorization implementation.
 
-## Early gates and dependencies
+### Early gates and dependencies
 
 Before native Agent launch becomes available, execute a headless fixture runner
 on native Windows and both Unix families: assigned ownership before work,
@@ -127,7 +133,7 @@ Credentials, database and ownership-lock files retain exact owner-SID validation
 Administrator/root privileges are outside protection against ordinary local users.
 The private-file regression also rejects public-read ACLs for journal files.
 
-## Native canonical task and dispatch checkpoint
+### Native canonical task and dispatch checkpoint
 
 Domain schema 3 adds tasks, session bindings, dispatch attempts, resource leases,
 mutation receipts and an internal task event outbox. Starting a leased dispatch
@@ -150,7 +156,7 @@ responsibilities; no native HTTP endpoint accepts these fixture authority comman
 Mailbox ordering, task dependencies, delegation, follow-up reopening and actual
 reply delivery remain subsequent M3 work. This checkpoint does not satisfy M4–M9.
 
-## Message admission and input ownership
+### Message admission and input ownership
 
 Schema 4 enforces one session per allocation/room/thread, with transactional
 resolution and a unique SQLite index. Older conflicting native session records
@@ -176,7 +182,7 @@ constructor. The compiler assertion and local fixtures prove the internal bounda
 not live homeserver authentication. Group/MCP surfaces, task graph/delegation,
 reply delivery and continuous retention remain later migration work.
 
-## Private runner service boundary
+### Private runner service boundary
 
 The native runner HTTP surface exposes task reads, comments, typed mutations and
 frozen inbox pages. It uses the exact loopback authority and a full current runner
@@ -194,3 +200,11 @@ request parsing rejects arbitrary identity/status fields, unknown actions and ca
 clocks. Current task mutation receipts preserve exact replay and rollback behavior.
 M4/M6 adapters must use this service boundary; this checkpoint launches no processes
 and does not provide MCP transport or full task graph/delegation behavior.
+
+## Consequences
+
+Domain invariants remain under one bounded transactional writer. Cross-owner acknowledgements require durable handoffs, and fresh native development state does not authorize importing live state or cutting over production.
+
+## Alternatives Considered
+
+Splitting canonical tasks and allocation invariants across separate databases would lose their atomic boundary. Treating transport receipt as domain admission or adopting legacy stores would also bypass the distinct ownership and recovery checks recorded here.

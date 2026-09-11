@@ -5,6 +5,12 @@ title: Durable host-attributed untrusted token observations
 status: Accepted
 ---
 
+## Context
+
+Persistent token observations need exact host attribution and stable high-water accounting despite missing fields, retries and changing observation periods.
+
+## Decision
+
 This bounded migration ports the high-water ledger policy under ADR-013 and
 ADR-055. A host-attributed transcript is not provider-authenticated measurement.
 No usage row changes allocation, execution permission or quota eligibility.
@@ -105,3 +111,11 @@ and separately withhold acknowledgement before/after real commit. Identical retr
 records exactly once under the original unchanged response deadline. No live
 provider, transcript scan, transport send, service toggle or quota enforcement is
 implemented by this slice.
+
+## Consequences
+
+The single writer commits source, periods and receipts together while preserving untrusted evidence and known lower bounds. Ledger data does not authorize execution, quota eligibility or provider billing.
+
+## Alternatives Considered
+
+Attributing usage from transcript paths or supplied names would trust source hints as identity. Evicting source keys and recounting their reappearance would violate durable deduplication.

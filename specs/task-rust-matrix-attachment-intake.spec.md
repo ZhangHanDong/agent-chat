@@ -1,7 +1,7 @@
 spec: task
 name: "Retain authenticated encrypted attachment manifests before native admission"
 inherits: project
-satisfies: [REQ-RUST-MIGRATION-EXECUTION, ADR-027]
+satisfies: [REQ-RUST-MIGRATION-EXECUTION]
 tags: [active, rust, matrix, media, privacy]
 ---
 
@@ -9,6 +9,10 @@ tags: [active, rust, matrix, media, privacy]
 
 Admit verified encrypted file metadata while preserving original private descriptor
 custody independently of completed intake batches and avoiding eager downloads.
+
+## Decisions
+
+This contract retains the design boundaries in [ADR-027](../knowledge/decisions/adr-027-session-file-delivery.md).
 
 ## Constraints
 

@@ -5,6 +5,12 @@ title: Persist exact private owner authority before one-shot native approval app
 status: Accepted
 ---
 
+## Context
+
+Native tool approvals require durable private owner authority tied to the current task, dispatch, room and device generations.
+
+## Decision
+
 Schema 13 provides the durable authority boundary for REQ-OWNER-UI-APPROVAL and
 REQ-EXECUTION-AUTHORIZATION. It builds on ADR-003/005/028/039 and existing canonical
 task/dispatch custody. It does not enable a native runtime permission response,
@@ -109,3 +115,11 @@ policy, sandbox enforcement, graphical controls and deployment cutover. Native
 runtime decisions remain unsupported until that adapter exists. Task-notice sending
 retains ADR-038's separate unresolved send-custody gate. No model, service, credential,
 production room or runtime process was used or changed in this slice.
+
+## Consequences
+
+The single domain writer records bounded one-use decisions and exact replay receipts. Persistence alone proves neither runtime application nor tool execution, and card delivery remains separate.
+
+## Alternatives Considered
+
+Public-room text, runtime-generated verdicts or reusable unscoped grants would bypass owner consent. Treating an approved row as proof of process application would erase the unresolved adapter boundary.

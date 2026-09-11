@@ -1,7 +1,7 @@
 spec: task
 name: "Attach redacted progress to exact native Codex observations"
 inherits: project
-satisfies: [REQ-RUST-MIGRATION-EXECUTION, ADR-026, REQ-THREAD-SCOPED-SESSIONS, REQ-THREE-LAYER-COMPLETION]
+satisfies: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS, REQ-THREE-LAYER-COMPLETION]
 tags: [active, rust, progress, runtime]
 ---
 
@@ -9,6 +9,10 @@ tags: [active, rust, progress, runtime]
 
 Attach the bounded progress policy to actual typed Codex session observations
 without turning runtime activity into task truth process custody or delivery.
+
+## Decisions
+
+This contract retains the design boundaries in [ADR-026](../knowledge/decisions/adr-026-visible-runner-activity.md).
 
 ## Constraints
 

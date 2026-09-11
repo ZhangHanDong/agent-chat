@@ -8,6 +8,12 @@ satisfies: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREE-LAYER-COMPLETION, REQ-THREAD
 
 # Native MCP maintenance of the assigned canonical task
 
+## Context
+
+The migration needs native MCP task maintenance through the same inherited context and scoped loopback writer as the CLI helper.
+
+## Decision
+
 The migration requires native MCP and task helpers. ADR-041 already provides the
 scoped loopback client; use that same transport and writer for the first MCP tools.
 The dedicated `hagency mcp` subprocess receives the same inherited host context.
@@ -60,3 +66,11 @@ Sources:
 - https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
 - https://modelcontextprotocol.io/specification/2025-11-25/server/tools
 - https://github.com/modelcontextprotocol/rust-sdk/tree/25220361d5540715294c501c289d79de4bec2bfc/crates/rmcp/src/transport
+
+## Consequences
+
+A dedicated bounded stdio process exposes only its implemented task tools. Database access, identity discovery and broader MCP or runtime readiness remain outside that helper's authority.
+
+## Alternatives Considered
+
+Using the cached SDK's unbounded default line framing as the input boundary would defeat finite admission. Opening state or accepting operator credentials inside MCP would bypass the runner API's task scope.

@@ -6,13 +6,19 @@ status: Accepted
 requirements: [REQ-PALPO-OUTBOUND, REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Native Matrix observations require a configured authenticated origin, exact account/device identity and separately owned encrypted SDK state.
+
+## Decision
+
 `hagency-matrix` is a limited M5 account/device and room-observation collector.
 It performs actual authenticated HTTPS reads and persists SDK state, but does
 not admit Matrix events, execute owner approvals, publish keys, register remote
 accounts or send messages. Its summary contains only generation and room count.
 This is not a full Matrix client or a completed native deployment.
 
-## Pinned SDK boundary
+### Pinned SDK boundary
 
 The existing SDK foundation pins matrix-sdk-base/common/crypto/sqlite and
 store-encryption 0.18.0, with Ruma 0.16.0. The high-level SDK accepts a configured
@@ -32,7 +38,7 @@ outgoing crypto requests or invokes a send API. Existing offline crypto tests
 prove cross-signed encrypted fixture restart independently; whoami alone does
 not prove published device keys, cross-signing or historical key availability.
 
-## Host identity and authenticated observations
+### Host identity and authenticated observations
 
 HostConfig has neither Deserialize nor Debug nor a mutable credential setter.
 It pins a canonical homeserver origin, external access token and storage key,
@@ -63,7 +69,7 @@ generation. Room generations are host-coordinated shared scope, not per-device
 counters guessed by this collector. Unknown encryption never falls back to
 plaintext. No members or history are silently truncated to meet a limit.
 
-## Negative transport authority and schema 15
+### Negative transport authority and schema 15
 
 Domain schema 15 adds transport availability and a content-bound invalidation
 receipt. Existing schema 14 identities stay positive until explicitly invalidated.
@@ -99,7 +105,7 @@ unavailable or OutcomeUnknown; a failed database cannot guarantee immediate
 atomic retirement. The collector returns unknown in that case, never success.
 No live sender/executor is wired to this collector in this slice.
 
-## Storage ownership, sync receipts and cancellation
+### Storage ownership, sync receipts and cancellation
 
 The private directory, create-only binding and public-key fingerprint files,
 SQLite databases and journals reject public permissions, foreign ownership,
@@ -132,7 +138,7 @@ bootstrap. It is not silently replayed or declared successful. Exact completed
 replay is content-bound; changed token replay conflicts. The SDK's own same-token
 shortcut is not used as proof of matching content.
 
-## Bounds and remaining gates
+### Bounds and remaining gates
 
 A collector accepts at most 16 fixed rooms, 1000 events per response and 1 MiB of
 serialized JSON. Host limits may be lower. A private sync journal retains at
@@ -164,3 +170,11 @@ or key publication nor Matrix event provenance, recovery from pending SDK work,
 notice/final send authentication, remote provisioning, historical key import,
 ongoing room-set changes, live UX or M5 completion. Live device key matching and
 cross-signing must be proven before enabling a native encrypted sender.
+
+## Consequences
+
+The bounded collector retains sync and storage uncertainty without implying event admission or message delivery. Enrollment, key lifecycle and continuous retention remain distinct gates.
+
+## Alternatives Considered
+
+Trusting caller-supplied verification flags or silently adopting another SDK device would bypass authenticated identity. Dropping pending sync history at capacity would erase the custody required for recovery.

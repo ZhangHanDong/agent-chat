@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREE-LAYER-COMPLETION]
 ---
 
+## Context
+
+Removing internal conversation membership must revoke execution authority without erasing tasks, messages or unresolved process effects.
+
+## Decision
+
 Native internal groups use exact creator-session authority. Their membership
 operations carry an expected revision and a dispatch-scoped call ID. The domain
 transaction records the normalized request digest and exact response. Retrying a
@@ -43,3 +49,11 @@ Current input from unrelated live groups may then be scheduled independently.
 The process adapter, real stop observation, Matrix membership, final reply delivery
 and production cutover remain migration gates. Deterministic repository fixtures
 prove transactions and authority, not termination of a real Agent process.
+
+## Consequences
+
+Retirement preserves immutable history and dirty leases until exact host inspection settles the original attempt. Rejoining creates a new session incarnation rather than restoring old authority.
+
+## Alternatives Considered
+
+Deleting retired sessions or immediately releasing their resource leases would hide unresolved execution. Reusing the old session on rejoin would let historical capabilities regain membership authority.

@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+A crash after staging but before recording its identity would otherwise force recovery to infer authority from whatever journal content remains.
+
+## Decision
+
 ADR077 requires an independently retained original operation and receipt digest
 to restore encrypted storage. ADR066 stage returns that receipt after writing;
 a crash between staging and recording its identity cannot safely discover a new
@@ -36,3 +42,11 @@ Windows unconfirmed sync refuses preparation explicitly; ordinary staging and
 inspection remain separate. Current OS flush evidence does not prove historical
 or hardware power-loss durability. Upload WritePossible and unknown POST recovery
 remain separate requirements; no missing record authorizes replacement encryption.
+
+## Consequences
+
+PreparedEncrypted retains original ciphertext and a fixed commitment before mutation. Preparation reserves a held result, not journal space or guaranteed future writes, and Windows unconfirmed sync remains refused.
+
+## Alternatives Considered
+
+Discovering a replacement commitment after IO or encrypting again would sever original operation identity. Treating current flush evidence as historical power-loss proof would overstate the storage contract.

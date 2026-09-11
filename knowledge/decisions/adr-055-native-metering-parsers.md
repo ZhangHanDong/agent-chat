@@ -5,6 +5,12 @@ title: Native bounded transcript token normalization
 status: Accepted
 ---
 
+## Context
+
+Transcript token observations contain missing, duplicate and contradictory untrusted records that must remain visible during native normalization.
+
+## Decision
+
 This implements the parser boundary of the authorized Rust migration and
 ADR-013's token-only, missing-is-unknown and separate-cache rules. Input is an
 untrusted in-memory JSONL snapshot. No filesystem or provider request is made.
@@ -48,3 +54,11 @@ semantics. Native correction fixtures separately cover missing values, invalid
 numbers, duplicate keys/identities and contradictory evidence. No live transcript
 is used. Discovery, current runner stream usage, persisted ledger identity,
 engagement attribution, quota enforcement and browser projections remain open.
+
+## Consequences
+
+Bounded parsing preserves unknown fields and inconsistency diagnostics instead of manufacturing complete totals. Attribution, quota enforcement and provider-authenticated billing remain outside the parser.
+
+## Alternatives Considered
+
+Summing repeated Codex cumulative records or counting cache reads as fresh input would inflate usage. Treating missing values as zero or returning a truncated complete-looking total would erase uncertainty.

@@ -6,13 +6,19 @@ status: Accepted
 tags: [rust, matrix, media, transport]
 ---
 
+## Context
+
+Encrypted media retrieval needs bounded authenticated-origin transport and complete decryption without acquiring event or dispatch authority from a URL.
+
+## Decision
+
 This ADR027 slice adds host-local MediaDownloader to hagency-matrix, using the
 existing hardened HTTPS client and ADR061 Codec. It implements authenticated
 repository GET and checked plaintext only. The earlier ADR066 storage partition
 is not a Matrix authorization source; this slice opens no staging, SDK or domain
 store and does not depend on directory sync behavior.
 
-## API and authority
+### API and authority
 
 MediaDownloader::new borrows validated HostConfig and bounded MediaDownloadLimits.
 It requires HTTPS, including local test peers, and retains the configured origin,
@@ -48,7 +54,7 @@ the event to the dispatch's frozen visible input/privacy floor, and revalidate
 current authority after the asynchronous download before exposing or staging it.
 None of those proofs can be supplied through this transport's result.
 
-## Bounds, EOF and cancellation
+### Bounds, EOF and cancellation
 
 Clones share one active-transfer semaphore and one Codec result pool. Limits
 allow 1..16MiB ciphertext per request, 1..4 active transfers and 1..8 retained
@@ -95,7 +101,7 @@ these errors do not need an upload uncertainty claim. Callers can explicitly pas
 successful CheckedBytes to ADR066; its own durability and custody rules still
 apply. This slice does not stage downloaded bytes automatically.
 
-## Verification and limits
+### Verification and limits
 
 Six deterministic selectors drive actual configured-origin TLS and retained
 Node/Matrix SDK crypto vectors: exact remote path and bearer, untrusted CA,
@@ -111,3 +117,11 @@ scoped MCP receive_file, disk persistence and Matrix room sending remain gated.
 The legacy file surface supports20MiB while the native codec remains a documented
 16MiB subset. Platform runtime behavior is qualified by integrated CI; local
 success or Windows cross-compilation alone is not a three-platform runtime proof.
+
+## Consequences
+
+The downloader returns checked plaintext only after complete bounded transport and crypto checks. Whoami identity, manifest provenance, current dispatch scope and persistent receive paths remain separate responsibilities.
+
+## Alternatives Considered
+
+Following redirects or accepting arbitrary origins would expose the configured bearer. Partial plaintext, automatic retry or a silent plaintext fallback would conceal incomplete or unauthenticated media outcomes.

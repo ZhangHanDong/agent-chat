@@ -6,13 +6,19 @@ status: Accepted
 requirements: [REQ-PALPO-OUTBOUND, REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Outbound transport must retain registration-bound custody while machine credentials rotate independently of canonical domain authority.
+
+## Decision
+
 The native M5 custody kernel extends the existing bounded writer and
 `custody.sqlite3` to schema 2. It does not create another domain store. Agent
 allocations, canonical requests, tasks and approvals remain in `domain.sqlite3`.
 This implements local custody transitions; it does not complete M5 or establish
 an authenticated Matrix connection.
 
-## Authority and separate generations
+### Authority and separate generations
 
 A host-only activation pins the binding ID, canonical side ID, fleet ID, Matrix
 registration fingerprint and registration generation. A unique side/fleet key
@@ -41,7 +47,7 @@ fields. `Receipt.generation` remains the Matrix registration generation;
 field substitutes for the Matrix account/device incarnation used by domain reply
 observations.
 
-## Receipt and processing boundaries
+### Receipt and processing boundaries
 
 Each lane's issued poll ticket is current-scoped. A new poll fences an older
 response; the same poll can only replay an identical delivery response. Receive
@@ -89,7 +95,7 @@ an effect. Head/view queries expose enough bounded metadata to discover unknown
 attempts after restart. Matrix delivery ordering uses committed arrival order;
 the work lane proceeds independently.
 
-## Frozen publication and retiring proof
+### Frozen publication and retiring proof
 
 One publication slot per binding contains an immutable v2 body and increasing
 JSON-safe sequence. The writer adds v, machine generation and sequence; it never
@@ -114,7 +120,7 @@ or update response for that retired scope cannot mutate the new generation. This
 is the only implemented publication reset; a timeout does not discard, rewrite
 or rebuild a pending body.
 
-## Capacity, recovery and remaining integration
+### Capacity, recovery and remaining integration
 
 The existing worker retains a finite command queue (default 16), a 16 MiB
 serialized input budget and a two-second response deadline. Host time is anchored
@@ -146,3 +152,11 @@ No network/client crate, polling loop, bearer-secret storage, server deployment,
 Matrix SDK authentication, domain request admission, status observation scheduler
 or live E2E workflow is included. Those adapters must preserve these host-only
 boundaries and reconcile original owner receipts before releasing unknown work.
+
+## Consequences
+
+The custody writer preserves exact receipts and frozen publication identities across supported rotation. Unknown cross-owner outcomes remain inspectable rather than becoming new execution grants.
+
+## Alternatives Considered
+
+Adopting fixture bindings or replacing registration identity through a token rotation would merge distinct authorities. Splitting domain invariants into custody storage would also violate their existing single-writer ownership.

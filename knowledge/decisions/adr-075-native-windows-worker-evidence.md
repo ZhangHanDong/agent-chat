@@ -6,6 +6,12 @@ status: Accepted
 tags: [rust, windows, fixtures, custody]
 ---
 
+## Context
+
+The original Windows failures mixed a short lease's expiry with concurrency assertions and provided no phase evidence for an unrelated shutdown error.
+
+## Decision
+
 Original Windows job103108377728 at a856aa5 failed two store library tests:
 queued completion cancellation passed its behavior assertions but shutdown returned
 OutcomeUnknown; the outbound concurrency fixture returned two claims rather than
@@ -29,3 +35,11 @@ original shutdown call, print it only upon error, and preserve both two-second
 waits and the failing verdict. Do not retry shutdown or count later closure as the
 original success. Subsequent Windows CI remains qualification, not local GNU
 cross-compilation or an excuse to widen deadlines.
+
+## Consequences
+
+Separate fixtures preserve one-claim concurrency and real expired-ticket denial without changing production leases. Original shutdown uncertainty remains failed evidence pending an observed phase.
+
+## Alternatives Considered
+
+Calling sequential claims after lease expiry simultaneous execution would misstate the observed authority. Retrying shutdown or widening production waits would replace the original failure instead of explaining it.

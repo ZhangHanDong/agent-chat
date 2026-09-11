@@ -5,6 +5,12 @@ title: Freeze Matrix privacy before session execution and separate final intent 
 status: Accepted
 ---
 
+## Context
+
+Canonical Done, final content admission, transport send-start and authenticated external acceptance are distinct facts with different privacy and recovery requirements.
+
+## Decision
+
 The M3 domain proof separates four facts: a canonical task reached Done, its
 current runtime submitted final content, a host transport started a send, and an
 authenticated host observed the exact external event. None implies the others.
@@ -102,7 +108,7 @@ This slice intentionally has these limits:
   live end-to-end testing are not implemented here. No model or live Matrix
   service was used or changed. M3 and the overall native migration remain open.
 
-### 2026-09-10: Native sender admission and journal reconciliation
+#### 2026-09-10: Native sender admission and journal reconciliation
 
 The host can preview only an exact current Claimed reply to match its private
 account/room collector before committing Sending. Preview does not change state
@@ -117,3 +123,11 @@ secret does not erase that delivery evidence. Existing durable inspection digest
 keep retries idempotent. NotSent remains restricted to Uncertain and cannot turn
 an in-flight send into a resend permission. No runner/public endpoint receives
 preview, validation or inspection authority.
+
+## Consequences
+
+Frozen routes and one-shot send transitions preserve exact historical delivery evidence. A retry or accepted response cannot silently adopt a changed room, device or task epoch.
+
+## Alternatives Considered
+
+Inferring delivery from Done or from a stable Matrix transaction ID would confuse intent with external acceptance. Reusing current room state for old output would discard the frozen private route.

@@ -6,12 +6,18 @@ status: Accepted
 requirements: [REQ-OWNER-UI-APPROVAL, REQ-EXECUTION-AUTHORIZATION, REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Structured owner verdicts need an authenticated private Matrix intake path with custody independent of ordinary task-message collection.
+
+## Decision
+
 The native host may consume private structured owner verdicts through
 `hagency-matrix::ApprovalCollector`. This bounded M6 slice settles existing
 native requests and grants; it does not deliver approval cards, apply a runtime
 permission decision, enable services or complete the migration.
 
-## Separate host and device custody
+### Separate host and device custody
 
 `HostApprovalConfig` consumes a fixed host configuration and at most 64 distinct
 engagement IDs. Its registration fingerprint, account/device incarnation,
@@ -39,7 +45,7 @@ It cannot invalidate an unrelated newer device or generation. Existing domain
 triggers retire affected grants. Same-generation positive replay cannot revive
 negative availability; a new host-approved generation is required.
 
-## Actual SDK evidence and immutable actions
+### Actual SDK evidence and immutable actions
 
 Only the owned SDK receives the authenticated sync response. The inspected
 pinned matrix-sdk-base/crypto 0.18.0 paths are
@@ -80,7 +86,7 @@ revocation, completed task or expiry cannot use an earlier check. A future remot
 room change can still race any completed authenticated snapshot; no HTTP read is
 claimed atomic with remote server state.
 
-## Durable handoff and replay
+### Durable handoff and replay
 
 The protected journal stores the complete bounded raw sync response, key query,
 frozen targets and SDK identity in Prepared before applying SDK mutation. It
@@ -122,7 +128,7 @@ waiting caller disappears. Closing attempts exact negative fencing and always
 waits for owned SDK shutdown, even when the domain target has retired. No shutdown
 error is reported as success, and no failed store is silently recreated.
 
-## Bounds and explicit limits
+### Bounds and explicit limits
 
 - One owned job per collector; the existing SDK owner has one executing and one
   queued command, bounded deadlines and finite filesystem/journal budgets.
@@ -142,7 +148,7 @@ error is reported as success, and no failed store is silently recreated.
   ordinary users' registration approval, card delivery, runtime application,
   live key lifecycle, service wiring and production cutover remain unsupported.
 
-## Evidence
+### Evidence
 
 Local scripted TLS fixtures use real SDK-encrypted owner events and offline
 cross-signed identities; fixture provisioning is not in production builds.
@@ -154,3 +160,11 @@ journal corruptions, malformed framing, duplicate/UTD batches and actual finite
 capacity. Store fixtures cover historical receipt-only recovery, stale negative
 CAS, exact scopes/expiry and SQLite rollback of grant plus source receipt.
 Cross-platform integrated CI and live deployment are not inferred from local tests.
+
+## Consequences
+
+The approval collector preserves exact encrypted source and durable action receipts. It settles domain decisions without implying that cards were delivered or runtime permissions applied.
+
+## Alternatives Considered
+
+Using ordinary room messages, caller verification flags or another collector's cursor would merge distinct authority purposes. Reinterpreting rejected ciphertext after trust changes would abandon immutable source custody.

@@ -6,7 +6,13 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS]
 ---
 
-## Scope and source
+## Context
+
+A native Codex session must correlate one upstream turn and its terminal observations before host execution authority can be attached.
+
+## Decision
+
+### Scope and source
 
 This M4 slice wraps ADR-032's Connection and ADR-034's owned-stream Driver with
 `SessionDriver`. It has no domain store, child process handle, Matrix credentials,
@@ -23,7 +29,7 @@ names, required fields, policy definitions and source file SHA-256 hashes in
 these fixtures. The typed implementation validates the correlation, policy and
 lifecycle subset it uses; it is not a complete validator of every upstream DTO.
 
-## Host inputs and fixed policy
+### Host inputs and fixed policy
 
 Settings are constructed by Rust host code, without Deserialize or an arbitrary
 configuration map. They require an absolute UTF-8 cwd of at most 4096 bytes, with
@@ -57,7 +63,7 @@ network or policies fail. Echoes cannot prove the effective sandbox: Codex defau
 configuration loading, temp-directory behavior, runtime/platform qualification and
 actual process restrictions still require independent tests and custody checks.
 
-## Correlation and bounded observations
+### Correlation and bounded observations
 
 Initialization must finish before a thread opens, and its typed turn starts only
 after that thread response. Request IDs remain exactly correlated by Connection
@@ -92,7 +98,7 @@ rights. Unsupported settings, auto-review and other notification features fail
 closed. Upstream error strings and private stderr are not automatically logged or
 serialized. Stderr remains ADR-034's private bounded tail with a total-byte count.
 
-## Terminal ordering and transport limits
+### Terminal ordering and transport limits
 
 Completed, failed, interrupted and unsupported-request are distinct observations.
 An unsuccessful RPC records its error code and a failed upstream outcome. A
@@ -133,7 +139,7 @@ records `UnsupportedRequest` and closes. Failure to deliver that error remains a
 transport-unknown outcome. No approval request can be accepted by event fields,
 model text, a claimed auto-review result or a successful transport write.
 
-## Verification and open integration gates
+### Verification and open integration gates
 
 Offline fixtures use real bounded Tokio duplex streams and schema-shaped payloads.
 They cover fixed settings, both sandbox modes and omitted defaults, exact resume
@@ -151,3 +157,11 @@ inspection; durable task transitions, resource custody and final delivery. A
 Completed observation proves none of these. Leases and canonical tasks remain
 entirely under the existing host authority. One-turn support without production
 warm reuse or automatic resume is an explicit remaining M4 integration limit.
+
+## Consequences
+
+Typed settings and finite lifecycle state constrain the disposable transport. A Completed observation does not settle tasks, release leases or prove sandbox and process-tree behavior.
+
+## Alternatives Considered
+
+Warm reuse, automatic resume or reconnect would require additional identity and replay contracts. Accepting textual completion or unsupported server requests would bypass the documented typed one-turn boundary.

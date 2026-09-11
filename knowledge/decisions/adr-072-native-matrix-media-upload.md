@@ -5,6 +5,12 @@ title: Retain possible encrypted upload writes under bounded host custody
 status: Accepted
 ---
 
+## Context
+
+An encrypted upload POST can become externally possible before its response arrives, so the attempt must retain nonrearmable custody and original ciphertext.
+
+## Decision
+
 ADR068 qualifies configured-origin encrypted download. This bounded sibling uses
 pinned ruma-client-api0.24.0 media/create_content.rs's authenticated
 POST /_matrix/media/v3/upload, with application/octet-stream and no filename
@@ -51,3 +57,11 @@ validation. CPU work and allocator overhead remain bounded but not hard realtime
 Tests use real local TLS, a real retained file snapshot and actual SDK encryption.
 No live provider, homeserver, credential, room send, file tool, service toggle,
 source restoration or production availability is introduced.
+
+## Consequences
+
+Shared finite permits cover prepared, active and uncertain attempts. A returned media URI does not establish event authority or room delivery, and staging restoration remains outside this initial adapter.
+
+## Alternatives Considered
+
+Automatically retrying after timeout or accepting arbitrary plaintext input would break the original attempt boundary. Sending a descriptor or following another origin would expose material the configured upload does not require.

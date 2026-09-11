@@ -6,7 +6,13 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS]
 ---
 
-## Scope and evidence
+## Context
+
+Codex wire data needs a bounded protocol and request-correlation boundary before it can participate in native runner authorization.
+
+## Decision
+
+### Scope and evidence
 
 M4 starts a separate `hagency-runtime` crate for runner adapters. Its first slice
 contains an IO-free Codex App Server wire codec and connection state. It does not
@@ -28,7 +34,7 @@ The installed schema also has optional request trace metadata and signed int64
 or string IDs. We follow those shapes while imposing narrower finite string,
 nesting and frame limits. Other runtime versions require requalification.
 
-## Wire and memory boundaries
+### Wire and memory boundaries
 
 - At most 1 MiB before each LF, including a possible CR; one completed message
   per receive call. The caller processes that message before feeding the suffix.
@@ -48,7 +54,7 @@ nesting and frame limits. Other runtime versions require requalification.
   milliseconds; a backwards clock closes the connection. The future IO adapter
   must call `tick` from a bounded timer during silence as well as traffic.
 
-## Connection and request custody
+### Connection and request custody
 
 Initialize is the only host request admitted in the new state. A response must
 match its numeric ID and contain the generated schema's required string fields.
@@ -86,7 +92,7 @@ pending RPCs only means the protocol stream ended cleanly; it does not establish
 that an upstream turn, child tree, dispatch or canonical task completed. There is
 no reconnect, resume, resend or retry API in this slice.
 
-## Cancellation and remaining integration
+### Cancellation and remaining integration
 
 `TurnScope` is a host-supplied pair of upstream correlation strings. It is not an
 authenticated Hagency session, task, dispatch, approval or process identity. Its
@@ -108,3 +114,11 @@ guardian launch/termination and inspection; resource/dirty-state custody; output
 usage and activity projection; explicit task completion; actual supported-runtime
 tests on Linux, macOS and Windows. This protocol foundation proves none of those
 integration gates and changes no production configuration or deployment.
+
+## Consequences
+
+The IO-free codec supplies protocol observations only. Dispatch binding, stream ownership, sandbox enforcement and durable approval or task authority remain separate integration gates.
+
+## Alternatives Considered
+
+Treating runtime notifications or model-authored completion and approval prose as authority would bypass structured host checks. Unbounded frames or unresolved request history would undermine finite connection custody.

@@ -4,7 +4,7 @@ Date: 2026-09-09. Status: implementation started in an isolated worktree; the na
 
 Requirements: [REQ-RUST-MIGRATION-PLAN](../../knowledge/requirements/req-rust-migration-plan.md) and the subsequent [implementation authorization](../../knowledge/requirements/req-rust-migration-execution.md).
 
-Current checkpoint: [native README](../../native/README.md). [ADR-028](../../knowledge/decisions/adr-028-native-state-ownership.md) resolves transaction ownership and adds latency, early proof and integration gates from the plan review. The implementation baseline is merged `5dbef22`; the inventory below records the earlier planning baseline.
+Current checkpoint: [native README](../../native/README.md). [ADR-095](../../knowledge/decisions/adr-095-native-state-ownership.md) resolves transaction ownership and adds latency, early proof and integration gates from the plan review. The implementation baseline is merged `5dbef22`; the inventory below records the earlier planning baseline.
 
 ## 1. Goal and decisions
 
@@ -249,7 +249,7 @@ promised for release have a requirement, target platform and validation plan.
 
 ### M1 — Native skeleton, contracts and persistence (3–5 engineer-weeks)
 
-Implementation uses the ownership/commit table and bounded work gates in ADR-028.
+Implementation uses the ownership/commit table and bounded work gates in ADR-095.
 Run encrypted SDK persistence and native Windows ownership/runner proofs early;
 full Matrix/runner integration remains in M4/M5. Hardware workload budgets remain
 release gates until measured on the selected targets.

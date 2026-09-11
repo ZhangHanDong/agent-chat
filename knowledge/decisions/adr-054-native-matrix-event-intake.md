@@ -6,12 +6,18 @@ status: Accepted
 requirements: [REQ-PALPO-OUTBOUND, REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Authenticated Matrix sync processing crosses separate SDK and domain commits, so raw input and derived evidence must survive lost handoff responses.
+
+## Decision
+
 The bounded M5 collector now has an actual event-intake operation using its pinned
 HTTPS reader and owned Matrix SDK. It can admit supported text messages through
 the existing verified-input transaction. It does not implement live key lifecycle,
 message sends, owner verdicts, task activation or production cutover.
 
-## Cursor and stage custody
+### Cursor and stage custody
 
 The host supplies existing native session IDs, never event JSON, sender claims,
 transport generations or verification flags from a browser/runtime. Before a new
@@ -43,7 +49,7 @@ new target plan. Even an unchanged token inherited from observation-only bootstr
 persistently transfers cursor ownership to intake. Subsequent collect calls may
 refresh whoami/full room state but cannot run another observation-only sync.
 
-## Provenance and admission
+### Provenance and admission
 
 HTTP uses ADR-047's bounded authenticated connection, strict single JSON document,
 duplicate-key/depth validation, host-pinned origins, no redirects/proxies and finite
@@ -70,7 +76,7 @@ backfill are outside this intake contract. Native admission independently enforc
 current sender membership, source timestamp, session, registration, room and
 transport scope in the same transaction that projects input.
 
-## Lost results, cancellation and negative observations
+### Lost results, cancellation and negative observations
 
 Derived handoff survives Busy, capacity, cancellation and unknown domain responses.
 Such custody errors are not fresh proof of a failed Matrix device. An exact
@@ -94,7 +100,7 @@ attempted cursor. A mismatch fails visibly without deleting files or regeneratin
 keys. Public status reports phase, digest and bounded counts, not raw private
 messages, room IDs, credentials or a deserializable proof constructor.
 
-## Hard limits and remaining gates
+### Hard limits and remaining gates
 
 One collector operation and the existing one-slot SDK queue retain ownership.
 Each HTTP JSON body is at most1MiB, timeline at most100 events, target set at most64
@@ -112,3 +118,11 @@ paging/history gaps, attachment intake, dynamic room-set replacement, runtime
 activation/dispatch, notices/final sends and live deployment. Offline encryption
 and authenticated fixture delivery are not evidence that those gates are complete.
 No new domain schema or independent domain store is introduced.
+
+## Consequences
+
+The collector advances its cursor only through the documented custody stages and exact receipts. Finite journal capacity is an explicit stop, not continuous-deployment retention parity.
+
+## Alternatives Considered
+
+Acknowledging a cursor before durable domain handoff or discarding pending batches would lose input. Accepting browser event JSON as verified SDK provenance would bypass the authenticated collector.

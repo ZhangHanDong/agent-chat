@@ -1,7 +1,7 @@
 spec: task
 name: "Bound Matrix attachment encryption and checked decryption"
 inherits: project
-satisfies: [REQ-RUST-MIGRATION-EXECUTION, ADR-027]
+satisfies: [REQ-RUST-MIGRATION-EXECUTION]
 tags: [active, rust, files, matrix, crypto]
 ---
 
@@ -10,6 +10,10 @@ tags: [active, rust, files, matrix, crypto]
 Use the pinned Matrix SDK attachment primitive on retained workspace snapshots
 and bounded downloaded bytes, without treating cryptography as room authority
 or message delivery.
+
+## Decisions
+
+This contract retains the design boundaries in [ADR-027](../knowledge/decisions/adr-027-session-file-delivery.md).
 
 ## Constraints
 

@@ -5,6 +5,12 @@ title: Preserve the actual claim cutoff in Node launch retry scheduling
 status: Accepted
 ---
 
+## Context
+
+Separate clock reads in claim and retry-wake selection can exclude a dispatch that becomes due between those reads, leaving no future wake.
+
+## Decision
+
 The original Node CI34556196694 at7cf0dc0 failed the wrapper-launch recovery
 integration at its thirty-second Vitest deadline. Its log and uploaded JSON
 report provide no inner phase or dispatch row; the historical cause is unknown.
@@ -47,3 +53,11 @@ update the exact SSE installer assertion from7938 to7937. Preserve that original
 suite's five failures separately: the inventory mismatch, one framework version
 probe timeout and three fake Codex initialize timeouts. The unrelated subprocess
 timeout causes are not established by the inventory correction.
+
+## Consequences
+
+The combined result preserves the actual claim cutoff without scheduling every blocked due row. Inventory offsets follow the real backend change, while historical CI and unrelated subprocess failures remain separately recorded.
+
+## Alternatives Considered
+
+Widening waits or waking for every blocked due row would hide the missing cutoff or introduce immediate spin. Calling the historical timeout a reproduced flake would exceed the evidence from the deterministic clock-crossing regression.

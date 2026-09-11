@@ -1,7 +1,7 @@
 spec: task
 name: "Preserve the router claim cutoff when scheduling launch retries"
 inherits: project
-satisfies: [REQ-RUST-MIGRATION-EXECUTION, ADR-011, ADR-087]
+satisfies: [REQ-RUST-MIGRATION-EXECUTION]
 tags: [node, scheduler, regression]
 ---
 
@@ -27,6 +27,8 @@ between the failed claim and the subsequent future-wake lookup.
 - Do not print arbitrary child errors, messages, paths, environment or capability values in failure diagnostics.
 
 ## Decisions
+
+This contract retains the design boundaries in [ADR-011](../knowledge/decisions/adr-011-backend-owned-ephemeral-runner-sessions.md), [ADR-087](../knowledge/decisions/adr-087-node-launch-retry-wakeup.md).
 
 - [JS-only] A combined claim-with-wake API carries the transaction's actual cutoff into the wake lookup without introducing a caller-controlled authority clock.
 - [JS-only] Retain parse/lint and explicit parsed boundary evidence separately from direct Vitest scenario results.

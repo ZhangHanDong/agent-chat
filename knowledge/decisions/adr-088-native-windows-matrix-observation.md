@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Original Windows Matrix failures lacked enough bounded phase evidence to distinguish domain shutdown waits from early collector or attachment failures.
+
+## Decision
+
 Original Windows7cf0dc0 printed475 passing tests and six Matrix library failures;
 that library reported70/76 passing. Four errors were DomainStore shutdown after
 successful SDK/Collector close: approval_intake/mod.rs274 and intake/mod.rs307,
@@ -46,3 +52,11 @@ its later serial19 outgoing and22 transport test passes were different selectors
 and do not explain these six failures. Local fixture passes or Windows GNU checks
 cannot establish native Windows timing or repair a prior failed suite. A future
 original instrumented Windows run is needed before any production fix is justified.
+
+## Consequences
+
+Fixture observations preserve original results, fixed phases and every deadline. Instrumentation and later serial passes do not establish a production defect or repair the historical failed suite.
+
+## Alternatives Considered
+
+Retrying shutdown or delaying shared clocks would replace the original operation being observed. Inferring the cause from different passing diagnostic selectors would conflate separate evidence.

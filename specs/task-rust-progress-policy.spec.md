@@ -1,7 +1,7 @@
 spec: task
 name: "Scope native progress filtering and coalescing to one host run"
 inherits: project
-satisfies: [REQ-RUST-MIGRATION-EXECUTION, ADR-026, REQ-THREE-LAYER-COMPLETION]
+satisfies: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREE-LAYER-COMPLETION]
 tags: [active, rust, runtime, progress]
 ---
 
@@ -10,6 +10,10 @@ tags: [active, rust, runtime, progress]
 Port the pure progress filter and fixed summary vocabulary plus the relevant
 reporter coalescing rules into a bounded per-run accumulator. Keep host activity,
 progress acceptance, observed answer delivery and canonical task truth separate.
+
+## Decisions
+
+This contract retains the design boundaries in [ADR-026](../knowledge/decisions/adr-026-visible-runner-activity.md).
 
 ## Constraints
 

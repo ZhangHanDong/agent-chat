@@ -6,12 +6,18 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+File delivery needs immutable bounded copied bytes selected through a retained host workspace, without pretending the source was atomically frozen.
+
+## Decision
+
 `hagency-files` implements the filesystem snapshot primitive needed by ADR-027.
 It has no Matrix, network, outbox, authorization endpoint, domain schema or service
 wiring. Its snapshot is an immutable copy of bytes actually read, not a claim of
 an atomic point-in-time source version or durable staging across host restart.
 
-## Host authority and lifetime
+### Host authority and lifetime
 
 The host supplies an already opened `cap_std::fs::Dir` to `Workspace::from_directory`.
 There is no ambient path constructor, root handle accessor or external deserializer.
@@ -50,7 +56,7 @@ This is a tested platform custody distinction, not a skipped mutation scenario
 or a permission to weaken the production handle-sharing flags. Leaf-file
 replacement remains a separate real rename case.
 
-## Paths and reviewed platform behavior
+### Paths and reviewed platform behavior
 
 `RelativeFile` accepts UTF-8 normal components separated by `/`: at most 4096 bytes,
 32 components and 255 UTF-8 bytes per component. Absolute/parent/dot/empty components,
@@ -87,7 +93,7 @@ FIFOs and other special objects are refused. Metadata is checked on the opened f
 before and after bounded copying. Changed length, copied-length mismatch or an
 observed modification-time difference rejects the result.
 
-## Copied bytes, limits and diagnostics
+### Copied bytes, limits and diagnostics
 
 Snapshot exposes only byte slice, length, emptiness and SHA256 over copied bytes.
 Its private Vec has no mutation accessor. Source file/ancestor/root handles and
@@ -109,7 +115,7 @@ can block a syscall. Network filesystems and protected workspace provisioning ha
 not been qualified here. A future service adapter must make an explicit worker
 and unknown-outcome/cancellation design before enabling this in a live request.
 
-## Mutation and validation limits
+### Mutation and validation limits
 
 Other processes may rewrite a source while it is copied. Metadata comparison is
 best effort: same-size writes, coarse timestamps or restored modification times
@@ -126,3 +132,11 @@ fail visibly. Local macOS execution plus Linux/Windows cross-compilation is not
 three-platform runtime evidence; hosted CI must run the corresponding native tests.
 Persistent staging, host restart identity, encrypted media, domain authority and
 Matrix delivery remain later ADR-027 work.
+
+## Consequences
+
+Snapshots keep source, ancestor and root custody with their copied bytes and digest. Metadata checks remain best effort; staging durability and current dispatch authority are separate responsibilities.
+
+## Alternatives Considered
+
+Reopening an ambient pathname or following aliases would substitute source authority. Calling metadata equality an atomic source-version guarantee would contradict the documented in-copy mutation fixture.

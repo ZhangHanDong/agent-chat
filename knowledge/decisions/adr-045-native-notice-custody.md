@@ -5,6 +5,12 @@ title: Verified task notices commit send-start before transport
 status: Accepted
 ---
 
+## Context
+
+A claimed task notice can already have reached Matrix when its claim expires, so scheduling and send-start need distinct durable states.
+
+## Decision
+
 Verified task acknowledgements previously returned a complete route at claim and
 accepted delivery directly from that claim. Claim expiry could replay an already
 sent private acknowledgement. Schema 14 adds a one-shot Sending state, attempt
@@ -36,3 +42,11 @@ actual adapter must coordinate cancellation, current membership and encryption
 recipients immediately before external IO, and inspect accepted-but-lost sends.
 Cancellation cannot retract an event already accepted by a homeserver. No live
 adapter is enabled here; actual recipient/sync/crypto qualification remains open.
+
+## Consequences
+
+Sending becomes uncertain after owner loss and requires exact authenticated inspection before any new grant. Cancellation cannot retract an event a homeserver already accepted.
+
+## Alternatives Considered
+
+Acknowledging delivery directly from a claim or requeueing every expired claim could repeat a private notice. Timeout and transaction-ID stability are insufficient evidence for a NotSent transition.

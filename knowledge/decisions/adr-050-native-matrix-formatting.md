@@ -5,6 +5,12 @@ title: Pure bounded Matrix content formatting with a JavaScript oracle
 status: Accepted
 ---
 
+## Context
+
+Native Matrix formatting must preserve reviewed JavaScript behavior while keeping content transformation separate from route and send authority.
+
+## Decision
+
 The M6 formatting slice is `hagency-matrix-format`. It replaces no transport and
 changes no live JavaScript behavior. Its API is
 `MatrixContent::new(serde_json::Value)?.formatted()?`, returning a serializable
@@ -90,3 +96,11 @@ policy remain explicit M6 qualification work before activation. The 512 KiB
 internal output bound is not an assertion that a homeserver accepts such an event.
 No Matrix send, E2EE round trip, client display, file delivery or cutover is
 claimed by these formatting tests.
+
+## Consequences
+
+Bounded formatting produces content DTOs and explicit errors without silently truncating. Shared vectors cover their corpus, not arbitrary Markdown equivalence or homeserver event acceptance.
+
+## Alternatives Considered
+
+Treating a room_id field in formatted content as routing authority would expose private replies. Plaintext fallback on malformed or over-budget content would conceal the documented native subset.

@@ -5,10 +5,14 @@ title: Document a native Rust Hagency migration using Salvo on three desktop ope
 status: Accepted
 ---
 
+## Problem
+
 The operator requests a detailed migration plan for replacing Hagency's deployed
 JavaScript/TypeScript runtime with Rust, selects Salvo for HTTP, and requires
 native Windows, Linux and macOS support. Most business rules should have one
 shared implementation with platform adapters for OS-dependent behavior.
+
+## Requirements
 
 Document the current module inventory, target architecture, phase dependencies,
 deliverables, test gates, platform differences, external runtime dependencies,

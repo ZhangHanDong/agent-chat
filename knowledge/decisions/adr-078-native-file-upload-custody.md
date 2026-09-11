@@ -6,13 +6,19 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+File retries need an original domain operation recorded before staging, while possible upload writes must remain nonrearmable across owner loss.
+
+## Decision
+
 ADR027 requires the original file snapshot to survive retries without silently
 reading a changed file. ADR066/077 retain encrypted media but do not prove an
 upload was unsent. ADR072's in-memory POST attempt cannot survive owner loss.
 Schema019 adds a host-only registry under the existing protected DomainRepository
 and bounded DomainStore writer. It performs no filesystem or network operation.
 
-## Original admission and storage commitment
+### Original admission and storage commitment
 
 reserve_upload takes the exact RunnerCapability and UploadRequest (bounded call
 ID, original request digest and safe filename/MIME/declared-size metadata). The
@@ -49,7 +55,7 @@ cannot supply this positive variant. This store cannot independently verify a
 filesystem, receipt or hardware durability claim; its caller is the trusted
 future adapter and must preserve actual retained handles and evidence.
 
-## Upload execution and historical settlement
+### Upload execution and historical settlement
 
 claim_upload is restricted to the exact current original capability, qualified
 staging and uncancelled row. Its private secret and increasing fence expire after
@@ -91,7 +97,7 @@ preparation recovery or executable token retrieval. Missing evidence is not proo
 of no capture, no staging or no upload. Positive historical inspection never
 revives the original route, task epoch, dispatch or lease.
 
-## Bounds, tests and remaining integration gates
+### Bounds, tests and remaining integration gates
 
 The registry retains at most4096 rows globally and16 per dispatch, permanently
 including cancelled/unknown rows. Each stage is at most16MiB; names and identities
@@ -121,3 +127,11 @@ under the original content commitment; this registry stores its digest, not a
 model-readable request/path. Taskless/front-desk, plaintext and post-Done upload
 execution are unsupported here. No service flag, endpoint, model or live room is
 enabled and no M6/file-delivery parity or production-readiness claim is made.
+
+## Consequences
+
+The existing domain writer owns exact request and stage commitments plus historical upload states. Filesystem capture, private HTTP acceptance, event publication and runtime tools remain separate gates.
+
+## Alternatives Considered
+
+Reading a changed source on retry or treating restored ciphertext as proof that POST never happened would discard original custody. Storing a digest cannot replace the actual metadata needed by a future file-event owner.

@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Committed encrypted staging must be restorable without pretending a generic stored byte object retains original source-snapshot authority.
+
+## Decision
+
 ADR066's generic StagedMedia preserves bytes and kind, but cannot stand in for
 ADR061's original Encrypted object, which retains a real source Snapshot.
 Introduce a distinct non-serializable RestoredEncrypted from the private Store.
@@ -29,3 +35,11 @@ adapter still needs an exact domain operation recorded before staging, durable
 WritePossible before HTTP, protected accepted MXC custody and a recovery path
 that never resends unknown writes. A missing record or wrong operation is not
 permission to re-encrypt, create a replacement operation or upload elsewhere.
+
+## Consequences
+
+Typed restoration requires exact original operation, receipt, namespace and qualified sync evidence. It retains storage custody while making no claim of current dispatch authority or earlier POST absence.
+
+## Alternatives Considered
+
+Reconstructing Encrypted source authority from generic staged bytes would invent lost filesystem custody. Re-encrypting or reuploading because a record is missing would confuse storage recovery with safe resend permission.

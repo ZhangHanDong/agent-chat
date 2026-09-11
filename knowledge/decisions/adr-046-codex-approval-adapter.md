@@ -1,9 +1,20 @@
+---
+kind: decision
+id: ADR-046
+title: "Typed Codex approval coordination before native cutover"
+status: Accepted
+---
+
 # ADR-046: Typed Codex approval coordination before native cutover
 
 - Status: Accepted for offline implementation; live native approval cutover remains gated
 - Date: 2026-09-10
 - Requirements: REQ-OWNER-UI-APPROVAL, REQ-EXECUTION-AUTHORIZATION, REQ-RUST-MIGRATION-EXECUTION
 - Related: ADR-032/034 native protocol/session, ADR-039 execution scopes, ADR-043 durable owner approvals
+
+## Context
+
+Native Codex permission callbacks must consume an exact durable owner decision without mistaking protocol resolution for actual permission application.
 
 ## Decision
 
@@ -143,3 +154,11 @@ Production runtime/store deadlines, permission semantics and cleanup guarantees
 are unchanged. Local macOS success and Windows cross-compilation cannot establish
 that the corrected fixture passes actual Windows CI; that remains an integration
 gate. No missing Applied proof or native approval cutover is inferred.
+
+## Consequences
+
+The coordinator preserves Applying or Uncertain until qualified application evidence exists. Offline mapping and cancellation fixtures do not enable live approval cutover or weaken default request refusal.
+
+## Alternatives Considered
+
+Treating serverRequest/resolved or a flushed response as Applied would contradict the pinned callback ordering. Session-wide acceptance or policy amendments would widen the recorded once/task/always scope mappings.

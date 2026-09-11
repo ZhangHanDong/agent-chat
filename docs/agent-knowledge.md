@@ -1094,7 +1094,7 @@ See docs/reviews/2026-09-09-open-pr-integration.md for evidence.
 
 - **Native migration checkpoint:** implementation now lives in the isolated
   `hagency-rust-migration-20260909` worktree on `feat/rust-migration`, based on
-  merged `5dbef22`. See `native/README.md` and ADR-028. Native init uses fresh private
+  merged `5dbef22`. See `native/README.md` and ADR-095. Native init uses fresh private
   state and the development API defaults to port13300; it never reads `.env` or
   imports live state. Full Agent/Palpo/console parity is not implemented.
   Rust spec selectors are checked against the real Cargo catalog in Native Rust
@@ -2225,6 +2225,17 @@ protected. The original finite queue/bytes and reply timeout are unchanged.
 Timeout still means OutcomeUnknown even if a separate later query sees the
 original mutation. Pre-enqueue lifetime and failed admission remain the host's
 responsibility; this does not make failed persistence successful.
+
+Migration knowledge governance uses the pre-migration 157 findings as an explicit
+baseline, not a passing corpus gate. The repair closes the 260 findings introduced
+through fc57d6b: decision structure/frontmatter, requirement sections, invalid
+decision IDs in satisfies, and the duplicate native state-ownership ID. Native
+state ownership is now ADR095; legacy execution authorization remains ADR028.
+Decision references belong in prose when they are not requirement IDs. Preserve
+the original decision bodies, runtime qualifications and exact test selectors
+while supplying meaningful Context, Decision, Consequences and Alternatives.
+Node and Rust binding catalogs resolve 543 and 400 selectors respectively; these
+catalog checks do not execute the bound test suites or prove a lifecycle pass.
 
 ADR089 StagedUpload failure returns original typed custody; Collector admission
 must recheck full matches because failure.into_input can contain a mismatch.

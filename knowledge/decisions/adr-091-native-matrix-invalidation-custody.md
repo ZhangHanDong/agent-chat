@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Dropping a caller after a negative Matrix observation entered the writer queue could discard required retirement and leave cached authority available.
+
+## Decision
+
 DomainStore::call skips an operation if its result receiver is closed before
 writer pickup. This protects ordinary work from executing after its caller
 abandons it. Applied to an already observed negative Matrix identity or room
@@ -45,3 +51,11 @@ retirement. Ordinary positive observation and task creation are still skipped
 after receiver loss. These host fixture observations prove domain custody and
 generation guards, not authenticated HTTP provenance, Windows execution or a
 fix for earlier CI failures.
+
+## Consequences
+
+Only the two admitted negative invalidations retain execution through receiver loss, under the original finite queue and generation guards. Ordinary abandoned positive work remains skipped.
+
+## Alternatives Considered
+
+Retaining all cancelled commands would change ordinary mutation semantics. Treating an unpolled future as queued work or replaying an old negative against a replacement generation would create authority the original observation did not have.

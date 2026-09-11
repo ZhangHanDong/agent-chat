@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Private upload acceptance needs the exact checked HTTP response bytes, because a parsed media URI cannot reconstruct their original representation.
+
+## Decision
+
 ADR072 already permits one bounded authenticated-origin POST of actual codec
 Encrypted bytes and refuses to rearm any attempt once a write is possible. Its
 successful result retained only the checked MediaId. A future private acceptance
@@ -61,3 +67,11 @@ refusal branch is preserved by source ordering rather than a timing-racy test.
 This slice adds no persistence, SDK journal, restored-media POST, domain adapter,
 file-event sending, model tool or service activation. Native tests and Windows
 GNU compilation are separate from actual hosted Windows runtime qualification.
+
+## Consequences
+
+The response retains bounded body bytes, their digest and checked MediaId under the original attempt. It adds neither persistence nor association with an arbitrary domain upload.
+
+## Alternatives Considered
+
+Reserializing the URI would lose whitespace and escape identity. Exposing printable or serializable response evidence would expand private custody into public data without authorization.

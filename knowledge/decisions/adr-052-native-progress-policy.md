@@ -5,6 +5,12 @@ title: Scope redacted progress policy and coalescing to one immutable host run
 status: Accepted
 ---
 
+## Context
+
+Progress filtering and coalescing need a finite per-run policy that keeps optional activity reporting separate from canonical task truth.
+
+## Decision
+
 `hagency-progress` ports the pure policy in
 [progress-filter.js](../../lib/progress-filter.js), the attempt/throttle/count
 behavior of [hagency-progress](../../bin/hagency-progress), and the ACP progress
@@ -139,3 +145,11 @@ Remaining work is current-runtime attachment, persistent crash recovery, host
 config/proof qualification, one editable status per dispatch, route/privacy/E2EE
 handling, approval/settlement-derived status and actual Matrix delivery. None is
 claimed by the offline policy/accumulator tests.
+
+## Consequences
+
+The pure accumulator retains explicit bounds and replay identities, with observable refusal at capacity. Durable editable Matrix status and actual runtime attachment remain later integration work.
+
+## Alternatives Considered
+
+Inferring Done from tool activity or silently evicting progress receipts would change the documented semantics. Hidden timers or retry workers would introduce IO and lifetime behavior outside this pure policy boundary.

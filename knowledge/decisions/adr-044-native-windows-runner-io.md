@@ -6,7 +6,13 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS, REQ-THREE-LAYER-COMPLETION]
 ---
 
-## Boundary and admission
+## Context
+
+Windows runner streams need cancellable owned IO while retaining the launcher's atomic Job Object assignment and strict handle inheritance.
+
+## Decision
+
+### Boundary and admission
 
 This extends ADR-040's host-owned IO slice to Windows. Native service execution
 remains disabled. The platform's existing Process launcher gains an optional
@@ -47,7 +53,7 @@ The one-use StdioPipes value consumes all three handles into the private Pipe
 adapter on a private Tokio IO runtime. Constructor, direction and raw handles
 remain private. The safe public adapter has no reconnect operation.
 
-## Write observation and cancellation
+### Write observation and cancellation
 
 The inspected dependency baseline is Tokio 1.53.1 with Mio 1.2.3 from Cargo.lock.
 Tokio's named-pipe poll_flush is a no-op. Mio writes can report a queued buffer's
@@ -110,7 +116,7 @@ tail. No unbounded channel or per-message task is introduced. The Mio source
 SHA-256 is `a6254fb522bb45f17ae1e3f6c70f63dd9a9fae66137eae60bb47be254b0560b4`;
 Tokio's is `da168cff030a5e3335263f29d7279bb3ee17220f2e188f42460a5b6985d41f9f`.
 
-## Retained job and qualification
+### Retained job and qualification
 
 OwnedSession shares its existing lifecycle guards between platforms; only stream
 conversion differs. Errors, deadlines, cancelled futures and terminal observations
@@ -138,3 +144,11 @@ The Unix launcher, guardian admission and SCM_RIGHTS receiver are unchanged.
 POSIX guardian-death recovery, macOS detached-descendant proof, actual Codex
 sandbox/runtime qualification, authenticated dispatch/approvals and full M4
 remain open. This accepted adapter decision does not advertise runtime availability.
+
+## Consequences
+
+Private overlapped pipes extend the existing owned-session path without changing its execution policy. Cross-compilation and pipe fixtures do not qualify actual sandbox enforcement or production availability.
+
+## Alternatives Considered
+
+A separate CreateProcess path or suspended-but-unassigned startup would reopen process-custody gaps. Unbounded blocking pipe workers would not preserve the documented cancellation and handle-lifetime behavior.

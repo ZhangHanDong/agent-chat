@@ -6,7 +6,13 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-MATRIX-DM-PRIVACY, REQ-THREAD-SCOPED-SESSIONS]
 ---
 
-## Problem and decision
+## Context
+
+A conclusively ineligible event must not retire otherwise healthy Matrix transport or block later eligible messages in the same authenticated batch.
+
+## Decision
+
+### Problem and decision
 
 ADR062 demonstrated that a plaintext message in an encrypted private room caused
 the entire Agent transport to become unavailable. `Batch::derive` treated that
@@ -27,7 +33,7 @@ and call them harmless. It changes the known per-event classification inside a
 successfully observed SDK response. No production approval path, schema, service
 availability, credentials or live deployment is added.
 
-## Raw coverage and SDK provenance
+### Raw coverage and SDK provenance
 
 The bounded authenticated raw response is still saved before Applying and SDK
 mutation. Raw joined timelines are indexed by room and order, with at most 100
@@ -59,7 +65,7 @@ Verified/CrossSigned sender/device/session/no-forwarder requirements. UnableToDe
 provides no decrypted body or crypto success proof. JSON `encryption_info` flags
 remain ordinary untrusted content. Verification-event auto-handling stays disabled.
 
-## Terminal dispositions and replay
+### Terminal dispositions and replay
 
 Decisions are Candidate with an exact derived-event index, Rejected with a fixed
 reason, or NotTarget. Conclusive rejections include malformed supported content,
@@ -88,7 +94,7 @@ claim automatic later decryption/replay or reinterpret old ciphertext after a
 trust update. Actual SDK fixtures separately prove that new verified messages
 continue while the earlier event remains rejected.
 
-## Failure, privacy, bounds and old state
+### Failure, privacy, bounds and old state
 
 Whoami/device mismatch, unsafe full-room observations and existing generation
 failures still fence authority. Interrupted SDK calls, failed Derived persistence,
@@ -115,7 +121,7 @@ ADR054. A legacy pending Derived batch may finish only its original frozen hando
 Applying/Quarantined is never rederived automatically. This is not an automatic
 import/compaction feature.
 
-## Qualification
+### Qualification
 
 Fixtures use the real local TLS collector and owned SDK. They cover malformed/
 unsupported/non-target plus eligible messages, disposition-before-admission,
@@ -131,3 +137,11 @@ Local macOS verification passed all 58 Matrix tests, the nine new rejection
 fixtures, and three amended ADR062 owned-workflow tests. Native and Windows GNU
 cross-target Clippy pass with warnings denied. These cross-target checks do not
 claim actual Windows execution; integrated CI must provide that evidence.
+
+## Consequences
+
+Durable terminal dispositions allow continuation without reopening previously refused sources. SDK uncertainty and missing source coverage remain quarantined rather than being treated as terminal success.
+
+## Alternatives Considered
+
+Retiring the whole transport for a plaintext event in an encrypted room blocks unrelated valid input. Reinterpreting that same ciphertext after key or trust changes would erase its original refusal receipt.

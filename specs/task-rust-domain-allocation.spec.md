@@ -7,7 +7,7 @@ tags: [active, rust, resources, security]
 
 ## Intent
 
-Implement the M2 domain transaction in ADR-025 and ADR-028: project requests,
+Implement the M2 domain transaction in ADR-025 and ADR-095: project requests,
 selected-resource reservations and recoverable provisioning intents share one
 authoritative domain database. Adapter observations remain distinct from input.
 
@@ -33,7 +33,7 @@ authoritative domain database. Adapter observations remain distinct from input.
 - ./Cargo.toml
 - ./Cargo.lock
 - specs/task-rust-domain-allocation.spec.md
-- knowledge/decisions/adr-028-native-state-ownership.md
+- knowledge/decisions/adr-095-native-state-ownership.md
 - docs/**
 - .github/workflows/rust.yml
 - tests/documented-env-vars-exist.test.js

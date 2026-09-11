@@ -11,7 +11,7 @@ Evidence read before implementation:
 - Palpo source at `c7c400e04ab05479a63c30f14679ec0180457d85`, specifically
   `web-admin/lib/outbound.mjs` and `web-admin/deploy/outbound-v2.md`, inspected
   read-only. That source pin is not a live deployment-version observation.
-- Accepted REQ-PALPO-OUTBOUND and ADR-028's distinct custody/domain owners.
+- Accepted REQ-PALPO-OUTBOUND and ADR-095's distinct custody/domain owners.
 
 The native lifecycle separates Matrix registration generation from rotating
 machine generation, persists a stable consumer, retains full JSON before ACK,

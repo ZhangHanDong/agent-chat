@@ -5,6 +5,12 @@ title: Establish native process scope before execution and report its actual gua
 status: Accepted
 ---
 
+## Context
+
+Native cancellation must identify the process scope it actually owns, including startup failures and platform-specific limits on descendant recovery.
+
+## Decision
+
 Implements the early platform proof required by REQ-RUST-MIGRATION-EXECUTION and
 the M1/M4 migration gates. The initial platform crate remains separate from actual
 Agent dispatch; it does not establish sandbox or full runtime parity.
@@ -139,3 +145,11 @@ initialization throughput to guardian exit observation without child-phase evide
 The split retains both actual checks and improves exit evidence; it changes no
 production startup, stop, identity or timeout behavior. Any later missing version
 report still fails and requires investigation rather than being called a flake.
+
+## Consequences
+
+Owned handles and native observations constrain signalling and cleanup claims. Process launch, leader exit and fixture success remain separate from sandbox qualification and canonical task completion.
+
+## Alternatives Considered
+
+Assigning a Windows job after process creation leaves an unowned startup interval. Numeric-PID fallback or treating a POSIX group signal as whole-tree cleanup would discard the identity and descendant limitations documented below.

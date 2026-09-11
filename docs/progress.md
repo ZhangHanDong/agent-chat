@@ -1696,7 +1696,7 @@ no live service changed. Details: docs/reviews/2026-09-09-open-pr-integration.md
   bounded queues/storage, explicit overload and drained shutdown.
 - Added native subprocess crash/restart tests with PATH empty, JavaScript golden
   vectors, and a fresh encrypted Matrix SDK restart proof with strict cross-signing.
-  M0 discovery records112 entry/helper candidates and201 literal routes. ADR-028
+  M0 discovery records112 entry/helper candidates and201 literal routes. ADR-095
   documents exact future domain commit boundaries and remaining release gates.
 - This checkpoint does not implement project/resource allocation, Agent execution,
   connected Matrix/Palpo transport or console parity. No production cutover,
@@ -5259,3 +5259,27 @@ with independent preservation review and integration still pending. The next
 native file-service proposal remains isolated: it needs a real host bootstrap,
 fresh compatible dispatch claims and workspace registration before child launch.
 No M0–M9 milestone, production cutover or full migration completion is claimed.
+
+## 2026-09-10 — Migration knowledge governance
+
+In the isolated fc57d6b documentation worktree, supplied canonical sections for
+61 parsed migration ADRs and frontmatter/sections for the three previously
+unparsed ADRs. Preserved all 64 original decision bodies and qualifications.
+Added the two requirement documents' missing structure without changing their
+requirements. Removed eight decision IDs from seven contracts' satisfies lists,
+retaining valid requirement IDs and explicit decision references in prose.
+Renumbered only native state ownership to ADR095 and updated its exact references
+and task boundaries; legacy execution ADR028 is unchanged.
+
+Agent-spec 1.4 knowledge lint now reports exactly the pre-migration 157 errors,
+down from 417: all 260 introduced records are closed, with no new findings and no
+baseline findings removed. The corpus gate still exits 2 and remains failing.
+All 15 affected/project/foundation contracts parse and lint with exit 0; their
+37 warnings and 18 informational findings remain unchanged. All selectors in
+the 13 changed task contracts remain identical. The exact Node and Rust binding
+catalog checks resolve 543 and 400 selectors with no missing bindings. The first
+Node catalog attempt failed on a missing mockup dependency link; that original
+failure is preserved, and the corrected run used the existing dependency tree
+whose mockup lockfile matches exactly. No runtime tests or lifecycle pass are
+claimed for this documentation-only change. Evidence and the actual 85-path
+boundary manifest use knowledge-governance-* in the external migration cache.

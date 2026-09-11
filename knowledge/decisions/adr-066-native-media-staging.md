@@ -6,6 +6,12 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
+## Context
+
+Retained encrypted or generic media needs a bounded private journal whose storage custody remains separate from dispatch and Matrix authority.
+
+## Decision
+
 This ADR027 slice follows ADR058 file snapshots and ADR061 attachment crypto.
 A separate hagency-media-store crate owns bounded storage, leaving media codec
 and domain/outgoing authority independent. A generic opaque HostNamespace is only
@@ -44,7 +50,7 @@ necessary durability class. Even acknowledged OS flushes do not qualify hardware
 power-loss behavior. Synchronous bounded IO can still block in the kernel; there
 is no asynchronous cancellation or detached worker in this slice.
 
-## Exact storage and recovery contract
+### Exact storage and recovery contract
 
 `Store::create` uses successful relative create_new only; `Store::open` never
 creates a missing entry. The one journal name is fixed in code. The header binds
@@ -87,7 +93,7 @@ Read results reserve only a checked item size and have RAII permits. Pending
 upstream custody and caller-owned inputs retain their existing ADR058/061 permits;
 these limits are per owner, not a claim about total host RSS or caller copies.
 
-## Private handles and platform evidence
+### Private handles and platform evidence
 
 The permission helper reads the actual retained descriptor. Unix requires current
 UID, private owner-only modes, and regular single-link files; Windows requires
@@ -129,7 +135,7 @@ No Matrix upload/download, file tool, service toggle, schema migration, media
 outbox, sender authenticity, cleanup or power-loss claim is introduced here.
 
 
-### Linux retained-directory access correction
+#### Linux retained-directory access correction
 
 NativeCI34543863628 at3b5db90 failed all seven media-store tests at initial
 Store::create with OutcomeUnknown; all other Linux test targets passed. Pinned
@@ -147,3 +153,11 @@ A real directory-rename fixture checks retained identity and the original O_PATH
 EBADF before asserting corrected fsync and absence under the old path replacement.
 Actual Linux execution of that fixture is required; local macOS and compilation
 do not replace it. Windows FileSyncedDirectoryUnconfirmed remains unchanged.
+
+## Consequences
+
+The store preserves exact object ownership, recovery state and platform flush evidence. Windows directory-sync uncertainty and hardware durability limits remain explicit and cannot be upgraded by a digest.
+
+## Alternatives Considered
+
+Resolving caller paths or treating a storage partition as authorization would bypass host capability selection. Accepting a failed directory flush or dropping journal history at capacity would falsify durable staging evidence.

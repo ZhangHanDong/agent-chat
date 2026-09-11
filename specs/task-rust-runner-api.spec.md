@@ -31,7 +31,7 @@ repositories. Keep host lifecycle and operator configuration out of runner scope
 ### Allowed Changes
 - native/**
 - specs/task-rust-runner-api.spec.md
-- knowledge/decisions/adr-028-native-state-ownership.md
+- knowledge/decisions/adr-095-native-state-ownership.md
 - docs/**
 
 ### Forbidden

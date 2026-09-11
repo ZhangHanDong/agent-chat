@@ -32,7 +32,7 @@ follow-up without reusing a completed task's authorization epoch.
 ### Allowed Changes
 - native/**
 - specs/task-rust-task-intents.spec.md
-- knowledge/decisions/adr-028-native-state-ownership.md
+- knowledge/decisions/adr-095-native-state-ownership.md
 - docs/**
 
 ### Forbidden

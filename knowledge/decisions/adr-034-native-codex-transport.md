@@ -6,7 +6,13 @@ status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS]
 ---
 
-## Boundary
+## Context
+
+The wire protocol needs owned asynchronous streams with finite writes, reads and cancellation behavior, without introducing another process owner.
+
+## Decision
+
+### Boundary
 
 The next M4 slice connects ADR-032's protocol to host-supplied owned `AsyncRead`
 stdout/stderr and `AsyncWrite` stdin streams. The `hagency-runtime` driver creates
@@ -21,7 +27,7 @@ supplying streams. A stream type is not proof of any of these. ADR-029's current
 guardian still launches work with inactive stdio; this driver does not change that
 launch path or assert that guardian handoff is complete.
 
-## One owner and ordered writes
+### One owner and ordered writes
 
 A `Driver` owns all three streams and its `Connection`. Each `send` operation
 admits one protocol command and writes its entire encoded frame, then flushes it.
@@ -37,7 +43,7 @@ creates a write receipt. The exclusive mutable borrow prevents another command
 from overtaking initialized, a partial request or an unfinished flush. There is
 no outgoing queue, concurrent sender or reconnect/replay operation.
 
-## Deadlines and cancellation
+### Deadlines and cancellation
 
 The driver measures elapsed time from its own Tokio `Instant`, never from a peer
 timestamp or caller-provided clock. Defaults are a 10-second write timeout,
@@ -74,7 +80,7 @@ does not prove a turn finished. The future host adapter must fence the dispatch,
 observe/stop the guardian, retain or inspect resource custody and follow the
 existing outcome-unknown policy. No driver path releases leases or completes tasks.
 
-## Bounded input and private diagnostics
+### Bounded input and private diagnostics
 
 Stdout and stderr each use a fixed 16 KiB read buffer. The protocol decoder keeps
 its existing 1 MiB frame and depth-64 limits. Up to 16 events may wait while a
@@ -97,7 +103,7 @@ observable. Stderr EOF alone leaves stdout usable. Diagnostic snapshots have no
 Serialize/Debug projection and are never automatically logged or sent to a console.
 They may contain secrets and require a separately reviewed privacy boundary.
 
-## Validation and remaining gates
+### Validation and remaining gates
 
 Offline tests use real bounded Tokio duplex streams. They exercise partial and
 blocked writes, a deliberately stalled flush over a real duplex writer, a response
@@ -114,3 +120,11 @@ verified complete child input acknowledgement; runtime version/platform and sand
 qualification; exact thread/turn/item and capability binding; approved permission
 decisions; Agent/MCP activity and usage; process stop/inspection; durable completion
 and delivery. Transport tests establish none of these process or business gates.
+
+## Consequences
+
+One driver retains ordered stream operations and explicit uncertainty. Its duplex fixtures do not supply child-process custody, dispatch authority or installed-runtime qualification.
+
+## Alternatives Considered
+
+Detached reader tasks or replaying a cancelled write would split stream ownership and make uncertain input appear safe to resend. This adapter therefore remains separate from the guardian launcher.
