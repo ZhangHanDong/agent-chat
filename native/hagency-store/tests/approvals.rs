@@ -1,3 +1,5 @@
+#[path = "approvals/clock.rs"]
+mod clock;
 mod common;
 use common::*;
 use hagency_core::{approvals::*, replies::*, tasks::*};
@@ -15,6 +17,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new(write: bool) -> Self {
+        Self::new_at(write, 1000, 60_000)
+    }
+    fn new_at(write: bool, now: u64, lease_ms: u64) -> Self {
         let root = tempfile::tempdir().unwrap();
         let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
         db.register(&registration()).unwrap();
@@ -26,6 +31,8 @@ impl Fixture {
         let mut contexts = vec![];
         for name in ["a", "b"] {
             let p = proof(&request(name, name, &pool, 20));
+            // Shared provisioning evidence has its own fixed observation time;
+            // current runner/session authority is established below at `now`.
             let e = db.admit(&p, 1000).unwrap();
             db.approve(&format!("approve_{name}"), &p, 1000).unwrap();
             let effect = db.claim_effect().unwrap().unwrap();
@@ -45,7 +52,7 @@ impl Fixture {
                     sender_mxid: format!("@{name}:example.test"),
                     device_id: format!("DEV_{name}"),
                 },
-                1001,
+                now + 1,
             )
             .unwrap();
             db.observe_matrix_room(
@@ -64,7 +71,7 @@ impl Fixture {
                     invite_only: true,
                     encrypted: false,
                 },
-                1002,
+                now + 2,
             )
             .unwrap();
             db.resolve_verified_matrix_session(
@@ -74,10 +81,10 @@ impl Fixture {
                     room_id: "!project:example.test".into(),
                     thread_root: None,
                 },
-                1003,
+                now + 3,
             )
             .unwrap();
-            db.create_canonical_task(&format!("task_{name}"), name, "Approval task", 1004)
+            db.create_canonical_task(&format!("task_{name}"), name, "Approval task", now + 4)
                 .unwrap();
             db.register_workspace(&format!("workspace_{name}")).unwrap();
             db.enqueue_dispatch(&DispatchInput {
@@ -92,10 +99,10 @@ impl Fixture {
             })
             .unwrap();
             let cap = db
-                .claim_dispatch(&format!("runner_{name}"), 1005, 60_000, 120_000, 8)
+                .claim_dispatch(&format!("runner_{name}"), now + 5, lease_ms, 120_000, 8)
                 .unwrap()
                 .unwrap();
-            db.start_dispatch(&cap, 1006).unwrap();
+            db.start_dispatch(&cap, now + 6).unwrap();
             let room = ApprovalRoomObservation {
                 engagement_id: e.id.clone(),
                 registration_generation: 1,
@@ -110,7 +117,7 @@ impl Fixture {
                 encrypted: true,
                 available: true,
             };
-            db.observe_approval_room(&room, 1007).unwrap();
+            db.observe_approval_room(&room, now + 7).unwrap();
             let context = HostApprovalContext {
                 id: format!("context_{name}"),
                 connection_id: format!("connection_{name}"),
@@ -123,7 +130,7 @@ impl Fixture {
                 may_write: write,
                 yolo: false,
             };
-            db.bind_approval_context(&cap, &context, 1008).unwrap();
+            db.bind_approval_context(&cap, &context, now + 8).unwrap();
             agents.push(e.id);
             caps.push(cap);
             rooms.push(room);

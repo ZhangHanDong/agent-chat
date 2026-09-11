@@ -272,8 +272,16 @@ impl DomainRepository {
         input: &HostApprovalContext,
         now: u64,
     ) -> Result<(), Error> {
+        self.bind_approval_context_clock(cap, input, || Ok(now))
+    }
+
+    pub(crate) fn bind_approval_context_clock(
+        &mut self,
+        cap: &RunnerCapability,
+        input: &HostApprovalContext,
+        sample: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<(), Error> {
         input.validate()?;
-        clock(now)?;
         if input.yolo {
             return Err(Error::RunnerAuthority);
         }
@@ -287,6 +295,8 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = sample()?; // The original writer queue and SQLite lock waits have ended.
+        clock(now)?;
         let d = execution::authorize(&tx, cap, now, &["started", "parked"])?;
         if d.report_task.is_some() {
             return Err(Error::RunnerAuthority);
@@ -337,7 +347,15 @@ impl DomainRepository {
         input: &HostApprovalRequest,
         now: u64,
     ) -> Result<ApprovalSummary, Error> {
-        clock(now)?;
+        self.request_owner_approval_clock(cap, input, || Ok(now))
+    }
+
+    pub(crate) fn request_owner_approval_clock(
+        &mut self,
+        cap: &RunnerCapability,
+        input: &HostApprovalRequest,
+        sample: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<ApprovalSummary, Error> {
         identifier(&input.context_id, 256)?;
         identifier(&input.item_id, 256)?;
         text(&input.method, 256)?;
@@ -352,6 +370,8 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = sample()?; // The original writer queue and SQLite lock waits have ended.
+        clock(now)?;
         let c = context(&tx, &input.context_id)?;
         authorize(&tx, cap, &c, now)?;
         if input
@@ -473,7 +493,14 @@ impl DomainRepository {
         input: &OwnerVerdictObservation,
         now: u64,
     ) -> Result<ApprovalSummary, Error> {
-        clock(now)?;
+        self.observe_owner_verdict_clock(input, || Ok(now))
+    }
+
+    pub(crate) fn observe_owner_verdict_clock(
+        &mut self,
+        input: &OwnerVerdictObservation,
+        sample: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<ApprovalSummary, Error> {
         identifier(&input.request_id, 128)?;
         text(&input.request_digest, 64)?;
         matrix_user(&input.sender_mxid, &input.server_name)?;
@@ -482,6 +509,8 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = sample()?; // The original writer queue and SQLite lock waits have ended.
+        clock(now)?;
         let result = decide_verdict(&tx, input, now, None)?;
         tx.commit()?;
         Ok(result)
@@ -492,11 +521,21 @@ impl DomainRepository {
         id: &str,
         now: u64,
     ) -> Result<ApprovalApplication, Error> {
-        clock(now)?;
+        self.consume_owner_approval_clock(cap, id, || Ok(now))
+    }
+
+    pub(crate) fn consume_owner_approval_clock(
+        &mut self,
+        cap: &RunnerCapability,
+        id: &str,
+        sample: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<ApprovalApplication, Error> {
         identifier(id, 128)?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = sample()?; // The original writer queue and SQLite lock waits have ended.
+        clock(now)?;
         let (c, r) = request(&tx, id)?;
         authorize(&tx, cap, &c, now)?;
         let (state, choice, expires, grant): (String, Option<String>, u64, Option<String>) = tx
@@ -543,11 +582,20 @@ impl DomainRepository {
         input: &ApprovalApplicationObservation,
         now: u64,
     ) -> Result<ApprovalSummary, Error> {
-        clock(now)?;
+        self.observe_approval_application_clock(input, || Ok(now))
+    }
+
+    pub(crate) fn observe_approval_application_clock(
+        &mut self,
+        input: &ApprovalApplicationObservation,
+        sample: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<ApprovalSummary, Error> {
         input.validate()?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = sample()?; // The original writer queue and SQLite lock waits have ended.
+        clock(now)?;
         let id = &input.application.id;
         let (application, state, prior): (Option<String>, String, Option<String>) = tx
             .query_row(
@@ -884,11 +932,20 @@ impl DomainRepository {
         input: &ApprovalVerdictInput,
         now: u64,
     ) -> Result<ApprovalSummary, Error> {
-        clock(now)?;
+        self.admit_approval_verdict_clock(input, || Ok(now))
+    }
+
+    pub(crate) fn admit_approval_verdict_clock(
+        &mut self,
+        input: &ApprovalVerdictInput,
+        sample: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<ApprovalSummary, Error> {
         let (_, digest) = intake_receipt_key(input)?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = sample()?; // The original writer queue and SQLite lock waits have ended.
+        clock(now)?;
         if intake_target(&tx, &input.verdict.request_id, now)? != input.target {
             return Err(Error::RunnerAuthority);
         }

@@ -2828,3 +2828,19 @@ diagnostic are preserved separately; the corrected full Matrix library passed
 selectors, without changing source/assets. Original full Vitest was4292 pass,
 1 failure (framework ACP version null),1 skip; its focused3-test diagnostic
 passed but does not explain or replace the original failure.
+### Approval authority time belongs inside original writer transactions (2026-09-11)
+
+Sampling time after dequeue still permits stale authority if SQLite Immediate
+acquisition waits. Pass the clock into the original transaction, sample after
+acquisition, and reuse that value throughout the same atomic decision. Explicit
+repository timestamps remain deterministic inputs; production DomainStore calls
+use the actual writer clock closure. A second connection trying Immediate with
+zero busy timeout during each callback proves original physical lock ownership.
+
+Keep expiration outcomes distinct: an expired request with current capability
+can produce the existing exact one-shot deny; an expired capability produces no
+application descriptor. Historical authenticated application evidence can settle
+without resuming an expired dispatch. Neither callback resolution nor an approved
+database row establishes actual runtime application. Actual contention fixtures
+must remain shorter than the existing repository 100 ms busy timeout; long lock
+fixtures only prove DatabaseBusy, not post-lock expiry handling.

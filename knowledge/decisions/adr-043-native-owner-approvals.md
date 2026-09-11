@@ -118,6 +118,26 @@ production room or runtime process was used or changed in this slice.
 
 ## Consequences
 
+### Accepted fresh-clock prerequisite (2026-09-11)
+
+The root-approved eight-path task `specs/task-rust-approval-fresh-clock.spec.md`
+requires production binding, request admission, direct and SDK verdict admission,
+consumption and application-observation authority clocks to be sampled after the
+original writer acquires its SQLite Immediate transaction. Explicit repository
+timestamps remain deterministic fixture inputs. Queue and lock delays cannot
+extend capability, request or grant authority. Historical application settlement
+remains distinct from current permission to resume execution. All six production
+clock callbacks now run under the original Immediate lock. Actual contention and
+queue tests pass; restoring the former pre-lock wrappers makes the three actual
+lock test groups fail by accepting expired binding, consuming expired allow and
+resuming expired execution. Final verification passes 52 store unit tests,
+19 approval tests and eight permission-coordinator tests, with zero failures or
+ignored cases. Both packages pass all-target warnings-denied Clippy. Strict
+agent-spec 1.4 lifecycle passes the eight-path boundary and five selectors, each
+running one actual test (6/6); one advisory file-output lint warning remains.
+This prerequisite does not enable the owned approval coordinator, parked renewal
+or production M6 parity.
+
 The single domain writer records bounded one-use decisions and exact replay receipts. Persistence alone proves neither runtime application nor tool execution, and card delivery remains separate.
 
 ## Alternatives Considered

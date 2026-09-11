@@ -6384,3 +6384,36 @@ defect, and Windows original CI is still running. No full migration pass/cutover
 Capacity-isolation final qualification: strict lifecycle7/7 (boundary + six
 actual scenario selectors),0 failed/skip/uncertain; package all-target warnings-denied
 Clippy passed. All115 Matrix library tests passed before the focused lifecycle.
+### Native approval fresh-clock prerequisite (2026-09-11)
+
+Root approved an eight-path store partition in a new clean worktree from 087ffa6;
+the active contract and accepted ADR043 scope were parsed/linted before source
+edits. Production binding, request admission, direct and SDK verdict admission,
+one-shot consumption and application observation now sample authority time after
+the original SQLite Immediate lock. Deterministic repository timestamp entry
+points remain available, and no parked renewal, coordinator, pump, schema,
+dependency or sandbox policy changed.
+
+Five focused tests pass: physical transaction exclusion at all six callbacks,
+actual bounded queue admission, four lock-delayed admission cases, three delayed
+consumption cases, and historical application settlement without current resume.
+The existing 100 ms SQLite busy timeout remains unchanged; lock fixtures hold
+about 65 ms. A temporary negative control restoring just the old six wrappers
+produces the expected three failures: expired binding accepted, expired allow
+consumed, expired execution resumed. Exact source was then restored. Two fixture
+compile failures, historical provisioning setup failure and an overlong lock
+fixture's DatabaseBusy failures remain in the external approval-clock evidence
+cache. A first broader parallel regression passed 17/19 approval tests and exposed
+fixture setup expiring before queue admission. The final fixture gives setup a
+one-second lifetime, then enters the 65 ms contention window before expiry; it
+still asserts the actual operation entered while authority was current.
+
+Final affected regressions pass 52 store unit tests, 19 approval tests and eight
+permission-coordinator tests (79 total, zero failures or ignored tests). Store
+and permissions all-target warnings-denied Clippy, formatting and diff checks
+pass. Strict package-scoped agent-spec 1.4 lifecycle passes 6/6: exact eight paths
+and five selectors, each executing one actual test, with zero failed, skipped,
+uncertain or pending-review results. One advisory file-output lint warning remains.
+Final source hashes, exact commands/CWD, all original failures and verification
+outputs are retained in the external approval-clock evidence cache. This
+establishes no new native runtime application or full M6 parity claim.

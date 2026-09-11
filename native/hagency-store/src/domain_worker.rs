@@ -357,6 +357,181 @@ mod clock_tests {
         (db, cap)
     }
 
+    fn approval_fixture(
+        root: &std::path::Path,
+    ) -> (
+        DomainRepository,
+        RunnerCapability,
+        hagency_core::approvals::HostApprovalContext,
+    ) {
+        use hagency_core::approvals::*;
+        let (mut db, cap) = owned_fixture(root);
+        db.start_dispatch(&cap, now()).unwrap();
+        let inspect = rusqlite::Connection::open(root.join("state/domain.sqlite3")).unwrap();
+        let engagement_id: String = inspect
+            .query_row(
+                "SELECT engagement_id FROM runner_sessions WHERE id='session'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        db.observe_approval_room(
+            &ApprovalRoomObservation {
+                engagement_id,
+                registration_generation: 1,
+                generation: 1,
+                room_id: "!private:example.test".into(),
+                device_id: "APPROVAL_DEVICE".into(),
+                joined: std::collections::BTreeSet::from([
+                    "@owner:example.test".into(),
+                    "@approval:example.test".into(),
+                ]),
+                invite_only: true,
+                encrypted: true,
+                available: true,
+            },
+            now(),
+        )
+        .unwrap();
+        let context = HostApprovalContext {
+            id: "clock_context".into(),
+            connection_id: "clock_connection".into(),
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            workspace_resource: "work".into(),
+            workspace: "/work/clock".into(),
+            windows_paths: false,
+            environment_id: None,
+            may_write: true,
+            yolo: false,
+        };
+        (db, cap, context)
+    }
+
+    fn approval_input(expires_at: u64) -> hagency_core::approvals::HostApprovalRequest {
+        use hagency_core::approvals::*;
+        HostApprovalRequest {
+            context_id: "clock_context".into(),
+            upstream_id: ApprovalRpcId::Number(1),
+            item_id: "item".into(),
+            method: "item/commandExecution/requestApproval".into(),
+            params: json!({"threadId":"thread","turnId":"turn","itemId":"item","command":"touch result","cwd":"/work/clock"}),
+            expires_at,
+        }
+    }
+
+    #[test]
+    fn native_approval_transaction_clock_owned() {
+        use hagency_core::approvals::*;
+        let root = tempfile::tempdir().unwrap();
+        let (mut db, cap, context) = approval_fixture(root.path());
+        let inspect = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        inspect.busy_timeout(Duration::ZERO).unwrap();
+        // Every production closure is invoked with the original transaction
+        // physically excluding another Immediate writer on this exact database.
+        let sampled = std::cell::Cell::new(0);
+        let clock = || {
+            let error = inspect.execute_batch("BEGIN IMMEDIATE").unwrap_err();
+            assert_eq!(
+                error.sqlite_error_code(),
+                Some(rusqlite::ErrorCode::DatabaseBusy)
+            );
+            sampled.set(sampled.get() + 1);
+            Ok(now())
+        };
+        db.bind_approval_context_clock(&cap, &context, clock)
+            .unwrap();
+        let pending = db
+            .request_owner_approval_clock(&cap, &approval_input(now() + 60_000), clock)
+            .unwrap();
+        let card = db.private_approval(&pending.id, now()).unwrap();
+        let verdict = OwnerVerdictObservation {
+            request_id: pending.id.clone(),
+            request_digest: card.digest,
+            binding_generation: card.binding_generation,
+            server_name: "example.test".into(),
+            room_id: card.room_id,
+            sender_mxid: card.owner_mxid,
+            event_id: "$clock".into(),
+            encrypted: true,
+            choice: ApprovalChoice::Once,
+        };
+        let sdk = ApprovalVerdictInput {
+            target: db.approval_intake_target(&pending.id, now()).unwrap(),
+            verdict: verdict.clone(),
+            source_digest: "a".repeat(64),
+        };
+        db.observe_owner_verdict_clock(&verdict, clock).unwrap();
+        // SDK admission still acquires the physical transaction before its
+        // current-target check rejects this already-decided request.
+        assert!(matches!(
+            db.admit_approval_verdict_clock(&sdk, clock),
+            Err(Error::RunnerAuthority)
+        ));
+        let application = db
+            .consume_owner_approval_clock(&cap, &pending.id, clock)
+            .unwrap();
+        db.observe_approval_application_clock(
+            &ApprovalApplicationObservation {
+                application,
+                outcome: ApplicationOutcome::Unknown,
+                evidence: "original owner cannot establish application".into(),
+            },
+            clock,
+        )
+        .unwrap();
+        assert_eq!(sampled.get(), 6);
+        // No transaction remains held after any success or refusal.
+        inspect.execute_batch("BEGIN IMMEDIATE; ROLLBACK").unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_approval_clock_after_queue() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut db, cap, context) = approval_fixture(root.path());
+        db.bind_approval_context(&cap, &context, now()).unwrap();
+        let store = DomainStore::start(db, 16).unwrap();
+        let (entered, ready) = oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let blocking = store.clone();
+        let blocker = tokio::spawn(async move {
+            blocking
+                .call(1, move |_| {
+                    let _ = entered.send(());
+                    gate.recv_timeout(Duration::from_secs(1))
+                        .map_err(|_| Error::Unavailable)?;
+                    Ok(())
+                })
+                .await
+        });
+        ready.await.unwrap();
+        let deadline = now() + 150;
+        let input = approval_input(deadline);
+        let queued = store.request_owner_approval(cap, input);
+        tokio::pin!(queued);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut queued)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            store.tx.capacity(),
+            15,
+            "actual bounded queue retains this command"
+        );
+        assert!(now() < deadline);
+        tokio::time::sleep(Duration::from_millis(deadline - now() + 20)).await;
+        release.send(()).unwrap();
+        blocker.await.unwrap().unwrap();
+        assert!(matches!(queued.await, Err(Error::RunnerAuthority)));
+        let inspect = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        let requests: u64 = inspect
+            .query_row("SELECT COUNT(*) FROM owner_approvals", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(requests, 0);
+        store.shutdown().await.unwrap();
+    }
+
     #[tokio::test]
     async fn native_owned_claim_profile_after_queue() {
         use hagency_core::replies::*;
@@ -1214,7 +1389,7 @@ impl DomainStore {
         input: hagency_core::approvals::HostApprovalContext,
     ) -> Result<(), Error> {
         self.call(weight(&input)?, move |db| {
-            db.bind_approval_context(&cap, &input, writer_time()?)
+            db.bind_approval_context_clock(&cap, &input, writer_time)
         })
         .await
     }
@@ -1224,7 +1399,7 @@ impl DomainStore {
         input: hagency_core::approvals::HostApprovalRequest,
     ) -> Result<hagency_core::approvals::ApprovalSummary, Error> {
         self.call(weight(&input)?, move |db| {
-            db.request_owner_approval(&cap, &input, writer_time()?)
+            db.request_owner_approval_clock(&cap, &input, writer_time)
         })
         .await
     }
@@ -1233,7 +1408,7 @@ impl DomainStore {
         input: hagency_core::approvals::OwnerVerdictObservation,
     ) -> Result<hagency_core::approvals::ApprovalSummary, Error> {
         self.call(weight(&input)?, move |db| {
-            db.observe_owner_verdict(&input, writer_time()?)
+            db.observe_owner_verdict_clock(&input, writer_time)
         })
         .await
     }
@@ -1243,7 +1418,7 @@ impl DomainStore {
         id: String,
     ) -> Result<hagency_core::approvals::ApprovalApplication, Error> {
         self.call(weight(&id)?, move |db| {
-            db.consume_owner_approval(&cap, &id, writer_time()?)
+            db.consume_owner_approval_clock(&cap, &id, writer_time)
         })
         .await
     }
@@ -1252,7 +1427,7 @@ impl DomainStore {
         input: hagency_core::approvals::ApprovalApplicationObservation,
     ) -> Result<hagency_core::approvals::ApprovalSummary, Error> {
         self.call(weight(&input)?, move |db| {
-            db.observe_approval_application(&input, writer_time()?)
+            db.observe_approval_application_clock(&input, writer_time)
         })
         .await
     }
@@ -2367,7 +2542,7 @@ impl DomainStore {
         input: ApprovalVerdictInput,
     ) -> Result<ApprovalSummary, Error> {
         self.call(weight(&input)?, move |db| {
-            db.admit_approval_verdict(&input, writer_time()?)
+            db.admit_approval_verdict_clock(&input, writer_time)
         })
         .await
     }
