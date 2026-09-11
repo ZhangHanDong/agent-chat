@@ -924,6 +924,45 @@ impl DomainStore {
         })
         .await
     }
+    pub async fn admit_matrix_attachment(
+        &self,
+        input: hagency_core::attachments::MatrixAttachmentObservation,
+    ) -> Result<hagency_core::ingress::MatrixIngressReceipt, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.admit_matrix_attachment(&input, writer_time()?)
+        })
+        .await
+    }
+    pub async fn matrix_attachment_receipt(
+        &self,
+        input: hagency_core::attachments::MatrixAttachmentObservation,
+    ) -> Result<Option<hagency_core::ingress::MatrixIngressReceipt>, Error> {
+        self.call(weight(&input)?, move |db| {
+            db.matrix_attachment_receipt(&input)
+        })
+        .await
+    }
+    pub async fn authorize_attachment(
+        &self,
+        cap: RunnerCapability,
+        event_id: String,
+    ) -> Result<crate::AttachmentTicket, Error> {
+        self.call(weight(&(&cap, &event_id))?, move |db| {
+            db.authorize_attachment(&cap, &event_id, writer_time()?)
+        })
+        .await
+    }
+    pub async fn revalidate_attachment(
+        &self,
+        cap: RunnerCapability,
+        ticket: crate::AttachmentTicket,
+    ) -> Result<(), Error> {
+        // The sealed ticket is fixed and bounded by the admitted metadata limits.
+        self.call(weight(&cap)? + 4096, move |db| {
+            db.revalidate_attachment(&cap, &ticket, writer_time()?)
+        })
+        .await
+    }
     pub async fn create_verified_task_intent(
         &self,
         input: hagency_core::ingress::VerifiedTaskRequest,

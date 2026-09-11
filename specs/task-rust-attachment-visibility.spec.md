@@ -30,6 +30,16 @@ current dispatch without leaking media secrets or expanding frozen input.
 ### Allowed Changes
 - native/hagency-core/src/attachments.rs
 - native/hagency-core/src/lib.rs
+- native/hagency-store/src/lib.rs
+- native/hagency-store/tests/approvals.rs
+- native/hagency-store/tests/replies.rs
+- native/hagency-store/tests/conversations.rs
+- native/hagency-store/tests/usage.rs
+- native/hagency-store/tests/owned_completion.rs
+- native/hagency-store/tests/verified_ingress/notice_custody.rs
+- native/hagency-store/tests/workflows/mod.rs
+- native/hagency-store/tests/workflows/custody.rs
+- native/hagency-store/tests/common/mod.rs
 - native/hagency-store/src/domain.rs
 - native/hagency-store/src/domain/attachments.rs
 - native/hagency-store/src/domain/verified_ingress.rs
@@ -73,6 +83,12 @@ Scenario: Revocation promotion and restart preserve authority boundaries
   Given an issued ticket and a durable repository
   When the capability expires the route changes or the repository restarts
   Then stale tickets never authorize exposure and historical exact receipts do not revive authority
+
+Scenario: Schema upgrades never fabricate historical file authority
+  Test: native_attachment_schema_migration
+  Given a schema17 database with existing dispatches
+  When the schema upgrades and reopens
+  Then attachment tables start empty and old dispatches have no file window
 
 ## Out of Scope
 

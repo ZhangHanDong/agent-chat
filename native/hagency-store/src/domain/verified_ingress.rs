@@ -113,7 +113,11 @@ pub(super) fn task_message(db: &Connection, task: &str, sequence: u64) -> Result
     let encoded:String=db.query_row("SELECT CASE WHEN s.matrix_generation>0 THEN i.config ELSE m.config END FROM task_inputs i JOIN canonical_tasks t ON t.id=i.task_id JOIN runner_sessions s ON s.id=t.session_id JOIN admitted_messages m ON m.sequence=i.message_sequence WHERE i.task_id=?1 AND i.message_sequence=?2",params![task,sequence],|r|r.get(0)).optional()?.ok_or(Error::RunnerAuthority)?;
     Ok(serde_json::from_str(&encoded)?)
 }
-fn provenance(db: &Connection, route: &ReplyRoute, message: &Message) -> Result<(), Error> {
+pub(super) fn provenance(
+    db: &Connection,
+    route: &ReplyRoute,
+    message: &Message,
+) -> Result<(), Error> {
     let exact:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM matrix_ingress_events WHERE engagement_id=?1 AND source_key=?2 AND scope_digest=?3 AND message_sequence=?4 AND config=?5 AND EXISTS(SELECT 1 FROM current_matrix_routes r WHERE r.session_id=matrix_ingress_events.source_session_id))",params![route.engagement_id,message.source_key,scope_digest(route)?,message.sequence,serialize(message)?],|r|r.get(0))?;
     if !exact {
         return Err(Error::RunnerAuthority);
@@ -230,6 +234,14 @@ impl DomainRepository {
         input: &MatrixEventObservation,
         now: u64,
     ) -> Result<MatrixIngressReceipt, Error> {
+        self.admit_matrix_input(input, None, now)
+    }
+    pub(super) fn admit_matrix_input(
+        &mut self,
+        input: &MatrixEventObservation,
+        attachment: Option<&hagency_core::attachments::MatrixAttachmentObservation>,
+        now: u64,
+    ) -> Result<MatrixIngressReceipt, Error> {
         input.validate()?;
         clock(now)?;
         let tx = self
@@ -271,6 +283,7 @@ impl DomainRepository {
             return Err(Error::Conflict);
         }
         let prior:Option<(String,String,String,String)>=tx.query_row("SELECT scope_digest,digest,config,source_session_id FROM matrix_ingress_events WHERE engagement_id=?1 AND source_key=?2",params![route.engagement_id,source],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+        let had_receipt = prior.is_some();
         let (message, created) = if let Some((scope, old, encoded, original_session)) = prior {
             if original_session != route.session_id {
                 return Err(Error::RunnerAuthority);
@@ -294,6 +307,7 @@ impl DomainRepository {
             tx.execute("INSERT INTO matrix_ingress_events(engagement_id,source_key,message_sequence,scope_digest,digest,config,source_session_id) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![route.engagement_id,source,message.sequence,scope_hash,digest,serialize(&message)?,route.session_id])?;
             (message, created)
         };
+        super::attachments::record(&tx, &route, &message, attachment, had_receipt)?;
         let prior:Option<(bool,String)>=tx.query_row("SELECT wake,config FROM session_inputs WHERE session_id=?1 AND message_sequence=?2",params![route.session_id,message.sequence],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         if let Some((wake, encoded)) = prior {
             if encoded != serialize(&message)? {
@@ -345,6 +359,7 @@ impl DomainRepository {
         if let Some((id, _, _)) = task {
             attach(&tx, &id, &message, wake)?;
         }
+        super::attachments::project_one(&tx, &route, &message)?;
         let result = MatrixIngressReceipt {
             sequence: message.sequence,
             session_id: route.session_id,

@@ -1,3 +1,5 @@
+#[path = "verified_ingress/attachments.rs"]
+mod attachments;
 mod common;
 #[path = "verified_ingress/notice_custody.rs"]
 mod notice_custody;

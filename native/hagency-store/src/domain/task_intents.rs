@@ -283,6 +283,7 @@ pub(super) fn project_inputs(tx: &Transaction<'_>, task_id: &str) -> Result<(), 
         return Err(Error::Capacity);
     }
     tx.execute("INSERT OR IGNORE INTO session_inputs(session_id,message_sequence,wake,config) SELECT ?2,message_sequence,COALESCE(wake,1),config FROM task_inputs WHERE task_id=?1",params![task_id,session])?;
+    super::attachments::project_task_inputs(tx, task_id, &session)?;
     Ok(())
 }
 fn binding(db: &Connection, id: &str) -> Result<Option<(String, u64)>, Error> {

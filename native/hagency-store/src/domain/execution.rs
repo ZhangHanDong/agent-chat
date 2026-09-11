@@ -341,6 +341,7 @@ fn enqueue_scoped(
     }
     bounded_row(tx, "runner_dispatches", "id", &input.id, 30_000)?;
     tx.execute("INSERT INTO runner_dispatches(id,session_id,task_id,input,digest,state) VALUES(?1,?2,?3,?4,?5,'queued')",params![input.id,input.session_id,input.task_id,encoded,digest])?;
+    super::attachments::freeze(tx, &input.id, &input.session_id)?;
     for r in &input.resources {
         let dirty: bool = tx
             .query_row(

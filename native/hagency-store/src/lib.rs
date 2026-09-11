@@ -4,7 +4,7 @@ mod domain;
 mod domain_worker;
 pub mod private;
 pub use domain::{
-    DomainRepository, Effect, EffectOutcome, EffectState, KnownTokens,
+    AttachmentTicket, DomainRepository, Effect, EffectOutcome, EffectState, KnownTokens,
     MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES, MAX_SOURCE_USAGE_RECEIPTS,
     MAX_USAGE_PERIODS, MAX_USAGE_RECEIPTS, MAX_USAGE_SOURCES, OwnedCompletion, OwnedDispatchScope,
     OwnedFailure, OwnedObservation, SourceUsage, UsageEvidence, UsagePeriod, UsagePeriodKind,

@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{fs::File, path::Path};
 mod approvals;
+mod attachments;
+pub use attachments::AttachmentTicket;
 mod conversation_lifecycle;
 mod conversations;
 mod execution;
@@ -311,7 +313,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 17,
+                version: 18,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -332,9 +334,11 @@ impl DomainRepository {
                         include_str!("migrations/016-owned-task-completions.sql"),
                     ),
                     (17, include_str!("migrations/017-usage-ledger.sql")),
+                    (18, include_str!("migrations/018-attachment-visibility.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT a.digest,a.content_digest,a.metadata,a.sdk_identity,a.manifest_id,v.projection_sequence,w.source_cutoff,w.projection_cutoff FROM matrix_attachments a CROSS JOIN session_attachment_visibility v CROSS JOIN dispatch_attachment_windows w LIMIT 0",
                     "SELECT id,dispatch_id,fence,engagement_id,identity_digest,framework,attribution,high_water,latest_counts,latest_observation,latest_incomplete,latest_regressed,historical_incomplete,regressions,observations,observed_at FROM usage_sources LIMIT 0",
                     "SELECT source_id,call_id,digest,observation,response FROM usage_receipts LIMIT 0",
                     "SELECT engagement_id,granularity,period_key,observed_growth,known_growth,incomplete,observations FROM usage_periods LIMIT 0",

@@ -4345,3 +4345,22 @@ Integrated upload binding enumeration resolves306 Rust selectors with no missing
 tests. The final documentation scope check also passed10/10, including its three
 explicit paths; agent-spec executed the bound tests despite the requested
 lint/boundary layers. This rerun is recorded separately, not as new coverage.
+
+## 2026-09-10 — Authenticated attachment visibility implementation checkpoint
+
+ADR073 now adds domain schema018: safe metadata and a private SDK manifest
+reference commit with exact verified Matrix ingress. New dispatches freeze both
+source and projection sequence. Host-only tickets require the current Started
+capability and exact route, with a separate revalidation operation for use after
+asynchronous IO. Verified task activation copies only existing proven input;
+follow-up dispatches retain earlier authorized files without same-room access.
+
+Five focused repository tests pass, covering atomic rollback, finite admission,
+changed replay, late projection, follow-up lineage, cross-Agent source conflict,
+null-root DM promotion, expiry, revoke, restart and schema17 upgrade. Original
+fixture errors are retained externally: wrong revoke signature, missing capacity
+fixture foreign-key rows, then omitted SQL column order. They were corrected in
+the tests without weakening schema constraints. Store all-target warnings-denied
+Clippy passes. Full affected store regressions and strict lifecycle are pending.
+No download, runner tool, cache path or production service is enabled. Matrix
+authenticated descriptor retention is proceeding separately as ADR074.

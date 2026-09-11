@@ -171,5 +171,11 @@ pub fn remove_owned_completion_schema(db: &rusqlite::Connection) {
 
 /// Restore schema16 without inventing usage for historical execution paths.
 pub fn remove_usage_schema(db: &rusqlite::Connection) {
+    remove_attachment_schema(db);
     db.execute_batch("DROP TABLE usage_receipts; DROP TABLE usage_periods; DROP TABLE usage_sources; DROP TABLE usage_clock;").unwrap();
+}
+
+/// Remove exactly the later attachment migration when constructing an old DB.
+pub fn remove_attachment_schema(db: &rusqlite::Connection) {
+    db.execute_batch("DROP TABLE IF EXISTS dispatch_attachment_windows; DROP TABLE IF EXISTS session_attachment_visibility; DROP TABLE IF EXISTS matrix_attachments;").unwrap();
 }
