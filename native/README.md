@@ -71,8 +71,14 @@ HTTPS upload, cancellation and historical settlement. It authenticates the curre
 token, rejects mismatched or oversized inputs before retained admission, and never
 reissues its send grant. A fresh process can settle SDK acceptance that was not yet
 committed to the domain, without another upload. Already enqueued negative Matrix
-observations survive caller loss. File-event publication, physical workspace
-binding, cache paths, native file tools and service activation remain to implement. Schema17 also stores host-attributed token observations and exposes
+observations survive caller loss. Owned execution now retains its actual private
+workspace root and exposes one file-source binding after the original Started
+acknowledgement. That binding uses the original writer for current checks and
+retires new reads after execution exits. Fixed paths and ancestors still require
+trusted host provisioning; actual runtime sandbox qualification remains open.
+Test-only Matrix diagnostics now retain each original operation's phases and
+separate original/fencing errors across SDK work and caller loss. File-event
+publication, cache paths, native file tools and service activation remain to implement. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one

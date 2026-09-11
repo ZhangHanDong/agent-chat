@@ -14,32 +14,44 @@ secret or another POST. Upload acceptance still does not publish a room file.
 ADR091 also retains already enqueued Matrix invalidations after caller loss,
 while ordinary abandoned domain work remains cancellable.
 
-At integrated ed7c060, the locked full workspace passes 510 unique tests plus
-one proxy child (511 printed), 85 suite summaries and no failed or ignored tests.
-Full warnings-denied Clippy, rustfmt and diff checks pass. All 400 Rust selectors
-resolve. Integrated ADR091 strict lifecycle passes 6/6 across its six changed
-paths. Integrated ADR089 strict lifecycle passes 7/7 across all 16 changed paths,
-with zero failed, skipped, uncertain or pending-review results. Windows GNU compilation is
-not native Windows workflow evidence, and unconfirmed directory sync remains a
-typed refusal rather than a positive upload qualification.
+ADR093 now binds execution and file snapshots to the same retained private
+workspace object. Its one-shot Started handoff retains the original writer and
+capability, rejects root aliases and retires new reads on every execution exit.
+The fixed runtime path still requires trusted, stable host provisioning; this
+is not hostile same-UID namespace or actual Codex sandbox qualification.
+ADR094 adds bounded test-only evidence for each original Matrix/SDK operation,
+including separate primary/fencing errors and close/acknowledgement stages.
 
-Latest pushed 706172d Node CI 34559411309 passes: 4291 tests, one platform skip.
-Native CI 34559411277 passes Linux and macOS but fails Windows. Original suites
-contain Linux 501 printed passes, macOS 500, and Windows 493 passes plus four
-Matrix intake failures, each with 85 summaries and zero ignored. Windows failure
-observations identify a prime-sync request wait, an early OutcomeUnknown, a
-completed attachment-batch HTTP script followed by OutcomeUnknown, and an intake
-receipt OutcomeUnknown. No original shutdown assertion failed in this run.
-The subsequent outgoing and transport diagnostics passed separately. Their
-success does not replace the original failure or establish its cause.
+After integrating c3a75ec and bbf19e2, the locked full workspace passes 521
+independent tests plus one proxy child (522 printed), 85 suite summaries and no
+failed or ignored tests. Full warnings-denied Clippy, rustfmt and diff checks
+pass, including cleanup of one unused CLI fixture import. All 420 Rust selectors
+resolve. Final integrated ADR093 lifecycle passes 8/8 across all 17 changed
+paths, and ADR094 passes 14/14 across all 12 changed paths. Both have zero
+failed, skipped, uncertain or pending-review results.
+Windows GNU compilation is not native Windows workflow evidence, and unconfirmed
+directory sync remains a typed refusal rather than a positive upload qualification.
 
-The next planned user-visible slice is native send_file and get_file_delivery:
-actual MCP admission, retained physical workspace, bounded capture/staging,
-immutable metadata, the existing single upload owner, and separate encrypted
-Matrix file-event acknowledgement. ADR092 is being designed outside this branch;
-its future selectors must not be integrated before implementation. Physical
-workspace custody through the actual runner launch remains a prerequisite.
-This slice must reach service and tool entry points, not only library fixtures.
+Latest completed fc57d6b Node CI 34560957060 passes: 4291 tests, one platform skip.
+Native CI 34560957072 passes Linux and macOS but fails Windows. Original suites
+contain Linux 512 printed passes, macOS 511, and Windows 502 passes plus six
+Matrix outgoing failures, each with 85 summaries and zero ignored. Two failures
+are original domain shutdown timeout paths; four are early collector
+OutcomeUnknown observations whose internal cause is still unknown. Subsequent
+diagnostics passed separately. Original logs remain preserved; their failure
+is not replaced by the diagnostic passes or this local integration result.
+
+The migration-introduced knowledge corpus errors are being closed separately:
+417 errors at fc57d6b versus 157 at baseline5dbef22. The docs/spec-only cleanup
+preserves baseline findings and actual test selectors; its independent review
+and integration remain pending.
+
+The next user-visible slice is native send_file and get_file_delivery: actual
+MCP admission, the retained workspace, bounded capture/staging, immutable metadata,
+the single upload owner, and separate encrypted Matrix file-event acknowledgement.
+Proposed ADR092 remains isolated with unimplemented selectors. Its real service
+bootstrap/owned-dispatch driver and pre-launch workspace registration must be
+specified before implementation. A first tool request must not race registration.
 
 Keep canonical Done, cleanup, owner decision, runtime application, usage and
 message acceptance separate. Approval application proof, complete room/history

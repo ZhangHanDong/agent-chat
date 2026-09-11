@@ -5226,3 +5226,36 @@ plus all twelve actual changed paths), with zero failed/skipped/uncertain/pendin
 scenarios. Final native and Windows GNU all-target Clippy, rustfmt and whitespace
 checks pass after those refinements. Cross-compilation is not Windows runtime
 qualification; original Windows runs at 706172d and fc57d6b remain failed.
+
+
+### 2026-09-10 — Retained workspace and original-operation integration
+
+Integrated ADR093 as c3a75ec and ADR094 as bbf19e2 after source review; only
+independent coordination append conflicts required resolution. One obsolete
+std::fs import in the affected CLI Matrix fixture was removed after the complete
+workspace build exposed it. No behavior or assertion changed for that cleanup.
+
+The locked all-target native workspace passes 521 independent tests plus one
+proxy child (522 printed), with 85 summaries, zero failures and zero ignored
+checks. Full workspace Clippy with warnings denied, rustfmt and diff checks
+pass after the import cleanup. All 420 Rust selectors resolve. Final integrated
+ADR093 lifecycle passes 8/8 with all 17 paths, and ADR094 passes 14/14 with all
+12 paths; both have zero skipped, uncertain or pending-review results. Evidence
+is in workspace-observation-integrated-*, original-operation-integrated-lifecycle.*
+and retained-workspace-integrated-final-lifecycle.* in the external migration cache.
+
+Latest completed hosted fc57d6b native run34560957072 passes Linux/macOS and fails
+Windows. Original totals are Linux512/0, macOS511/0 and Windows502/6 printed
+passes/failures, all with 85 summaries and zero ignored. Two Windows failures are
+domain shutdown timeouts after successful Collector close; four are early
+collector OutcomeUnknown observations without enough internal evidence to name
+the cause. Original full logs and test-step extracts are preserved. Later
+outgoing/transport diagnostic passes are separate evidence. Node run34560957060
+passes4291 tests with one platform skip, plus the required verifier checks.
+
+The separate knowledge gate has417 errors at fc57d6b versus157 at baseline.
+The isolated migration-only cleanup reports the260 introduced errors removed,
+with independent preservation review and integration still pending. The next
+native file-service proposal remains isolated: it needs a real host bootstrap,
+fresh compatible dispatch claims and workspace registration before child launch.
+No M0–M9 milestone, production cutover or full migration completion is claimed.
