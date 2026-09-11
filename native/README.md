@@ -6,7 +6,7 @@ run in the existing JS/TS implementation. Native capability responses distinguis
 development resource/task APIs from unavailable Agent execution, connected Palpo/
 Matrix transport and production API parity.
 
-The current developer checkpoint includes domain schema 17: scoped tasks,
+The current developer checkpoint includes domain schema 18: scoped tasks,
 internal groups, durable graphs, verified-input task activation, owner approvals
 and notice/final-reply send custody, with exact negative Matrix transport fencing. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
@@ -45,8 +45,14 @@ distinct from durable admission. A host-only encrypted downloader now uses authe
 homeserver, consumes complete bounded ciphertext and verifies it before returning
 checked plaintext. A sibling encrypted uploader borrows original codec ciphertext,
 retains a finite attempt across cancellation, and accepts only complete bounded
-repository responses. A possible write cannot automatically resend. Event
-provenance, durable upload recovery and native file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
+repository responses. A possible write cannot automatically resend. Verified
+encrypted file/image intake now retains private descriptors independently of sync
+completion. Schema18 stores safe metadata and freezes attachment visibility from
+the dispatch's actual selected inbox trigger plus a separate projection cutoff.
+Host lookup checks current capability and exact scope before and after its
+asynchronous work. Keys stay in the encrypted SDK journal. Actual receive
+coordination, cache paths, durable upload recovery and native file tools remain
+to implement. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one

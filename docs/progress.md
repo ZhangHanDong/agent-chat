@@ -4436,3 +4436,33 @@ Formatting and whitespace checks pass. Logs remain in external attachment-intake
 files. Windows cross-compilation is not actual Windows runtime qualification;
 integration CI must execute these fixtures on that platform.
 No Matrix service, receive cache, MCP file tool or restored upload is enabled.
+
+## 2026-09-10 — Integrated authenticated attachment checkpoint
+
+Root3a9616a integrates ADR073 (a005ba2/21fc7a9 plus selected-trigger correction
+7ecdc12), ADR074 (agent1cf5d00) and ADR075 Windows fixture evidence (5050292).
+The two documentation conflicts contained independent insertions only; a checked
+three-way merge preserved every nonempty line from both parents. The original
+checkout and live services remain untouched.
+
+The locked full workspace passes458 unique tests plus one proxy-environment
+child (459 printed),84 suite summaries, zero failures and zero ignored. All321
+Rust specification selectors resolve without missing tests. Full all-target
+warnings-denied Clippy, rustfmt and diff checks pass. Integrated scoped lifecycle
+passes ADR0736/6 across27 changed paths and ADR0747/7 across14 paths; ADR075's
+separate5/5 across6 paths also passes. Counts overlap; no fail/skip/uncertain
+result is included as a pass. External attachment-integrated-* and integrated
+lifecycle logs retain the evidence.
+
+Latest completed remote qualification remains a856aa5: Linux448 printed passes,
+macOS447 (each includes one proxy child),84 suite summaries and successful
+Clippy/release. Windows printed442 passes and two store failures; its release
+was skipped after failure. Node passed. The older all-platform green run remains
+historical evidence only. Fresh Windows verification is required after ADR075.
+
+Native host file download orchestration is the next bounded slice (ADR076);
+SDK manifests and safe metadata do not themselves expose a model-readable file
+or a cache path. Durable upload recovery, full file tools, approval application,
+physical provisioning/sandbox, complete room/history policy, console/service,
+quotas and release parity remain open. No M0-M9 milestone or migration completion
+is claimed.

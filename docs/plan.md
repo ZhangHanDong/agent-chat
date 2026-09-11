@@ -4,28 +4,34 @@ This is coordination, not canonical runtime task state. There is no provisioned
 `task-writer` in this source checkout. User instruction: execute the Rust migration
 in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
-Current integration priorities (2026-09-10): schema17 usage observations,
-operator aggregate reads, private approval intake, terminal event refusals, private
-media staging and encrypted downloads are integrated. ADR072 now adds bounded
-encrypted HTTPS upload with retained possible-write uncertainty. Integrated
-Matrix85/85, full Clippy and scoped lifecycle6/6 pass. ADR069 exact runtime
-observations now pass through ADR071 typed normalization into ADR070's private
-owned-execution ledger attachment. Affected tests pass25/25; the locked full workspace passes441 unique tests
-plus one proxy child and warnings-denied Clippy. After upload integration all306
-Rust selectors resolve without missing tests.
-Strict lifecycle integration passes10/10 across all20 explicit changed paths.
+Current integration priorities (2026-09-10): ADR070/071 connect actual owned
+runtime usage to the historical ledger; ADR072 supplies a bounded encrypted
+upload primitive. ADR073 now adds schema18 attachment metadata and frozen
+visibility. Only actual selected inbox input establishes a source cutoff; an
+independent projection cutoff excludes late copies. ADR074 retains authenticated
+encrypted file/image manifests in the SDK journal, with private host lookup and
+current ticket checks around asynchronous work. Actual downloads, cache paths,
+MCP file tools and durable upload recovery remain the next file-delivery steps.
 
-At a2f8348, Linux and macOS native jobs and Node CI passed. Windows
-native job also completed successfully, including original full tests and release. This
-proves the Linux O_PATH directory-sync correction on actual Linux and the
-corrected approval fixture on Windows. The earlier eight Windows outgoing
-failures at3b5db90 remain unexplained; their later green run does not identify
-the historical cause.
+At integrated3a9616a, the locked full workspace passes458 unique tests plus one
+proxy child,84 suite summaries and no failed/ignored tests. All321 Rust spec
+selectors resolve without missing tests. Full warnings-denied Clippy, rustfmt
+and diff checks pass. Integrated ADR073 lifecycle passes6/6 across27 paths,
+ADR074 passes7/7 across14; ADR075 passes5/5 across6 paths. Windows GNU Clippy
+passed for the affected store and Matrix slices; actual Windows CI remains open.
+
+Native CI at a856aa5 passed Linux/macOS but failed Windows in two store tests;
+Node CI passed. The original Windows Matrix tests passed. ADR075 separates
+short-lease expiry from concurrency and adds unchanged shutdown phase evidence;
+the historical shutdown cause remains unproven. Fresh Windows CI is required.
+The all-platform green a2f8348 run is older evidence, not the current verdict.
 
 Keep canonical Done, cleanup, owner decision, runtime application, usage and
-message acceptance separate. Approval application proof, file event admission, durable upload staging
-and file tools, browser/service wiring, provisioning, quotas and release parity
-remain open. No milestone or overall migration is complete by this checkpoint.
+message acceptance separate. Approval application proof, complete room/history
+behavior, physical provisioning/sandbox, file tools, service/console integration,
+quotas and release parity remain open. No M0-M9 milestone or entire migration is
+complete. The numbered notes below describe earlier checkpoints; this current
+section supersedes their interim status.
 
 1. M0/M1 first checkpoint: native Salvo process, protected fresh state, custody,
    recovery, bounded work, shared protocol vectors and offline encrypted SDK proof.
