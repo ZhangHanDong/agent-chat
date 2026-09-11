@@ -98,3 +98,9 @@ pub use approval_intake::{
     ApprovalCollector, ApprovalCustodyStage, ApprovalCustodyStatus, ApprovalIntakeSummary,
     HostApprovalConfig, HostApprovalPlan,
 };
+
+mod approval_delivery;
+pub use approval_delivery::{
+    PrivateApprovalDeliveryStage, PrivateApprovalDeliveryState, PrivateApprovalDeliveryStatus,
+    PrivateApprovalDeliverySummary,
+};

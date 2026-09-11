@@ -28,6 +28,9 @@ pub(super) fn validate_journal(
         || !journal.receipts.is_empty()
         || journal.intake.is_some()
         || journal.intake_enabled
+        || !journal.intake_receipts.is_empty()
+        || journal.uploads.is_some()
+        || !journal.attachments.is_empty()
         || journal.outgoing.is_some()
         || !journal.outgoing_receipts.is_empty()
         || journal.approval_receipts.len() > state::MAX_BATCHES
@@ -101,6 +104,13 @@ impl Sdk {
     pub(super) async fn approval_query(&self, users: Vec<String>) -> Result<String, Error> {
         if !self.approval
             || self.approval_poisoned
+            || self.delivery_poisoned
+            || self.journal.approval_delivery.is_some()
+            || self.enrollment_poisoned
+            || self
+                .enrollment
+                .as_ref()
+                .is_some_and(|r| r.phase != crate::enrollment::state::Phase::Complete)
             || self.journal.approval.is_some()
             || users.is_empty()
             || users.len() > 17
@@ -125,7 +135,15 @@ impl Sdk {
         if !self.approval {
             return Err(Error::Generation);
         }
-        if self.approval_poisoned {
+        if self.approval_poisoned
+            || self.delivery_poisoned
+            || (self.journal.approval_delivery.is_some() && !matches!(command, Command::Read))
+            || self.enrollment_poisoned
+            || self
+                .enrollment
+                .as_ref()
+                .is_some_and(|r| r.phase != crate::enrollment::state::Phase::Complete)
+        {
             return Err(Error::OutcomeUnknown);
         }
         match command {

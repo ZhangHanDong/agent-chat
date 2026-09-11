@@ -4,7 +4,7 @@ use crate::{
     collector::Inner,
     sdk::{
         Owner,
-        enrollment::{Command, Handle},
+        enrollment::{Command, Handle, Purpose},
     },
 };
 use state::View;
@@ -15,6 +15,20 @@ use std::{
 use tokio::time::Instant;
 
 pub(crate) mod state;
+#[derive(Clone, Copy)]
+pub(crate) enum Scope<'a> {
+    Agent,
+    Approval(&'a [String]),
+}
+impl Scope<'_> {
+    fn purpose(self) -> Purpose {
+        match self {
+            Self::Agent => Purpose::Agent,
+            Self::Approval(_) => Purpose::Approval,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Jobs(Mutex<Option<Arc<Job>>>);
 struct Job {
@@ -62,9 +76,12 @@ impl Collector {
             let result = match expected {
                 Err(error) => Err(error),
                 Ok(expected) => {
-                    let result = tokio::time::timeout_at(deadline, inner.enroll(&cancel, deadline))
-                        .await
-                        .unwrap_or(Err(Error::Timeout));
+                    let result = tokio::time::timeout_at(
+                        deadline,
+                        inner.enroll(Scope::Agent, &cancel, deadline),
+                    )
+                    .await
+                    .unwrap_or(Err(Error::Timeout));
                     match result {
                         Ok(()) => Ok(()),
                         Err(error) => inner.fence_observation(expected, error).await,
@@ -82,12 +99,15 @@ impl Collector {
 }
 
 impl Inner {
-    async fn enrollment_handle(&self) -> Result<Handle, Error> {
+    async fn enrollment_handle(&self, scope: Scope<'_>) -> Result<Handle, Error> {
         let mut guard = self.owner.lock().await;
         if guard.is_none() {
             *guard = Some(Owner::open_existing(&self.config).await?);
         }
-        Ok(guard.as_ref().ok_or(Error::Storage)?.enrollment_handle())
+        Ok(guard
+            .as_ref()
+            .ok_or(Error::Storage)?
+            .enrollment_handle_for(scope.purpose()))
     }
     async fn enrollment_current(&self, cancel: &CancellationToken) -> Result<Vec<String>, Error> {
         self.expected_transport().await?;
@@ -115,6 +135,18 @@ impl Inner {
         }
         Ok(users)
     }
+    async fn enrollment_current_for(
+        &self,
+        scope: Scope<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<String>, Error> {
+        match scope {
+            Scope::Agent => self.enrollment_current(cancel).await,
+            Scope::Approval(engagements) => {
+                self.approval_enrollment_current(engagements, cancel).await
+            }
+        }
+    }
     async fn enrollment_query(
         &self,
         owner: &Handle,
@@ -132,15 +164,20 @@ impl Inner {
         state::size(&response, state::QUERY)?;
         Ok(response)
     }
-    async fn enroll(&self, cancel: &CancellationToken, deadline: Instant) -> Result<(), Error> {
+    pub(crate) async fn enroll(
+        &self,
+        scope: Scope<'_>,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<(), Error> {
         checkpoint(cancel, deadline)?;
-        let owner = self.enrollment_handle().await?;
+        let owner = self.enrollment_handle(scope).await?;
         let complete = match owner.command(Command::Status).await? {
             View::Absent => false,
             View::Complete => true,
             _ => return Err(Error::Storage),
         };
-        let users = self.enrollment_current(cancel).await?;
+        let users = self.enrollment_current_for(scope, cancel).await?;
         let versions = self
             .http
             .request(&["_matrix", "client", "versions"], None, cancel)
@@ -165,7 +202,7 @@ impl Inner {
             let View::Complete = owner.command(Command::Verify(query)).await? else {
                 return Err(Error::Storage);
             };
-            if self.enrollment_current(cancel).await? != users {
+            if self.enrollment_current_for(scope, cancel).await? != users {
                 return Err(Error::Recipients);
             }
             checkpoint(cancel, deadline)?;
@@ -180,7 +217,7 @@ impl Inner {
                     let acceptance = owner.acceptance()?;
                     // The last SDK Possible await precedes actual current-token,
                     // room and writer checks immediately before the original POST.
-                    if self.enrollment_current(cancel).await? != users {
+                    if self.enrollment_current_for(scope, cancel).await? != users {
                         return Err(Error::Recipients);
                     }
                     checkpoint(cancel, deadline)?;
@@ -194,14 +231,14 @@ impl Inner {
                     acceptance.accept(packet.index, response).await?;
                 }
                 View::Verify => {
-                    if self.enrollment_current(cancel).await? != users {
+                    if self.enrollment_current_for(scope, cancel).await? != users {
                         return Err(Error::Recipients);
                     }
                     let query = self.enrollment_query(&owner, &users, cancel).await?;
                     owner.command(Command::Verify(query)).await?;
                 }
                 View::Ready => {
-                    if self.enrollment_current(cancel).await? != users {
+                    if self.enrollment_current_for(scope, cancel).await? != users {
                         return Err(Error::Recipients);
                     }
                     checkpoint(cancel, deadline)?;
@@ -209,7 +246,7 @@ impl Inner {
                         return Err(Error::Storage);
                     };
                     // Finishing persistence is another await, never current readiness proof.
-                    if self.enrollment_current(cancel).await? != users {
+                    if self.enrollment_current_for(scope, cancel).await? != users {
                         return Err(Error::Recipients);
                     }
                     checkpoint(cancel, deadline)?;
@@ -220,7 +257,7 @@ impl Inner {
         }
     }
 }
-fn checkpoint(cancel: &CancellationToken, deadline: Instant) -> Result<(), Error> {
+pub(crate) fn checkpoint(cancel: &CancellationToken, deadline: Instant) -> Result<(), Error> {
     if cancel.is_cancelled() {
         Err(Error::Cancelled)
     } else if Instant::now() >= deadline {

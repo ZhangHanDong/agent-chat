@@ -7016,3 +7016,33 @@ The schema preserves legacy body/description/preview limits and keeps native
 typed RPC metadata does not enter verdicts. The retained JS backend remains
 32-only because it owns no native requests; Robrix parser/click and verified native
 intake/transport remain separate gates. Stock strict agent-spec1.4 lifecycle completed nonpassing: two passes (exact11-path boundary and actual Rust corpus) and two Node-selector skips. No skipped or zero-test target counts as pass; actual Vitest19/19 remains separate evidence. The raw output includes the CLI error trailer and is preserved in wire-interop-lifecycle-original.json; wire-interop-lifecycle-exit.json records exit1. This is the documented Cargo-only lifecycle limitation, not a completed client integration gate.
+
+### ADR112 original approval SDK enrollment and private-card delivery
+
+The parent approved the exact28-path proposal before implementation. Clean base
+c527314 contains e5fd184 service plus card prerequisite c274d11; append-only docs
+from both prerequisites were preserved. The Task Contract parsed and linted
+before source edits. The first library check caught two missing matrix_room server
+arguments; that original log remains retained. After correcting those callsites,
+the library check passed. The first actual crypto run returned Cancelled after a
+40m13s cold build; this original failure remains separate. The first full Matrix
+package had123 pass/one fixture failure: cancellation before HTTP handoff could
+correctly prevent SDK Apply. The fixture now waits for the actual interrupted
+Apply result before cancellation. No production deadline or retry changed.
+The corrected full Matrix package passes145/145:124 library (including9 new),
+6/6/9 integration; empty doc targets are excluded. Original ordinary enrollment,
+outgoing crypto and approval intake remain covered. Clippy first reported four
+collapsible-if cases and duplicate private helper inclusion; after equivalent
+conditional formatting and one test-only helper annotation, all-target
+warnings-denied Clippy and fmt/diff checks pass. Exact boundary is28 paths.
+Strict lifecycle passes7/7 (exact28-path boundary plus six selectors executing
+nine actual tests;96 empty targets per selector excluded). The final formatted
+source also passes the complete145-test Matrix package. Requirement-trace warnings
+for other mapped project scenarios remain explicit; they do not qualify the
+client, executable or full approval workflow. Original failure logs and final
+source/evidence hashes are retained in the task cache.
+The independent recipient fixture derives state only from real uploads/claims,
+with original Agent constants preserved as defaults. Synthetic receipt capacity,
+injected shutdown-result failure and actual recipient decryption remain distinct
+claims. Persistent64-record capacity does not free on restart; service wiring,
+client qualification and ongoing identity/key management remain separate.

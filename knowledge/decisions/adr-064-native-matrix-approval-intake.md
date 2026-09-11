@@ -168,3 +168,15 @@ The approval collector preserves exact encrypted source and durable action recei
 ## Alternatives Considered
 
 Using ordinary room messages, caller verification flags or another collector's cursor would merge distinct authority purposes. Reinterpreting rejected ciphertext after trust changes would abandon immutable source custody.
+
+### ADR112 explicit private sender amendment
+
+ADR112 adds a separate card ledger and explicit fresh-account enrollment to this
+same approval-purpose owner. Ordinary outgoing journals remain forbidden. The
+existing reader binding stays purpose separated; an inherited ordinary enrollment
+profile is rejected, and existing externally provisioned readers do not acquire
+fresh sender readiness. Sending requires a qualified original Complete enrollment
+and fresh private room/key/domain card checks. Unknown intake or enrollment cannot
+be stepped over by a new card mutation. Historical delivery is network-free and
+cannot create a verdict. Borrowed close retains its original job/result and blocks
+all later intake/observe admission after closure, including failed shutdown.

@@ -17,6 +17,7 @@ pub struct HostApprovalConfig {
 impl HostApprovalConfig {
     pub fn new(mut config: HostConfig, engagements: Vec<String>) -> Result<Self, Error> {
         if config.approval
+            || config.enrollment.is_some()
             || engagements.is_empty()
             || engagements.len() > 64
             || !engagements.contains(&config.identity.transport.engagement_id)
@@ -39,6 +40,22 @@ impl HostApprovalConfig {
             config,
             engagements,
         })
+    }
+    /// Explicit approval-purpose fresh ordinary account. Peer masters come from
+    /// the host outside the Matrix query channel, never a request or event.
+    pub fn with_fresh_account_enrollment(
+        mut self,
+        anchors: Vec<(String, String)>,
+    ) -> Result<Self, Error> {
+        if self.config.endpoint.scheme() != "https" {
+            return Err(Error::Config);
+        }
+        self.config.enrollment = Some(crate::enrollment::state::Profile::new(
+            anchors,
+            &self.config.identity.transport.sender_mxid,
+            &self.config.identity.server_name,
+        )?);
+        Ok(self)
     }
 }
 pub struct HostApprovalPlan {
@@ -86,24 +103,21 @@ pub struct ApprovalCustodyStatus {
     pub retained_response_bytes: usize,
 }
 pub struct ApprovalCollector {
-    inner: Arc<Inner>,
-    engagements: Vec<String>,
+    pub(crate) inner: Arc<Inner>,
+    pub(crate) engagements: Vec<String>,
+    pub(crate) jobs: crate::approval_delivery::jobs::Jobs,
 }
 impl ApprovalCollector {
     pub fn new(config: HostApprovalConfig, domain: DomainStore) -> Result<Self, Error> {
         Ok(Self {
             inner: Inner::new(config.config, domain)?,
             engagements: config.engagements,
+            jobs: Default::default(),
         })
     }
     /// Refreshes authenticated private binding snapshots without taking a sync.
     pub async fn observe(&self, cancel: &CancellationToken) -> Result<(), Error> {
-        let permit = self
-            .inner
-            .busy
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Error::Busy)?;
+        let permit = self.delivery_permit(false)?;
         let inner = self.inner.clone();
         let engagements = self.engagements.clone();
         let cancel = cancel.clone();
@@ -144,12 +158,7 @@ impl ApprovalCollector {
         plan: Option<HostApprovalPlan>,
         cancel: &CancellationToken,
     ) -> Result<ApprovalIntakeSummary, Error> {
-        let permit = self
-            .inner
-            .busy
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Error::Busy)?;
+        let permit = self.delivery_permit(plan.is_none())?;
         let inner = self.inner.clone();
         let engagements = self.engagements.clone();
         let cancel = cancel.child_token();
@@ -158,12 +167,7 @@ impl ApprovalCollector {
         }).await.map_err(|_|Error::OutcomeUnknown)?
     }
     pub async fn custody_status(&self) -> Result<ApprovalCustodyStatus, Error> {
-        let permit = self
-            .inner
-            .busy
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Error::Busy)?;
+        let permit = self.delivery_permit(true)?;
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let _permit = permit;
@@ -207,7 +211,13 @@ impl ApprovalCollector {
         .await
         .map_err(|_| Error::OutcomeUnknown)?
     }
-    pub async fn close(self) -> Result<(), Error> {
+    pub async fn close(&self) -> Result<(), Error> {
+        if let Some(job) = self.jobs.closing()? {
+            return match job.wait().await? {
+                crate::approval_delivery::jobs::Value::Unit => Ok(()),
+                _ => Err(Error::Storage),
+            };
+        }
         let permit = self
             .inner
             .busy
@@ -216,25 +226,27 @@ impl ApprovalCollector {
             .map_err(|_| Error::Busy)?;
         #[cfg(test)]
         let observation = crate::collector::observation::current();
-        tokio::spawn(async move {
-            let _permit = permit;
+        let missing_owner = self.jobs.missing_owner_result();
+        let inner = self.inner.clone();
+        let engagements = self.engagements.clone();
+        let job = self.jobs.start(true, false, permit, async move {
             let work = async {
                 let fence = async {
                     observe!(RoomPrior);
-                    let rooms = self.inner.approval_rooms(&self.engagements).await?;
+                    let rooms = inner.approval_rooms(&engagements).await?;
                     observe!(Fence);
-                    self.inner.fence_approval_candidates(&rooms).await
+                    inner.fence_approval_candidates(&rooms).await
                 }
                 .await;
                 #[cfg(test)]
                 crate::collector::observation::fence(fence.as_ref().err().copied());
                 // Even retired domain authority must not skip actual SDK shutdown.
                 observe!(CloseOwnerLock);
-                let shutdown = if let Some(owner) = self.inner.owner.lock().await.take() {
+                let shutdown = if let Some(owner) = inner.owner.lock().await.take() {
                     observe!(CloseSdk);
                     owner.close().await
                 } else {
-                    Ok(())
+                    missing_owner
                 };
                 shutdown?;
                 fence?;
@@ -243,13 +255,16 @@ impl ApprovalCollector {
             #[cfg(test)]
             let work = crate::collector::observation::owned(observation, work);
             work.await
-        })
-        .await
-        .map_err(|_| Error::OutcomeUnknown)?
+                .map(|_| crate::approval_delivery::jobs::Value::Unit)
+        })?;
+        match job.wait().await? {
+            crate::approval_delivery::jobs::Value::Unit => Ok(()),
+            _ => Err(Error::Storage),
+        }
     }
 }
 impl Inner {
-    async fn approval_rooms(&self, engagements: &[String]) -> Result<Vec<Room>, Error> {
+    pub(crate) async fn approval_rooms(&self, engagements: &[String]) -> Result<Vec<Room>, Error> {
         let primary = self
             .domain
             .approval_room_authority(self.config.identity.transport.engagement_id.clone())
@@ -283,7 +298,7 @@ impl Inner {
         }
         Ok(rooms)
     }
-    async fn refresh_approval_rooms(
+    pub(crate) async fn refresh_approval_rooms(
         &self,
         rooms: &[Room],
         cancel: &CancellationToken,
@@ -378,7 +393,7 @@ impl Inner {
         }
         Ok(())
     }
-    async fn fence_approval_candidates(&self, rooms: &[Room]) -> Result<(), Error> {
+    pub(crate) async fn fence_approval_candidates(&self, rooms: &[Room]) -> Result<(), Error> {
         for r in rooms {
             self.domain
                 .fence_approval_room(r.authority.clone(), r.device.clone(), r.generation, None)

@@ -3177,3 +3177,21 @@ The schema preserves legacy body/description/preview limits and keeps native
 typed RPC metadata does not enter verdicts. The retained JS backend remains
 32-only because it owns no native requests; Robrix parser/click and verified native
 intake/transport remain separate gates. Stock strict agent-spec1.4 lifecycle completed nonpassing: two passes (exact11-path boundary and actual Rust corpus) and two Node-selector skips. No skipped or zero-test target counts as pass; actual Vitest19/19 remains separate evidence. The raw output includes the CLI error trailer and is preserved in wire-interop-lifecycle-original.json; wire-interop-lifecycle-exit.json records exit1. This is the documented Cargo-only lifecycle limitation, not a completed client integration gate.
+
+### Original private approval SDK sender (ADR112)
+
+Keep the approval SDK purpose separate from Agent transport/session authority.
+Explicit fresh enrollment and the same protected owner precede private card sends.
+The original Arc<Card>, owner cutoff and retained job survive caller loss; opaque
+metadata alone never grants transmission. Every original key-share/room write
+rechecks private snapshots, signed keys and the original domain card after queued
+custody. New card, enrollment and intake mutations cannot step over unknown work.
+Historical acceptance stays network-free; borrowed close retains its first result
+and cannot treat an owner removed by failed shutdown as successful later closure.
+
+A proven no-attempt SDK Read permits a known pre-Start card refusal without
+permanently blocking other cards; mark the job blocking before submitting Start.
+Never clear an original unknown mutation through historical inspection. The64
+non-evicting persisted receipts are an explicit development limit that restart
+does not reclaim. Card48KiB and encrypted-wire60KiB bounds differ because of
+encryption expansion; refusal must not truncate content or raise either bound.

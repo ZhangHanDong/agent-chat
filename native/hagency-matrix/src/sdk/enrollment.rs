@@ -16,12 +16,25 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use tokio::sync::oneshot;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Purpose {
+    Agent,
+    Approval,
+}
+impl Purpose {
+    pub(crate) fn matches(self, approval: bool) -> bool {
+        (self == Self::Approval) == approval
+    }
+}
+
 /// Same original queue; this clone creates neither an SDK nor another owner.
 pub(crate) struct Handle {
+    purpose: Purpose,
     tx: tokio::sync::mpsc::Sender<super::Command>,
     timeout: std::time::Duration,
 }
 pub(crate) struct Acceptance {
+    purpose: Purpose,
     permit: tokio::sync::mpsc::OwnedPermit<super::Command>,
     timeout: std::time::Duration,
 }
@@ -33,6 +46,7 @@ impl Handle {
             .try_reserve_owned()
             .map_err(|_| Error::Busy)?;
         Ok(Acceptance {
+            purpose: self.purpose,
             permit,
             timeout: self.timeout,
         })
@@ -41,7 +55,7 @@ impl Handle {
         validate_command(&command)?;
         let (send, receive) = oneshot::channel();
         self.tx
-            .try_send(super::Command::Enrollment(command, send))
+            .try_send(super::Command::Enrollment(self.purpose, command, send))
             .map_err(|_| Error::Busy)?;
         reply(self.timeout, receive).await
     }
@@ -51,6 +65,7 @@ impl Acceptance {
         size(&Some(&value), FIELD)?;
         let (send, receive) = oneshot::channel();
         self.permit.send(super::Command::Enrollment(
+            self.purpose,
             Command::Accept(index, value),
             send,
         ));
@@ -134,8 +149,13 @@ pub(super) async fn load(
 }
 
 impl Owner {
+    #[cfg(test)]
     pub(crate) fn enrollment_handle(&self) -> Handle {
+        self.enrollment_handle_for(Purpose::Agent)
+    }
+    pub(crate) fn enrollment_handle_for(&self, purpose: Purpose) -> Handle {
         Handle {
+            purpose,
             tx: self.tx.clone(),
             timeout: self.timeout,
         }
@@ -147,7 +167,11 @@ impl Owner {
 }
 
 impl Sdk {
-    pub(super) async fn enrollment(&mut self, command: Command) -> Result<View, Error> {
+    pub(super) async fn enrollment(
+        &mut self,
+        purpose: Purpose,
+        command: Command,
+    ) -> Result<View, Error> {
         #[cfg(test)]
         if let Command::Fault(fault) = command {
             self.enrollment_fault = fault;
@@ -161,10 +185,15 @@ impl Sdk {
             self.enrollment_hold = Some(hold);
             return Ok(View::Unit);
         }
-        if self.approval || self.enrollment_profile.is_none() {
+        if !purpose.matches(self.approval) || self.enrollment_profile.is_none() {
             return Err(Error::Config);
         }
-        if self.enrollment_poisoned {
+        if self.enrollment_poisoned
+            || (self.approval
+                && (self.approval_poisoned
+                    || self.journal.approval.is_some()
+                    || self.journal.approval_delivery.is_some()))
+        {
             return Err(Error::OutcomeUnknown);
         }
         if self
@@ -736,7 +765,7 @@ async fn session_ids(machine: &OlmMachine, curve: &str) -> Result<Vec<String>, E
     ids.dedup();
     Ok(ids)
 }
-async fn completed(machine: &OlmMachine, record: &Ledger) -> Result<(), Error> {
+pub(super) async fn completed(machine: &OlmMachine, record: &Ledger) -> Result<(), Error> {
     if public_identity(machine).await? != *record.public.as_ref().ok_or(Error::Storage)? {
         return Err(Error::Identity);
     }

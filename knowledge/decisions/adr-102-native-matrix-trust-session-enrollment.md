@@ -295,3 +295,15 @@ This is an isolated implementation checkpoint. Final main-branch combined tests,
 strict lifecycle/binding checks and native Windows positive staging are still
 required. Windows GNU compilation alone is not platform qualification; full
 migration and production cutover remain incomplete.
+
+### ADR112 approval-purpose enrollment amendment
+
+The original fixed enrollment protocol is shared behind an explicit checked
+Agent/Approval command purpose. Agent callers retain their ordinary transport
+observations. Approval callers use exact configured approval room authorities,
+owner+bot snapshots and existing negative CAS fencing. The approval purpose is
+already part of the protected config binding and enrollment marker; it cannot
+adopt an Agent ledger. Original requests, response handoff, Preparing/Applying
+ambiguity, anchors, session postconditions and finite budgets remain unchanged.
+No identity recovery or automatic replacement is added. The new sender requires
+its own Complete record; test-only seeded approval readers remain intake-only.

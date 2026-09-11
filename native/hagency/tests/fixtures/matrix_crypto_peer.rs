@@ -16,6 +16,8 @@ pub const HUMAN: &str = "@owner:example.test";
 pub const HUMAN_DEVICE: &str = "HUMAN";
 
 pub struct Peer {
+    sender: ruma::OwnedUserId,
+    device: String,
     pub query: Value,
     pub writes: Vec<(String, Value)>,
     pub claims: usize,
@@ -29,6 +31,9 @@ pub struct Peer {
 
 impl Peer {
     pub async fn new() -> Self {
+        Self::for_sender(SENDER, DEVICE).await
+    }
+    pub async fn for_sender(sender: &str, sender_device: &str) -> Self {
         let human = OlmMachine::new(user_id!("@owner:example.test"), device_id!("HUMAN")).await;
         // Provision only the independent recipient. None of these original
         // requests or private identity handles can reach the service process.
@@ -68,6 +73,8 @@ impl Peer {
                 .is_verified()
         );
         Self {
+            sender: sender.try_into().unwrap(),
+            device: sender_device.into(),
             query,
             writes: Vec::new(),
             claims: 0,
@@ -108,7 +115,7 @@ impl Peer {
                 "user_signing_keys":{}, "failures":{}
             });
             for (user, selection) in requested {
-                assert!([SENDER, HUMAN].contains(&user.as_str()));
+                assert!([self.sender.as_str(), HUMAN].contains(&user.as_str()));
                 assert!(
                     selection.as_array().unwrap().is_empty(),
                     "fixture expects all original devices"
@@ -119,7 +126,7 @@ impl Peer {
                     .unwrap_or(json!({}));
                 for field in ["master_keys", "self_signing_keys", "user_signing_keys"] {
                     // A real homeserver exposes user-signing keys only to their owner.
-                    if field == "user_signing_keys" && user != SENDER {
+                    if field == "user_signing_keys" && user != self.sender.as_str() {
                         continue;
                     }
                     if let Some(value) = self.query[field].get(user) {
@@ -141,20 +148,21 @@ impl Peer {
                     "fresh device upload must be first and single"
                 );
                 let device = &body["device_keys"];
-                assert_eq!(device["user_id"], SENDER);
-                assert_eq!(device["device_id"], DEVICE);
+                assert_eq!(device["user_id"], self.sender.as_str());
+                assert_eq!(device["device_id"], self.device);
                 assert!(device["keys"].as_object().unwrap().len() >= 2);
                 let otks = body["one_time_keys"].as_object().unwrap();
                 assert!(!otks.is_empty());
                 for (id, key) in otks {
                     assert!(id.starts_with("signed_curve25519:"));
                     assert!(
-                        key["signatures"][SENDER]
+                        key["signatures"][self.sender.as_str()]
                             .as_object()
                             .is_some_and(|s| !s.is_empty())
                     );
                 }
-                self.query["device_keys"][SENDER] = json!({DEVICE: device});
+                self.query["device_keys"][self.sender.as_str()] =
+                    json!({(self.device.as_str()): device});
                 self.writes.push((target.into(), body.clone()));
                 Some((
                     200,
@@ -165,7 +173,7 @@ impl Peer {
                 assert!(body.get("auth").is_none());
                 assert_eq!(self.writes.len(), 1);
                 let original = &body["master_key"];
-                if let Some(existing) = self.query["master_keys"].get(SENDER)
+                if let Some(existing) = self.query["master_keys"].get(self.sender.as_str())
                     && existing != original
                 {
                     // Ordinary-client UIA race behavior; never accept a reset.
@@ -179,9 +187,9 @@ impl Peer {
                     ("self_signing_key", "self_signing_keys"),
                     ("user_signing_key", "user_signing_keys"),
                 ] {
-                    assert_eq!(body[field]["user_id"], SENDER);
+                    assert_eq!(body[field]["user_id"], self.sender.as_str());
                     assert_eq!(body[field]["keys"].as_object().unwrap().len(), 1);
-                    self.query[table][SENDER] = body[field].clone();
+                    self.query[table][self.sender.as_str()] = body[field].clone();
                 }
                 self.sender_master = Some(original.clone());
                 self.writes.push((target.into(), body.clone()));
@@ -228,19 +236,22 @@ impl Peer {
             .sender_master
             .as_ref()
             .expect("no original service key upload");
-        assert_eq!(master["keys"], self.query["master_keys"][SENDER]["keys"]);
+        assert_eq!(
+            master["keys"],
+            self.query["master_keys"][self.sender.as_str()]["keys"]
+        );
         let mut local = self.query.clone();
         let response = query_response(&local);
         let (id, _) = self
             .human
-            .query_keys_for_users([self.human.user_id(), user_id!("@worker:example.test")]);
+            .query_keys_for_users([self.human.user_id(), self.sender.as_ref()]);
         self.human
             .mark_request_as_sent(&id, &response)
             .await
             .unwrap();
         let UserIdentity::Other(sender) = self
             .human
-            .get_identity(user_id!("@worker:example.test"), None)
+            .get_identity(self.sender.as_ref(), None)
             .await
             .unwrap()
             .unwrap()
@@ -255,14 +266,14 @@ impl Peer {
         let response = query_response(&local);
         let (id, _) = self
             .human
-            .query_keys_for_users([self.human.user_id(), user_id!("@worker:example.test")]);
+            .query_keys_for_users([self.human.user_id(), self.sender.as_ref()]);
         self.human
             .mark_request_as_sent(&id, &response)
             .await
             .unwrap();
         assert!(
             self.human
-                .get_identity(user_id!("@worker:example.test"), None)
+                .get_identity(self.sender.as_ref(), None)
                 .await
                 .unwrap()
                 .unwrap()
@@ -278,7 +289,8 @@ impl Peer {
         let content = &value["messages"][HUMAN][HUMAN_DEVICE];
         assert!(content.is_object());
         let raw = Raw::from_json_string(
-            json!({"type":"m.room.encrypted","sender":SENDER,"content":content}).to_string(),
+            json!({"type":"m.room.encrypted","sender":self.sender.as_str(),"content":content})
+                .to_string(),
         )
         .unwrap();
         let (_, keys) = self
@@ -309,7 +321,7 @@ impl Peer {
         assert!(self.recipient_trusted && self.shares > 0);
         let raw = Raw::from_json_string(
             json!({
-                "type":"m.room.encrypted", "sender":SENDER, "event_id":"$file_received",
+                "type":"m.room.encrypted", "sender":self.sender.as_str(), "event_id":"$file_received",
                 "origin_server_ts":1, "content":value
             })
             .to_string(),

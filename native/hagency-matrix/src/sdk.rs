@@ -33,8 +33,10 @@ type QueueObservation = Option<CommandTrace>;
 #[cfg(not(test))]
 struct QueueObservation;
 
+pub(crate) mod approval_delivery;
 mod approval_intake;
 mod attachments;
+mod encrypted_message;
 pub(crate) mod enrollment;
 pub(crate) mod file_publication;
 mod keys;
@@ -53,6 +55,10 @@ const MAX_JOURNAL_BYTES: usize = 16 * 1024 * 1024;
 struct Journal {
     #[serde(default)]
     enrollment: Option<String>,
+    #[serde(default)]
+    approval_delivery: Option<crate::approval_delivery::state::Attempt>,
+    #[serde(default)]
+    approval_delivery_receipts: Vec<crate::approval_delivery::state::Receipt>,
     #[serde(default)]
     uploads: Option<upload_state::Marker>,
     #[serde(default)]
@@ -77,7 +83,12 @@ struct Journal {
     outgoing_receipts: Vec<crate::outgoing::state::Receipt>,
 }
 enum Command {
+    ApprovalDelivery(
+        approval_delivery::Command,
+        oneshot::Sender<Result<crate::approval_delivery::state::View, Error>>,
+    ),
     Enrollment(
+        enrollment::Purpose,
         enrollment::Command,
         oneshot::Sender<Result<crate::enrollment::state::View, Error>>,
     ),
@@ -261,7 +272,20 @@ impl Owner {
                         #[cfg(test)]
                         observation::command(&command_observation, ObservationPhase::Started, None);
                         match command {
-                            Command::Enrollment(command, reply) => {
+                            Command::ApprovalDelivery(command, reply) => {
+                                #[cfg(test)]
+                                let phase=match &command {approval_delivery::Command::Start(_)=>1,approval_delivery::Command::Encrypt(_)=>2,approval_delivery::Command::Possible(_)=>3,approval_delivery::Command::Accept(index,_)=>if sdk.journal.approval_delivery.as_ref().and_then(|a|a.writes.get(*index)).is_some_and(|w|w.room){6}else{4},approval_delivery::Command::Settle=>5,_=>0};
+                                let result=sdk.approval_delivery(command).await;
+                                if result.is_err() && sdk.journal.approval_delivery.is_some(){sdk.delivery_poisoned=true;}
+                                #[cfg(test)]
+                                if result.is_ok()&&sdk.delivery_hold.as_ref().is_some_and(|h|h.phase==phase){
+                                    let hold=sdk.delivery_hold.take().expect("original card reply hold");
+                                    let _=hold.reached.send(());let _=hold.release.await;
+                                    if hold.lose{drop(reply);continue;}
+                                }
+                                let _=reply.send(result);
+                            }
+                            Command::Enrollment(purpose, command, reply) => {
                                 #[cfg(test)]
                                 let boundary = match &command {
                                     enrollment::Command::Prepare(_) => 1,
@@ -269,7 +293,7 @@ impl Owner {
                                     enrollment::Command::Finish => 3,
                                     _ => 0,
                                 };
-                                let result = sdk.enrollment(command).await;
+                                let result = sdk.enrollment(purpose, command).await;
                                 if result.is_err() && sdk.enrollment.as_ref().is_some_and(|r| r.phase != crate::enrollment::state::Phase::Complete) {
                                     sdk.enrollment_poisoned = true;
                                 }
@@ -931,6 +955,9 @@ struct Sdk {
     upload_reply_loss: bool,
     approval: bool,
     approval_poisoned: bool,
+    delivery_poisoned: bool,
+    #[cfg(test)]
+    delivery_hold: Option<approval_delivery::ReplyHold>,
     outgoing_poisoned: bool,
     attachments_poisoned: bool,
     #[cfg(test)]
@@ -1066,6 +1093,13 @@ impl Sdk {
                     }
                 }
             }
+            approval_delivery::validate(
+                &journal,
+                init.approval,
+                &identity,
+                &init.user,
+                &init.device,
+            )?;
             approval_intake::validate_journal(
                 &journal,
                 init.approval,
@@ -1190,6 +1224,9 @@ impl Sdk {
                 upload_reply_loss: false,
                 approval: init.approval,
                 approval_poisoned: false,
+                delivery_poisoned: false,
+                #[cfg(test)]
+                delivery_hold: None,
                 outgoing_poisoned: false,
                 attachments_poisoned: false,
                 #[cfg(test)]

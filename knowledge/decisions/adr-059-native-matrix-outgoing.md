@@ -176,3 +176,14 @@ Protected send history preserves possible writes and exact accepted responses wi
 ## Alternatives Considered
 
 Retrying an uncertain PUT or deriving a new recipient route from current state would abandon original send custody. Plaintext fallback for failed encrypted recipient checks would violate the frozen privacy boundary.
+
+### ADR112 shared crypto leaf
+
+The exact SDK encryption sequence is now a private leaf shared with the separate
+approval-card sender. It borrows the same exclusively owned OlmMachine and keeps
+fresh signed-device checks, original sessions, a new outbound Megolm session and
+exact trusted key-share recipients. Ordinary outgoing retains its existing purpose,
+route, domain begin and per-write checks. The leaf neither constructs authority
+nor admits HTTP; approval cards never fabricate an Agent ReplyRoute or notice.
+The independent test peer may name the approval bot while its original Agent
+sender/device defaults remain unchanged.
