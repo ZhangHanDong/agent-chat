@@ -1,5 +1,15 @@
 # Repository audit knowledge
 
+- **Typed runtime usage, 2026-09-10:** ADR071 adds pure fixed untrusted Codex
+  counter normalization, separate from ADR070's actual execution/source binding.
+  The pinned nonzero cache-write fixture makes fresh input equal input minus
+  reads minus writes; reasoning is already output. Unsafe fields become unknown,
+  contradictory breakdowns remain diagnosed and total/last/context are never added.
+  Runtime evidence stays stream-incomplete and content-digested, without raw text
+  or source authority. Legacy transcript parsing and serialized shape are unchanged.
+  Known normalized sum overflow refuses the whole observation; its caller must
+  retain source evidence and explicitly report the failure.
+
 - **Native encrypted repository download, 2026-09-10:** ADR068 adds bounded
   authenticated HTTPS GET through the configured homeserver only. An MXC's
   server is a repository path, never a token destination. Typed components

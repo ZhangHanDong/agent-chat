@@ -4218,3 +4218,27 @@ NativeCI at3b5db90 remains failed on Linux and Windows; macOS and Node passed.
 The Linux directory handle correction and new Windows outgoing diagnostics are
 ready for fresh actual CI. No safe migration/cutover claim follows from local
 success. Evidence remains in the external combined-download-usage logs.
+
+## 2026-09-10 — Typed untrusted runtime usage normalization
+
+ADR071 supplies fixed optional Codex counter DTOs and a pure UsageObservation
+constructor without fabricating transcript JSON or introducing runtime/store
+dependencies. The actual pinned upstream cache-write fixture normalizes
+input100/read40/write60/output10 into fresh0/read40/write60/output10. Reasoning,
+last-response and context values stay separate evidence. Invalid values sanitize
+to unknown; impossible fresh input remains unknown and contradictions are
+diagnosed. Known normalized category overflow returns no observation. Evidence
+is versioned, content-bound and always stream-incomplete; it grants no source,
+provider, quota or canonical authority. ADR070 owns the separate host adapter.
+
+All ten metering tests pass: five retained parser tests and five new typed runtime
+selectors. Coverage includes every retained digest field, all twelve unsafe and
+missing counter positions, context limits, checked arithmetic with unknown fields,
+upstream context-reset shape, repeated/growing/regressing cumulative snapshots,
+and exact unchanged transcript observation JSON. Focused native and Windows GNU
+warnings-denied Clippy pass; cross-compilation is not Windows runtime evidence.
+Strict agent-spec1.4 lifecycle passes6/6, including all five bound selectors and
+eight explicit changed paths, with no skipped uncertain failed or pending-review
+verdicts. The crate-scoped code root avoids a redundant full workspace build.
+Formatting and whitespace checks pass. Evidence is in external
+typed-runtime-usage-* logs; no live runtime was contacted.

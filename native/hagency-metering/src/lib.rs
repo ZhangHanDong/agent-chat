@@ -3,6 +3,7 @@
 
 mod json;
 pub mod observation;
+pub mod runtime_usage;
 
 use serde::Serialize;
 use serde_json::{Map, Value};

@@ -28,7 +28,7 @@ impl From<MeteringError> for ParseFailure {
     }
 }
 
-/// Constructed only from a bounded snapshot through the retained parser. Its
+/// Constructed from a bounded transcript or typed untrusted runtime counters. Its
 /// digest is content identity, NOT provider authenticity or execution attribution.
 /// No Deserialize, raw source text, workspace/model hints or source setters.
 #[derive(Clone, Serialize)]
@@ -38,6 +38,8 @@ pub struct UsageObservation {
     totals: Option<TokenCounts>,
     diagnostics: Option<Diagnostics>,
     failure: Option<ParseFailure>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_evidence: Option<crate::runtime_usage::RuntimeEvidence>,
 }
 impl UsageObservation {
     pub fn parse(framework: Framework, snapshot: &str) -> Result<Self, MeteringError> {
@@ -55,7 +57,27 @@ impl UsageObservation {
             totals,
             diagnostics,
             failure,
+            runtime_evidence: None,
         })
+    }
+    /// Numerical conversion only: the caller must independently bind an actual
+    /// fresh runtime source and historical execution before recording this value.
+    pub fn codex_runtime(usage: crate::runtime_usage::CodexUsage) -> Result<Self, MeteringError> {
+        let (totals, evidence) = crate::runtime_usage::normalize(usage)?;
+        let encoded = serde_json::to_vec(&("hagency.runtime_usage.codex", &evidence))
+            .map_err(|_| MeteringError::InvalidRecord)?;
+        Ok(Self {
+            framework: Framework::Codex,
+            snapshot_digest: format!("{:x}", Sha256::digest(encoded)),
+            totals: Some(totals),
+            // No transcript parser ran; fixed runtime diagnostics live in evidence.
+            diagnostics: None,
+            failure: None,
+            runtime_evidence: Some(evidence),
+        })
+    }
+    pub fn runtime_evidence(&self) -> Option<&crate::runtime_usage::RuntimeEvidence> {
+        self.runtime_evidence.as_ref()
     }
     pub fn framework(&self) -> Framework {
         self.framework
@@ -70,6 +92,9 @@ impl UsageObservation {
         self.failure
     }
     pub fn incomplete(&self) -> bool {
+        if self.runtime_evidence.is_some() {
+            return true;
+        }
         let complete_counts = self.totals.is_some_and(|counts| {
             [
                 counts.input,
