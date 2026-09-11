@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Bounded private storage only: no runtime, dispatch, Matrix or sender authority.
 mod frame;
 mod preparation;
@@ -47,6 +48,8 @@ pub enum Error {
 pub struct Store {
     _directory: Dir,
     directory_file: File,
+    #[cfg(windows)]
+    windows_directory: Option<private::WindowsDirectorySync>,
     file: File,
     namespace: HostNamespace,
     limits: Limits,
@@ -96,6 +99,9 @@ impl Store {
             private::check_handle(&readable).map_err(|_| Error::Private)?;
             readable
         };
+        #[cfg(windows)]
+        let windows_directory =
+            private::WindowsDirectorySync::open(&directory).map_err(|_| Error::Private)?;
         let mut options = OpenOptions::new();
         options
             .read(true)
@@ -148,6 +154,8 @@ impl Store {
         let mut store = Self {
             _directory: directory,
             directory_file,
+            #[cfg(windows)]
+            windows_directory,
             file,
             namespace,
             limits,
@@ -211,20 +219,29 @@ impl Store {
         }
         Ok(())
     }
-    fn sync_storage(&self) -> Result<SyncEvidence, Error> {
+    fn sync_storage(&mut self) -> Result<SyncEvidence, Error> {
         self.file.sync_all().map_err(|_| Error::OutcomeUnknown)?;
-        match self.directory_file.sync_all() {
-            Ok(()) => Ok(SyncEvidence::FileAndDirectorySynced),
-            Err(_) => {
-                #[cfg(windows)]
-                {
-                    Ok(SyncEvidence::FileSyncedDirectoryUnconfirmed)
-                }
-                #[cfg(not(windows))]
-                {
-                    Err(Error::OutcomeUnknown)
-                }
-            }
+        #[cfg(windows)]
+        {
+            // An ordinary read-only directory duplicate is never a fallback for
+            // the qualified retained NTFS owner. Unsupported profiles remain
+            // inspectable, without preparation/restoration durability authority.
+            let acknowledged = self
+                .windows_directory
+                .as_mut()
+                .is_some_and(|directory| directory.sync().is_ok());
+            Ok(if acknowledged {
+                SyncEvidence::FileAndDirectorySynced
+            } else {
+                SyncEvidence::FileSyncedDirectoryUnconfirmed
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            self.directory_file
+                .sync_all()
+                .map_err(|_| Error::OutcomeUnknown)?;
+            Ok(SyncEvidence::FileAndDirectorySynced)
         }
     }
     pub fn recovery(&self) -> Recovery {

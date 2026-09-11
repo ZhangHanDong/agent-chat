@@ -2589,3 +2589,14 @@ codec and transfer/result pools. Sender declared size remains untrusted; bounded
 actual HTTP bytes and cryptographic verification still decide the result. The
 existing absolute SDK deadline covers queue, manifest lookup, GET and final check.
 Incoming serve/MCP/cache materialization and platform qualification remain open.
+- **Retained Windows media sync:** cap-primitives4.0.3 fixed-dot lookup goes
+  through MaybeOwnedFile::into_file → open_unchecked → CreateFileAtW and a fresh
+  rooted NtCreateFile object; it does not use ReOpenFile or an ambient path. Fixed
+  non-overlapped options supply SYNCHRONIZE and FILE_SYNCHRONOUS_IO_NONALERT. Only
+  exact full identity/private local mounted NTFS evidence plus real file and
+  directory ACKs can qualify default media storage. Unsupported remains
+  inspectable and unconfirmed. The exceptional pending/wait failure retains one
+  fixed allocation and actual handle on a parked worker; an outer timeout cannot
+  release them or imply bounded OS completion. Probe success and default-Store
+  success are distinct gates, and only actual native Windows execution proves
+  the latter. No runtime or upload readiness follows from cross-compilation.

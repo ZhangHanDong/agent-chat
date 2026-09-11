@@ -46,6 +46,26 @@ jobs:
       - run: node native/scripts/check-rust-spec-bindings.mjs
       - id: native-tests
         run: cargo test --workspace --all-targets --locked --no-fail-fast
+      - name: Qualify default Windows media storage with fresh process restoration
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --locked -p hagency-media-store --example windows_directory_flush
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $PSNativeCommandUseErrorActionPreference = $false
+          & target/debug/examples/windows_directory_flush.exe *> windows-media-sync-original.log
+          $syncExit = $LASTEXITCODE
+          "original_exit=$syncExit" | Set-Content windows-media-sync-verdict.txt
+          Get-Content windows-media-sync-original.log
+          exit $syncExit
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: windows-media-sync-original
+          path: |
+            windows-media-sync-original.log
+            windows-media-sync-verdict.txt
+          if-no-files-found: warn
       - name: Diagnose the Windows Matrix outgoing library after original failure
         if: failure() && runner.os == 'Windows' && steps.native-tests.outcome == 'failure'
         timeout-minutes: 5
