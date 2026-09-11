@@ -2919,3 +2919,32 @@ changes no 30s/2s execution-host limits and performs no live integration. The ne
 owned-child test uses the existing real usage gate and checks the original
 cleanup report after a dropped cooperative operation. Offline fixture success
 is not a platform-wide or live interactive approval qualification.
+
+### Router approval authority is not native application evidence (2026-09-11)
+
+The retained requirement applies the exact owner decision to router authority
+before allow bytes. It does not require an upstream native-core acknowledgement
+to authorize that router continuation. ADR043/046's approved schema22 amendment
+separates durable router authorization, response admission/transmission and native
+application observations. Old Applying/Uncertain/Applied rows create no new
+response authority; future Applied evidence never unparks any attempt.
+
+Keep the original opaque grant in a separate retained admission batch while the
+original runtime owner retains process/session/callback/prepared frame and usage
+observations. Before the first await, burn the single begin attempt. A committed
+response-may-send row without positive acknowledgement is not send permission.
+Readonly recheck preserves the original deadline and can continue only an
+original never-written frame after a fresh callback barrier resolves. Once the
+host reports its local write, consume local admission before awaiting the
+historical receipt. Neither a lost receipt nor the comparison projection can
+reconstruct a write. The runtime prepared frame must independently enforce its
+physical one-shot attempt.
+
+The current domain bound is 16 retained approval records per dispatch/fence,
+including known written records, with exact context/capability association. An
+already written historical request does not impose its old request TTL or grant
+revocation on later responses; all current context authority still applies.
+Runtime response reserve never revives an expired domain decision: capture the
+owner cutoff, domain expiry and original response deadline together before
+parking, or refuse a configuration whose margin does not fit. This prerequisite
+does not introduce a parked renewal or a longer operation timeout.

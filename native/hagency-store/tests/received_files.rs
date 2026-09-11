@@ -720,15 +720,17 @@ fn verify_schema_upgrade() {
         .unwrap();
     let Fixture { root, db, .. } = f;
     drop(db);
-    sql.execute_batch("DROP TABLE received_files; PRAGMA user_version=20;")
-        .unwrap();
+    sql.execute_batch(
+        "DROP TABLE approval_responses; DROP TABLE received_files; PRAGMA user_version=20;",
+    )
+    .unwrap();
     drop(sql);
     let db = DomainRepository::open(&root.path().join("state")).unwrap();
     let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
     assert_eq!(
         sql.query_row("PRAGMA user_version", [], |r| r.get::<_, u64>(0))
             .unwrap(),
-        21
+        22
     );
     assert_eq!(
         sql.query_row(

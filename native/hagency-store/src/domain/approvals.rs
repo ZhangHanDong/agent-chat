@@ -14,6 +14,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+pub(super) mod responses;
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Binding {
     engagement: String,
@@ -156,8 +158,9 @@ fn park(tx: &Transaction<'_>, c: &Context) -> Result<(), Error> {
     )?;
     Ok(())
 }
+// Generic unpark cannot bypass the original one-shot response owner.
 pub(super) fn check_resume(db: &Connection, dispatch: &str, fence: u64) -> Result<(), Error> {
-    let blocked:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM owner_approvals a JOIN approval_contexts c ON c.id=a.context_id WHERE c.dispatch_id=?1 AND c.fence=?2 AND a.state<>'applied')",params![dispatch,fence],|r|r.get(0))?;
+    let blocked:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM owner_approvals a JOIN approval_contexts c ON c.id=a.context_id WHERE c.dispatch_id=?1 AND c.fence=?2)",params![dispatch,fence],|r|r.get(0))?;
     if blocked {
         return Err(Error::RunnerAuthority);
     }
@@ -536,44 +539,7 @@ impl DomainRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = sample()?; // The original writer queue and SQLite lock waits have ended.
         clock(now)?;
-        let (c, r) = request(&tx, id)?;
-        authorize(&tx, cap, &c, now)?;
-        let (state, choice, expires, grant): (String, Option<String>, u64, Option<String>) = tx
-            .query_row(
-                "SELECT state,choice,expires_at,grant_id FROM owner_approvals WHERE id=?1",
-                [id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )?;
-        if !["pending", "decided"].contains(&state.as_str())
-            || (state == "pending" && expires > now)
-        {
-            return Err(Error::RunnerAuthority);
-        }
-        let choice: Option<ApprovalChoice> =
-            choice.map(|s| serde_json::from_str(&s)).transpose()?;
-        let valid_grant = if let Some(grant) = grant {
-            tx.query_row("SELECT EXISTS(SELECT 1 FROM approval_grants WHERE id=?1 AND revoked=0 AND context_key=?2 AND (mode='always' OR (task_id=?3 AND task_epoch=?4)))",params![grant,grant_context(&c)?,c.task,c.epoch],|r|r.get::<_,bool>(0))?
-        } else {
-            true
-        };
-        let allow = expires > now
-            && valid_grant
-            && choice.is_some_and(|choice| choice != ApprovalChoice::Deny);
-        let digest = canonical::digest(&json!([id, c, r, allow]))?;
-        let application = ApprovalApplication {
-            id: id.into(),
-            digest,
-            connection_id: c.connection,
-            upstream_id: r.upstream,
-            thread_id: c.thread,
-            turn_id: c.turn,
-            item_id: r.item,
-            allow,
-        };
-        tx.execute(
-            "UPDATE owner_approvals SET state='applying',application=?2 WHERE id=?1",
-            params![id, serialize(&application)?],
-        )?;
+        let application = consume(&tx, cap, id, now)?;
         tx.commit()?;
         Ok(application)
     }
@@ -624,17 +590,7 @@ impl DomainRepository {
             "UPDATE owner_approvals SET state=?2,observation=?3 WHERE id=?1",
             params![id, state, observed],
         )?;
-        let (c, _) = request(&tx, id)?;
-        if state == "applied"
-            && live(&tx, &c, now).is_ok()
-            && check_resume(&tx, &c.dispatch, c.fence).is_ok()
-        {
-            tx.execute("UPDATE runner_dispatches SET state='started' WHERE id=?1 AND fence=?2 AND state='parked'",params![c.dispatch,c.fence])?;
-            tx.execute(
-                "UPDATE runner_attempts SET outcome='started' WHERE dispatch_id=?1 AND fence=?2",
-                params![c.dispatch, c.fence],
-            )?;
-        }
+        // Native application observations never create router execution authority.
         let result = summary(&tx, id)?;
         tx.commit()?;
         Ok(result)
@@ -953,4 +909,47 @@ impl DomainRepository {
         tx.commit()?;
         Ok(result)
     }
+}
+
+fn consume(
+    tx: &Transaction<'_>,
+    cap: &RunnerCapability,
+    id: &str,
+    now: u64,
+) -> Result<ApprovalApplication, Error> {
+    let (c, r) = request(tx, id)?;
+    authorize(tx, cap, &c, now)?;
+    let (state, choice, expires, grant): (String, Option<String>, u64, Option<String>) = tx
+        .query_row(
+            "SELECT state,choice,expires_at,grant_id FROM owner_approvals WHERE id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )?;
+    if !["pending", "decided"].contains(&state.as_str()) || (state == "pending" && expires > now) {
+        return Err(Error::RunnerAuthority);
+    }
+    let choice: Option<ApprovalChoice> = choice.map(|s| serde_json::from_str(&s)).transpose()?;
+    let valid_grant = if let Some(grant) = grant {
+        tx.query_row("SELECT EXISTS(SELECT 1 FROM approval_grants WHERE id=?1 AND revoked=0 AND context_key=?2 AND (mode='always' OR (task_id=?3 AND task_epoch=?4)))",params![grant,grant_context(&c)?,c.task,c.epoch],|r|r.get::<_,bool>(0))?
+    } else {
+        true
+    };
+    let allow =
+        expires > now && valid_grant && choice.is_some_and(|choice| choice != ApprovalChoice::Deny);
+    let digest = canonical::digest(&json!([id, c, r, allow]))?;
+    let application = ApprovalApplication {
+        id: id.into(),
+        digest,
+        connection_id: c.connection,
+        upstream_id: r.upstream,
+        thread_id: c.thread,
+        turn_id: c.turn,
+        item_id: r.item,
+        allow,
+    };
+    tx.execute(
+        "UPDATE owner_approvals SET state='applying',application=?2 WHERE id=?1",
+        params![id, serialize(&application)?],
+    )?;
+    Ok(application)
 }

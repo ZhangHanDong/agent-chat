@@ -1,6 +1,8 @@
 #[path = "approvals/clock.rs"]
 mod clock;
 mod common;
+#[path = "approvals/responses.rs"]
+mod responses;
 use common::*;
 use hagency_core::{approvals::*, replies::*, tasks::*};
 use hagency_store::{DomainRepository, EffectOutcome, Error};
@@ -14,6 +16,7 @@ struct Fixture {
     caps: Vec<RunnerCapability>,
     rooms: Vec<ApprovalRoomObservation>,
     contexts: Vec<HostApprovalContext>,
+    response_grants: [Vec<hagency_store::ApprovalResponseGrant>; 2],
 }
 impl Fixture {
     fn new(write: bool) -> Self {
@@ -143,6 +146,7 @@ impl Fixture {
             caps,
             rooms,
             contexts,
+            response_grants: [Vec::new(), Vec::new()],
         }
     }
     fn sql(&self) -> rusqlite::Connection {
@@ -184,10 +188,34 @@ impl Fixture {
         self.db.observe_owner_verdict(&v, 1012).unwrap();
     }
     fn apply(&mut self, agent: usize, id: &str) -> ApprovalApplication {
-        let app = self
+        let grant = self
             .db
-            .consume_owner_approval(&self.caps[agent], id, 1013)
+            .authorize_approval_response(&self.caps[agent], id, 1013)
             .unwrap();
+        let app = grant.application().clone();
+        self.response_grants[agent].push(grant);
+        let waiting: bool = self.sql().query_row("SELECT EXISTS(SELECT 1 FROM owner_approvals a JOIN approval_contexts c ON c.id=a.context_id WHERE c.dispatch_id=?1 AND a.state IN ('pending','decided'))", [&self.caps[agent].dispatch_id], |r|r.get(0)).unwrap();
+        if !waiting {
+            // Host-observation fixture only: no runtime write/application proof.
+            let grants = &mut self.response_grants[agent];
+            self.db
+                .begin_approval_responses(
+                    &self.caps[agent],
+                    grants,
+                    std::time::Instant::now() + std::time::Duration::from_secs(1),
+                    1013,
+                )
+                .unwrap();
+            for grant in grants {
+                self.db
+                    .observe_approval_response(
+                        grant,
+                        hagency_store::ApprovalResponseObservation::WriteAccepted,
+                    )
+                    .unwrap();
+            }
+            self.response_grants[agent].clear();
+        }
         self.db
             .observe_approval_application(&observed(&app, ApplicationOutcome::Applied), 1014)
             .unwrap();
@@ -444,7 +472,25 @@ fn native_owner_approval_grants() {
     let second = f.admit(0, 2);
     assert_eq!(second.state, "decided");
     f.db.revoke_approval_grant(&grant).unwrap();
-    assert!(!f.apply(0, &second.id).allow);
+    assert!(
+        f.db.authorize_approval_response(&f.caps[0], &second.id, 1013)
+            .is_err()
+    );
+    let denied =
+        f.db.consume_owner_approval(&f.caps[0], &second.id, 1013)
+            .unwrap();
+    assert!(!denied.allow);
+    f.db.observe_approval_application(&observed(&denied, ApplicationOutcome::Applied), 1014)
+        .unwrap();
+    assert_eq!(
+        f.state(0),
+        "parked",
+        "legacy application cannot resume execution"
+    );
+    // A separate live attempt exercises Task grants; refused legacy authority
+    // above is never upgraded into a new router-response grant.
+    let mut f = Fixture::new(true);
+    let b = f.admit(1, 1);
     // Task grants stop at canonical Done; granting does not complete the task.
     let third = f.admit(0, 3);
     f.choose(&third.id, ApprovalChoice::Task);
@@ -786,7 +832,7 @@ fn native_owner_approval_recovery_schema12() {
         assert_eq!(
             sql.pragma_query_value(None, "user_version", |r| r.get::<_, u64>(0))
                 .unwrap(),
-            21
+            22
         );
         assert_eq!(count(&sql, "approval_bindings"), 0);
         assert_eq!(count(&sql, "approval_grants"), 0);

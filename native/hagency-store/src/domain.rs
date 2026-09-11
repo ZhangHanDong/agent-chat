@@ -50,13 +50,14 @@ pub use usage::{
 pub struct DomainRepository {
     db: Connection,
     _ownership: File,
+    approval_owner: std::sync::Arc<()>,
 }
 impl DomainRepository {
     pub(super) fn drop_observed(self, probe: &std::sync::Arc<crate::shutdown::Probe>) {
         use crate::shutdown::{Phase, SqliteCloseScope};
         // Match the declared field drop order. Ownership is still a local
         // guard, so unwinding from connection destruction also releases it.
-        let Self { db, _ownership } = self;
+        let Self { db, _ownership, .. } = self;
         let close_scope = SqliteCloseScope::install(&db, probe);
         probe.observe_domain_writer();
         probe.mark(Phase::ConnectionDropStarted);
@@ -336,7 +337,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 21,
+                version: 22,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -361,9 +362,11 @@ impl DomainRepository {
                     (19, include_str!("migrations/019-file-uploads.sql")),
                     (20, include_str!("migrations/020-file-deliveries.sql")),
                     (21, include_str!("migrations/021-received-files.sql")),
+                    (22, include_str!("migrations/022-approval-responses.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT request_id,context_id,capability_digest,decision_digest,state,write_accepted,authorized_at,response_started_at FROM approval_responses LIMIT 0",
                     "SELECT id,capability_digest,event_id,workspace_id,binding,binding_digest,byte_limit,facts,state,failure FROM received_files LIMIT 0",
                     "SELECT id,upload_id,dispatch_id,call_id,request,request_hash,captured,event_state,claim_fence,claim_hash,claim_until,transaction_id,publication,cancel_requested,failure,acceptance,created_at,updated_at FROM file_deliveries LIMIT 0",
                     "SELECT id,dispatch_id,call_id,request_digest,capability_digest,scope_fingerprint,route,preparation_hash,stage,stage_state,upload_state,claim_fence,claim_hash,claim_until,cancel_requested,outcome_unknown,acceptance,created_at,updated_at FROM file_uploads LIMIT 0",
@@ -410,11 +413,13 @@ impl DomainRepository {
         notice_custody::reconcile(&tx, graphs::now_ms()?, true)?;
         execution::recover_all(&tx)?;
         approvals::recover(&tx)?;
+        tx.execute("UPDATE approval_responses SET state='outcome_unknown' WHERE state IN ('authorized','response_may_send')", [])?;
         tx.execute("UPDATE received_files SET state='outcome_unknown',failure='outcome_unknown' WHERE state IN ('reserved','write_possible')", [])?;
         tx.commit()?;
         Ok(Self {
             db: database.connection,
             _ownership: database.ownership,
+            approval_owner: std::sync::Arc::new(()),
         })
     }
     pub fn register(&mut self, registration: &Registration) -> Result<(), Error> {
@@ -898,3 +903,8 @@ fn read_effect(db: &Connection, id: &str) -> Result<Effect, Error> {
         payload: serde_json::from_str(&row.4)?,
     })
 }
+
+pub use approvals::responses::{
+    ApprovalResponseGrant, ApprovalResponseObservation, ApprovalResponseState,
+    ApprovalResponseSummary,
+};

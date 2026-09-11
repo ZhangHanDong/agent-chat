@@ -88,16 +88,51 @@ That descriptor binds exact upstream request/thread/turn/item and allow/deny. A
 second consumption always fails, even if the caller lost the first response.
 No method re-arms an Applying, Uncertain, Applied or NotApplied record.
 
+### Accepted router-authorization amendment (2026-09-11)
+
+The root reviewed the retained REQ-TSS-APPROVAL-RECONCILE and original router's
+decision-then-resume-then-write path and approved the domain-only task
+`specs/task-rust-approval-router-authority.spec.md`. Schema22 separates exact
+durable router authorization, response admission/transmission and independent
+native application observation. The new ledger creates no response authority
+from historical schema13 Applying, Uncertain or Applied records.
+
+First atomic decision consumption returns one opaque response grant bound to the
+original repository instance and complete original capability/context. Response
+admission borrows retained grants and marks their local one-shot attempt before
+queueing. Inside the original Immediate transaction, fresh time and the original
+deadline guard full capability, private owner/binding, task epoch, workspace,
+lease, expiry and grant checks. Only when all currently admitted barriers have
+exact router authorization may response admission persist response-may-send and
+resume the same retained attempt. A positive acknowledgement is required before
+the original owner sends its exact typed response. Lost acknowledgement cannot
+recreate that grant or authorize another attempt. A valid live owner deny may
+resume ordinary sandboxed continuation; it grants no escalation.
+
+Generic unpark cannot bypass response admission. Genuinely parked attempts still
+cannot mutate tasks. New requests repark and create a fresh barrier. Unknown
+transmission removes current continuation authority and retains custody; receipt
+inspection and future native application evidence never rearm sending. A local
+write observation consumes the grant's local transmit admission before its
+receipt is awaited; only historical observation settlement remains possible.
+An original never-written frame may use a readonly admitted-grant recheck after
+a fresh callback barrier resolves, retaining its original deadline. Domain
+request expiry remains independent; runtime response reserve cannot revive an
+expired decision. A local write/flush or callback resolution is not native Applied. Actual runtime control
+pumping, response transmission and finite parked maintenance remain separate
+implementation gates; this amendment changes no runtime timeout or sandbox.
+
 A separate authenticated host observation records whether the exact native response
 was applied. It must match the full persisted application descriptor and bounded
 evidence; altered upstream ID or decision fails. Lost response, restart or observed
 unknown outcome preserves uncertainty. NotApplied remains terminal rather than
 silently permitting another allow. The host may later record actual Applied truth
-for an old uncertain operation without reviving expired dispatch authority. Only
-current exact application observations for every outstanding request let a parked
-dispatch resume. The generic park(false) path checks the same unresolved-request
-barrier, so completing one approval cannot bypass another pending or uncertain
-request. Parked/unknown work retains existing workspace custody and cleanup rules.
+for an old uncertain operation without reviving dispatch authority. Native
+application observation is evidence only and never resumes a dispatch. Current
+router continuation follows the separate one-shot response-admission boundary
+above; unconfirmed native application alone does not revoke a current exact
+router decision. Parked/unknown work retains existing workspace custody and
+cleanup rules.
 
 The single DomainRepository writer commits all state. Admission caps are 16 live
 requests per dispatch attempt, 64 per Agent and 1,024 globally; retained contexts,

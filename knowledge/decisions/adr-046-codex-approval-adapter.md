@@ -89,9 +89,10 @@ cancellation also traverse this resolution path. See the pinned
 [cancellation path](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/app-server/src/outgoing_message.rs#L185),
 and [resolution emission](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/app-server/src/request_processors/thread_lifecycle.rs#L848).
 
-Consequently flush leaves Applying. Observed resolution records Uncertain; it
-never records Applied or resumes a parked dispatch. Failed writes and explicit
-close also record Uncertain. Dropping a started async operation closes the owned
+Consequently flush and observed resolution never record native Applied. The
+original offline coordinator records Uncertain and does not yet use schema22
+router authorization; its execution integration remains a separate gate. Failed
+writes and explicit close also record Uncertain. Dropping a started async operation closes the owned
 session. If a database response or async uncertainty observation is lost,
 Applying survives and becomes Uncertain on repository reopen; neither state can
 be consumed again. Resolution before a decision closes the session so a later
@@ -99,13 +100,36 @@ owner approval cannot answer the cancelled callback. Stable duplicate owner
 verdicts remain repository receipts, not permission to resend bytes.
 
 No model text, item completion, turn completion, generic callback termination,
-or empty stdin queue supplies the missing proof. Before live native approvals,
-a host inspector or upstream protocol extension must bind the exact request and
-selected decision/profile to a core acknowledgment **after actual application**,
-with cancellation distinguished from application. Merely moving notification
-after `submit` would still only prove operation queue admission. This offline
-slice intentionally provides no fake Applied escape hatch. Existing schema13
-host inspection API remains the authority boundary for future validated evidence.
+or empty stdin queue supplies native application proof. A host inspector or
+upstream protocol extension would need to bind the exact request and selected
+decision/profile to a core acknowledgment after actual application, distinguishing
+cancellation. Merely moving notification after `submit` proves queue admission.
+
+### Accepted router-authorization amendment (2026-09-11)
+
+The root approved ADR043's schema22 domain prerequisite after comparing the
+retained requirement for router application before allow delivery with the
+original router implementation. Interactive continuation may use exact durable
+router authorization and the original one-shot typed response while native
+application remains unconfirmed. No post-core acknowledgement is required to
+authorize that router continuation, and no Applied evidence is fabricated.
+
+The retained original runtime owner must prepare its exact callback/response,
+obtain positive acknowledgement of the fresh one-shot response-admission
+transaction, then send that response once under its original bounded deadline.
+Only that transaction can resume the same attempt after every current approval
+barrier has router authorization. Resolution observed before response admission
+cancels the callback. Uncertain transmission closes/fences the original attempt;
+unknown consumption or admission acknowledgements never permit reconstruction or
+resend. After known local write acceptance, callback resolution remains native
+application-unconfirmed and does not by itself revoke current router authority.
+Future application inspection only adds evidence; it cannot rearm a response or
+revive parked, expired, retired or successor execution.
+
+The active domain contract is `specs/task-rust-approval-router-authority.spec.md`.
+Runtime pumping, finite parked maintenance, actual typed transmission, owner UI
+integration and executable qualification remain explicit separate gates. No
+timeout, sandbox, YOLO or production-cutover change follows from this domain task.
 
 ## Verification and limits
 
@@ -157,7 +181,14 @@ gate. No missing Applied proof or native approval cutover is inferred.
 
 ## Consequences
 
-The coordinator preserves Applying or Uncertain until qualified application evidence exists. Offline mapping and cancellation fixtures do not enable live approval cutover or weaken default request refusal.
+Native application stays Applying or Uncertain until qualified application
+evidence exists. The new domain layer permits exact router continuation after
+its unique response-admission acknowledgement without claiming that application
+evidence. The existing offline coordinator does not use this new authority and
+cannot resume an approval-parked attempt. Owned runtime integration and actual
+interactive qualification remain separate gates; offline mapping and
+cancellation fixtures do not enable live approval cutover or weaken default
+request refusal.
 
 ## Alternatives Considered
 

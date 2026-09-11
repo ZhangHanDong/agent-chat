@@ -6511,3 +6511,55 @@ Windows GNU all-target compilation passes; Windows execution remains pending.
 The domain grant's independent expiry is not extended by runtime response reserve.
 Future host admission must align owner cutoff, original grant expiry and response
 margin before parking; this runtime-only checkpoint authorizes no transmission.
+
+### Approval router authority domain prerequisite (2026-09-11)
+
+The root approved the ADR043/046 amendment after comparing retained requirements
+with the original router decision/resume/write order, then approved this exact
+26-path task from clean 99200b0. The active contract was parsed and linted before
+source edits. Schema22 adds a separate response ledger without promoting legacy
+Applying, Uncertain or Applied history. Current version assertions and historical
+migration teardown change only as required by that additional table.
+
+The original repository mints one opaque non-Clone non-serde grant on exact
+atomic router authorization and consumption. The retained caller batch becomes
+attempted before writer enqueue. A fresh original Immediate transaction checks
+every barrier, full capability/private context/task/lease/expiry/grant scope and
+the original deadline, then commits response-may-send and resumes only that same
+attempt. A timely positive acknowledgement is necessary for send admission.
+Owner deny permits baseline continuation after all barriers resolve. Generic
+unpark cannot bypass this boundary; genuine parked task mutation still refuses.
+
+A new callback reparks. Its own fresh grant resolves the new barrier; an earlier
+never-written frame can use a readonly original-grant/original-deadline check.
+The domain's local admission is consumed before awaiting a known local-write
+observation receipt, so a lost receipt cannot permit another write check. Known
+write evidence survives a later uncertain outcome. Native application evidence
+remains independent and never resumes current, expired or historical execution.
+The old offline coordinator API still exists but cannot create this authority or
+resume an approval-parked attempt. Owned runtime integration stays separate.
+
+Actual domain tests cover exact allow/deny batches, missing/duplicate/foreign
+grants, original-instance mismatch, scope and expiry changes, parked mutation,
+new callbacks, write-observation receipt loss, queued cancellation, lost and late
+begin acknowledgement, schema21 upgrade, reopen and later native Applied. Real
+SQLite exclusion proves clocks run inside the original transaction; actual
+contention crosses lease/deadline expiry within the unchanged 100 ms busy bound.
+Private negative-test acknowledgement delays hold actual committed results; they
+do not synthesize success or set proof state. Host write/application observations
+in these domain tests are explicit observation doubles, not native wire proof.
+
+Final-source store/permissions all-targets pass 212 tests across 23 targets, with
+zero failed or ignored tests. All-target warnings-denied Clippy, formatting and
+diff checks pass. Strict package-scoped agent-spec 1.4 lifecycle passes 7/7: the
+exact 26 paths and six selectors each executing one actual test, with zero
+failed, skipped, uncertain or pending-review results. Two advisory lint warnings
+remain for forbidden-scope coverage and inferred file-output coverage. Exact
+commands/CWD, source hashes, API/failure-table handoff and all original results
+are recorded in the external approval-router evidence cache.
+Original fixture compile failures, the revoked-grant legacy expectation failure,
+a saved-grant fixture setup failure, and intermediate tuple compile errors remain
+in the external approval-router evidence cache. Runtime pumping, finite parked
+maintenance, deadline configuration, actual transmission and executable
+interactive qualification remain separate gates. No runtime, sandbox, timeout,
+dependency or live action changed, and full M6 parity remains incomplete.

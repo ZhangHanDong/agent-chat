@@ -387,7 +387,7 @@ mod clock_tests {
         (db, cap)
     }
 
-    fn approval_fixture(
+    pub(super) fn approval_fixture(
         root: &std::path::Path,
     ) -> (
         DomainRepository,
@@ -438,7 +438,7 @@ mod clock_tests {
         (db, cap, context)
     }
 
-    fn approval_input(expires_at: u64) -> hagency_core::approvals::HostApprovalRequest {
+    pub(super) fn approval_input(expires_at: u64) -> hagency_core::approvals::HostApprovalRequest {
         use hagency_core::approvals::*;
         HostApprovalRequest {
             context_id: "clock_context".into(),
@@ -3056,3 +3056,95 @@ mod received_file_commands {
         }
     }
 }
+
+// The original response grants stay in their caller-owned batch across awaits.
+mod approval_response_commands {
+    use super::*;
+    use crate::{ApprovalResponseGrant, ApprovalResponseObservation, ApprovalResponseSummary};
+    impl DomainStore {
+        pub async fn authorize_approval_response(
+            &self,
+            cap: RunnerCapability,
+            id: String,
+        ) -> Result<ApprovalResponseGrant, Error> {
+            self.authorize_approval_response_ack(cap, id, std::future::ready(()))
+                .await
+        }
+        // Delay only delivery of an actual committed result in negative tests.
+        pub(super) async fn authorize_approval_response_ack(
+            &self,
+            cap: RunnerCapability,
+            id: String,
+            ack: impl std::future::Future<Output = ()>,
+        ) -> Result<ApprovalResponseGrant, Error> {
+            let grant = self
+                .call(weight(&(&cap, &id))?, move |db| {
+                    db.authorize_approval_response_clock(&cap, &id, writer_time)
+                })
+                .await?;
+            ack.await;
+            Ok(grant)
+        }
+
+        pub async fn begin_approval_responses(
+            &self,
+            cap: RunnerCapability,
+            grants: &mut [ApprovalResponseGrant],
+            deadline: std::time::Instant,
+        ) -> Result<(), Error> {
+            self.begin_approval_responses_ack(cap, grants, deadline, std::future::ready(()))
+                .await
+        }
+        pub(super) async fn begin_approval_responses_ack(
+            &self,
+            cap: RunnerCapability,
+            grants: &mut [ApprovalResponseGrant],
+            deadline: std::time::Instant,
+            ack: impl std::future::Future<Output = ()>,
+        ) -> Result<(), Error> {
+            let proofs = ApprovalResponseGrant::attempt(grants, deadline)?;
+            let bytes = weight(&(&cap, proofs.iter().map(|p| p.weight()).collect::<Vec<_>>()))?;
+            self.call(bytes, move |db| {
+                db.begin_approval_responses_clock(&cap, &proofs, deadline, writer_time)
+            })
+            .await?;
+            ack.await;
+            ApprovalResponseGrant::acknowledge(grants)?;
+            Ok(())
+        }
+        pub async fn check_approval_response(
+            &self,
+            cap: RunnerCapability,
+            grant: &ApprovalResponseGrant,
+        ) -> Result<(), Error> {
+            let (proof, deadline) = grant.admitted()?;
+            self.call(weight(&(&cap, proof.weight()))?, move |db| {
+                db.check_approval_response_clock(&cap, &proof, deadline, writer_time)
+            })
+            .await?;
+            grant.check_deadline()
+        }
+        pub async fn observe_approval_response(
+            &self,
+            grant: &mut ApprovalResponseGrant,
+            observation: ApprovalResponseObservation,
+        ) -> Result<ApprovalResponseSummary, Error> {
+            let proof = grant.observation(observation)?;
+            self.call(weight(&proof.weight())?, move |db| {
+                db.observe_approval_response_proof(&proof, observation)
+            })
+            .await
+        }
+        pub async fn approval_response_summary(
+            &self,
+            id: String,
+        ) -> Result<ApprovalResponseSummary, Error> {
+            self.call(weight(&id)?, move |db| db.approval_response_summary(&id))
+                .await
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/approvals/responses_worker.rs"]
+mod approval_response_tests;
