@@ -5916,7 +5916,7 @@ of twelve named selectors executing one passing test, plus its eight-path bound.
 Integrated native store/Matrix Clippy passes. The original-child diagnostic
 fixture now retains its actual stderr read handle and emits bounded static
 categories before panic cleanup; all four executable file tests pass on the
-integrated source13d05bf. All483 Rust bindings resolve and rustfmt passes. The
+integrated source13d05bf. All493 Rust bindings resolve and rustfmt passes. The
 source has not received another full workspace test run since the earlier
 eb06c35 acceptance; new hosted CI is required. Neither diagnostic change asserts
 the underlying Linux or Windows timeout cause or activates a live service.
