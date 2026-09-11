@@ -27,6 +27,15 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 mod clock_fixtures;
 
 type Operation = Box<dyn FnOnce(&mut DomainRepository) + Send>;
+enum ReceiverPolicy {
+    CancelIfDropped,
+    RetainEnqueuedInvalidation,
+}
+
+#[cfg(test)]
+#[path = "../tests/matrix_invalidation/worker.rs"]
+mod matrix_invalidation_tests;
+
 enum Job {
     Run {
         operation: Operation,
@@ -1056,9 +1065,11 @@ impl DomainStore {
         &self,
         input: MatrixTransportInvalidation,
     ) -> Result<(), Error> {
-        self.call(weight(&input)?, move |db| {
-            db.invalidate_matrix_transport(&input, writer_time()?)
-        })
+        self.call_with_policy(
+            weight(&input)?,
+            ReceiverPolicy::RetainEnqueuedInvalidation,
+            move |db| db.invalidate_matrix_transport(&input, writer_time()?),
+        )
         .await
     }
     pub async fn observe_matrix_transport(
@@ -1078,9 +1089,11 @@ impl DomainStore {
     }
     pub async fn invalidate_matrix_room(&self, input: MatrixRoomInvalidation) -> Result<(), Error> {
         let bytes = weight(&input)?;
-        self.call(bytes, move |db| {
-            db.invalidate_matrix_room(&input, writer_time()?)
-        })
+        self.call_with_policy(
+            bytes,
+            ReceiverPolicy::RetainEnqueuedInvalidation,
+            move |db| db.invalidate_matrix_room(&input, writer_time()?),
+        )
         .await
     }
 
@@ -1593,6 +1606,15 @@ impl DomainStore {
         bytes: u32,
         operation: impl FnOnce(&mut DomainRepository) -> Result<T, Error> + Send + 'static,
     ) -> Result<T, Error> {
+        self.call_with_policy(bytes, ReceiverPolicy::CancelIfDropped, operation)
+            .await
+    }
+    async fn call_with_policy<T: Send + 'static>(
+        &self,
+        bytes: u32,
+        policy: ReceiverPolicy,
+        operation: impl FnOnce(&mut DomainRepository) -> Result<T, Error> + Send + 'static,
+    ) -> Result<T, Error> {
         let permit = self
             .bytes
             .clone()
@@ -1600,7 +1622,9 @@ impl DomainStore {
             .map_err(|_| Error::Busy)?;
         let (reply, rx) = oneshot::channel();
         let operation = Box::new(move |db: &mut DomainRepository| {
-            if !reply.is_closed() {
+            // An admitted negative observation must retire its exact old scope
+            // even after receiver loss. Ordinary abandoned work still stops here.
+            if matches!(policy, ReceiverPolicy::RetainEnqueuedInvalidation) || !reply.is_closed() {
                 let _ = reply.send(operation(db));
             }
         });

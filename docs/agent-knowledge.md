@@ -2216,3 +2216,12 @@ the backend/helper does not capture or replace PATH for the ACP probe fixture.
 A bounded external all-fake observation confirms exact fixture resolution and
 Claude --version only. The earlier uninstrumented timeout still lacks executable
 identity and scheduling evidence; current successful observation cannot recover it.
+
+ADR091 retains only already enqueued Matrix transport/room invalidations after
+their result receiver drops. Ordinary domain calls still skip execution when
+abandoned before pickup. Exact original expected identity/generation and the
+existing retirement transaction remain authoritative; a newer incarnation is
+protected. The original finite queue/bytes and reply timeout are unchanged.
+Timeout still means OutcomeUnknown even if a separate later query sees the
+original mutation. Pre-enqueue lifetime and failed admission remain the host's
+responsibility; this does not make failed persistence successful.
