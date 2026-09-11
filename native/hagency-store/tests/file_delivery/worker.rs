@@ -311,3 +311,145 @@ async fn native_file_delivery_worker_lost_and_queued() {
         store.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn native_file_publication_content_writer() {
+    let root = tempfile::tempdir().unwrap();
+    let (db, cap) = fixture(root.path());
+    let store = DomainStore::start(db, 8).unwrap();
+    let (id, claim) = ready(&store, &cap).await;
+    let send = store
+        .begin_file_publication(cap.clone(), claim.clone())
+        .await
+        .unwrap();
+    let locator = send.locator().clone();
+    let request = send.metadata().clone();
+    let captured = send.captured().clone();
+    drop(send);
+    let (entered, reached) = oneshot::channel();
+    let (resume, paused) = std::sync::mpsc::channel();
+    store
+        .tx
+        .try_send(Job::Run {
+            operation: Box::new(move |_| {
+                let _ = entered.send(());
+                paused.recv_timeout(Duration::from_secs(2)).unwrap();
+            }),
+            _bytes: store.bytes.clone().try_acquire_owned().unwrap(),
+        })
+        .unwrap_or_else(|_| panic!("fixture admission"));
+    reached.await.unwrap();
+    let bytes_before = store.bytes.available_permits();
+    for mode in ["request", "capture", "locator"] {
+        let mut bad_request = request.clone();
+        let mut bad_captured = captured.clone();
+        let mut bad_locator = locator.clone();
+        match mode {
+            "request" => bad_request.caption = Some("x".repeat(1001)),
+            "capture" => bad_captured.size = MAX_FILE_BYTES + 1,
+            _ => bad_locator.stage.operation_id = "x".repeat(129),
+        }
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                store.restore_file_delivery_settlement_for_content(
+                    bad_locator,
+                    bad_request,
+                    bad_captured
+                )
+            )
+            .await
+            .unwrap()
+            .is_err()
+        );
+        assert_eq!(store.tx.capacity(), 8);
+        assert_eq!(store.bytes.available_permits(), bytes_before);
+    }
+    let expected_weight = weight(&(&locator, &request, &captured)).unwrap() as usize;
+    let lookup = tokio::spawn({
+        let store = store.clone();
+        let locator = locator.clone();
+        let request = request.clone();
+        let captured = captured.clone();
+        async move {
+            store
+                .restore_file_delivery_settlement_for_content(locator, request, captured)
+                .await
+        }
+    });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while store.tx.capacity() == 8 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        store.bytes.available_permits(),
+        bytes_before - expected_weight
+    );
+    // Other host work shares the same finite FIFO. No extra queue or detached
+    // lookup owner can bypass capacity, and a refused call returns its budget.
+    for _ in 0..7 {
+        store
+            .tx
+            .try_send(Job::Run {
+                operation: Box::new(|_| {}),
+                _bytes: store.bytes.clone().try_acquire_owned().unwrap(),
+            })
+            .unwrap_or_else(|_| panic!("fixture fills remaining queue slots"));
+    }
+    assert_eq!(store.tx.capacity(), 0);
+    let full_bytes = store.bytes.available_permits();
+    assert!(matches!(
+        store
+            .restore_file_delivery_settlement_for_content(
+                locator.clone(),
+                request.clone(),
+                captured.clone()
+            )
+            .await,
+        Err(Error::Busy)
+    ));
+    assert_eq!(store.bytes.available_permits(), full_bytes);
+    resume.send(()).unwrap();
+    // Discard an actual completed historical lookup result, not an invented grant.
+    drop(lookup.await.unwrap().unwrap().unwrap());
+    let settlement = store
+        .restore_file_delivery_settlement_for_content(
+            locator.clone(),
+            request.clone(),
+            captured.clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let status = store
+        .inspect_file_delivery_settlement(Arc::new(settlement))
+        .await
+        .unwrap();
+    assert_eq!(status.event, FileEventState::WritePossible);
+    assert_eq!(status.status, FileDeliveryStatus::OutcomeUnknown);
+    let mut changed = request.clone();
+    changed.caption = Some("bounded replacement".into());
+    assert!(matches!(
+        store
+            .restore_file_delivery_settlement_for_content(locator, changed, captured)
+            .await,
+        Err(Error::Conflict)
+    ));
+    assert!(
+        store
+            .begin_file_publication(cap.clone(), claim)
+            .await
+            .is_err()
+    );
+    assert!(
+        store
+            .claim_file_publication(cap, id, 60_000)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    store.shutdown().await.unwrap();
+}

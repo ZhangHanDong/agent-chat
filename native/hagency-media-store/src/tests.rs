@@ -1,4 +1,5 @@
 use super::*;
+mod association;
 mod preparation;
 mod restoration;
 use hagency_files::{RelativeFile, Workspace};

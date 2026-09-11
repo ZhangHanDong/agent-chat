@@ -89,6 +89,12 @@ impl Descriptor {
         &self.json
     }
 
+    /// Declared ciphertext digest data only. This does not read ciphertext or
+    /// create a receipt, source custody, durability evidence or current authority.
+    pub fn ciphertext_sha256(&self) -> &[u8; 32] {
+        &self.hash
+    }
+
     pub(crate) fn sdk(&self) -> Result<MediaEncryptionInfo, Error> {
         serde_json::from_slice(&self.json).map_err(|_| Error::Descriptor)
     }

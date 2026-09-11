@@ -57,13 +57,45 @@ pub(crate) fn validate_header(
     }
     Ok(sum(&[&actual]))
 }
-fn identity(namespace: &HostNamespace, operation: &OperationId, intent: &[u8; INTENT]) -> [u8; 32] {
-    sum(&[
-        &namespace.0,
-        operation.0.as_bytes(),
-        &intent[16..32],
-        &intent[32..96],
-    ])
+fn identity(namespace: &[u8; 32], operation: &OperationId, fields: &[u8]) -> [u8; 32] {
+    sum(&[namespace, operation.0.as_bytes(), fields])
+}
+fn identity_fields(
+    operation: &OperationId,
+    kind: Kind,
+    bytes: usize,
+    descriptor: &[u8],
+    content_hash: &[u8; 32],
+) -> [u8; 80] {
+    let mut fields = [0; 80];
+    fields[..8].copy_from_slice(&(bytes as u64).to_le_bytes());
+    fields[8..12].copy_from_slice(&(descriptor.len() as u32).to_le_bytes());
+    fields[12..14].copy_from_slice(&(operation.0.len() as u16).to_le_bytes());
+    fields[14] = kind.tag();
+    fields[16..48].copy_from_slice(content_hash);
+    fields[48..].copy_from_slice(&sum(&[descriptor]));
+    fields
+}
+/// Pure association with supplied digest data, without ciphertext IO or proof of
+/// source custody, SDK acceptance, durability, namespace ownership or authority.
+pub fn encrypted_receipt_matches(
+    namespace_digest: &[u8; 32],
+    operation: &OperationId,
+    ciphertext_len: usize,
+    descriptor: &hagency_media::Descriptor,
+    receipt_digest: &[u8; 32],
+) -> bool {
+    if ciphertext_len > crate::MAX_ITEM_BYTES {
+        return false;
+    }
+    let fields = identity_fields(
+        operation,
+        Kind::Encrypted,
+        ciphertext_len,
+        descriptor.private_event_json(),
+        descriptor.ciphertext_sha256(),
+    );
+    identity(namespace_digest, operation, &fields) == *receipt_digest
 }
 pub(crate) fn prepare(
     namespace: &HostNamespace,
@@ -86,14 +118,15 @@ pub(crate) fn prepare(
     let mut intent = [0; INTENT];
     intent[..8].copy_from_slice(BEGIN);
     intent[8..16].copy_from_slice(&length.to_le_bytes());
-    intent[16..24].copy_from_slice(&(data.len() as u64).to_le_bytes());
-    intent[24..28].copy_from_slice(&(descriptor.len() as u32).to_le_bytes());
-    intent[28..30].copy_from_slice(&(operation.0.len() as u16).to_le_bytes());
-    intent[30] = media.kind().tag();
-    intent[32..64].copy_from_slice(&sum(&[data]));
-    intent[64..96].copy_from_slice(&sum(&[descriptor]));
+    intent[16..96].copy_from_slice(&identity_fields(
+        operation,
+        media.kind(),
+        data.len(),
+        descriptor,
+        &sum(&[data]),
+    ));
     intent[96..128].copy_from_slice(&previous);
-    let digest = identity(namespace, operation, &intent);
+    let digest = identity(&namespace.0, operation, &intent[16..96]);
     intent[128..160].copy_from_slice(&digest);
     let check = sum(&[&namespace.0, &intent[..160], operation.0.as_bytes()]);
     intent[160..].copy_from_slice(&check);
@@ -159,7 +192,7 @@ pub(crate) fn scan(
     let operation =
         OperationId::new(std::str::from_utf8(&name[..names as usize]).map_err(|_| Error::Corrupt)?)
             .map_err(|_| Error::Corrupt)?;
-    let digest = identity(namespace, &operation, &intent);
+    let digest = identity(&namespace.0, &operation, &intent[16..96]);
     if intent[96..128] != previous
         || intent[128..160] != digest
         || intent[160..] != sum(&[&namespace.0, &intent[..160], operation.0.as_bytes()])

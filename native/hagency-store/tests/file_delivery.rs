@@ -731,6 +731,112 @@ fn native_file_delivery_historical_settlement() {
 }
 
 #[test]
+fn native_file_publication_content_association() {
+    let mut f = Fixture::new(true, Some("$original_root"));
+    let (a, claim, send) = f.publication("content");
+    let locator = send.locator().clone();
+    let request = send.metadata().clone();
+    let capture = send.captured().clone();
+    let observed = acceptance(&send);
+    let original_digest =
+        hagency_core::canonical::payload_digest(&json!([&request, &capture])).unwrap();
+    for mode in [
+        "call",
+        "digest",
+        "filename",
+        "caption",
+        "no_caption",
+        "size",
+        "hash",
+    ] {
+        let mut changed = request.clone();
+        let mut facts = capture.clone();
+        match mode {
+            "call" => changed.call_id = "other".into(),
+            "digest" => changed.request_digest = "7".repeat(64),
+            "filename" => changed.filename = "other.txt".into(),
+            "caption" => changed.caption = Some("other caption".into()),
+            "no_caption" => changed.caption = None,
+            "size" => facts.size += 1,
+            _ => facts.sha256 = "8".repeat(64),
+        }
+        changed.validate().unwrap();
+        facts.validate().unwrap();
+        // A coherent replacement and its newly computed content hash do not
+        // establish association with the independently retained original row.
+        // The actual private SDK journal mutation test belongs to ADR098.
+        let replacement = json!([&changed, &facts]);
+        let replacement_digest = hagency_core::canonical::payload_digest(&replacement).unwrap();
+        assert_ne!(replacement_digest, original_digest);
+        let (changed, facts): (FileDeliveryRequest, CapturedFile) =
+            serde_json::from_value(replacement).unwrap();
+        assert!(
+            matches!(
+                f.db.restore_file_delivery_settlement_for_content(&locator, &changed, &facts),
+                Err(Error::Conflict)
+            ),
+            "{mode}"
+        );
+        assert_eq!(
+            f.db.inspect_file_delivery(&f.cap, a.identity.id())
+                .unwrap()
+                .event,
+            FileEventState::WritePossible
+        );
+    }
+    let mut absent = locator.clone();
+    absent.delivery_id = format!("file_{}", "0".repeat(32));
+    assert!(
+        f.db.restore_file_delivery_settlement_for_content(&absent, &request, &capture)
+            .unwrap()
+            .is_none()
+    );
+    let mut wrong_locator = locator.clone();
+    wrong_locator.content_digest = original_digest;
+    assert!(
+        f.db.restore_file_delivery_settlement_for_content(&wrong_locator, &request, &capture)
+            .is_err()
+    );
+    f.db.cancel_file_delivery(&a.identity, FileDeliveryFailure::Cancelled, 1023)
+        .unwrap();
+    f.done();
+    drop(send);
+    drop(claim);
+    f = f.restart();
+    let settled =
+        f.db.restore_file_delivery_settlement_for_content(&locator, &request, &capture)
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        f.db.inspect_file_delivery_settlement(&settled)
+            .unwrap()
+            .event,
+        FileEventState::WritePossible
+    );
+    let receipt =
+        f.db.record_file_delivery_settlement(&settled, &observed, 2000)
+            .unwrap();
+    assert_eq!(receipt.event, FileEventState::Delivered);
+    assert!(!receipt.replayed);
+    assert!(receipt.cancel_requested);
+    assert!(
+        f.db.record_file_delivery_settlement(&settled, &observed, 2001)
+            .unwrap()
+            .replayed
+    );
+    assert!(
+        f.db.claim_file_publication(&f.cap, &a.identity, 2002, 100)
+            .is_err()
+    );
+    let mut changed = request.clone();
+    changed.filename = "changed_after_delivered.txt".into();
+    assert!(matches!(
+        f.db.restore_file_delivery_settlement_for_content(&locator, &changed, &capture),
+        Err(Error::Conflict)
+    ));
+}
+
+#[test]
 fn native_file_delivery_status_bounds() {
     let mut f = Fixture::new(true, None);
     let a = f.reserve("one");

@@ -2298,6 +2298,21 @@ mod file_delivery_methods {
             })
             .await
         }
+        /// Checks original historical content; this lookup never grants a send.
+        pub async fn restore_file_delivery_settlement_for_content(
+            &self,
+            input: FilePublicationLocator,
+            request: FileDeliveryRequest,
+            captured: CapturedFile,
+        ) -> Result<Option<crate::FileDeliverySettlement>, Error> {
+            files::lookup_input(&input)?;
+            request.validate()?;
+            captured.validate()?;
+            self.call(weight(&(&input, &request, &captured))?, move |db| {
+                db.restore_file_delivery_settlement_for_content(&input, &request, &captured)
+            })
+            .await
+        }
         pub async fn record_file_delivery_settlement(
             &self,
             settlement: Arc<crate::FileDeliverySettlement>,

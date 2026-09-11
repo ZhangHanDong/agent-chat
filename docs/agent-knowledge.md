@@ -1,5 +1,15 @@
 # Repository audit knowledge
 
+- **Original file publication association, 2026-09-10:** ADR100 adds a bounded
+  historical content lookup that compares full immutable request and capture data
+  with the original domain row before yielding settlement custody. Its pure media
+  helper shares the unchanged frame identity algorithm and compares exact descriptor
+  bytes, declared ciphertext hash, namespace, operation and length with the supplied
+  receipt digest. Neither helper creates source custody, a receipt, SDK proof,
+  durability evidence or current send authority. The publisher still needs actual
+  protected complete SDK acceptance. Windows unconfirmed sync remains refused for
+  preparation/restoration; digest association alone does not upgrade that evidence.
+
 - **Native upload registry, 2026-09-10:** ADR078/schema19 issues an original
   preparation only on the first committed exact request. Lost reservation/begin
   results cannot recreate capture/send grants. Exact stage commitments precede

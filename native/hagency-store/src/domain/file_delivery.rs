@@ -704,6 +704,24 @@ impl DomainRepository {
     ) -> Result<FileDeliveryReceipt, Error> {
         settlement_row(&self.db, settlement)?.receipt(true)
     }
+    /// Historical content association only. Returns no current publication authority.
+    pub fn restore_file_delivery_settlement_for_content(
+        &self,
+        input: &FilePublicationLocator,
+        request: &FileDeliveryRequest,
+        captured: &CapturedFile,
+    ) -> Result<Option<FileDeliverySettlement>, Error> {
+        request.validate()?;
+        captured.validate()?;
+        let Some(settlement) = self.restore_file_delivery_settlement(input)? else {
+            return Ok(None);
+        };
+        let row = settlement_row(&self.db, &settlement)?;
+        if row.request != *request || row.captured.as_ref() != Some(captured) {
+            return Err(Error::Conflict);
+        }
+        Ok(Some(settlement))
+    }
     pub fn record_file_delivery_settlement(
         &mut self,
         settlement: &FileDeliverySettlement,

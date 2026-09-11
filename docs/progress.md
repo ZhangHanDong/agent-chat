@@ -5357,3 +5357,17 @@ repository destruction began. No specific SQLite/OS cause is established. Origin
 logs and automatic diagnostics remain separate. ADR099 will add missing original
 approval/field-drop observation without changing timeouts or retries. ADR096 actual
 bootstrap and ADR098 encrypted file publication remain separate integration work.
+## 2026-09-10 — Original publication content association
+
+ADR100 implements the two independent comparisons needed by the ADR098 publisher:
+exact immutable domain metadata/capture before historical settlement, and encrypted
+descriptor association with the original unchanged frame commitment. It introduces
+no current send authority or proof constructor. The exact 13-path contract parsed
+and linted before production changes, with quality1.0 and one grouping information.
+All four new selectors passed on their first run. The full affected core, store,
+media and media-store suites then passed210 tests across29 summaries with zero
+failed or ignored. After extending the writer test to fill its actual eight-slot
+queue and check Busy budget return, all42 store library tests passed. The complete
+frame oracle, original staging records and platform refusal semantics are preserved.
+Final Clippy, binding and strict lifecycle evidence follows in external adr100-*
+artifacts; actual SDK recipient, service and MCP acceptance remain separate work.

@@ -5,6 +5,7 @@ mod restoration;
 mod types;
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt, OpenOptionsSyncExt};
 use cap_std::fs::{Dir, OpenOptions};
+pub use frame::encrypted_receipt_matches;
 use frame::{Entry, FILE_HEADER, Scan};
 use hagency_store::private;
 use std::{
