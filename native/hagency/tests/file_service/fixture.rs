@@ -820,13 +820,22 @@ async fn native_file_service_media_startup_observation() {
     let media = f.state_dir.join("file-media");
     private::directory(&media).unwrap();
     let mut child = f.launch(true, "observation.media_refused");
+    // Bound the actual peer requests, not the idle polls: a slow hosted
+    // enrollment must not exhaust the loop while the child is still working.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut status = Value::Null;
-    for _ in 0..96 {
-        assert!(tokio::time::Instant::now() < deadline);
+    let mut requests = 0;
+    loop {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "media refusal was not reported; last state {}",
+            status["state"]
+        );
         if let Ok(request) =
             tokio::time::timeout(Duration::from_millis(50), f.next("observation.media_setup")).await
         {
+            requests += 1;
+            assert!(requests <= 96);
             f.respond(request).await;
         } else {
             status = f.capabilities().await["development_execution"].clone();

@@ -692,7 +692,10 @@ async fn native_matrix_upload_custody_capacity() {
             ])
             .env(CHILD, "isolated")
             .kill_on_drop(true);
-        let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
+        // The isolated child loads this whole unoptimized test executable
+        // before running one scenario; hosted Windows needs well over 30 s.
+        // This is a fixture budget, not a runtime deadline.
+        let output = tokio::time::timeout(std::time::Duration::from_secs(180), command.output())
             .await
             .expect("isolated capacity scenario deadline")
             .expect("isolated capacity scenario process");

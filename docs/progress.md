@@ -6982,3 +6982,10 @@ schema and makes no live configuration, provider, login or production cutover ch
   `native_matrix_upload_custody_capacity` deadline) and the Windows
   `native_file_service_media_startup_observation` stuck at `enrolling`. Hosted
   Windows runs remain the qualification; the local container is Linux only.
+- Two Windows-only fixture budgets were made hosted-tolerant without touching
+  runtime deadlines: `native_file_service_media_startup_observation` now bounds
+  peer requests (96) and time (20 s) separately instead of spending its loop
+  budget on idle polls while the child is still `enrolling`, and the isolated
+  `native_matrix_upload_custody_capacity` child process gets 180 s to load the
+  unoptimized test executable. Both pass on macOS; the file-service suite passes
+  on Linux.
