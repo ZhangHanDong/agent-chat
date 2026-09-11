@@ -6632,3 +6632,32 @@ artifact-4 Chromium screenshots are `resource-screenshots-artifact4/console-reso
 and `console-resources-zh.png`. No production or unexecuted OS qualification is
 claimed. Publication remains explicitly local-only pending its separate wire
 integration, and resource creation/full editing plus complete M7 remain open.
+
+
+## 2026-09-11 — Integrated native console/runtime checks and Cargo artifact lint
+
+At d85369d the original full workspace/all-target/all-feature run passed661
+independent tests plus1 nested child, with0 failures/ignored; all-feature Clippy
+and formatting passed. This run used the actual installed Chrome executable,
+Node24.10.0 and retained resource console artifact4. Original full Vitest:
+4,298 passed,1 skipped,0 failed across295 files. Neither platform skips nor the
+old failed b856 runs are counted as new passing product gates.
+
+Concurrent verify-ci originally failed while ESLint traversed a transient Cargo
+`target/debug/deps/rustc*` directory removed by compilation. The global ignore
+now excludes root and nested `target` artifacts while native JavaScript sources
+remain linted. A real ESLint regression proves both exclusions and rejection of
+an undefined identifier in native/scripts; the full identifier test file passes
+8/8. This fixes artifact traversal, without suppressing the source rule. The
+original failure, source-independent integrated results and corrected checks are
+retained under `~/Library/Caches/hagency-rust-migration/2026-09-10/`.
+
+The task contract is parsed/linted and its explicit boundaries are checked by
+agent-spec. Its Cargo-only lifecycle cannot execute these Vitest bindings, so
+the exact Vitest file and verify-ci run separately; no Cargo result substitutes
+for Node acceptance. Full migration and hosted qualification remain unfinished.
+
+Corrected verify-ci completed successfully, including113 kernel/CLI tests.
+Agent-spec's Cargo-only lifecycle reports these two Node scenarios as skipped;
+that is retained as a non-passing lifecycle result, not relabeled as success.
+The exact8-test Vitest run and passing verify-ci supply the actual JS evidence.

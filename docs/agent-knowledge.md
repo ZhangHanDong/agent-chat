@@ -2989,3 +2989,10 @@ and source hashes live in external migration cache `resource-*` evidence. The
 inventory of 543 selectors with none missing is listing only.
 The final Busy logout text is deliberately generic: both pending mutation custody
 and the shared finite HTTP request capacity can refuse revocation as Busy.
+
+
+- **Concurrent native/Node checks, 2026-09-11:** ESLint must globally ignore
+  `**/target/**`, since Cargo creates/removes temporary compiler directories
+  during builds. Keep native/scripts source in the identifier gate. The actual
+  ESLint path/undefined-source regression in undefined-identifier-gate.test.js
+  distinguishes generated output exclusion from disabling source analysis.
