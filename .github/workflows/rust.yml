@@ -47,7 +47,9 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    # Original Windows compilation + full tests consumed almost25 minutes.
+    # Preserve time for original diagnostics/release; no test deadline changes.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.95.0

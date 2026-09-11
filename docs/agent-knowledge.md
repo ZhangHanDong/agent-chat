@@ -3049,3 +3049,13 @@ Worker running status is neither catalog acceptance nor a completed consumer.
   upstream_request_id stays a string; additive upstream_rpc_id preserves type.
   Native40-hex request IDs still require explicit client qualification. Never
   project the packet into the console or invent an Agent task/route for the bot.
+
+
+- **Owned quiet turns, ADR113, 2026-09-11:**
+  Acknowledged tool/model work need not emit an app-server notification inside
+  the short RPC response interval. Host event_wait_ms uses operation_ms; pending
+  RPC replies and writes still use response_ms, with the original absolute
+  operation/connection lifetime and authority/cancellation checks. The actual
+  quiet-child test fails before the mapping change. Keep original492 Windows
+  transport-timeout evidence separate from local corrected tests; no fake
+  keepalive or production timeout increase establishes Windows qualification.

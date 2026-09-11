@@ -218,6 +218,15 @@ fn fake(mode: &str, marker: &Path) -> io::Result<()> {
         &request,
         json!({ "turn": { "id": "owned-turn", "status": "inProgress", "items": [] } }),
     )?;
+    if matches!(mode, "quiet-turn" | "quiet-open") {
+        fs::write(marker.with_extension("quiet"), b"turn-start-acknowledged")?;
+        if mode == "quiet-open" {
+            return pulse(marker); // filesystem evidence only; no protocol keepalive
+        }
+        // A real acknowledged turn can run a tool without another app-server
+        // event during the shorter RPC response interval.
+        std::thread::sleep(Duration::from_millis(2200));
+    }
     if mode == "approval" {
         send(
             json!({"id":"approval","method":"item/commandExecution/requestApproval","params":{"threadId":"owned-thread","turnId":"owned-turn","itemId":"command","command":"fixture","cwd":std::env::current_dir()?.to_string_lossy()}}),

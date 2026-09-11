@@ -6773,3 +6773,32 @@ passes5/5 (four actual behavioral selectors plus the exact11-path boundary);
 zero-match Cargo targets are excluded. Tests used only isolated local stores.
 The initial four focused tests are retained separately from the final27-test
 qualification; neither is a Matrix send or client-interoperability claim.
+
+
+## 2026-09-11 — ADR113 acknowledged quiet-turn budget
+
+Original hosted492bc59 evidence is preserved: Linux667 independent passes plus1
+nested, macOS666+1, Windows665+3 and one failing native_file_service_executable;
+browser9/9 and Node4299pass/1skip. Windows's original suite finished before the
+25-minute job limit canceled subsequent diagnostic compilation. Its first
+retained cause is update/transport/timeout, zero pending RPC/server requests and
+upload=true. No diagnostic was substituted for that original failed verdict.
+
+In the clean02ce813-based worktree, a real child acknowledged turn/start, then
+remained quiet for2200ms. Before the fix the actual test failed after1.83s with
+Unknown instead of Completed, although its original operation budget was10s.
+Host had mapped unsolicited event_wait_ms to the1500ms RPC response interval.
+It now uses the existing operation duration; original absolute lifetime, RPC and
+write deadlines, cancellation, authority checks and sandbox are unchanged.
+The finite CI job budget becomes40minutes to retain diagnostics and release
+time; no test or runtime deadline is increased.
+
+After the mapping correction, all25 owned tests, the actual unchanged file-service
+executable1/1 and low-level transport8/8 passed locally. The quiet deadline test
+additionally requires reaching the original5s operation rather than expiring at
+the RPC interval. Final owned target25/25 (including the stronger5s elapsed assertion),
+warnings-denied execution/runtime Clippy and formatter pass. Strict lifecycle
+passes4/4: three actual selectors and the exact9-path boundary, with empty
+Cargo targets excluded. Original Windows file-workflow acceptance still requires
+hosted requalification. All test runs used the explicit MAIN target from this
+clean edited source worktree; no other agent used that target.

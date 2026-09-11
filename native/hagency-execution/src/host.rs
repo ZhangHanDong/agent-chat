@@ -10,7 +10,8 @@ use std::sync::Arc;
 use std::{collections::BTreeMap, ffi::OsString, net::SocketAddr, path::PathBuf};
 
 /// One operation uses a 100 ms..30 s absolute monotonic execution deadline.
-/// Native response/write waits are 10 ms..2 s. Cancellation is checked every
+/// Native RPC response/write waits are 10 ms..2 s. Acknowledged turn silence
+/// uses the same original operation budget. Cancellation is checked every
 /// 20 ms; authority is scheduled every 100 ms and its receipt may take up to 2 s.
 /// Synchronous join has a conservative 60 s maximum combined wait allowance
 /// (30 s execution plus platform startup/stop/drop and final domain receipts).
@@ -244,7 +245,10 @@ impl Host {
             settings,
             io_limits: transport::Limits {
                 write_timeout_ms: limits.response_ms,
-                event_wait_ms: limits.response_ms,
+                // Tool execution need not produce unsolicited events within
+                // an RPC response interval. Fixed lifetime and the original
+                // operation deadline still bound every quiet turn.
+                event_wait_ms: limits.operation_ms,
                 lifetime_ms: limits.operation_ms,
             },
             input,
