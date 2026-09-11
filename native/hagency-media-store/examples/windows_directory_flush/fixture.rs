@@ -128,14 +128,11 @@ pub(super) fn child(restore: bool) -> Result<()> {
         .open_dir("stage")
         .map_err(|e| Failure::io("stage_open", e))?;
     let candidate = handles::candidate(&original)?;
+    let original_id = handles::identity(&candidate)?;
     if !restore {
         handles::mutate(&original, &candidate)?;
     }
-    match root_dir.rename("stage", &root_dir, "moved") {
-        Err(error) if error.raw_os_error() == Some(32) => {}
-        Err(error) => return Err(Failure::io("held_rename_other_error", error)),
-        Ok(()) => return Err(Failure::refused("held_rename_allowed")),
-    }
+    handles::held_rename(&root_dir)?;
     println!("{{\"phase\":\"held_rename\",\"sharing_violation\":32}}");
     let namespace = HostNamespace::new(NAMESPACE).map_err(|_| Failure::refused("namespace"))?;
     let operation = OperationId::new(OPERATION).map_err(|_| Failure::refused("operation"))?;
@@ -225,12 +222,8 @@ pub(super) fn child(restore: bool) -> Result<()> {
     }
     drop(store);
     drop(original);
-    root_dir
-        .rename("stage", &root_dir, "moved")
-        .map_err(|e| Failure::io("released_rename", e))?;
-    root_dir
-        .rename("moved", &root_dir, "stage")
-        .map_err(|e| Failure::io("restore_fixture_name", e))?;
+    handles::rename_released(&root_dir, false, original_id)?;
+    handles::rename_released(&root_dir, true, original_id)?;
     println!("{{\"phase\":\"released_rename\",\"ack\":true}}");
     Ok(())
 }

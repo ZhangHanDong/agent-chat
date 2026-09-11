@@ -19,7 +19,13 @@ use windows_sys::{
     },
 };
 
-fn identity(file: &File) -> Result<FILE_ID_INFO> {
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) struct DirectoryIdentity {
+    volume: u64,
+    id: [u8; 16],
+}
+
+pub(super) fn identity(file: &File) -> Result<DirectoryIdentity> {
     private::check_handle(file).map_err(|_| Failure::refused("private_acl"))?;
     if !file
         .metadata()
@@ -42,7 +48,10 @@ fn identity(file: &File) -> Result<FILE_ID_INFO> {
     {
         return Err(Failure::last("full_file_id"));
     }
-    Ok(info)
+    Ok(DirectoryIdentity {
+        volume: info.VolumeSerialNumber,
+        id: info.FileId.Identifier,
+    })
 }
 pub(super) fn candidate(dir: &Dir) -> Result<File> {
     let original = dir
@@ -68,9 +77,7 @@ pub(super) fn candidate(dir: &Dir) -> Result<File> {
         .map_err(|e| Failure::io("rw_dot_open", e))?
         .into_std();
     let after = identity(&candidate)?;
-    if before.VolumeSerialNumber != after.VolumeSerialNumber
-        || before.FileId.Identifier != after.FileId.Identifier
-    {
+    if before != after {
         return Err(Failure::refused("same_object"));
     }
     println!("{{\"phase\":\"same_object\",\"full_identity\":true,\"private_acl\":true}}");
@@ -277,9 +284,7 @@ pub(super) fn mutate(dir: &Dir, candidate: &File) -> Result<()> {
         .sync_all()
         .map_err(|e| Failure::io("directory_after", e))?;
     let after = identity(candidate)?;
-    if after.VolumeSerialNumber != original_id.VolumeSerialNumber
-        || after.FileId.Identifier != original_id.FileId.Identifier
-    {
+    if after != original_id {
         return Err(Failure::refused("post_write_identity"));
     }
     println!(
@@ -297,5 +302,103 @@ pub(super) fn mutate(dir: &Dir, candidate: &File) -> Result<()> {
     candidate
         .sync_all()
         .map_err(|e| Failure::io("directory_remove", e))?;
+    Ok(())
+}
+
+fn rename_source(root: &Dir, reverse: bool) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .maybe_dir(true)
+        .follow(FollowSymlinks::No)
+        .access_mode(windows_sys::Win32::Foundation::GENERIC_READ | DELETE)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+    root.open_with(if reverse { "moved" } else { "stage" }, &options)
+        .map(cap_std::fs::File::into_std)
+}
+
+pub(super) fn held_rename(root: &Dir) -> Result<()> {
+    // DELETE access is required for the actual rename. A sharing failure at
+    // this rooted open is the precise expected boundary while custody is held.
+    match rename_source(root, false) {
+        Err(error) if error.raw_os_error() == Some(32) => Ok(()),
+        Err(error) => Err(Failure::io("held_rename_open", error)),
+        Ok(_) => Err(Failure::refused("held_rename_open_allowed")),
+    }
+}
+
+pub(super) fn rename_released(
+    root: &Dir,
+    reverse: bool,
+    expected: DirectoryIdentity,
+) -> Result<()> {
+    let source =
+        rename_source(root, reverse).map_err(|e| Failure::io("released_rename_open", e))?;
+    if identity(&source)? != expected {
+        return Err(Failure::refused("rename_original_identity"));
+    }
+    // These are the only destination leaves; no runtime/path input exists.
+    let name: [u16; 5] = if reverse {
+        [115, 116, 97, 103, 101] // stage
+    } else {
+        [109, 111, 118, 101, 100] // moved
+    };
+    const BYTES: usize = 64;
+    const NAME: usize = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
+    const _: () = {
+        assert!(std::mem::align_of::<FILE_RENAME_INFO>() <= std::mem::align_of::<u64>());
+        assert!(std::mem::offset_of!(FILE_RENAME_INFO, Anonymous) == 0);
+        assert!(std::mem::offset_of!(FILE_RENAME_INFO, RootDirectory) == size_of::<usize>());
+        assert!(std::mem::offset_of!(FILE_RENAME_INFO, FileNameLength) == 2 * size_of::<usize>());
+        assert!(NAME == 2 * size_of::<usize>() + size_of::<u32>());
+        assert!(size_of::<FILE_RENAME_INFO>() + 12 <= BYTES);
+        assert!(NAME + 12 <= BYTES);
+    };
+    let mut storage = [0u64; BYTES / size_of::<u64>()];
+    let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+    // SAFETY: Fixed initialized u64 storage provides the pinned struct's exact
+    // alignment and more than its header + five UTF16 characters + terminator.
+    // Offsets/size are checked above. Root/source handles remain borrowed/live;
+    // the flexible name is copied within the allocation, not a one-item array.
+    unsafe {
+        (*info).Anonymous.ReplaceIfExists = false;
+        (*info).RootDirectory = root.as_raw_handle();
+        (*info).FileNameLength = 10;
+        ptr::copy_nonoverlapping(
+            name.as_ptr(),
+            storage.as_mut_ptr().cast::<u8>().add(NAME).cast::<u16>(),
+            name.len(),
+        );
+    }
+    // SAFETY: FileRenameInfo uses the exact prepared buffer and complete size.
+    // This synchronous call has original DELETE access, no replacement flags,
+    // and an actual retained RootDirectory, never an ambient destination path.
+    if unsafe {
+        SetFileInformationByHandle(
+            source.as_raw_handle(),
+            FileRenameInfo,
+            info.cast(),
+            BYTES as u32,
+        )
+    } == 0
+    {
+        return Err(Failure::last("released_rename_set"));
+    }
+    if identity(&source)? != expected {
+        return Err(Failure::refused("rename_retained_identity"));
+    }
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .maybe_dir(true)
+        .follow(FollowSymlinks::No)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+    let destination = root
+        .open_with(if reverse { "stage" } else { "moved" }, &options)
+        .map_err(|e| Failure::io("rename_destination_open", e))?
+        .into_std();
+    if identity(&destination)? != expected {
+        return Err(Failure::refused("rename_destination_identity"));
+    }
     Ok(())
 }

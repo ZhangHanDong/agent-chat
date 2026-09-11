@@ -2422,3 +2422,11 @@ is distinct from upload acceptance and canonical task Done.
   rights, confirms delete-pending and fresh creation, and never applies that
   helper to journal/source custody. This is still a probe; production file and
   directory durability plus actual restart restoration need their own evidence.
+
+- ADR103's third original probe reached actual file+directory acknowledgements
+  but not media staging: cap-primitives' Windows rename also reconstructs paths,
+  and its error5 does not prove the retained object's replacement policy. The
+  probe uses only rooted DELETE-open sharing32 and, after release, exact-handle
+  no-replace rename with frozen full identity. A successful flush and a separate
+  failed namespace fixture remain distinct observations; full original media
+  stage/fresh-process recovery is still a required native gate.

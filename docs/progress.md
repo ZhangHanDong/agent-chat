@@ -5616,3 +5616,19 @@ pinned bool fields and is retained; the corrected native profile test1/1 plus
 native example and Windows GNU all-target warnings-denied Clippy pass. Task
 parse/lint and formatting pass. Actual Windows follow-up execution remains
 pending and cannot be inferred from local checks.
+
+ADR103 run34576665452/job103190571334 at8660f2a remains failed with artifact
+exit78. Actual ordinary-token/private/full-ID/local-NTFS gates, negative ACL
+handle cleanup/fresh-create and independent file+directory flush acknowledgements
+passed. The next held rename returned error5; Store staging and fresh-process
+restoration never ran. Original full log/artifact and hashes are retained.
+
+The approved probe-only rename correction removes cap-primitives' reconstructed
+path wrapper from this fixture. Rooted DELETE open must refuse32 while held;
+after release the exact same-object/private source must rename via retained
+RootDirectory and fixed leaf with replacement disabled, then prove the original
+and new entry identities still match. Exact pinned offsets/alignment and a fixed
+initialized64-byte flexible-struct buffer were reviewed with unsafe-checker.
+Native profile1/1, native example and Windows GNU all-target Clippy pass. The
+next original native result remains required; no production change or positive
+staging/restoration claim follows from local compilation or partial evidence.

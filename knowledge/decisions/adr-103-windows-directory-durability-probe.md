@@ -70,6 +70,18 @@ create_new. It never changes readonly attributes, enables privileges, deletes
 an original journal or substitutes another namespace path. Both preceding
 failed runs remain retained. [Handle disposition](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle).
 
+Run34576665452 at8660f2a then acknowledged both actual synthetic file and
+directory flushes, plus handle cleanup, but refused the path-reconstructing
+held rename with error5. It still reached no Store or restart restoration.
+The probe now opens the fixed source relative to the retained root with DELETE
+and requires sharing violation32 while original custody is held. After release,
+the same rooted open and private/full-ID check precede no-replace FileRenameInfo
+with the actual RootDirectory and fixed UTF16 leaf. It verifies unchanged full
+ID on both original handle and new entry. The initialized fixed64-byte buffer
+has compile-time pinned field-offset, alignment and capacity assertions. No
+path fallback, privilege adjustment or replacement flag is used, and actual
+next-run success remains required. [Relative rename](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info).
+
 ## Consequences
 
 A positive result qualifies the observed local NTFS OS-acknowledgement mechanism
