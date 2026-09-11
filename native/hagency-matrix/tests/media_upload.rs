@@ -3,10 +3,11 @@ use common::{Fake, TOKEN};
 use hagency_core::replies::{MatrixTransportObservation, RoomPrivacy};
 use hagency_matrix::{
     CancellationToken, Error, HostConfig, HostIdentity, HostRoom, MediaUploadError as Failure,
-    MediaUploadLimits, MediaUploader, UploadState,
+    MediaUploadLimits, MediaUploader, UploadResponse, UploadState,
 };
 use hagency_media::{Codec, Encrypted};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 fn config(endpoint: &str) -> HostConfig {
@@ -204,6 +205,7 @@ async fn native_matrix_upload_response_bounds() {
         assert!(result.is_err());
         assert_eq!(attempt.state(), UploadState::WritePossible);
         assert!(attempt.media_id().is_none());
+        assert!(attempt.observed_response().is_none());
         assert!(attempt.failure().is_some());
         assert_eq!(attempt.send(&cancel).await, Err(Failure::Terminal));
     }
@@ -215,6 +217,7 @@ async fn native_matrix_upload_response_bounds() {
     });
     assert_eq!(result, Err(Failure::Transport(Error::Transport)));
     assert_eq!(attempt.state(), UploadState::WritePossible);
+    assert!(attempt.observed_response().is_none());
     drop(attempt);
     // Exactly4096 bytes with valid whitespace is accepted, demonstrating the cap.
     let mut exact = valid;
@@ -225,6 +228,15 @@ async fn native_matrix_upload_response_bounds() {
     });
     result.unwrap();
     assert_eq!(attempt.state(), UploadState::Accepted);
+    assert_eq!(attempt.observed_response().unwrap().body(), exact);
+    assert_eq!(
+        attempt
+            .observed_response()
+            .unwrap()
+            .body_sha256()
+            .as_slice(),
+        Sha256::digest(&exact).as_slice()
+    );
     drop(attempt);
     fake.close().await;
 }
@@ -280,6 +292,7 @@ async fn native_matrix_upload_cancellation_custody() {
         }
         assert_eq!(attempt.state(), UploadState::WritePossible);
         assert!(attempt.media_id().is_none());
+        assert!(attempt.observed_response().is_none());
         assert_eq!(
             attempt.send(&CancellationToken::new()).await,
             Err(Failure::Terminal)
@@ -409,4 +422,57 @@ async fn native_matrix_upload_refusals() {
     plain.close().await;
     fake.close().await;
     alternate.close().await;
+}
+
+#[tokio::test]
+async fn native_matrix_upload_response_evidence() {
+    trait Sealed<A> {
+        fn check() {}
+    }
+    impl<T: ?Sized> Sealed<()> for T {}
+    impl<T: Clone> Sealed<u8> for T {}
+    impl<T: std::fmt::Debug> Sealed<u16> for T {}
+    impl<T: serde::Serialize> Sealed<u32> for T {}
+    impl<T: serde::de::DeserializeOwned> Sealed<u64> for T {}
+    let _ = <UploadResponse as Sealed<_>>::check;
+    let media = media(b"original encrypted input");
+    let mut fake = Fake::start(true).await;
+    let client = uploader(&fake, 1024, 1, 1);
+    let bodies: [&[u8]; 3] = [
+        br#"{"content_uri":"mxc://media.remote:8448/Abc_123-XYZ"}"#,
+        b" \n { \"content_uri\" : \"mxc://media.remote:8448/Abc_123-XYZ\" } \t ",
+        br#"{"content_uri":"mxc:\/\/media.remote:8448/\u0041bc_123-XYZ"}"#,
+    ];
+    let mut digests = std::collections::BTreeSet::new();
+    for raw in bodies {
+        let mut attempt = client.prepare(&media.encrypted).unwrap();
+        assert!(attempt.observed_response().is_none());
+        let cancel = CancellationToken::new();
+        let (result, ()) = tokio::join!(attempt.send(&cancel), async {
+            fake.next().await.raw(reply(raw));
+        });
+        result.unwrap();
+        let observed = attempt.observed_response().unwrap();
+        assert_eq!(observed.body(), raw);
+        let expected: [u8; 32] = Sha256::digest(raw).into();
+        assert_eq!(observed.body_sha256(), &expected);
+        assert!(digests.insert(*observed.body_sha256()));
+        assert_eq!(
+            observed.media_id().to_mxc(),
+            "mxc://media.remote:8448/Abc_123-XYZ"
+        );
+        assert_eq!(
+            attempt.media_id().unwrap().to_mxc(),
+            observed.media_id().to_mxc()
+        );
+        assert!(matches!(
+            client.prepare(&media.encrypted),
+            Err(Failure::Transport(Error::Busy))
+        ));
+        assert_eq!(attempt.send(&cancel).await, Err(Failure::Terminal));
+        // The original response remains held and unchanged after refused resend.
+        assert_eq!(attempt.observed_response().unwrap().body(), raw);
+        drop(attempt);
+    }
+    fake.close().await;
 }

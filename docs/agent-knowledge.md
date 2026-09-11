@@ -2127,3 +2127,12 @@ and bounded sync/cancellation now share the room fixtures' existing driver.
 The wrong-account regression proves early Identity reporting; the SDK-gap
 regression independently preserves the existing legal interval. No production or
 fixture timing limit changes, and no historical Windows failure is reclassified.
+
+ADR083 UploadResponse retains exact complete HTTP response BODY bytes, SHA256 and
+checked MXC under the original UploadAttempt permit. Do not hash reserialized
+JSON or call this a full wire-response digest. observed_response may hold valid
+historical evidence after final cancellation/deadline refusal while media_id is
+None and state is WritePossible; it never permits another POST or event send.
+Future SDK persistence must reserve bounded space before copying this sealed
+borrow and retain the copied response on uncertain persistence. No public raw
+constructor or response extraction transfers the attempt's lifetime permit.

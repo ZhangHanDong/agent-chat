@@ -7,6 +7,7 @@ mod collector;
 mod config;
 mod event_batch;
 mod http;
+pub use http::UploadResponse;
 mod intake;
 mod media_download;
 mod media_upload;

@@ -4744,3 +4744,28 @@ mandatory-lock read bug; ADR080 exposes early transport outcomes; ADR082 preserv
 shutdown failure while recording phases. Actual fresh Windows execution remains
 required. No live service, account, credential, model call, original checkout or
 production cutover was touched. No M0-M9 or whole migration completion is claimed.
+
+### ADR083 — exact encrypted-upload response custody (2026-09-10)
+
+In a clean8fce06e worktree, parsed/linted the eight-path contract before code.
+Http::upload now retains actual complete checked response body bytes, body SHA256
+and checked MediaId in a sealed host value owned by the existing finite attempt.
+The borrowed observed_response getter is historical evidence; the existing
+media_id getter remains successful-current-result only. Late cancellation or
+timeout preserves possible-write state and the original error. Invalid, partial
+or failed-EOF bodies never gain response evidence. No HTTP bounds, journal,
+domain/API/service state, descriptor custody or retry semantics changed.
+
+The first focused compilation exposed a test-only use of a nonexistent MediaId
+as_str method; corrected to the existing to_mxc projection and preserved the
+original compiler log. Exact TLS tests, strict lifecycle and native/Windows GNU
+Clippy evidence are recorded externally under upload-response-*. No live server
+or credentials are accessed. The separate private journal remains ADR084 work.
+
+Final ADR083 validation: all 6 actual uploader tests pass; strict scoped lifecycle
+passes all 5 scenarios plus the eight-path boundary (6/6, no skips or uncertainty).
+Native and Windows GNU Matrix all-target Clippy pass with warnings denied;
+rustfmt and diff checks pass. Windows cross-compilation is not hosted execution.
+The late synchronous final-check branch has no deterministic fixture hook and is
+explicitly supported by source-order review, not a race-dependent test or a claim
+of durable recovery. Parent review found no blocker in the bounded change.

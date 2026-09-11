@@ -4,6 +4,7 @@ use reqwest::{
     header::{self, HeaderMap, HeaderValue},
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{future::Future, io, net::ToSocketAddrs, sync::Arc};
 use tokio::{
     sync::Semaphore,
@@ -47,6 +48,28 @@ pub(crate) struct Http {
     base: Url,
     limits: Limits,
 }
+/// Exact complete body of a validated HTTP200 encrypted-upload response. Only
+/// the actual bounded transport constructs this value. It carries no room,
+/// dispatch, sender verification, persistence or current-execution authority.
+/// The original UploadAttempt owns its lifetime and finite result permit.
+pub struct UploadResponse {
+    body: Vec<u8>,
+    body_sha256: [u8; 32],
+    media_id: crate::MediaId,
+}
+impl UploadResponse {
+    pub fn body(&self) -> &[u8] {
+        &self.body
+    }
+    /// SHA256 of original BODY bytes, not headers, status or a JSON re-encoding.
+    pub fn body_sha256(&self) -> &[u8; 32] {
+        &self.body_sha256
+    }
+    pub fn media_id(&self) -> &crate::MediaId {
+        &self.media_id
+    }
+}
+
 pub(crate) struct Response {
     pub status: u16,
     pub value: Option<Value>,
@@ -96,7 +119,7 @@ impl Http {
         request: reqwest::Request,
         deadline: Instant,
         cancel: &CancellationToken,
-    ) -> Result<crate::MediaId, Error> {
+    ) -> Result<UploadResponse, Error> {
         const CAP: usize = 4096;
         let mut response = wait(
             cancel,
@@ -188,7 +211,13 @@ impl Http {
             .get("content_uri")
             .and_then(Value::as_str)
             .ok_or(Error::Wire)?;
-        crate::MediaId::new(mxc).map_err(|_| Error::Wire)
+        let media_id = crate::MediaId::new(mxc).map_err(|_| Error::Wire)?;
+        let body_sha256 = Sha256::digest(&bytes).into();
+        Ok(UploadResponse {
+            body: bytes,
+            body_sha256,
+            media_id,
+        })
     }
     /// Binary repository GET. JSON request/response behavior below is unchanged.
     /// The caller already holds a finite transfer permit and absolute deadline.

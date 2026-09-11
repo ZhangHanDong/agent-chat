@@ -1,6 +1,6 @@
 //! Encrypted upload transport, not authenticated event or room-send authority.
 //! An uncertain POST is not safely retryable: Matrix provides no transaction ID.
-use crate::{Error, HostConfig, MediaId, http::Http};
+use crate::{Error, HostConfig, MediaId, UploadResponse, http::Http};
 use hagency_media::Encrypted;
 use std::sync::Arc;
 use tokio::{
@@ -97,7 +97,7 @@ impl MediaUploader {
             media,
             _slot: slot,
             state: UploadState::Prepared,
-            accepted: None,
+            observed: None,
             failure: None,
         })
     }
@@ -110,7 +110,7 @@ pub struct UploadAttempt<'a> {
     media: &'a Encrypted,
     _slot: OwnedSemaphorePermit,
     state: UploadState,
-    accepted: Option<MediaId>,
+    observed: Option<UploadResponse>,
     failure: Option<Error>,
 }
 impl UploadAttempt<'_> {
@@ -122,7 +122,18 @@ impl UploadAttempt<'_> {
     }
     /// Stored under this attempt's finite slot; no separately unbounded receipt.
     pub fn media_id(&self) -> Option<&MediaId> {
-        self.accepted.as_ref()
+        if self.state == UploadState::Accepted {
+            self.observed.as_ref().map(UploadResponse::media_id)
+        } else {
+            None
+        }
+    }
+    /// Complete checked HTTP response under the original finite attempt slot.
+    /// This may remain after the final cancellation/deadline check refused
+    /// current success. It is historical evidence, never permission to resend,
+    /// publish a room event or treat a cancelled task as successful.
+    pub fn observed_response(&self) -> Option<&UploadResponse> {
+        self.observed.as_ref()
     }
     pub async fn send(&mut self, cancel: &CancellationToken) -> Result<(), MediaUploadError> {
         if self.state != UploadState::Prepared {
@@ -143,7 +154,10 @@ impl UploadAttempt<'_> {
         // Must precede first HTTP polling. Any future drop leaves the marker;
         // no Drop handler resets it or pretends the server received no bytes.
         match inner.http.upload(request, deadline, cancel).await {
-            Ok(id) => {
+            Ok(response) => {
+                // Preserve actual observed bytes before checking current success.
+                // No await separates ownership transfer from the final check.
+                self.observed = Some(response);
                 // Bounded synchronous JSON/MXC work is not hard-cancellable.
                 // Recheck at the actual acceptance boundary, including a
                 // scheduler delay after the final network readiness event.
@@ -158,7 +172,6 @@ impl UploadAttempt<'_> {
                     self.failure = Some(error);
                     return Err(error.into());
                 }
-                self.accepted = Some(id);
                 self.state = UploadState::Accepted;
                 Ok(())
             }
