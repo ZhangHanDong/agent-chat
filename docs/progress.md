@@ -5647,3 +5647,26 @@ targets passed all 14 tests with zero failed or ignored. The changes remain insi
 ADR101 boundary. Full ADR101 executable/restart acceptance and Windows positive
 durability are not claimed by this follow-up; the separate ADR102 integration
 retains those gates.
+
+### Observe actual child progress within its existing deadline — 2026-09-11
+
+The original fed7557 macOS run34573765787/job103181489856 failed only the
+runtime owned-child pulse-growth assertion at owned.rs291 (target5passed,
+1failed). The parent slept60ms after a live-owner observation, but no child
+or filesystem acknowledgement guaranteed a pulse in that scheduling window.
+The log does not prove scheduler or disk delay; both remain possible causes.
+The complete original log is preserved externally without changing its verdict.
+
+The isolated fixture repair keeps the existing3s absolute observation deadline,
+40ms owner wait, required actual pulse growth and stop/cleanup assertions. A new
+real gated child cannot write a fourth byte until explicit fixture release;
+after release actual growth and retained-owner cleanup are required. Gate and
+heartbeat share the existing8s child lifetime. No runtime supervision or CI
+behavior changed. The task parsed/linted before source edits; actual custody
+3/3 and complete owned target7/7 pass locally, with native and Windows GNU
+all-target warnings-denied Clippy passing. Windows cross-build is not execution.
+
+Final strict lifecycle passes3/3 (both actual scenarios and exact five-path
+boundary), with zero failed skipped uncertain or pending review. Root's source
+review found no blocker. This local validation is distinct from the original
+failed hosted run; integration and a new hosted run remain parent-owned.

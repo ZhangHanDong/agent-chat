@@ -21,6 +21,28 @@ fn pulse(marker: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+fn gated_pulse(marker: &Path) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(marker.with_extension("pulse"))?;
+    let until = Instant::now() + Duration::from_secs(8);
+    file.write_all(b"xxx")?;
+    file.flush()?;
+    while !marker.with_extension("release").is_file() {
+        if Instant::now() >= until {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // Gate and heartbeat share the original fixture lifetime, not two budgets.
+    while Instant::now() < until {
+        file.write_all(b"x")?;
+        file.flush()?;
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ok(())
+}
 fn read(reader: &mut impl BufRead, marker: &Path) -> io::Result<Value> {
     let mut bytes = Vec::new();
     loop {
@@ -80,6 +102,9 @@ fn fake(mode: &str, marker: &Path) -> io::Result<()> {
             }
         }
         fs::write(marker.with_extension("sockets"), sockets.to_string())?;
+    }
+    if mode == "gated-keepalive" {
+        return gated_pulse(marker);
     }
     if mode == "keepalive" || mode == "silent" {
         return pulse(marker);

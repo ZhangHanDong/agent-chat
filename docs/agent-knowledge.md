@@ -2444,3 +2444,10 @@ no error code; the domain retains cancel_requested and its cancellation history.
 A missing failure code or contradictory pending event still projects Unknown.
 This projection creates no SDK proof and cannot turn upload acceptance into a
 file event or canonical Done.
+
+- **Owned pulse fixtures:** a parent sleep does not acknowledge scheduling or a
+  filesystem write by another process. Preserve the required write and observe
+  it under the already-established absolute deadline. A fixed fixture gate can
+  prove negative-before-release and positive-after-release behavior using a real
+  owned child. The fed7557 historical60ms failure provides no scheduler trace;
+  local repair tests must not be substituted for its original failed verdict.

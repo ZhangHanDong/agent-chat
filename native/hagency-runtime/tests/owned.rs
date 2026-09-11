@@ -56,6 +56,23 @@ fn spawn(root: &Path, mode: &str, marker: &Path) -> OwnedSession {
     )
     .unwrap()
 }
+fn wait_pulse(marker: &Path, minimum: u64, deadline: Instant) -> u64 {
+    loop {
+        let observed = match fs::metadata(marker.with_extension("pulse")) {
+            Ok(metadata) => metadata.len(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+            Err(error) => panic!("pulse observation failed: {:?}", error.kind()),
+        };
+        assert!(
+            Instant::now() < deadline,
+            "pulse deadline: observed={observed}, required={minimum}"
+        );
+        if observed >= minimum {
+            return observed;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
 fn stopped(marker: &Path) {
     let path = marker.with_extension("pulse");
     std::thread::sleep(Duration::from_millis(80));
@@ -281,14 +298,42 @@ fn native_owned_runner_custody_stream_close_does_not_stop_child() {
             .unwrap();
     drop(pipes);
     let until = Instant::now() + Duration::from_secs(3);
-    while fs::metadata(marker.with_extension("pulse")).map_or(0, |m| m.len()) < 3 {
-        assert!(Instant::now() < until);
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    wait_pulse(&marker, 3, until);
     assert!(owner.wait(Duration::from_millis(40)).unwrap().is_none());
     let before = fs::metadata(marker.with_extension("pulse")).unwrap().len();
-    std::thread::sleep(Duration::from_millis(60));
-    assert!(fs::metadata(marker.with_extension("pulse")).unwrap().len() > before);
+    // Sleep is not a scheduling acknowledgement from the other process. Keep
+    // the original absolute deadline and require an actual further write.
+    assert!(wait_pulse(&marker, before + 1, until) > before);
+    let report = owner.stop(Duration::from_secs(3)).unwrap();
+    assert!(report.scope.leader_exited);
+    assert_eq!(
+        report.scope.whole_tree_stopped,
+        cfg!(any(target_os = "linux", windows))
+    );
+    stopped(&marker);
+}
+
+#[test]
+fn native_owned_runner_custody_gated_progress() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("gated");
+    let (mut owner, pipes) =
+        SupervisedProcess::spawn_piped(&binary(), &launch(root.path(), "gated-keepalive", &marker))
+            .unwrap();
+    drop(pipes);
+    let until = Instant::now() + Duration::from_secs(3);
+    let before = wait_pulse(&marker, 3, until);
+    assert_eq!(before, 3);
+    assert!(owner.wait(Duration::from_millis(40)).unwrap().is_none());
+    // The real child is alive but its next write is held behind an explicit
+    // gate. Elapsed time alone cannot establish heartbeat progress.
+    assert_eq!(
+        fs::metadata(marker.with_extension("pulse")).unwrap().len(),
+        before
+    );
+    assert!(!marker.with_extension("release").exists());
+    fs::write(marker.with_extension("release"), b"go").unwrap();
+    assert!(wait_pulse(&marker, before + 1, until) > before);
     let report = owner.stop(Duration::from_secs(3)).unwrap();
     assert!(report.scope.leader_exited);
     assert_eq!(
