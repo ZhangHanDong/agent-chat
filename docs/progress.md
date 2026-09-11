@@ -7046,3 +7046,11 @@ with original Agent constants preserved as defaults. Synthetic receipt capacity,
 injected shutdown-result failure and actual recipient decryption remain distinct
 claims. Persistent64-record capacity does not free on restart; service wiring,
 client qualification and ongoing identity/key management remain separate.
+- Integrated the two slices Codex committed at 14:25 but never landed:
+  approval wire interop (`a396bfe`, ADR-115) and private approval SDK delivery
+  (`7387264`). Docs conflicts were merged by keeping both sides. Local gates:
+  store approvals, the full matrix and hagency crates, the four new Vitest
+  checks, fmt and clippy pass. The wire-interop contract bound two Vitest
+  scenarios under a `rust` tag, which both spec-binding checkers would have
+  rejected; those scenarios now live in a sibling Node contract (`9e0354a`).
+  Rust bindings 628 and Node bindings 547 with none missing.

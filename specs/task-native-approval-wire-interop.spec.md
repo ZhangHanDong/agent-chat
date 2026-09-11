@@ -52,17 +52,9 @@ Scenario: The corpus comes from real current private writer cards
   When current private cards are created for fixed operation and scope cases
   Then exact emitted JSON is recorded without substituting a hand-authored producer
 
-Scenario: Both accepted peer profiles validate without rewriting bindings
-  Test: native approval wire profiles
-  Given actual native cards and retained JavaScript producer controls
-  When request and verdict schemas validate each finite scope choice
-  Then complete original IDs and bindings survive and typed RPC metadata stays request-only
-
-Scenario: Malformed and oversized profiles never become schema-valid
-  Test: native approval wire refusals
-  Given valid original packets
-  When IDs scopes ordering metadata bounds or closed detail fields change
-  Then invalid packets refuse and exact legacy limits remain unchanged
+The two JavaScript validator scenarios are bound by the Node runtime contract
+`specs/task-native-approval-wire-interop-node.spec.md`; this Rust contract binds
+only the Cargo corpus producer.
 
 ## Out of Scope
 
