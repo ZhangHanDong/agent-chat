@@ -16,6 +16,10 @@ pub const MAX_RESULTS: usize = 8;
 #[derive(Clone)]
 pub struct HostNamespace(pub(crate) [u8; 32]);
 impl HostNamespace {
+    /// Storage partition identity only, never a path or execution authority.
+    pub fn digest(&self) -> &[u8; 32] {
+        &self.0
+    }
     pub fn new(value: &str) -> Result<Self, Error> {
         if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
             return Err(Error::Identity);
@@ -26,6 +30,9 @@ impl HostNamespace {
 #[derive(Clone)]
 pub struct OperationId(pub(crate) String);
 impl OperationId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
     pub fn new(value: &str) -> Result<Self, Error> {
         if value.is_empty()
             || value.len() > 128
@@ -244,6 +251,34 @@ pub struct StagedMedia {
     pub(crate) descriptor: Option<Descriptor>,
     pub(crate) receipt: Receipt,
     pub(crate) _permit: Permit,
+}
+
+/// Original codec material plus its stable storage commitment before IO.
+/// The host must persist this identity independently before staging. No capture,
+/// execution, upload or journal-space reservation is granted by this object.
+pub struct PreparedEncrypted {
+    pub(crate) media: Media,
+    pub(crate) operation: OperationId,
+    pub(crate) namespace: HostNamespace,
+    pub(crate) digest: [u8; 32],
+    pub(crate) _permit: Permit,
+}
+impl PreparedEncrypted {
+    pub fn operation(&self) -> &OperationId {
+        &self.operation
+    }
+    pub fn namespace(&self) -> &HostNamespace {
+        &self.namespace
+    }
+    pub fn digest(&self) -> &[u8; 32] {
+        &self.digest
+    }
+    pub fn len(&self) -> usize {
+        self.media.bytes().len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.media.bytes().is_empty()
+    }
 }
 impl StagedMedia {
     pub fn bytes(&self) -> &[u8] {

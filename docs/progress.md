@@ -4568,3 +4568,35 @@ paths and ADR0775/5 across11, with zero failed/skipped/uncertain/pending review.
 The four new restoration selectors include the reviewed complete-frame unknown
 write boundary. Exact external file-receive-integrated-lifecycle and
 file-restoration-integrated-lifecycle records preserve these outcomes.
+
+## 2026-09-10 — Original encrypted commitment before staging IO (ADR079)
+
+A clean worktree from a96fd30 adds PreparedEncrypted custody before any journal
+mutation. It consumes actual codec Encrypted, computes the original stable frame
+digest and retains bounded operation/namespace identity plus the same finite
+per-Store result permit used by reads. The host can record this exact commitment
+in the domain before calling stage_prepared. No domain or network call is made
+by the storage primitive. An intervening append changes the journal chain without
+changing the prepared content identity. Replaced source bytes cannot alter the
+retained original ciphertext or descriptor.
+
+Prepared staging validates the original Store owner, not only namespace equality,
+and rechecks recovery/durability/capacity. Different or reopened owners refuse.
+A pre-write refusal returns the exact encrypted Media; a real refused OS write
+after admission retains material and OutcomeUnknown in the original Store.
+Prepared memory slots do not reserve journal records. Positive preparation and
+restoration remain unavailable when Windows directory sync is unconfirmed;
+those branches explicitly test refusal, not a successful platform round trip.
+
+All16 local media-store tests pass, including four new contract selectors for
+original identity, capacity, owner binding and failure custody. Native
+warnings-denied Clippy passed the initial implementation. Final reviewed
+reopen-evidence handling and strict lifecycle are recorded below when complete.
+Actual Windows execution remains an integration CI obligation.
+No upload retry, filesystem path export, runtime tool or service is enabled.
+
+Final strict lifecycle passes5/5 across9 explicit changed paths, with zero
+failed/skipped/uncertain/pending review. Final native warnings-denied Clippy,
+rustfmt and diff checks pass after the reviewed reopen-sync evidence handling.
+External media-preparation-* logs retain exact results. Windows GNU compile and
+actual platform runtime checks remain the root integration step.

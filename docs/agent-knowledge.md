@@ -2078,3 +2078,13 @@ directory sync admits the typed result. Windows unconfirmed sync permits
 ordinary inspection only. Both read forms retain the same per-Store result
 permit. No restoration or missing record establishes that a previous upload
 was unsent; durable domain upload intent and WritePossible recovery remain open.
+
+
+ADR079 PreparedEncrypted bridges the original-digest-before-IO gap: retain actual
+Encrypted and compute stable frame identity before the host writes its domain
+commitment, then stage in the original Store. Namespace equality cannot transfer
+a prepared admission to another owner; a private pool identity binds it. Slots
+cover plans and returned reads per Store but do not reserve journal space.
+Before IO failures return original Media; possible writes retain Store custody.
+Storage identity accessors provide no runtime or upload authority. A missing or
+newly discovered record never permits replacing keys or replaying a possible POST.
