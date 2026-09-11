@@ -15,6 +15,8 @@ use std::{
 
 #[path = "owned/usage.rs"]
 mod usage;
+#[path = "owned/workspace.rs"]
+mod workspace;
 
 fn now() -> u64 {
     SystemTime::now()
@@ -42,7 +44,7 @@ impl Fixture {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         let work = root.path().join("固定 工作目录");
-        fs::create_dir(&work).unwrap();
+        hagency_store::private::directory(&work).unwrap();
         let work = work.canonicalize().unwrap();
         let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
         db.register(&registration()).unwrap();

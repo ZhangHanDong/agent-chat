@@ -3,9 +3,11 @@
 mod host;
 mod operation;
 mod usage;
+mod workspace;
 pub use host::{Host, Limits};
 pub use operation::{Failure, Operation, Protocol, Report, Settlement};
 pub use usage::{UsageFailure, UsageStatus};
+pub use workspace::{StartedWorkspace, WorkspaceError};
 #[cfg(test)]
 #[path = "../tests/support/reply_loss.rs"]
 mod reply_loss;

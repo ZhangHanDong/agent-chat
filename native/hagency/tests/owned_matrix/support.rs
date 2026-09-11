@@ -53,7 +53,7 @@ impl Workflow {
         let f = common::Fixture::new();
         let mut fake = common::Fake::start(true).await;
         let work = f.root.path().join("固定 工作目录");
-        fs::create_dir(&work).unwrap();
+        hagency_store::private::directory(&work).unwrap();
         let work = work.canonicalize().unwrap();
         f.store.register_workspace("work".into()).await.unwrap();
         let config = HostConfig::new(

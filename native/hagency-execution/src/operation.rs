@@ -1,5 +1,6 @@
 use crate::usage::{UsageFailure, UsageRun, UsageStatus};
-use crate::{Host, Limits};
+use crate::workspace::{Binding, Handoff};
+use crate::{Host, Limits, StartedWorkspace};
 use hagency_core::tasks::{RunnerCapability, RunnerCommand, Task, TaskState};
 use hagency_runtime::{
     codex::session::{self, Outcome, Update},
@@ -9,7 +10,7 @@ use hagency_store::{DomainStore, OwnedFailure, OwnedObservation};
 use std::{
     future::Future,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
@@ -93,9 +94,12 @@ pub struct Report {
     owner: Option<OwnedSession>,
     reconciliation: Option<(DomainStore, RunnerCapability, OwnedFailure)>,
     usage: Option<UsageRun>,
+    // After owner in field order: actual cleanup drops before retained roots.
+    workspace: Option<Arc<Binding>>,
+    handoff: Handoff,
 }
 impl Report {
-    fn new() -> Self {
+    fn new(handoff: Handoff) -> Self {
         Self {
             protocol: Protocol::NotStarted,
             cleanup: Cleanup::Pending,
@@ -106,6 +110,8 @@ impl Report {
             owner: None,
             reconciliation: None,
             usage: None,
+            workspace: None,
+            handoff,
         }
     }
     pub fn usage_status(&self) -> UsageStatus {
@@ -159,6 +165,7 @@ pub struct Operation {
     cancel: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
     result: oneshot::Receiver<Report>,
+    workspace: Handoff,
 }
 impl Operation {
     pub fn start(
@@ -178,11 +185,13 @@ impl Operation {
         let cancel = Arc::new(AtomicBool::new(false));
         let signal = cancel.clone();
         let (reply, result) = oneshot::channel();
+        let workspace = Arc::new(Mutex::new(None));
+        let handoff = workspace.clone();
         let worker = std::thread::Builder::new()
             .name("hagency-owned-dispatch".into())
             .spawn(move || {
                 let until = Instant::now() + Duration::from_millis(limits.operation_ms);
-                let mut report = Report::new();
+                let mut report = Report::new(handoff);
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     runtime.block_on(execute(
                         &domain,
@@ -224,7 +233,13 @@ impl Operation {
             cancel,
             worker: Some(worker),
             result,
+            workspace,
         })
+    }
+    /// Nonblocking, one-shot handoff. None means not ready, already taken, or
+    /// unavailable. A late value remains sealed but refuses retired access.
+    pub fn take_workspace_binding(&mut self) -> Option<StartedWorkspace> {
+        self.workspace.try_lock().ok()?.take()
     }
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
@@ -329,7 +344,13 @@ async fn execute(
         .await?
         .map_err(|_| Failure::Admission)?;
     let expected = scope.fingerprint().to_owned();
-    let (launch, settings, io_limits, input) = host.prepare(&scope, cap, limits)?;
+    let crate::host::Prepared {
+        launch,
+        settings,
+        io_limits,
+        input,
+        root,
+    } = host.prepare(&scope, cap, limits)?;
     checkpoint(cancel, until)?;
     let start_reply = bounded(
         domain.start_owned_dispatch(cap.clone(), expected.clone()),
@@ -355,6 +376,14 @@ async fn execute(
             Failure::Admission
         }
     })?;
+    let workspace = Binding::start(root, domain.clone(), cap, &started, cancel.clone())?;
+    let _retire_workspace = workspace.retirement(); // all returns and unwinds
+    report.workspace = Some(workspace.clone()); // before any child can exist
+    *report.handoff.lock().map_err(|_| Failure::Worker)? = Some(workspace.handoff());
+    #[cfg(test)]
+    if host.panic_after_workspace {
+        panic!("offline post-Started workspace unwind");
+    }
     report.canonical_status = Some(started.task().status);
     checkpoint(cancel, until)?;
     let binding = bounded(
@@ -373,6 +402,7 @@ async fn execute(
     };
     report.usage = Some(binding.map_err(|_| Failure::UsageBinding)?);
     checkpoint(cancel, until)?;
+    workspace.check_root().map_err(|_| Failure::Admission)?;
     let mut runner = OwnedSession::spawn(
         &host.guardian,
         &launch,

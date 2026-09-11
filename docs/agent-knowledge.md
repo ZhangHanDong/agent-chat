@@ -2236,3 +2236,26 @@ removing local retention, without changing durable WritePossible. Only this job'
 actual sealed response or protected SDK accepted history may settle its exact
 upload. Owner reopen is not a second POST. Windows unconfirmed directory sync
 qualifies refusal only; do not count those branches as positive upload workflows.
+
+
+### ADR093 — exact runtime workspace source handoff
+
+`Operation::take_workspace_binding` exposes one `StartedWorkspace` only after the
+original acknowledged Started transition. Use `validate_current(&cap)` against
+its retained ORIGINAL writer immediately before copying and before publication;
+`snapshot(&cap, &relative, byte_limit)` checks static association/liveness and
+the original root, not fresh domain leases. Never substitute a second database
+or independently reopen a model-selected root. No Workspace clone/raw handle or
+serialized handoff is exposed.
+
+Host roots must already be private and have stable host-exclusive paths and
+ancestors. Defaults are four held snapshots and 4 MiB per source; configure a
+smaller profile using `Host::with_file_limit` before execution. A caller limit
+smaller than the retained profile refuses BEFORE opening a source. Report and
+held snapshots retain actual directory custody through cleanup. Cross-Host
+resource reuse and privileged mount topology remain host provisioning duties.
+
+Pinned Codex rust-v0.153.4 bwrap canonicalizes tool cwd and symlink writable roots;
+fd aliases or child-only fchdir do not qualify hostile namespace isolation. This
+is separate from the accepted trusted-host development profile. Actual file
+service/runtime enablement remains a later task.

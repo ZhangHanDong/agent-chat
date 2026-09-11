@@ -3,6 +3,9 @@ use std::{collections::BTreeMap, ffi::OsString, io, path::PathBuf, time::Duratio
 
 mod child_identity;
 pub use child_identity::{ChildIdentity, OwnedChildIdentity, SignalOutcome};
+#[allow(unsafe_code)]
+mod directory_identity;
+pub use directory_identity::same_directory;
 mod supervisor;
 #[cfg(unix)]
 pub use supervisor::run_guardian;

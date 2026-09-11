@@ -12,15 +12,32 @@ use std::{
 
 #[tokio::test]
 async fn native_owned_dispatch_lost_receipt_never_spawns() {
-    lost_reply(false).await;
+    lost_reply(Fault::Start).await;
 }
 #[tokio::test]
 async fn native_owned_usage_lost_binding_never_spawns() {
-    lost_reply(true).await;
+    lost_reply(Fault::Usage).await;
 }
-async fn lost_reply(usage: bool) {
+#[tokio::test]
+async fn native_workspace_binding_lost_start() {
+    lost_reply(Fault::Start).await;
+}
+#[tokio::test]
+async fn native_workspace_binding_retirement_unwind() {
+    lost_reply(Fault::WorkspacePanic).await;
+}
+enum Fault {
+    Start,
+    Usage,
+    WorkspacePanic,
+}
+async fn lost_reply(fault: Fault) {
+    let usage = matches!(fault, Fault::Usage);
+    let panic = matches!(fault, Fault::WorkspacePanic);
     let root = tempfile::tempdir().unwrap();
-    let work = root.path().canonicalize().unwrap();
+    let work = root.path().join("work");
+    hagency_store::private::directory(&work).unwrap();
+    let work = work.canonicalize().unwrap();
     let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
     db.register(&registration()).unwrap();
     let pool = resource("pool", "seat", 1000);
@@ -75,11 +92,12 @@ async fn lost_reply(usage: bool) {
         BTreeMap::from([("work".into(), work)]),
     )
     .unwrap();
-    host.discard_start_reply = !usage;
+    host.discard_start_reply = matches!(fault, Fault::Start);
     host.discard_usage_binding_reply = usage;
+    host.panic_after_workspace = panic;
     let mut operation = Operation::start(
         domain.clone(),
-        cap,
+        cap.clone(),
         host,
         Limits {
             operation_ms: 5000,
@@ -88,9 +106,24 @@ async fn lost_reply(usage: bool) {
     )
     .unwrap();
     let report = operation.wait().await.unwrap();
+    if panic {
+        let late = operation.take_workspace_binding().unwrap();
+        assert!(matches!(
+            late.snapshot(
+                &cap,
+                &hagency_files::RelativeFile::new("absent").unwrap(),
+                1024
+            ),
+            Err(crate::WorkspaceError::Retired)
+        ));
+    } else if !usage {
+        assert!(operation.take_workspace_binding().is_none());
+    }
     assert_eq!(
         report.failure,
-        Some(if usage {
+        Some(if panic {
+            Failure::Worker
+        } else if usage {
             Failure::UsageBinding
         } else {
             Failure::StartUnknown

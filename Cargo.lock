@@ -1109,7 +1109,9 @@ dependencies = [
 name = "hagency-execution"
 version = "0.1.0"
 dependencies = [
+ "cap-std",
  "hagency-core",
+ "hagency-files",
  "hagency-metering",
  "hagency-platform",
  "hagency-runtime",

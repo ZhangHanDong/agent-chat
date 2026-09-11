@@ -1,3 +1,4 @@
+use crate::workspace::{Root, Workspaces};
 use hagency_core::tasks::RunnerCapability;
 use hagency_platform::Launch;
 use hagency_runtime::codex::{
@@ -5,12 +6,8 @@ use hagency_runtime::codex::{
     transport,
 };
 use hagency_store::OwnedDispatchScope;
-use std::{
-    collections::BTreeMap,
-    ffi::OsString,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-};
+use std::sync::Arc;
+use std::{collections::BTreeMap, ffi::OsString, net::SocketAddr, path::PathBuf};
 
 /// One operation uses a 100 ms..30 s absolute monotonic execution deadline.
 /// Native response/write waits are 10 ms..2 s. Cancellation is checked every
@@ -32,19 +29,22 @@ impl Limits {
 }
 
 /// Host configuration only: no Deserialize and no runtime/HTTP constructor.
-/// The caller must exclusively provision fixed workspace directories and their
-/// ancestors for the entire operation. Equality/canonicalize is NOT race-proof
-/// directory custody, and this API must not enable a production runner catalog.
+/// Opens and retains already-private workspace roots. The caller must keep
+/// their fixed paths and ancestors stable for the entire operation. Retained
+/// source custody and comparison checks do not isolate hostile namespace
+/// mutation, and this API must not enable a production runner catalog.
 pub struct Host {
     pub(crate) guardian: PathBuf,
     executable: PathBuf,
     environment: BTreeMap<OsString, OsString>,
-    workspaces: BTreeMap<String, PathBuf>,
+    workspaces: Workspaces,
     task_helper: Option<(PathBuf, SocketAddr)>,
     #[cfg(test)]
     pub(crate) discard_start_reply: bool,
     #[cfg(test)]
     pub(crate) discard_usage_binding_reply: bool,
+    #[cfg(test)]
+    pub(crate) panic_after_workspace: bool,
 }
 impl Host {
     pub fn new(
@@ -60,24 +60,12 @@ impl Host {
         {
             return Err(super::Failure::Admission);
         }
-        for (id, path) in &workspaces {
-            hagency_core::project::identifier(id, 128).map_err(|_| super::Failure::Admission)?;
-            if !path.is_absolute()
-                || !path.is_dir()
-                || path.canonicalize().ok().as_ref() != Some(path)
-            {
-                return Err(super::Failure::Admission);
-            }
-        }
+        let workspaces = Workspaces::open(workspaces)?;
         // Reuse the launch validator for exact environment/argv byte limits.
         Launch {
             executable: executable.clone(),
             arguments: vec!["app-server".into()],
-            directory: workspaces
-                .values()
-                .next()
-                .ok_or(super::Failure::Admission)?
-                .clone(),
+            directory: workspaces.first_path()?.to_path_buf(),
             environment: environment.clone(),
             require_crash_containment: false,
         }
@@ -93,12 +81,15 @@ impl Host {
             discard_start_reply: false,
             #[cfg(test)]
             discard_usage_binding_reply: false,
+            #[cfg(test)]
+            panic_after_workspace: false,
         })
     }
     /// Host-selected native executable and literal loopback endpoint only. The
     /// task/capability are supplied later from the validated owned dispatch.
     /// The host must protect the executable, workspace and Codex config/home;
-    /// these path checks are not physical directory or executable custody.
+    /// executable path checks are not executable custody, and retained source
+    /// roots do not establish stable namespace provisioning.
     pub fn with_task_helper(
         mut self,
         executable: PathBuf,
@@ -123,6 +114,12 @@ impl Host {
         )
         .map_err(|_| super::Failure::Admission)?;
         self.task_helper = Some((executable, address));
+        Ok(self)
+    }
+    /// Select a smaller copy profile before starting an operation. Source
+    /// handles are duplicated from the same retained roots, never reopened.
+    pub fn with_file_limit(mut self, max_bytes: usize) -> Result<Self, super::Failure> {
+        self.workspaces = self.workspaces.limit(max_bytes)?;
         Ok(self)
     }
     fn system_root(&self) -> Result<Option<String>, super::Failure> {
@@ -151,17 +148,16 @@ impl Host {
         scope: &OwnedDispatchScope,
         capability: &RunnerCapability,
         limits: Limits,
-    ) -> Result<(Launch, Settings, transport::Limits, String), super::Failure> {
+    ) -> Result<Prepared, super::Failure> {
         let [workspace] = scope.input().resources.as_slice() else {
             return Err(super::Failure::Admission);
         };
         if !workspace.exclusive || !limits.validate() {
             return Err(super::Failure::Admission);
         }
-        let path = self
-            .workspaces
-            .get(&workspace.id)
-            .ok_or(super::Failure::Admission)?;
+        let root = self.workspaces.get(&workspace.id)?;
+        root.check().map_err(|_| super::Failure::Admission)?;
+        let path = root.path().to_path_buf();
         let resource = scope.resource();
         if resource.framework != "codex"
             || resource.provider.as_deref().is_some_and(|v| v != "openai")
@@ -170,9 +166,6 @@ impl Host {
         }
         let effort = resource.reasoning.as_deref().unwrap_or("medium");
         if !["none", "minimal", "low", "medium", "high", "xhigh"].contains(&effort) {
-            return Err(super::Failure::Admission);
-        }
-        if Path::new(path).canonicalize().ok().as_ref() != Some(path) {
             return Err(super::Failure::Admission);
         }
         let mut settings = Settings::new(path.clone(), resource.model.clone(), effort.into())
@@ -210,15 +203,24 @@ impl Host {
             require_crash_containment: false,
         };
         launch.validate().map_err(|_| super::Failure::Admission)?;
-        Ok((
+        Ok(Prepared {
             launch,
             settings,
-            transport::Limits {
+            io_limits: transport::Limits {
                 write_timeout_ms: limits.response_ms,
                 event_wait_ms: limits.response_ms,
                 lifetime_ms: limits.operation_ms,
             },
             input,
-        ))
+            root,
+        })
     }
+}
+
+pub(crate) struct Prepared {
+    pub(crate) launch: Launch,
+    pub(crate) settings: Settings,
+    pub(crate) io_limits: transport::Limits,
+    pub(crate) input: String,
+    pub(crate) root: Arc<Root>,
 }
