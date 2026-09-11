@@ -946,3 +946,80 @@ fn native_file_delivery_schema_migration() {
         Err(Error::Schema)
     ));
 }
+
+#[test]
+fn native_file_delivery_completion_guard() {
+    // A begun publication is neither delivered nor failed: its external write
+    // outcome is unknown, so ordinary dispatch completion refuses.
+    let mut f = Fixture::new(true, None);
+    let (a, claim, send) = f.publication("one");
+    assert!(matches!(
+        f.db.complete_dispatch(&f.cap, &json!({"result": "done"}), 1030),
+        Err(Error::State)
+    ));
+    assert_eq!(
+        f.db.inspect_file_delivery(&f.cap, a.identity.id())
+            .unwrap()
+            .event,
+        FileEventState::WritePossible
+    );
+    let observed = acceptance(&send);
+    let settlement =
+        f.db.restore_file_delivery_settlement(send.locator())
+            .unwrap()
+            .unwrap();
+    f.db.record_file_delivery_settlement(&settlement, &observed, 1031)
+        .unwrap();
+    drop(send);
+    drop(claim);
+    f.db.complete_dispatch(&f.cap, &json!({"result": "done"}), 1032)
+        .unwrap();
+    let state: String = f
+        .sql()
+        .query_row(
+            "SELECT state FROM runner_dispatches WHERE id='dispatch'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "completed");
+
+    // A cancelled publication is still a possible external write. Its recorded
+    // failure settles nothing; completion stays refused.
+    let mut f = Fixture::new(true, None);
+    let (a, claim, send) = f.publication("two");
+    drop(send);
+    drop(claim);
+    let cancelled =
+        f.db.cancel_file_delivery(&a.identity, FileDeliveryFailure::Cancelled, 1030)
+            .unwrap();
+    assert_eq!(cancelled.status, FileDeliveryStatus::OutcomeUnknown);
+    assert!(matches!(
+        f.db.complete_dispatch(&f.cap, &json!({"result": "done"}), 1031),
+        Err(Error::State)
+    ));
+
+    // An accepted upload whose event was never begun is settled by its failure.
+    let mut f = Fixture::new(true, None);
+    let (a, _upload, _old) = f.accepted("four");
+    assert!(matches!(
+        f.db.complete_dispatch(&f.cap, &json!({}), 1030),
+        Err(Error::State)
+    ));
+    let failed =
+        f.db.cancel_file_delivery(&a.identity, FileDeliveryFailure::Cancelled, 1031)
+            .unwrap();
+    assert_eq!(failed.status, FileDeliveryStatus::Failed);
+    f.db.complete_dispatch(&f.cap, &json!({}), 1032).unwrap();
+
+    // A reserved delivery that never reached publication is still unsettled.
+    let mut f = Fixture::new(true, None);
+    let a = f.reserve("three");
+    assert!(matches!(
+        f.db.complete_dispatch(&f.cap, &json!({}), 1030),
+        Err(Error::State)
+    ));
+    f.db.cancel_file_delivery(&a.identity, FileDeliveryFailure::SourceRefused, 1031)
+        .unwrap();
+    f.db.complete_dispatch(&f.cap, &json!({}), 1032).unwrap();
+}

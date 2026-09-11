@@ -3147,3 +3147,16 @@ private-owner/MCP service qualification and complete M6 remain separate gates.
   native managed-account/runtime binding. Tagged Serde unit variants can accept
   extra fields despite enum-level deny_unknown_fields; the closed preserve/clear
   unions use empty struct variants and negative tests instead.
+
+- **macOS file-service tests pass by accident, 2026-09-11:** `hagency-platform`
+  reports `whole_tree_stopped: false` on macOS, so every owned operation there
+  ends in `cleanup_unknown` and `outcome_unknown`. Any native test that expects
+  `outcome_unknown` for another reason (file uncertainty, refused settlement)
+  is unproven on macOS; qualify it on Linux (hosted Ubuntu or a local
+  `rust:1.95.0-bookworm` container with `CARGO_TARGET_DIR` on a volume, about
+  four minutes for the `hagency` file-service target). See ADR-117.
+- **File completion guard, 2026-09-11:** dispatch completion (runner, host and
+  explicit `complete_task_with_reply`) refuses with `Error::State` while a file
+  delivery is unsettled. The pipeline records a failure on a `write_possible`
+  row immediately, so a recorded failure alone does not settle a possible
+  write; only `delivered`, or a failure recorded before any write, settles it.

@@ -411,6 +411,7 @@ pub(super) fn complete_in_transaction(
     }
     let d = authorize(tx, cap, now, &["started"])?;
     super::graphs::complete_guard(tx, &d)?;
+    super::file_delivery::complete_guard(tx, &cap.dispatch_id)?;
     tx.execute(
         "INSERT INTO runner_outputs(dispatch_id,fence,output,accepted) VALUES(?1,?2,?3,1)",
         params![cap.dispatch_id, cap.fence, serialize(output)?],

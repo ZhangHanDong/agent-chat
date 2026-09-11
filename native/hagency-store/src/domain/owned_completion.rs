@@ -136,6 +136,7 @@ impl DomainRepository {
         // Graph result submission remains its own verified operation. Do not
         // pretend plain final prose supplies a missing graph result receipt.
         graphs::complete_guard(&tx, &execution::dispatch(&tx, &cap.dispatch_id)?)?;
+        super::file_delivery::complete_guard(&tx, &cap.dispatch_id)?;
         let id = format!(
             "completion_{}",
             &canonical::digest(&json!([cap.dispatch_id, cap.fence]))?[..32]
@@ -222,6 +223,7 @@ impl DomainRepository {
             return Err(Error::Quarantined);
         }
         graphs::complete_guard(&tx, &d)?;
+        super::file_delivery::complete_guard(&tx, &cap.dispatch_id)?;
         let (reply, _) =
             replies::insert_intent(&tx, current.task(), &cap.dispatch_id, &frozen, &body, now)?;
         tx.execute(

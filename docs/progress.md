@@ -6948,3 +6948,37 @@ The final all-feature workspace inventory completed with no missing bound select
 it compiles/lists only and is not additional execution evidence. Original output is
 configuration-selector-inventory.log. This isolated slice changes no dependency or
 schema and makes no live configuration, provider, login or production cutover change.
+
+
+## 2026-09-11 — Take over native CI from Codex: approval receipts and file completion guard
+
+- The Codex coordinator and its three sub-agents were stopped at the operator's
+  request; their uncommitted approval CI corrections (ADR-116, two task specs)
+  were adopted onto this branch from the owned-approval-ci-corrections worktree,
+  with one compile fix (`task_id: None` in the projection scope test) and rustfmt.
+  All 48 hagency-execution tests pass; the two macOS CI failures
+  (`native_owned_approval_usage_successful_control`,
+  `native_owned_approval_usage_unknown_slot`) passed five consecutive local runs
+  after their fixed sleeps became actual failed-receipt observations.
+- Root cause of the Ubuntu and Windows `native_file_service_uncertainty` and
+  `recovery::native_file_service_restart` failures: the domain writer completed
+  a dispatch whose file delivery was still `write_possible`. macOS only reached
+  `outcome_unknown` through its unqualified process-tree census
+  (`owned_failure: cleanup_unknown`); Linux observed `whole_tree_stopped`,
+  completed the peer's turn and settled `completed`. Both were reproduced
+  deterministically in a local arm64 Linux container (rust:1.95.0) and the
+  diagnostic status was captured on both platforms.
+- ADR-117 and `specs/task-rust-native-file-completion-guard.spec.md` add a
+  file-delivery completion guard in the domain writer for every completion
+  path. Not delivered and (no recorded failure, or a `write_possible` event or
+  upload, or an `outcome_unknown` upload) refuses with `State`; the owned
+  operation reports `SettlementUnknown` with a negative observation. New store
+  test `native_file_delivery_completion_guard` covers begun, cancelled-after-
+  begin, accepted-not-begun and reserved deliveries. The Linux container now
+  passes all six file-service executable tests.
+- Not addressed here: Windows-only failures at 1baa80d that depend on short
+  scheduling windows (`clock::native_approval_consumption_clock_after_lock`,
+  `native_file_delivery_worker_lost_and_queued` lock branch,
+  `native_matrix_upload_custody_capacity` deadline) and the Windows
+  `native_file_service_media_startup_observation` stuck at `enrolling`. Hosted
+  Windows runs remain the qualification; the local container is Linux only.

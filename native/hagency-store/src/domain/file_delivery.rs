@@ -579,6 +579,22 @@ pub(crate) fn settle(
     tx.execute("UPDATE file_deliveries SET event_state='delivered',acceptance=?2,claim_hash=NULL,claim_until=NULL,updated_at=?3 WHERE id=?1",params![row.identity.id,receipt,now])?;
     read(tx, &row.identity.id)?.receipt(false)
 }
+/// Completion guard for one dispatch. A delivery that is not delivered stays
+/// unsettled while it has no recorded failure, and permanently while its event
+/// or upload is a possible external write: the pipeline records a failure on
+/// such rows without knowing whether the homeserver kept the write. Ordinary
+/// runner completion can never promote either case to success.
+pub(super) fn complete_guard(db: &Connection, dispatch_id: &str) -> Result<(), Error> {
+    let unsettled: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM file_deliveries f JOIN file_uploads u ON u.id=f.upload_id WHERE f.dispatch_id=?1 AND f.event_state<>'delivered' AND (f.failure IS NULL OR f.event_state='write_possible' OR u.upload_state='write_possible' OR u.outcome_unknown=1))",
+        [dispatch_id],
+        |r| r.get(0),
+    )?;
+    if unsettled {
+        return Err(Error::State);
+    }
+    Ok(())
+}
 impl DomainRepository {
     pub fn reserve_file_delivery(
         &mut self,
