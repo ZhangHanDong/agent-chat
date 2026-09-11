@@ -548,6 +548,11 @@ async fn execute(
             Failure::Admission
         }
     })?;
+    let approval_workspace = if host.approvals.is_some() {
+        Some(root.approval_path()?)
+    } else {
+        None
+    };
     let workspace = Binding::start(root, domain.clone(), cap, &started, cancel.clone())?;
     let _retire_workspace = workspace.retirement(); // all returns and unwinds
     report.workspace = Some(workspace.clone()); // before any child can exist
@@ -594,7 +599,6 @@ async fn execute(
     }
     workspace.check_root().map_err(|_| Failure::Admission)?;
     checkpoint(cancel, until)?;
-    let approval_workspace = settings.cwd().to_owned();
     let approval_may_write = !settings.is_read_only();
     if let Some(live) = &mut report.live {
         live.possible();
@@ -683,7 +687,7 @@ async fn execute(
                     .ok_or(Failure::Admission)?
                     .id
                     .clone(),
-                workspace: approval_workspace,
+                workspace: approval_workspace.ok_or(Failure::Admission)?,
                 windows_paths: cfg!(windows),
                 environment_id: None,
                 may_write: approval_may_write,

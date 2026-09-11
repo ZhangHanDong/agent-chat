@@ -50,13 +50,25 @@ impl ApprovalRun {
         let (domain, cap, cancel, until) = (drive.domain, drive.cap, drive.cancel, drive.until);
         loop {
             let scope = self.scope.as_ref().ok_or(Failure::Admission)?;
-            let observed = drive
-                .pump(
-                    &mut self.callbacks,
-                    runner,
-                    domain.maintain_owned_approval(scope),
-                )
-                .await;
+            let maintenance = domain.maintain_owned_approval(scope);
+            #[cfg(test)]
+            let maintenance = {
+                let gate = if self.callbacks.fault == Some(super::Fault::MaintainGate) {
+                    self.callbacks.gate.take()
+                } else {
+                    None
+                };
+                async move {
+                    let result = maintenance.await;
+                    if result.is_ok()
+                        && let Some(gate) = gate
+                    {
+                        gate.wait().await;
+                    }
+                    result
+                }
+            };
+            let observed = drive.pump(&mut self.callbacks, runner, maintenance).await;
             let current = observed.output.map_err(|_| Failure::LostAuthority)?;
             *drive.status = Some(current.task.status);
             if observed.terminal? {

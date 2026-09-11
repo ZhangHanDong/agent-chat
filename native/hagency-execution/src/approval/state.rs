@@ -44,6 +44,8 @@ pub(super) struct Callbacks {
     pub fault: Option<super::Fault>,
     #[cfg(test)]
     pub gate: Option<std::sync::Arc<super::Gate>>,
+    #[cfg(test)]
+    pub receipt_observer: Option<std::sync::Arc<super::Gate>>,
 }
 pub(super) struct Sending {
     pub id: RequestId,
@@ -69,6 +71,8 @@ impl ApprovalRun {
                 fault: None,
                 #[cfg(test)]
                 gate: None,
+                #[cfg(test)]
+                receipt_observer: None,
             },
             scope: None,
             batch: AdmissionBatch::default(),
@@ -82,6 +86,7 @@ impl ApprovalRun {
         gate: Option<std::sync::Arc<super::Gate>>,
     ) {
         self.callbacks.fault = fault;
+        self.callbacks.receipt_observer = gate.clone();
         self.callbacks.gate = gate;
     }
     pub(crate) fn finish_notices(&mut self) {

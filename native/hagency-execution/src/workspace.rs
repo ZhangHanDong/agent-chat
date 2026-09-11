@@ -1,6 +1,7 @@
 //! Retained roots under the host-exclusive, stable-ancestor provisioning
 //! contract. The fixed runtime path is not safe against hostile same-UID
 //! namespace manipulation. Comparison detects changes; handles own objects.
+mod approval_path;
 mod received;
 pub use received::{WorkspaceReceive, WorkspaceReceiveError};
 

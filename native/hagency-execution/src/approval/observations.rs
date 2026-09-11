@@ -60,10 +60,18 @@ impl Drive<'_> {
             _ => (None, Ok(false)),
         };
         if self.usage.observe(&observation) {
-            self.usage
-                .record_pending()
-                .await
-                .map_err(|_| Failure::SettlementUnknown)?;
+            let receipt = self.usage.record_pending().await;
+            // Observe only the actual original writer result. This test seam
+            // cannot manufacture a failure, positive receipt or extra read.
+            #[cfg(test)]
+            if receipt.is_err()
+                && let Some(observer) = &callbacks.receipt_observer
+            {
+                observer
+                    .usage_failed
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+            receipt.map_err(|_| Failure::SettlementUnknown)?;
         }
         if let Some(key) = request {
             let input = callbacks

@@ -250,32 +250,3 @@ async fn native_owned_approval_usage() {
     assert_eq!(usage.failure, None);
     unconfirmed(&f);
 }
-
-#[tokio::test]
-async fn native_owned_approval_usage_unknown_slot() {
-    let f = Fixture::configured(true);
-    let (mut op, mut notices) = operation(&f, "owned-approval-usage", policy());
-    notice(&mut notices).await;
-    marker(&f, "approval-ready").await;
-    let connection = f.sql();
-    connection.execute_batch("BEGIN IMMEDIATE").unwrap();
-    std::fs::write(f.work.join("owned-dispatch.approval-release"), b"release").unwrap();
-    // Exceed the original SQLite busy allowance for both already-owned calls.
-    // No database success, native usage event, or failure is manufactured.
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    connection.execute_batch("COMMIT").unwrap();
-    let report = op.wait().await.unwrap();
-    assert!(report.failure.is_some());
-    let usage = report.usage_status();
-    assert_eq!(
-        usage.observed, 1,
-        "never read past the failed original usage slot"
-    );
-    assert_eq!(usage.acknowledged, 0);
-    assert!(usage.pending);
-    assert_eq!(
-        usage.failure,
-        Some(hagency_execution::UsageFailure::Storage)
-    );
-    assert!(responses(&f).is_empty());
-}

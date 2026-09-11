@@ -48,7 +48,7 @@ fn host(root: &std::path::Path, fault: Fault, mode: &str) -> Host {
     host.approval_fault = Some(fault);
     host
 }
-fn fixture(root: &std::path::Path) -> (DomainStore, RunnerCapability) {
+pub(crate) fn fixture(root: &std::path::Path) -> (DomainStore, RunnerCapability) {
     let mut db = DomainRepository::open(&root.join("state")).unwrap();
     db.register(&registration()).unwrap();
     let pool = resource("pool", "seat", 1000);
@@ -416,11 +416,11 @@ async fn native_owned_approval_usage_successful_control() {
     let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
     sql.execute_batch("BEGIN IMMEDIATE").unwrap();
     std::fs::write(work.join("owned-dispatch.approval-release"), b"release").unwrap();
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    failed_usage_receipt(&gate).await;
+    assert!(!gate.release.load(Ordering::Acquire));
     sql.execute_batch("COMMIT").unwrap();
     // The older begin has actually committed successfully, but its original
     // receipt remains pending. It cannot conceal the failed usage slot.
-    tokio::time::sleep(Duration::from_millis(30)).await;
     gate.release.store(true, Ordering::Release);
     let report = op.wait().await.unwrap();
     assert_eq!(
@@ -438,5 +438,78 @@ async fn native_owned_approval_usage_successful_control() {
             .get::<_, u64>(0))
             .unwrap(),
         1
+    );
+}
+
+async fn failed_usage_receipt(gate: &crate::approval::Gate) {
+    use std::sync::atomic::Ordering;
+    let until = tokio::time::Instant::now() + Duration::from_secs(2);
+    while !gate.usage_failed.load(Ordering::Acquire) {
+        assert!(
+            tokio::time::Instant::now() < until,
+            "actual original usage writer did not report its failed receipt"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+#[tokio::test]
+async fn native_owned_approval_usage_unknown_slot() {
+    use std::sync::{Arc, atomic::Ordering};
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    hagency_store::private::directory(&work).unwrap();
+    let work = work.canonicalize().unwrap();
+    let (domain, cap) = fixture(root.path());
+    let gate = Arc::new(crate::approval::Gate::default());
+    let mut configured = host(&work, Fault::MaintainGate, "owned-approval-usage");
+    configured.approval_gate = Some(gate.clone());
+    let mut op = Operation::start(
+        domain.clone(),
+        cap,
+        configured,
+        Limits {
+            operation_ms: 10000,
+            response_ms: 1500,
+        },
+    )
+    .unwrap();
+    let mut notices = op.take_approval_requests().unwrap();
+    tokio::time::timeout(Duration::from_secs(6), notices.recv())
+        .await
+        .unwrap()
+        .expect("actual pending owner request");
+    let until = tokio::time::Instant::now() + Duration::from_secs(2);
+    while !gate.entered.load(Ordering::Acquire) {
+        assert!(
+            tokio::time::Instant::now() < until,
+            "original maintenance receipt gate"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+    sql.execute_batch("BEGIN IMMEDIATE").unwrap();
+    std::fs::write(work.join("owned-dispatch.approval-release"), b"release").unwrap();
+    failed_usage_receipt(&gate).await;
+    assert!(!gate.release.load(Ordering::Acquire));
+    sql.execute_batch("COMMIT").unwrap();
+    gate.release.store(true, Ordering::Release);
+    let report = op.wait().await.unwrap();
+    assert_eq!(report.failure, Some(Failure::SettlementUnknown));
+    assert_eq!(report.approval_custody().0, 1);
+    let usage = report.usage_status();
+    assert_eq!(
+        usage.observed, 1,
+        "never read past the failed original usage slot"
+    );
+    assert_eq!(usage.acknowledged, 0);
+    assert!(usage.pending);
+    assert_eq!(usage.failure, Some(UsageFailure::Storage));
+    assert!(!work.join("owned-dispatch.approval-bytes").exists());
+    assert_eq!(
+        sql.query_row("SELECT COUNT(*) FROM approval_responses", [], |r| r
+            .get::<_, u64>(0))
+            .unwrap(),
+        0
     );
 }

@@ -39,6 +39,7 @@ pub(crate) enum Fault {
     WritePanic,
     BeginGate,
     RecheckGate,
+    MaintainGate,
 }
 
 #[cfg(test)]
@@ -46,6 +47,7 @@ pub(crate) enum Fault {
 pub(crate) struct Gate {
     pub entered: std::sync::atomic::AtomicBool,
     pub release: std::sync::atomic::AtomicBool,
+    pub usage_failed: std::sync::atomic::AtomicBool,
 }
 #[cfg(test)]
 impl Gate {
