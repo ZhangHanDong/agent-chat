@@ -5632,3 +5632,18 @@ initialized64-byte flexible-struct buffer were reviewed with unsafe-checker.
 Native profile1/1, native example and Windows GNU all-target Clippy pass. The
 next original native result remains required; no production change or positive
 staging/restoration claim follows from local compilation or partial evidence.
+
+ADR103 run34577475135/job103193125775 at8705e32 remains failed, exit78. It
+proved actual unchanged Store encrypted staging with a qualified receipt after
+required rooted DELETE-open32, then failed released Win32 rename with error87.
+Fresh-process recovery was never run; this is explicitly partial stage evidence.
+The complete original run and artifact remain separate from three earlier failures.
+
+The approved probe-only correction uses pinned NtSetInformationFile and distinct
+FILE_RENAME_INFORMATION10 with the same retained source/root and fixed no-replace
+leaf. It checks immediate and final IOSB status; unexpected pending exits before
+unwinding live buffers. Exact struct offsets/alignment/size, NtCreateFile handle
+origin and bounded token/handle lifetimes were re-audited. Native profile1/1,
+native example and Windows GNU all-target warnings-denied Clippy pass. No existing
+CI, dependency, production sync or service gate changes; the next actual original
+native run remains required for the full stage+fresh-process acceptance.

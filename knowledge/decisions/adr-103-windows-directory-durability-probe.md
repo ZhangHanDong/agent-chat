@@ -82,6 +82,18 @@ has compile-time pinned field-offset, alignment and capacity assertions. No
 path fallback, privilege adjustment or replacement flag is used, and actual
 next-run success remains required. [Relative rename](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info).
 
+Run34577475135 at8705e32 actually reached a qualified encrypted Store staging
+receipt after the held rooted DELETE-open32 check. Released Win32 rename then
+returned87, and fresh-process recovery did not run. MicrosoftDocs history shows
+FILE_RENAME_INFO required NULL RootDirectory before its April2026 documentation
+change; that update did not establish hosted-version support. The probe now uses
+the distinct documented NtSetInformationFile/FileRenameInformation10 contract
+and pinned FILE_RENAME_INFORMATION type, keeping its actual RootDirectory and
+fixed leaf. It requires immediate and final IOSB success; unexpected pending
+exits without unwinding buffers. This changes only the probe rename mechanism,
+not production or any positive-evidence requirement. [Documentation history](https://github.com/MicrosoftDocs/sdk-api/commit/d1debc569f40cda761474d216903f27c8aa7c7af),
+[native rename API](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile).
+
 ## Consequences
 
 A positive result qualifies the observed local NTFS OS-acknowledgement mechanism

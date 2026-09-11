@@ -2430,3 +2430,10 @@ is distinct from upload acceptance and canonical task Done.
   no-replace rename with frozen full identity. A successful flush and a separate
   failed namespace fixture remain distinct observations; full original media
   stage/fresh-process recovery is still a required native gate.
+
+- ADR103 now distinguishes Win32 FILE_RENAME_INFO from native NT
+  FILE_RENAME_INFORMATION. The official Win32 docs changed NULL-root guidance in
+  April2026, while the hosted call returned87 with a retained root. That does not
+  prove the exact rejected argument. The explicit NT relative-root contract is
+  the separately reviewed probe mechanism; actual immediate/final status plus
+  same-object checks and fresh-process restoration remain mandatory evidence.

@@ -6,7 +6,10 @@ use hagency_store::private;
 use std::{fs::File, io::Write, os::windows::io::AsRawHandle, ptr};
 use windows_sys::{
     Wdk::{
-        Storage::FileSystem::{FileFsDeviceInformation, NtQueryVolumeInformationFile},
+        Storage::FileSystem::{
+            FILE_RENAME_INFORMATION, FileFsDeviceInformation, FileRenameInformation,
+            NtQueryVolumeInformationFile, NtSetInformationFile,
+        },
         System::SystemServices::FILE_FS_DEVICE_INFORMATION,
     },
     Win32::{
@@ -344,18 +347,20 @@ pub(super) fn rename_released(
         [109, 111, 118, 101, 100] // moved
     };
     const BYTES: usize = 64;
-    const NAME: usize = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
+    const NAME: usize = std::mem::offset_of!(FILE_RENAME_INFORMATION, FileName);
     const _: () = {
-        assert!(std::mem::align_of::<FILE_RENAME_INFO>() <= std::mem::align_of::<u64>());
-        assert!(std::mem::offset_of!(FILE_RENAME_INFO, Anonymous) == 0);
-        assert!(std::mem::offset_of!(FILE_RENAME_INFO, RootDirectory) == size_of::<usize>());
-        assert!(std::mem::offset_of!(FILE_RENAME_INFO, FileNameLength) == 2 * size_of::<usize>());
+        assert!(std::mem::align_of::<FILE_RENAME_INFORMATION>() <= std::mem::align_of::<u64>());
+        assert!(std::mem::offset_of!(FILE_RENAME_INFORMATION, Anonymous) == 0);
+        assert!(std::mem::offset_of!(FILE_RENAME_INFORMATION, RootDirectory) == size_of::<usize>());
+        assert!(
+            std::mem::offset_of!(FILE_RENAME_INFORMATION, FileNameLength) == 2 * size_of::<usize>()
+        );
         assert!(NAME == 2 * size_of::<usize>() + size_of::<u32>());
-        assert!(size_of::<FILE_RENAME_INFO>() + 12 <= BYTES);
+        assert!(size_of::<FILE_RENAME_INFORMATION>() + 12 <= BYTES);
         assert!(NAME + 12 <= BYTES);
     };
     let mut storage = [0u64; BYTES / size_of::<u64>()];
-    let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+    let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
     // SAFETY: Fixed initialized u64 storage provides the pinned struct's exact
     // alignment and more than its header + five UTF16 characters + terminator.
     // Offsets/size are checked above. Root/source handles remain borrowed/live;
@@ -370,20 +375,45 @@ pub(super) fn rename_released(
             name.len(),
         );
     }
-    // SAFETY: FileRenameInfo uses the exact prepared buffer and complete size.
-    // This synchronous call has original DELETE access, no replacement flags,
-    // and an actual retained RootDirectory, never an ambient destination path.
-    if unsafe {
-        SetFileInformationByHandle(
+    let mut status = IO_STATUS_BLOCK::default();
+    status.Anonymous.Status = 0x103; // Must be replaced by actual final success.
+    // SAFETY: The synchronous rooted NtCreateFile handle owns the source. The
+    // exact NT class uses this initialized/aligned structure and complete size,
+    // with a live retained RootDirectory and no-replace fixed relative leaf.
+    // Both input and IOSB storage remain alive through completion. Unexpected
+    // pending terminates without unwinding stack storage still possibly in use.
+    let result = unsafe {
+        NtSetInformationFile(
             source.as_raw_handle(),
-            FileRenameInfo,
+            &mut status,
             info.cast(),
             BYTES as u32,
+            FileRenameInformation,
         )
-    } == 0
-    {
-        return Err(Failure::last("released_rename_set"));
+    };
+    if result == 0x103 {
+        eprintln!("{{\"phase\":\"rename_pending\",\"qualified\":false,\"code\":259}}");
+        std::process::exit(78);
     }
+    if result != 0 {
+        return Err(Failure {
+            phase: "released_rename_nt",
+            code: i64::from(result),
+        });
+    }
+    // SAFETY: A synchronous successful call has completed the initialized IOSB;
+    // Status is the documented result union member for this operation.
+    let completion = unsafe { status.Anonymous.Status };
+    if completion != 0 {
+        return Err(Failure {
+            phase: "rename_completion",
+            code: i64::from(completion),
+        });
+    }
+    println!(
+        "{{\"phase\":\"released_rename_nt\",\"ack\":true,\"information\":{}}}",
+        status.Information
+    );
     if identity(&source)? != expected {
         return Err(Failure::refused("rename_retained_identity"));
     }
