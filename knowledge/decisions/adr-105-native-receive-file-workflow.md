@@ -44,6 +44,12 @@ No test is declared passing by this decision.
 
 ## Decision
 
+Root accepted the independent nine-path incoming executable acceptance partition
+on 2026-09-11, governed by `specs/task-rust-receive-executable.spec.md`. It must use
+actual fresh enrollment, independent encrypted input, native intake/selection and
+MCP workspace bytes. Acceptance of this work is not a passing test verdict or
+authorization for production activation.
+
 Root additionally accepted the application receive-service ownership partition on
 2026-09-11 under the operator's existing full migration authorization. Its active
 boundary is `specs/task-rust-receive-service.spec.md`: retained jobs, fixed worker,
