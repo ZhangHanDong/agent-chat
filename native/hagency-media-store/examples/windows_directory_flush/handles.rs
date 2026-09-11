@@ -164,7 +164,8 @@ fn new_file(dir: &Dir) -> Result<File> {
             windows_sys::Win32::Foundation::GENERIC_READ
                 | windows_sys::Win32::Foundation::GENERIC_WRITE
                 | WRITE_DAC
-                | WRITE_OWNER,
+                | WRITE_OWNER
+                | DELETE,
         );
     let file = dir
         .open_with("probe.bin", &options)
@@ -172,6 +173,63 @@ fn new_file(dir: &Dir) -> Result<File> {
         .into_std();
     private::seal_created_file_handle(&file).map_err(|_| Failure::refused("created_acl"))?;
     Ok(file)
+}
+fn delete_created(file: &File, phase: &'static str) -> Result<()> {
+    let mut before = FILE_STANDARD_INFO::default();
+    // SAFETY: The initialized standard-info buffer matches the information
+    // class and exact size; the same newly created File remains live.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileStandardInfo,
+            (&mut before as *mut FILE_STANDARD_INFO).cast(),
+            size_of::<FILE_STANDARD_INFO>() as u32,
+        )
+    } == 0
+    {
+        return Err(Failure::last("delete_file_info"));
+    }
+    if before.Directory
+        || before.NumberOfLinks != 1
+        || before.DeletePending
+        || before.EndOfFile < 0
+        || before.EndOfFile > 4096
+    {
+        return Err(Failure::refused("delete_created_object"));
+    }
+    let mut disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+    // SAFETY: DELETE was requested at this exact create_new, not by reopening
+    // a path. The initialized one-byte disposition is synchronous and refers
+    // only to this retained synthetic file. No readonly/privilege override.
+    if unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileDispositionInfo,
+            (&mut disposition as *mut FILE_DISPOSITION_INFO).cast(),
+            size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    } == 0
+    {
+        return Err(Failure::last(phase));
+    }
+    let mut after = FILE_STANDARD_INFO::default();
+    // SAFETY: The borrowed same File still owns the delete-pending object and
+    // the exact initialized output buffer remains valid for the complete call.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileStandardInfo,
+            (&mut after as *mut FILE_STANDARD_INFO).cast(),
+            size_of::<FILE_STANDARD_INFO>() as u32,
+        )
+    } == 0
+    {
+        return Err(Failure::last("delete_pending_query"));
+    }
+    if !after.DeletePending {
+        return Err(Failure::refused("delete_pending_missing"));
+    }
+    Ok(())
 }
 pub(super) fn mutate(dir: &Dir, candidate: &File) -> Result<()> {
     let original_id = identity(candidate)?;
@@ -206,10 +264,12 @@ pub(super) fn mutate(dir: &Dir, candidate: &File) -> Result<()> {
         {
             return Err(Failure::refused("negative_acl_refusal"));
         }
+        delete_created(&file, "negative_disposition")?;
     }
-    dir.remove_file("probe.bin")
-        .map_err(|e| Failure::io("negative_remove", e))?;
+    // This real create_new must succeed after the original deletion handle
+    // closes; a pending/unremoved old entry cannot be silently reused.
     let mut file = new_file(dir)?;
+    println!("{{\"phase\":\"negative_acl_cleanup\",\"fresh_create_new\":true}}");
     file.write_all(b"bounded directory flush fixture")
         .map_err(|e| Failure::io("file_write", e))?;
     file.sync_all().map_err(|e| Failure::io("file_sync", e))?;
@@ -225,9 +285,15 @@ pub(super) fn mutate(dir: &Dir, candidate: &File) -> Result<()> {
     println!(
         "{{\"phase\":\"file_and_directory\",\"file_ack\":true,\"directory_ack\":true,\"negative_acl_refused\":true}}"
     );
+    delete_created(&file, "probe_disposition")?;
     drop(file);
-    dir.remove_file("probe.bin")
-        .map_err(|e| Failure::io("probe_remove", e))?;
+    let mut read = OpenOptions::new();
+    read.read(true).follow(FollowSymlinks::No);
+    match dir.open_with("probe.bin", &read) {
+        Err(error) if error.raw_os_error() == Some(2) => {}
+        Err(error) => return Err(Failure::io("deleted_entry_check", error)),
+        Ok(_) => return Err(Failure::refused("deleted_entry_present")),
+    }
     candidate
         .sync_all()
         .map_err(|e| Failure::io("directory_remove", e))?;

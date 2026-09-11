@@ -18,6 +18,7 @@ changing production media durability or enabling file upload.
 - Require actual local NTFS device classification and independent successful file and directory flush acknowledgements.
 - Run real bounded snapshot encryption staging and exact process-restart restoration only after the candidate passes.
 - Retain the original nonzero unknown or refusal verdict and bounded static diagnostic artifact.
+- Delete only synthetic files through their original create_new handles with DELETE access actual delete-pending observation and fresh-create confirmation.
 - Limit each controller to one child at a time and two fixed child modes with finite wall waits and owned child cleanup.
 - Keep at most four probe-owned directory or file handles concurrently and one existing bounded Store Workspace snapshot and result.
 - Keep every synthetic input at most4096 bytes and the journal at most65536 bytes with one record and one held result.

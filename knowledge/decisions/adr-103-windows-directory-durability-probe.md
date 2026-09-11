@@ -59,6 +59,17 @@ traversal privilege; it does not classify remote or virtual storage. Every
 other bit still refuses. [Device characteristics](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/616b66d5-b335-4e1c-8f87-b4a55e8d3e4a).
 The original failure stays failed; its artifact contains original_exit=78.
 
+The next original run34575483160 atd2249e9 observed a real successful
+candidate directory-before flush, then failed negative_remove with error5.
+No stage/recovery ran. Pinned cap-primitives Windows remove_file reconstructs
+an ambient pathname before std deletion; the single error does not identify
+which substep refused. Probe cleanup therefore requests DELETE at the exact
+synthetic create_new and uses FileDispositionInfo on that retained handle,
+requires an actual delete-pending observation, closes it, and confirms fresh
+create_new. It never changes readonly attributes, enables privileges, deletes
+an original journal or substitutes another namespace path. Both preceding
+failed runs remain retained. [Handle disposition](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle).
+
 ## Consequences
 
 A positive result qualifies the observed local NTFS OS-acknowledgement mechanism

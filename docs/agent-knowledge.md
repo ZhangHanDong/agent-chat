@@ -2413,3 +2413,12 @@ is distinct from upload acceptance and canonical task Done.
   storage. The explicit follow-up accepts only that named optional bit and
   additionally proves TokenIsAppContainer=false; all other bits remain refused.
   Original failure occurred before candidate flush and remains failed.
+
+- ADR103's second original Windows run acknowledged a retained RW-directory
+  flush, then refused synthetic-file removal with error5. Pinned cap-primitives
+  Windows remove_file reconstructs a pathname through GetFinalPathNameByHandleW
+  before std deletion, so that single error does not locate the failing substep.
+  The probe now disposes only original synthetic create_new handles with DELETE
+  rights, confirms delete-pending and fresh creation, and never applies that
+  helper to journal/source custody. This is still a probe; production file and
+  directory durability plus actual restart restoration need their own evidence.

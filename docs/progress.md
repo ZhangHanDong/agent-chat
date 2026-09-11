@@ -5598,3 +5598,21 @@ pure profile test passes1/1, covering both exact allowed profiles, each of the
 other30 bits, missing mount status and wrong device classes. Native example
 and Windows GNU all-target Clippy pass. The next native run is separate evidence;
 no flush or restoration success is inferred from these checks.
+
+ADR103 run34575483160/job103186862757 atd2249e9 remains an original failure
+with artifact exit78. The ordinary same-user token, local NTFS/full retained
+identity and candidate directory-before flush acknowledged successfully; the
+negative synthetic-file cleanup then refused with error5. No staged media or
+fresh-process restoration was reached. Its complete original log/artifact are
+preserved separately from06e859d.
+
+The approved probe-only cleanup follow-up requests DELETE on the synthetic
+create_new handle, sets FileDispositionInfo on that same File, verifies actual
+delete-pending, closes it and requires a fresh create_new. No reconstructed
+pathname cleanup, privilege increase or production change is added. The unsafe
+audit checks exact pinned structs, initialized outputs, retained-handle lifetime
+and bounded regular single-link objects. An initial Windows compile exposed
+pinned bool fields and is retained; the corrected native profile test1/1 plus
+native example and Windows GNU all-target warnings-denied Clippy pass. Task
+parse/lint and formatting pass. Actual Windows follow-up execution remains
+pending and cannot be inferred from local checks.
