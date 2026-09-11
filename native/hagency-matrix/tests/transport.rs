@@ -23,7 +23,7 @@ async fn native_matrix_transport_identity_authenticated_https_and_sdk_restart() 
         f.store.clone(),
     )
     .unwrap();
-    let (result, _) = tokio::join!(c.collect(&cancel), success(&mut fake, "batch1"));
+    let (result, _) = scripted(c.collect(&cancel), success(&mut fake, "batch1")).await;
     assert_eq!(result.unwrap().rooms, 1);
     assert!(f.available().await);
     let binding = SessionBinding {
@@ -47,13 +47,14 @@ async fn native_matrix_transport_identity_authenticated_https_and_sdk_restart() 
         f.store.clone(),
     )
     .unwrap();
-    let (result, _) = tokio::join!(c.collect(&cancel), async {
+    let (result, _) = scripted(c.collect(&cancel), async {
         fake.next().await.json(200, who());
         let req = fake.next().await;
         assert!(req.target.ends_with("&since=batch1"));
         req.json(200, sync("batch1"));
         fake.next().await.json(200, state());
-    });
+    })
+    .await;
     result.unwrap();
     assert_eq!(
         std::fs::read(f.root.path().join("sdk/identity")).unwrap(),
@@ -243,7 +244,7 @@ async fn native_matrix_transport_bounds_sync_scopes_events_and_cancel() {
         let f = Fixture::new();
         let c = Collector::new(f.config(&fake.endpoint), f.store.clone()).unwrap();
         let cancel = CancellationToken::new();
-        let (result, _) = tokio::join!(c.collect(&cancel), async {
+        let (result, _) = scripted(c.collect(&cancel), async {
             let req = fake.next().await;
             if variant == "headers" {
                 let header = format!(
@@ -261,7 +262,7 @@ async fn native_matrix_transport_bounds_sync_scopes_events_and_cancel() {
    "depth"=>{let mut v=json!({});for _ in 0..66{v=json!({"a":v});}req.json(200,json!({"next_batch":"one","extension":v}));},
    _=>{cancel.cancel();req.json(200,sync("cancelled"));}
   }
-        });
+        }).await;
         assert!(result.is_err(), "{variant}");
         assert!(!f.available().await);
         c.close().await.unwrap();

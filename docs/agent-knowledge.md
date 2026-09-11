@@ -2107,3 +2107,15 @@ journal owner closes. Do not unlock or weaken production sharing to make tests
 pass. Original CI25c01ee failed these three new restoration fixtures; separate
 Matrix script timeouts and diagnostic-only Palpo shutdown require independent
 evidence and must not be reported fixed by this test-handle correction.
+
+### Matrix scripted collector failures — ADR080 (2026-09-10)
+
+A tokio::join! of Collector::collect and a script waiting for further HTTP requests
+can hide an already returned collector error behind Fake::next's later timeout.
+Use the existing common::scripted driver when the full HTTP script must complete
+before the collector settles; its biased script-first race preserves simultaneous
+completion while reporting any earlier actual collector result. Identity/restart
+and bounded sync/cancellation now share the room fixtures' existing driver.
+The wrong-account regression proves early Identity reporting; the SDK-gap
+regression independently preserves the existing legal interval. No production or
+fixture timing limit changes, and no historical Windows failure is reclassified.
