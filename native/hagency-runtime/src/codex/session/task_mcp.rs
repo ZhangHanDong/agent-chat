@@ -19,8 +19,12 @@ pub struct TaskMcp {
     executable: String,
     task_id: String,
     system_root: Option<String>,
+    file_tools: bool,
 }
 impl TaskMcp {
+    /// Presentation marker only; the native service independently checks scope.
+    pub const FILE_TOOLS_ENV: &'static str = "HAGENCY_FILE_TOOLS";
+
     pub fn new(
         executable: PathBuf,
         task_id: String,
@@ -52,15 +56,27 @@ impl TaskMcp {
             executable,
             task_id,
             system_root,
+            file_tools: false,
         })
     }
+    /// Fixed host profile opt-in. No source, route or send authority is created.
+    pub fn with_file_tools(mut self) -> Self {
+        self.file_tools = true;
+        self
+    }
     pub(super) fn config(&self, cwd: &str) -> Value {
+        let mut environment = TASK_MCP_ENV.to_vec();
+        let mut tools = TASK_MCP_TOOLS.to_vec();
+        if self.file_tools {
+            environment.push(Self::FILE_TOOLS_ENV);
+            tools.extend(["send_file", "get_file_delivery"]);
+        }
         let mut config = json!({
             "mcp_servers.hagency_task_writer": {
                 "command":self.executable,"args":["mcp"],"cwd":cwd,
-                "env_vars":TASK_MCP_ENV,"enabled":true,"required":true,
+                "env_vars":environment,"enabled":true,"required":true,
                 "startup_timeout_sec":5,"tool_timeout_sec":5,
-                "supports_parallel_tool_calls":false,"enabled_tools":TASK_MCP_TOOLS
+                "supports_parallel_tool_calls":false,"enabled_tools":tools
             },
             "shell_environment_policy.inherit":"none",
             "shell_environment_policy.ignore_default_excludes":false,
@@ -72,10 +88,14 @@ impl TaskMcp {
         config
     }
     pub(super) fn guidance(&self) -> String {
-        format!(
+        let mut guidance = format!(
             "The assigned canonical task ID is {}. Use the hagency_task_writer MCP tools for this exact task. Tool results determine canonical state; a final answer does not complete the task. After independently verifying work for a user reply, call complete_task_with_reply with the exact task ID, stable call_id, and full bounded final body. This explicitly marks Done, retires execution, and holds the body for the original room until owner cleanup. Stop all tools after that call. For task-only work without a user reply, transition_task done remains available.",
             self.task_id
-        )
+        );
+        if self.file_tools {
+            guidance.push_str(" Use send_file with a stable call_id and a relative workspace path for the original conversation. Inspect get_file_delivery using the returned delivery_id. A queued receipt is not delivered; outcome_unknown never authorizes another capture or send. Only identical call_id and selection may be replayed. File delivery does not mark the canonical task Done.");
+        }
+        guidance
     }
 }
 impl Settings {
@@ -117,6 +137,40 @@ mod tests {
         assert_eq!(
             settings.turn_request("thread", "input".into())["sandboxPolicy"]["networkAccess"],
             false
+        );
+        let file_settings = Settings::new(root.clone(), "offline".into(), "medium".into())
+            .unwrap()
+            .with_task_mcp(
+                TaskMcp::new(root.join("native-helper"), "task_assigned".into(), None)
+                    .unwrap()
+                    .with_file_tools(),
+            );
+        let file_params = file_settings.thread_request(None);
+        let mut expected_config = config.clone();
+        let mut environment = TASK_MCP_ENV.to_vec();
+        environment.push(TaskMcp::FILE_TOOLS_ENV);
+        let mut tools = TASK_MCP_TOOLS.to_vec();
+        tools.extend(["send_file", "get_file_delivery"]);
+        expected_config["mcp_servers.hagency_task_writer"]["env_vars"] = json!(environment);
+        expected_config["mcp_servers.hagency_task_writer"]["enabled_tools"] = json!(tools);
+        assert_eq!(file_params["config"], expected_config);
+        assert_eq!(file_params["approvalPolicy"], params["approvalPolicy"]);
+        assert_eq!(file_params["sandbox"], params["sandbox"]);
+        assert_eq!(
+            file_settings.turn_request("thread", "input".into())["sandboxPolicy"],
+            settings.turn_request("thread", "input".into())["sandboxPolicy"]
+        );
+        assert!(
+            file_params["developerInstructions"]
+                .as_str()
+                .unwrap()
+                .contains("File delivery does not mark the canonical task Done")
+        );
+        assert!(
+            !params["developerInstructions"]
+                .as_str()
+                .unwrap()
+                .contains("send_file")
         );
         assert!(TaskMcp::new("relative".into(), "task".into(), None).is_err());
         assert!(TaskMcp::new(root.join("helper"), "task\nignore".into(), None).is_err());

@@ -239,3 +239,224 @@ async fn native_mcp_sdk() {
     assert!(output.stderr.is_empty());
     f.close().await;
 }
+
+fn file_helper(address: SocketAddr, cap: &RunnerCapability) -> tokio::process::Child {
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_hagency"));
+    command
+        .arg("mcp")
+        .env_clear()
+        .env("HAGENCY_RUNNER_API_ADDR", address.to_string())
+        .env(
+            "HAGENCY_RUNNER_CAPABILITY",
+            serde_json::to_string(cap).unwrap(),
+        )
+        .env("HAGENCY_TASK_ID", "task")
+        .env("HAGENCY_FILE_TOOLS", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    if let Some(root) = std::env::var_os("SystemRoot") {
+        command.env("SystemRoot", root);
+    }
+    command.spawn().unwrap()
+}
+
+async fn file_call(
+    address: SocketAddr,
+    cap: &RunnerCapability,
+    name: &str,
+    args: Value,
+) -> rmcp::model::CallToolResult {
+    let mut child = file_helper(address, cap);
+    let transport = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        let client = ().serve(transport).await.unwrap();
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new(name.to_owned())
+                    .with_arguments(args.as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap();
+        client.cancel().await.unwrap();
+        result
+    })
+    .await
+    .unwrap();
+    let output = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    result
+}
+
+async fn file_exchange(
+    name: &str,
+    args: Value,
+    response: String,
+) -> (rmcp::model::CallToolResult, String) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0; 1024];
+        loop {
+            let n = stream.read(&mut buffer).await.unwrap();
+            assert_ne!(n, 0);
+            request.extend_from_slice(&buffer[..n]);
+            assert!(request.len() <= 32 * 1024);
+            if let Some(end) = request.windows(4).position(|v| v == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("content-length:")
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                if request.len() >= end + 4 + length {
+                    break;
+                }
+            }
+        }
+        let _ = stream.write_all(response.as_bytes()).await;
+        drop(stream);
+        // A refused, malformed or unknown answer must not reconnect or retry.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), listener.accept())
+                .await
+                .is_err()
+        );
+        String::from_utf8(request).unwrap()
+    });
+    let result = file_call(address, &capability(), name, args).await;
+    (result, server.await.unwrap())
+}
+
+fn file_response(body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+#[tokio::test]
+async fn native_mcp_file_transport() {
+    // This peer proves closed transport and response handling only. It supplies
+    // no FileService, source authority, SDK acceptance or delivery evidence.
+    let delivery_id = format!("file_{}", "a".repeat(32));
+    let view = json!({"delivery_id":delivery_id,"filename":"report.txt","status":"queued","replayed":false});
+    for (name, args, line) in [
+        (
+            "send_file",
+            json!({"call_id":"stable_file","path":"report.txt","caption":"private_caption_canary"}),
+            "POST /api/native/v1/runner/file-deliveries HTTP/1.1".to_owned(),
+        ),
+        (
+            "get_file_delivery",
+            json!({"delivery_id":delivery_id}),
+            format!("GET /api/native/v1/runner/file-deliveries/{delivery_id} HTTP/1.1"),
+        ),
+    ] {
+        let (result, request) = file_exchange(name, args, file_response(&view.to_string())).await;
+        assert_eq!(result.is_error, Some(false));
+        let structured = result.structured_content.unwrap();
+        assert_eq!(structured["delivery_id"], delivery_id);
+        assert_eq!(structured["status"], "queued");
+        assert_eq!(structured["replayed"], false);
+        assert!(request.starts_with(&line));
+        assert!(request.contains("x-hagency-dispatch: dispatch"));
+        assert!(request.contains("x-hagency-runner: runner"));
+        assert!(request.contains("x-hagency-fence: 1"));
+        assert!(!structured.to_string().contains("private_caption_canary"));
+        if name == "send_file" {
+            let (_, body) = request.split_once("\r\n\r\n").unwrap();
+            let body: Value = serde_json::from_str(body).unwrap();
+            assert_eq!(body["call_id"], "stable_file");
+            assert_eq!(body["path"], "report.txt");
+            assert_eq!(body["caption"], "private_caption_canary");
+            assert!(body.get("capability").is_none());
+        } else {
+            assert!(request.ends_with("\r\n\r\n"));
+        }
+    }
+    let mut unsafe_bodies = vec![
+        format!("{{\"delivery_id\":\"{delivery_id}\",\"delivery_id\":\"other\",\"filename\":\"report.txt\",\"status\":\"queued\",\"replayed\":false}}"),
+        json!({"delivery_id":delivery_id,"filename":"../private_response_canary","status":"queued","replayed":false}).to_string(),
+        json!({"delivery_id":delivery_id,"filename":"report.txt","status":"delivered","replayed":false,"error_code":"outcome_unknown"}).to_string(),
+        json!({"delivery_id":delivery_id,"filename":"report.txt","status":"failed","replayed":false,"error_code":"private_response_canary"}).to_string(),
+        json!({"delivery_id":delivery_id,"filename":"report.txt","status":"failed","replayed":false,"error_code":null}).to_string(),
+        json!({"delivery_id":delivery_id,"filename":"report.txt","status":"outcome_unknown","replayed":false}).to_string(),
+        json!({"delivery_id":delivery_id,"filename":"report.txt","status":"upload_accepted","replayed":false}).to_string(),
+        format!("{}{}", view, " ".repeat(4097)),
+    ];
+    for field in [
+        "path",
+        "caption",
+        "room_id",
+        "thread_root",
+        "mxc",
+        "key",
+        "descriptor",
+        "sha256",
+    ] {
+        let mut unsafe_view = view.clone();
+        unsafe_view[field] = "private_response_canary".into();
+        unsafe_bodies.push(unsafe_view.to_string());
+    }
+    let mut responses: Vec<String> = unsafe_bodies
+        .iter()
+        .map(|body| file_response(body))
+        .collect();
+    responses.extend([
+        "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:1/private_response_canary\r\nContent-Length: 0\r\n\r\n".into(),
+        "HTTP/1.1 503 Unavailable\r\nContent-Length: 23\r\n\r\nprivate_response_canary".into(),
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 200\r\n\r\n{".into(),
+    ]);
+    for response in responses {
+        let (result, _) = file_exchange(
+            "send_file",
+            json!({"call_id":"stable_file","path":"report.txt"}),
+            response,
+        )
+        .await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(result.structured_content.is_none());
+        let result = serde_json::to_string(&result).unwrap();
+        assert!(!result.contains("private_response_canary"));
+        assert!(!result.contains(&capability().secret));
+    }
+    let mut other = view;
+    other["delivery_id"] = "file_other".into();
+    let (result, _) = file_exchange(
+        "get_file_delivery",
+        json!({"delivery_id":delivery_id}),
+        file_response(&other.to_string()),
+    )
+    .await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(result.structured_content.is_none());
+
+    // A forged presentation marker and a real current task credential do not
+    // create the absent service or original retained workspace admission.
+    let f = Fixture::new(false).await;
+    for (name, args) in [
+        ("send_file", json!({"call_id":"file","path":"report.txt"})),
+        ("get_file_delivery", json!({"delivery_id":delivery_id})),
+    ] {
+        let result = file_call(f.address, &f.cap, name, args).await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(result.structured_content.is_none());
+        assert!(
+            !serde_json::to_string(&result)
+                .unwrap()
+                .contains(&f.cap.secret)
+        );
+    }
+    f.close().await;
+}

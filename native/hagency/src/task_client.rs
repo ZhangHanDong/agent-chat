@@ -9,6 +9,7 @@ use std::{net::SocketAddr, time::Duration};
 
 pub(crate) mod completion;
 pub(crate) mod coordination;
+pub(crate) mod files;
 mod transport;
 pub const DEFAULT_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -31,6 +32,7 @@ pub struct Context {
     address: SocketAddr,
     capability: RunnerCapability,
     task_id: String,
+    file_tools: bool,
 }
 impl Context {
     pub fn new(
@@ -55,10 +57,14 @@ impl Context {
             address,
             capability,
             task_id,
+            file_tools: false,
         })
     }
     pub(crate) fn task_id(&self) -> &str {
         &self.task_id
+    }
+    pub(crate) fn file_tools(&self) -> bool {
+        self.file_tools
     }
     pub fn from_env() -> Result<Self, Error> {
         let get = |name, max| {
@@ -72,7 +78,14 @@ impl Context {
             .map_err(|_| Error::Invalid)?;
         let capability = serde_json::from_str(&get("HAGENCY_RUNNER_CAPABILITY", 4096)?)
             .map_err(|_| Error::Invalid)?;
-        Self::new(address, capability, get("HAGENCY_TASK_ID", 128)?)
+        let mut context = Self::new(address, capability, get("HAGENCY_TASK_ID", 128)?)?;
+        context.file_tools =
+            match std::env::var(hagency_runtime::codex::session::TaskMcp::FILE_TOOLS_ENV) {
+                Ok(value) if value == "1" => true,
+                Err(std::env::VarError::NotPresent) => false,
+                _ => return Err(Error::Invalid),
+            };
+        Ok(context)
     }
 }
 

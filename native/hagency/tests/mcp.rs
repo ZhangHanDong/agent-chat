@@ -61,6 +61,14 @@ async fn native_mcp_protocol() {
             6,
             json!({"name":"get_task","arguments":{"id":"task"},"task":{}}),
         ),
+        (
+            8,
+            json!({"name":"send_file","arguments":{"call_id":"file","path":"report.txt"}}),
+        ),
+        (
+            9,
+            json!({"name":"get_file_delivery","arguments":{"delivery_id":"file_original"}}),
+        ),
     ] {
         let response = request(
             &mut s,
@@ -178,4 +186,142 @@ async fn native_mcp_stdio() {
         .unwrap();
     assert_eq!(status.code(), Some(74));
     sender.await.unwrap();
+}
+
+#[tokio::test]
+async fn native_mcp_file_presentation() {
+    for flag in ["", "0", "true", " 1", "1\n", "private_flag_canary"] {
+        let output = command()
+            .env("HAGENCY_FILE_TOOLS", flag)
+            .output()
+            .await
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private_flag_canary"));
+    }
+    let mut child = command().env("HAGENCY_FILE_TOOLS", "1").spawn().unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut frames = vec![
+        init(json!(0)),
+        json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+        json!({"jsonrpc":"2.0","id":"catalog","method":"tools/list"}),
+    ];
+    let mut invalid = vec![
+        (
+            "send_file",
+            json!({"call_id":"file","path":"report.txt","room_id":"private_argument_canary"}),
+        ),
+        (
+            "send_file",
+            json!({"call_id":"file","path":"../private_argument_canary"}),
+        ),
+        (
+            "send_file",
+            json!({"call_id":"file","path":"report.txt","filename":"文".repeat(86)}),
+        ),
+        (
+            "send_file",
+            json!({"call_id":"file","path":"report.txt","caption":"文".repeat(334)}),
+        ),
+        (
+            "send_file",
+            json!({"call_id":"f".repeat(129),"path":"report.txt"}),
+        ),
+        (
+            "send_file",
+            json!({"call_id":"file","path":vec!["part";33].join("/")}),
+        ),
+        (
+            "send_file",
+            json!({"call_id":"file","path":"p".repeat(4097)}),
+        ),
+        (
+            "get_file_delivery",
+            json!({"delivery_id":"file_original","path":"private_argument_canary"}),
+        ),
+        (
+            "get_file_delivery",
+            json!({"delivery_id":"../private_argument_canary"}),
+        ),
+    ];
+    for field in [
+        "root",
+        "url",
+        "owner",
+        "key",
+        "descriptor",
+        "mime_type",
+        "capability",
+        "verified",
+        "sdk",
+        "thread_root",
+    ] {
+        let mut args = json!({"call_id":"file","path":"report.txt"});
+        args[field] = "private_argument_canary".into();
+        invalid.push(("send_file", args));
+    }
+    let invalid_count = invalid.len();
+    for (id, (name, args)) in invalid.into_iter().enumerate() {
+        frames.push(json!({"jsonrpc":"2.0","id":id+1,"method":"tools/call","params":{"name":name,"arguments":args}}));
+    }
+    let writer = tokio::spawn(async move {
+        for frame in frames {
+            let mut bytes = serde_json::to_vec(&frame).unwrap();
+            assert!(bytes.len() <= FRAME_LIMIT);
+            bytes.push(b'\n');
+            input.write_all(&bytes).await.unwrap();
+        }
+    });
+    let output = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
+    writer.await.unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let output = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.contains("private_argument_canary"));
+    let replies: Vec<Value> = output
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(replies.len(), 2 + invalid_count);
+    assert_eq!(replies[1]["id"], "catalog");
+    let tools = replies[1]["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 22);
+    let send = tools
+        .iter()
+        .find(|tool| tool["name"] == "send_file")
+        .unwrap();
+    assert_eq!(send["inputSchema"]["required"], json!(["call_id", "path"]));
+    assert_eq!(send["inputSchema"]["additionalProperties"], false);
+    assert_eq!(
+        send["inputSchema"]["properties"].as_object().unwrap().len(),
+        4
+    );
+    let inspect = tools
+        .iter()
+        .find(|tool| tool["name"] == "get_file_delivery")
+        .unwrap();
+    assert_eq!(inspect["inputSchema"]["required"], json!(["delivery_id"]));
+    assert_eq!(inspect["inputSchema"]["additionalProperties"], false);
+    assert_eq!(
+        inspect["inputSchema"]["properties"]
+            .as_object()
+            .unwrap()
+            .len(),
+        1
+    );
+    for (index, reply) in replies[2..].iter().enumerate() {
+        assert_eq!(reply["id"], index + 1);
+        assert_eq!(reply["result"]["isError"], true);
+        assert!(reply["result"].get("structuredContent").is_none());
+        assert!(
+            reply["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("invalid native command")
+        );
+    }
 }

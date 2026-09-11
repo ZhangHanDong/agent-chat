@@ -12,7 +12,7 @@ struct Entry {
     binding: StartedWorkspace,
 }
 #[derive(Clone)]
-pub(super) struct WorkspaceAccess {
+pub(crate) struct WorkspaceAccess {
     entry: Arc<Mutex<Option<Arc<Entry>>>>,
     retired: Arc<AtomicBool>,
 }
@@ -27,7 +27,7 @@ impl WorkspaceAccess {
             retired: Arc::new(AtomicBool::new(false)),
         }
     }
-    pub async fn register(
+    pub(super) async fn register(
         &self,
         capability: RunnerCapability,
         binding: StartedWorkspace,
@@ -58,6 +58,17 @@ impl WorkspaceAccess {
         }));
         Ok(())
     }
+    #[cfg(test)]
+    pub(crate) async fn register_for_service_test(
+        &self,
+        capability: RunnerCapability,
+        binding: StartedWorkspace,
+    ) -> Result<(), Failure> {
+        // Forward the actual one-shot post-Started handoff; no entry setter.
+        self.register(capability, binding)
+            .await
+            .map_err(|_| Failure::Registration)
+    }
     pub fn retire(&self) {
         self.retired.store(true, Ordering::Release);
     }
@@ -87,5 +98,63 @@ impl WorkspaceAccess {
             return Err(Failure::Registration);
         }
         Ok(())
+    }
+}
+
+/// This guard retains the exact original writer/capability/root; no raw root is exposed.
+pub(crate) struct WorkspaceGuard {
+    entry: Arc<Entry>,
+    retired: Arc<AtomicBool>,
+}
+impl WorkspaceAccess {
+    pub(crate) async fn acquire(
+        &self,
+        capability: &RunnerCapability,
+    ) -> Result<WorkspaceGuard, Failure> {
+        self.check(capability).await?;
+        let entry = self
+            .entry
+            .lock()
+            .map_err(|_| Failure::Registration)?
+            .clone()
+            .ok_or(Failure::Registration)?;
+        Ok(WorkspaceGuard {
+            entry,
+            retired: self.retired.clone(),
+        })
+    }
+}
+impl WorkspaceGuard {
+    pub(crate) async fn validate_current(&self) -> Result<(), Failure> {
+        if self.retired.load(Ordering::Acquire) {
+            return Err(Failure::Registration);
+        }
+        self.entry
+            .binding
+            .validate_current(&self.entry.capability)
+            .await
+            .map_err(|_| Failure::Registration)?;
+        if self.retired.load(Ordering::Acquire) {
+            return Err(Failure::Registration);
+        }
+        Ok(())
+    }
+    pub(crate) fn snapshot(
+        &self,
+        selection: &hagency_files::RelativeFile,
+        limit: usize,
+    ) -> Result<hagency_files::Snapshot, Failure> {
+        if self.retired.load(Ordering::Acquire) {
+            return Err(Failure::Registration);
+        }
+        let value = self
+            .entry
+            .binding
+            .snapshot(&self.entry.capability, selection, limit)
+            .map_err(|_| Failure::Registration)?;
+        if self.retired.load(Ordering::Acquire) {
+            return Err(Failure::Registration);
+        }
+        Ok(value)
     }
 }

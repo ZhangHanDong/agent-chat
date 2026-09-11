@@ -1,6 +1,7 @@
 use hagency_core::custody::{Delivery, MAX_DELIVERY_BYTES};
 use hagency_store::{DomainStore, Error, Store};
 pub mod bootstrap;
+pub(crate) mod file_service;
 pub mod mcp;
 mod resources;
 mod runner;
@@ -24,6 +25,7 @@ pub struct App {
     authority: String,
     requests: Arc<Semaphore>,
     development: Option<bootstrap::StatusHandle>,
+    files: Option<file_service::FileHandle>,
 }
 
 impl App {
@@ -45,6 +47,7 @@ impl App {
             authority: address.to_string(),
             requests: Arc::new(Semaphore::new(8)),
             development: None,
+            files: None,
         })
     }
 
@@ -55,6 +58,11 @@ impl App {
 
     pub(crate) fn with_development(mut self, status: bootstrap::StatusHandle) -> Self {
         self.development = Some(status);
+        self
+    }
+
+    pub(crate) fn with_files(mut self, files: file_service::FileHandle) -> Self {
+        self.files = Some(files);
         self
     }
 

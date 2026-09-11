@@ -14,6 +14,10 @@ hagency-platform = { path = "../hagency-platform" }
 hagency-execution = { path = "../hagency-execution" }
 hagency-matrix = { path = "../hagency-matrix" }
 hagency-runtime = { path = "../hagency-runtime" }
+hagency-files = { path = "../hagency-files" }
+hagency-media = { path = "../hagency-media" }
+hagency-media-store = { path = "../hagency-media-store" }
+cap-std = "=4.0.3"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -40,6 +44,10 @@ tokio-rustls = { version = "=0.26.4", default-features = false, features = ["rin
 [[bin]]
 name = "hagency-owned-mcp-probe"
 path = "tests/fixtures/owned_mcp_peer.rs"
+
+[[bin]]
+name = "hagency-file-mcp-probe"
+path = "tests/fixtures/file_mcp_peer.rs"
 
 [lints]
 workspace = true

@@ -5589,3 +5589,32 @@ or removed errors. The 13-path allowed list and all 13 earlier selectors are
 unchanged; one meaningful selector is added. These are scoped local observations,
 not a repair or cause finding for hosted Windows. No fixture or production
 deadline, concurrency, retry, result or authority changes.
+
+
+### ADR101 application checkpoint — real bounded service, positive encryption pending
+
+The isolated file-service implementation now shares the original DomainStore,
+Collector and sealed post-Started workspace with Bootstrap. Its fixed worker
+retains two jobs across caller loss, serializes source/codec/staging, exposes
+current-authorized send_file and exact historical safe status through the real
+HTTP/MCP adapters, and refuses unknown replay or incomplete media journals.
+Borrowed shutdown retains pending acknowledgements and completed errors; fresh
+media journals are created only after actual atomic directory creation.
+
+Actual validation: complete hagency library12 passed,0 failed/ignored;9 new
+service tests include an actual encrypted binary POST held while a second
+durable admission completes and a third refuses. Truncated response remains
+Unknown, the original owner/lock stay retained, and the exact child is reaped
+without calling process death a successful settlement. Native hagency all-target
+Clippy with warnings denied passed. Separate adapter validation produced16
+unique passes across focused Host/runtime and full HTTP/MCP/task-client targets.
+Original fixture generation and helper-name compile failures are preserved in
+external logs before their corrections. No full ADR101 strict lifecycle or
+Windows positive workflow result is claimed.
+
+The actual native file MCP peer now compiles and invokes send_file first, reads
+its bounded status and checks canonical task remains in_progress. It has not yet
+proved encrypted delivery. Fresh SDK identity/trust/session enrollment is the
+accepted ADR102 prerequisite in a separate worktree; actual executable group/DM
+recipient decryption and fresh-process first Delivered remain required. This is
+an implementation checkpoint, not M0–M9 closure or a production cutover.

@@ -2408,3 +2408,22 @@ is distinct from upload acceptance and canonical task Done.
   separately retained first errors remain bounded. Original crypto-variant
   Collector close needs its own fixed variant scope. The 5a8f7f7 Windows ready-ACK
   and Start timeouts identify observed boundaries, not a proven backend cause.
+
+
+### Native file service custody checkpoint
+
+FileService and Driver share one original Arc<Collector>, one writer and the
+sealed WorkspaceAccess. Configured file tools expose six fixed MCP tools and
+four permitted environment names; the presentation marker cannot enable a
+disabled backend. Historical file GET checks only the exact original row/cap
+and must not acquire source or send authority. Unknown source, SDK or network
+operations remain owned and cannot be reconstructed by replay or owner restart.
+
+Creating the media directory must be atomic: only successful DirBuilder.create
+authorizes Store::create; AlreadyExists validates and opens an existing journal.
+Close acknowledgement is successful only after the same actual worker joins.
+Timeout retains the original receiver; a consumed error cannot become success
+through another empty-owner close. Windows directory-sync refusal remains
+negative qualification. Fresh encrypted native executable acceptance depends on
+ADR102 actual anchored cross-signing enrollment and signed recipient sessions;
+library crypto fixtures and compile-only MCP peers do not prove that workflow.

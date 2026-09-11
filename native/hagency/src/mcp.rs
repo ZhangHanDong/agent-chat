@@ -1,8 +1,9 @@
 //! Dedicated native MCP task helper. Task authority stays in the loopback API.
 mod catalog;
 mod coordination_catalog;
+mod file_catalog;
 pub(crate) mod json;
-use crate::task_client::{self, Context, coordination};
+use crate::task_client::{self, Context, coordination, files};
 use hagency_core::{JSON_SAFE_MAX, project::identifier, tasks::TaskMutation};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -123,9 +124,11 @@ impl Session {
                 json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"hagency","version":env!("CARGO_PKG_VERSION")},"instructions":"Maintain the assigned task and coordinate only within current runner authority. Graph assignees are exact internal participant session IDs returned by conversations. Frames are limited to 32 KiB; page reads at most 32 items. Every mutation requires a stable call_id. A lost response is uncertain; inspect or retry the identical call_id and content."})
             }
             "ping" if empty(&request.params) => json!({}),
-            "tools/list" if self.phase == Phase::Ready && empty(&request.params) => catalog::list(),
+            "tools/list" if self.phase == Phase::Ready && empty(&request.params) => {
+                catalog::list(self.context.file_tools())
+            }
             "tools/call" if self.phase == Phase::Ready => {
-                if !valid_call(request.params.as_ref()) {
+                if !valid_call(request.params.as_ref(), self.context.file_tools()) {
                     return Ok(Some(
                         json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,"message":"Unknown tool or invalid tool request schema"}}),
                     ));
@@ -174,6 +177,21 @@ impl Session {
                     .await
                 {
                     Ok(structured) => {
+                        json!({"content":[{"type":"text","text":structured.to_string()}],"structuredContent":structured,"isError":false})
+                    }
+                    Err(error) => tool_error(&error.to_string()),
+                },
+            );
+        }
+        if files::NAMES.contains(&name) {
+            let command = match files::Command::parse(name, args) {
+                Ok(command) => command,
+                Err(error) => return Ok(tool_error(&error.to_string())),
+            };
+            return Ok(
+                match files::run(&self.context, &command, task_client::DEFAULT_DEADLINE).await {
+                    Ok(view) => {
+                        let structured = serde_json::to_value(view).map_err(|_| Error::Protocol)?;
                         json!({"content":[{"type":"text","text":structured.to_string()}],"structuredContent":structured,"isError":false})
                     }
                     Err(error) => tool_error(&error.to_string()),
@@ -277,26 +295,25 @@ fn tool_error(message: &str) -> Value {
     json!({"content":[{"type":"text","text":message}],"isError":true})
 }
 
-fn valid_call(params: Option<&Value>) -> bool {
+fn valid_call(params: Option<&Value>, file_tools: bool) -> bool {
     let Some(p) = params.and_then(Value::as_object) else {
         return false;
     };
-    (p.get("name")
-        .and_then(Value::as_str)
-        .is_some_and(|name| coordination::NAMES.contains(&name))
-        || matches!(
-            p.get("name").and_then(Value::as_str),
-            Some(
-                "get_task"
-                    | "accept_task"
-                    | "transition_task"
-                    | "comment_task"
-                    | "update_task_execution"
-                    | "complete_task_with_reply"
-            )
-        ))
-        && p.keys()
-            .all(|k| matches!(k.as_str(), "name" | "arguments" | "_meta"))
+    (p.get("name").and_then(Value::as_str).is_some_and(|name| {
+        coordination::NAMES.contains(&name) || (file_tools && files::NAMES.contains(&name))
+    }) || matches!(
+        p.get("name").and_then(Value::as_str),
+        Some(
+            "get_task"
+                | "accept_task"
+                | "transition_task"
+                | "comment_task"
+                | "update_task_execution"
+                | "complete_task_with_reply"
+        )
+    )) && p
+        .keys()
+        .all(|k| matches!(k.as_str(), "name" | "arguments" | "_meta"))
         && p.get("arguments").is_none_or(Value::is_object)
         && p.get("_meta").is_none_or(Value::is_object)
 }

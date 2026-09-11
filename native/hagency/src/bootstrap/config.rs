@@ -19,6 +19,8 @@ const EXECUTABLE_BYTES: u64 = 512 * 1024 * 1024;
 #[serde(deny_unknown_fields)]
 struct Config {
     profile: String,
+    #[serde(default)]
+    send_file: bool,
     executable: PathBuf,
     executable_sha256: String,
     #[serde(deserialize_with = "workspace_map")]
@@ -50,7 +52,8 @@ struct Room {
 }
 pub(super) struct Prepared {
     pub host: Host,
-    pub matrix: HostConfig,
+    pub matrix: Option<HostConfig>,
+    pub files: Option<crate::file_service::Setup>,
     pub claim: OwnedClaimProfile,
     pub limits: Limits,
     #[cfg(test)]
@@ -178,7 +181,7 @@ impl Prepared {
             config.workspaces.keys().cloned().collect(),
         )
         .map_err(|_| Failure::Config)?;
-        let host = Host::new(
+        let mut host = Host::new(
             own.clone(),
             config.executable,
             environment,
@@ -187,6 +190,25 @@ impl Prepared {
         .and_then(|h| h.with_file_limit(config.file_limit))
         .and_then(|h| h.with_task_helper(own, address))
         .map_err(|_| Failure::Config)?;
+        if config.send_file {
+            host = host.with_file_tools().map_err(|_| Failure::Config)?;
+        }
+        let namespace = hagency_core::canonical::digest(&serde_json::json!([
+            "native_file_storage_v1",
+            config.matrix.origin,
+            config.matrix.server_name,
+            config.matrix.registration_fingerprint,
+            transport.engagement_id,
+            transport.registration_generation,
+            transport.sender_mxid,
+            transport.device_id
+        ]))
+        .map_err(|_| Failure::Config)?;
+        let files = config.send_file.then(|| crate::file_service::Setup {
+            directory: state.join("file-media"),
+            namespace,
+            limit: config.file_limit,
+        });
         let token = read(&state.join("matrix.access_token"), 4096)?;
         let token = std::str::from_utf8(&token).map_err(|_| Failure::Config)?;
         let key: [u8; 32] = read(&state.join("matrix.sdk_key"), 32)?
@@ -224,7 +246,8 @@ impl Prepared {
         }
         Ok(Self {
             host,
-            matrix,
+            matrix: Some(matrix),
+            files,
             claim,
             limits,
             #[cfg(test)]

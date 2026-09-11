@@ -39,6 +39,7 @@ pub struct Host {
     environment: BTreeMap<OsString, OsString>,
     workspaces: Workspaces,
     task_helper: Option<(PathBuf, SocketAddr)>,
+    file_tools: bool,
     #[cfg(test)]
     pub(crate) discard_start_reply: bool,
     #[cfg(test)]
@@ -57,6 +58,10 @@ impl Host {
             || !executable.is_absolute()
             || workspaces.is_empty()
             || workspaces.len() > 16
+            || environment.keys().any(|key| {
+                key.to_string_lossy()
+                    .eq_ignore_ascii_case(TaskMcp::FILE_TOOLS_ENV)
+            })
         {
             return Err(super::Failure::Admission);
         }
@@ -77,6 +82,7 @@ impl Host {
             environment,
             workspaces,
             task_helper: None,
+            file_tools: false,
             #[cfg(test)]
             discard_start_reply: false,
             #[cfg(test)]
@@ -120,6 +126,15 @@ impl Host {
     /// handles are duplicated from the same retained roots, never reopened.
     pub fn with_file_limit(mut self, max_bytes: usize) -> Result<Self, super::Failure> {
         self.workspaces = self.workspaces.limit(max_bytes)?;
+        Ok(self)
+    }
+    /// Fixed development presentation opt-in, after configuring the required
+    /// helper. File admission still requires the service's original authority.
+    pub fn with_file_tools(mut self) -> Result<Self, super::Failure> {
+        if self.task_helper.is_none() {
+            return Err(super::Failure::Admission);
+        }
+        self.file_tools = true;
         Ok(self)
     }
     fn system_root(&self) -> Result<Option<String>, super::Failure> {
@@ -179,7 +194,7 @@ impl Host {
         }
         let mut environment = self.environment.clone();
         if let Some((executable, address)) = &self.task_helper {
-            let helper = TaskMcp::new(
+            let mut helper = TaskMcp::new(
                 executable.clone(),
                 scope.task().id.clone(),
                 self.system_root()?,
@@ -193,6 +208,10 @@ impl Host {
             environment.insert(TASK_MCP_ENV[0].into(), address.to_string().into());
             environment.insert(TASK_MCP_ENV[1].into(), encoded.into());
             environment.insert(TASK_MCP_ENV[2].into(), scope.task().id.clone().into());
+            if self.file_tools {
+                environment.insert(TaskMcp::FILE_TOOLS_ENV.into(), "1".into());
+                helper = helper.with_file_tools();
+            }
             settings = settings.with_task_mcp(helper);
         }
         let launch = Launch {
@@ -223,4 +242,51 @@ pub(crate) struct Prepared {
     pub(crate) io_limits: transport::Limits,
     pub(crate) input: String,
     pub(crate) root: Arc<Root>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_file_tools_host_profile() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        hagency_store::private::directory(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let executable = std::env::current_exe().unwrap();
+        let host = |environment| {
+            Host::new(
+                executable.clone(),
+                executable.clone(),
+                environment,
+                BTreeMap::from([("workspace".into(), root.clone())]),
+            )
+        };
+        let default = host(BTreeMap::new()).unwrap();
+        assert!(!default.file_tools);
+        assert!(matches!(
+            default.with_file_tools(),
+            Err(super::super::Failure::Admission)
+        ));
+        let configured = host(BTreeMap::new())
+            .unwrap()
+            .with_task_helper(executable.clone(), "127.0.0.1:13300".parse().unwrap())
+            .unwrap()
+            .with_file_tools()
+            .unwrap();
+        assert!(configured.file_tools);
+        for key in [
+            "HAGENCY_FILE_TOOLS",
+            "hagency_file_tools",
+            "Hagency_File_Tools",
+        ] {
+            // Reserved even without a helper/profile. An ambient inherited
+            // marker must never opt an otherwise default Host into file tools.
+            assert!(matches!(
+                host(BTreeMap::from([(key.into(), "1".into())])),
+                Err(super::super::Failure::Admission)
+            ));
+        }
+    }
 }

@@ -1051,11 +1051,15 @@ dependencies = [
 name = "hagency"
 version = "0.1.0"
 dependencies = [
+ "cap-std",
  "clap",
  "getrandom 0.3.4",
  "hagency-core",
  "hagency-execution",
+ "hagency-files",
  "hagency-matrix",
+ "hagency-media",
+ "hagency-media-store",
  "hagency-metering",
  "hagency-platform",
  "hagency-runtime",

@@ -1,5 +1,5 @@
 //! Closed operation dispatch shares the existing bounded local transport.
-use super::{Context, Error, coordination};
+use super::{Context, Error, coordination, files};
 use hagency_core::{project::identifier, tasks::TaskMutation};
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, body::Bytes, client::conn::http1};
@@ -15,6 +15,7 @@ pub(super) enum Operation<'a> {
         call_id: Option<&'a str>,
     },
     Coordination(&'a coordination::Command),
+    Files(&'a files::Command),
 }
 struct Prepared {
     path: String,
@@ -30,7 +31,25 @@ pub(super) async fn request(
     if deadline.is_zero() || deadline > Duration::from_secs(30) {
         return Err(Error::Invalid);
     }
+    let response_limit = if matches!(&operation, Operation::Files(_)) {
+        4096
+    } else {
+        RESPONSE_LIMIT
+    };
     let (request, limit) = match operation {
+        Operation::Files(command) => {
+            command.validate(context)?;
+            let (path, body, method) = command.wire()?;
+            (
+                Prepared {
+                    path,
+                    body,
+                    method,
+                    mutation: command.mutates(),
+                },
+                16 * 1024,
+            )
+        }
         Operation::Complete(input) => {
             input.validate().map_err(|_| Error::Invalid)?;
             if input.id != context.task_id {
@@ -95,7 +114,12 @@ pub(super) async fn request(
     }
     let mutation = request.mutation;
     let mut submitted = false;
-    match timeout(deadline, exchange(context, request, &mut submitted)).await {
+    match timeout(
+        deadline,
+        exchange(context, request, response_limit, &mut submitted),
+    )
+    .await
+    {
         Ok(v) => v,
         Err(_) => Err(if submitted && mutation {
             Error::Unknown
@@ -107,6 +131,7 @@ pub(super) async fn request(
 async fn exchange(
     context: &Context,
     request: Prepared,
+    response_limit: usize,
     submitted: &mut bool,
 ) -> Result<Vec<u8>, Error> {
     let Prepared {
@@ -179,7 +204,7 @@ async fn exchange(
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .ok_or(failure)?;
-            if length > RESPONSE_LIMIT {
+            if length > response_limit {
                 return Err(failure);
             }
         }
@@ -190,7 +215,7 @@ async fn exchange(
             if bytes
                 .len()
                 .checked_add(data.len())
-                .is_none_or(|len| len > RESPONSE_LIMIT)
+                .is_none_or(|len| len > response_limit)
             {
                 return Err(failure);
             }

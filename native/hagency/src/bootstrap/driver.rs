@@ -1,9 +1,9 @@
-use super::{Failure, StatusHandle, config::Prepared, workspace::WorkspaceAccess};
+use super::{Failure, Shared, StatusHandle, config::Prepared, workspace::WorkspaceAccess};
 use hagency_execution::{Operation, Report};
 use hagency_matrix::{CancellationToken, Collector};
 use hagency_store::DomainStore;
 use std::{
-    sync::mpsc::{self, Receiver, SyncSender, TrySendError},
+    sync::mpsc::{self, SyncSender, TrySendError},
     thread::JoinHandle,
     time::Duration,
 };
@@ -12,30 +12,18 @@ use tokio::sync::oneshot;
 enum Command {
     Close(oneshot::Sender<Result<(), Failure>>),
 }
-
-// Collector::close consumes its SDK owner before awaiting the close ACK. A
-// subsequent call may see an empty owner and succeed, which cannot establish
-// the outcome of the original consumed attempt. Keep that exact result.
-#[derive(Default)]
-struct CollectorClose {
-    result: Option<Result<(), Failure>>,
-}
-impl CollectorClose {
-    fn attempt(&mut self, close: impl FnOnce() -> Result<(), Failure>) -> Result<(), Failure> {
-        *self.result.get_or_insert_with(close)
-    }
-}
 pub(super) struct Driver {
     cancel: CancellationToken,
     control: SyncSender<Command>,
     thread: Option<JoinHandle<()>>,
     pending_close: Option<oneshot::Receiver<Result<(), Failure>>>,
-    close_reply_unknown: bool,
+    close_unknown: bool,
 }
 impl Driver {
     pub fn start(
         prepared: Prepared,
-        domain: DomainStore,
+        shared: Shared,
+        files: Option<crate::file_service::FileHandle>,
         status: StatusHandle,
     ) -> Result<Self, Failure> {
         let (control, commands) = mpsc::sync_channel(1);
@@ -48,15 +36,11 @@ impl Driver {
         let thread = std::thread::Builder::new()
             .name("hagency-development-driver".into())
             .spawn(move || {
-                let workspace = WorkspaceAccess::new();
-                let collector = match Collector::new(prepared.matrix, domain.clone()) {
-                    Ok(value) => value,
-                    Err(_) => {
-                        status.fail(Failure::Config);
-                        close_failed(commands);
-                        return;
-                    }
-                };
+                let Shared {
+                    domain,
+                    collector,
+                    workspace,
+                } = shared;
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let future = run(Attempt {
                         domain: &domain,
@@ -65,6 +49,7 @@ impl Driver {
                         limits: prepared.limits,
                         collector: &collector,
                         workspace: &workspace,
+                        files: files.as_ref(),
                         cancel: &signal,
                         status: &status,
                         #[cfg(test)]
@@ -85,7 +70,6 @@ impl Driver {
                         None
                     }
                 };
-                let mut collector_close = CollectorClose::default();
                 while let Ok(Command::Close(reply)) = commands.recv() {
                     signal.cancel();
                     workspace.retire();
@@ -93,11 +77,7 @@ impl Driver {
                     {
                         Err(Failure::OutcomeUnknown)
                     } else {
-                        collector_close.attempt(|| {
-                            runtime
-                                .block_on(collector.close())
-                                .map_err(|_| Failure::OutcomeUnknown)
-                        })
+                        Ok(()) // Shared Collector closes only after the file owner too.
                     };
                     if outcome.is_ok() {
                         drop(report.take());
@@ -118,7 +98,7 @@ impl Driver {
             control,
             thread: Some(thread),
             pending_close: None,
-            close_reply_unknown: false,
+            close_unknown: false,
         })
     }
     pub fn cancel(&self) {
@@ -127,11 +107,11 @@ impl Driver {
     /// Non-consuming close. Unknown keeps both the worker and pending receipt.
     pub async fn close(&mut self) -> Result<(), Failure> {
         self.cancel();
+        if self.close_unknown {
+            return Err(Failure::OutcomeUnknown);
+        }
         if self.thread.is_none() {
             return Ok(());
-        }
-        if self.close_reply_unknown {
-            return Err(Failure::OutcomeUnknown);
         }
         if self.pending_close.is_none() {
             let (send, receive) = oneshot::channel();
@@ -145,20 +125,24 @@ impl Driver {
         let result = match tokio::time::timeout(Duration::from_secs(2), pending).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => {
-                // The receiver is completed, unlike a timed-out pending wait.
-                // Polling it again can panic and cannot recover the lost ACK.
                 self.pending_close = None;
-                self.close_reply_unknown = true;
+                self.close_unknown = true;
                 return Err(Failure::OutcomeUnknown);
             }
             Err(_) => return Err(Failure::OutcomeUnknown),
         };
         self.pending_close = None;
+        if result.is_err() {
+            self.close_unknown = true;
+        }
         result?;
         if let Some(worker) = self.thread.take() {
             // ACK precedes return by only fixed local operations. Never joins
             // an executing model/SDK owner from an HTTP request handler.
-            worker.join().map_err(|_| Failure::Worker)?;
+            if worker.join().is_err() {
+                self.close_unknown = true;
+                return Err(Failure::OutcomeUnknown);
+            }
         }
         Ok(())
     }
@@ -166,11 +150,6 @@ impl Driver {
 impl Drop for Driver {
     fn drop(&mut self) {
         self.cancel();
-    }
-}
-fn close_failed(commands: Receiver<Command>) {
-    if let Ok(Command::Close(reply)) = commands.recv() {
-        let _ = reply.send(Ok(()));
     }
 }
 fn stopped(report: &mut Report) -> bool {
@@ -184,6 +163,7 @@ struct Attempt<'a> {
     limits: hagency_execution::Limits,
     collector: &'a Collector,
     workspace: &'a WorkspaceAccess,
+    files: Option<&'a crate::file_service::FileHandle>,
     cancel: &'a CancellationToken,
     status: &'a StatusHandle,
     #[cfg(test)]
@@ -197,19 +177,41 @@ async fn run(input: Attempt<'_>) -> Result<Option<Box<Report>>, Failure> {
         limits,
         collector,
         workspace,
+        files,
         cancel,
         status,
         #[cfg(test)]
         discard_claim_reply,
     } = input;
     status.phase("refreshing");
-    collector.collect(cancel).await.map_err(|e| {
+    let refresh = collector.collect(cancel).await;
+    // Fresh collect initializes the SDK. Failed refresh may only recover an old
+    // protected receipt; it can never turn historical success into readiness.
+    if files.is_some() {
+        let resumed = collector.resume_outgoing_custody(cancel).await;
+        if refresh.is_ok() {
+            let result = resumed.map_err(|_| Failure::OutcomeUnknown)?;
+            if result.state == hagency_matrix::OutgoingState::Uncertain {
+                return Err(Failure::OutcomeUnknown);
+            }
+        }
+    }
+    refresh.map_err(|e| {
         if matches!(e, hagency_matrix::Error::OutcomeUnknown) {
             Failure::OutcomeUnknown
         } else {
             Failure::Refresh
         }
     })?;
+    if let Some(files) = files {
+        files.initialize().await.map_err(|e| {
+            if e == crate::file_service::FileError::Unknown {
+                Failure::OutcomeUnknown
+            } else {
+                Failure::Startup
+            }
+        })?;
+    }
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -284,8 +286,7 @@ async fn run(input: Attempt<'_>) -> Result<Option<Box<Report>>, Failure> {
 }
 
 #[cfg(test)]
-#[path = "../../../hagency-matrix/tests/common/mod.rs"]
-mod test_common;
+use crate::file_service::test_common;
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,32 +294,6 @@ mod tests {
     use hagency_execution::{Host, Limits};
     use hagency_store::{OwnedClaimProfile, OwnedClaimRoom, private};
     use std::collections::{BTreeMap, BTreeSet};
-
-    #[test]
-    fn native_bootstrap_custody_consumed_close_ack() {
-        // Model the consuming API's documented boundary: first call takes its
-        // owner but loses the ACK; a later empty-owner close would return Ok.
-        // This is a protocol-state test, not evidence of a real SDK shutdown.
-        let mut original_owner = Some(());
-        let calls = std::cell::Cell::new(0);
-        let mut close = CollectorClose::default();
-        let mut upstream = || {
-            calls.set(calls.get() + 1);
-            if original_owner.take().is_some() {
-                Err(Failure::OutcomeUnknown)
-            } else {
-                Ok(())
-            }
-        };
-        assert_eq!(close.attempt(&mut upstream), Err(Failure::OutcomeUnknown));
-        assert_eq!(close.attempt(&mut upstream), Err(Failure::OutcomeUnknown));
-        assert_eq!(calls.get(), 1);
-        assert!(original_owner.is_none());
-
-        let mut known = CollectorClose::default();
-        assert_eq!(known.attempt(|| Ok(())), Ok(()));
-        assert_eq!(known.attempt(|| panic!("repeat consumed close")), Ok(()));
-    }
 
     #[tokio::test]
     async fn native_bootstrap_custody_closed_reply() {
@@ -331,13 +306,13 @@ mod tests {
             control,
             thread: Some(worker),
             pending_close: Some(pending),
-            close_reply_unknown: false,
+            close_unknown: false,
         };
         assert_eq!(driver.close().await, Err(Failure::OutcomeUnknown));
         assert_eq!(driver.close().await, Err(Failure::OutcomeUnknown));
-        assert!(driver.close_reply_unknown);
+        assert!(driver.close_unknown);
         assert!(driver.pending_close.is_none());
-        assert!(driver.thread.is_some()); // retained wrapper is not a live-worker proof
+        assert!(driver.thread.is_some()); // A retained wrapper does not prove worker liveness.
         driver.thread.take().unwrap().join().unwrap();
     }
 
@@ -413,12 +388,14 @@ mod tests {
                 BTreeMap::from([("work".into(), root.canonicalize().unwrap())]),
             )
             .unwrap(),
-            matrix: f
-                .config(endpoint)
-                .with_root_pem(include_bytes!(
-                    "../../../hagency-matrix/tests/fixtures/ca.pem"
-                ))
-                .unwrap(),
+            matrix: Some(
+                f.config(endpoint)
+                    .with_root_pem(include_bytes!(
+                        "../../../hagency-matrix/tests/fixtures/ca.pem"
+                    ))
+                    .unwrap(),
+            ),
+            files: None,
             claim: OwnedClaimProfile::new(
                 transport,
                 vec![
@@ -448,7 +425,8 @@ mod tests {
         let mut prepared = fixture(&f, &fake.endpoint).await;
         prepared.discard_claim_reply = true;
         let status = StatusHandle::new(true);
-        let mut driver = Driver::start(prepared, f.store.clone(), status.clone()).unwrap();
+        let shared = Shared::new(prepared.matrix.take().unwrap(), f.store.clone()).unwrap();
+        let mut driver = Driver::start(prepared, shared.clone(), None, status.clone()).unwrap();
         test_common::success(&mut fake, "claim_loss").await;
         let until = tokio::time::Instant::now() + Duration::from_secs(5);
         while status.get().state != "outcome_unknown" {
@@ -489,6 +467,7 @@ mod tests {
             1
         );
         drop(inspect);
+        shared.collector.close().await.unwrap();
         test_common::shutdown_domain(&f.store, "bootstrap lost claim").await;
     }
     #[tokio::test]

@@ -10,6 +10,7 @@ use hagency_core::{
 use hagency_store::{DomainStore, Error};
 use salvo::prelude::*;
 mod completion;
+mod files;
 mod replies;
 mod workflows;
 
@@ -21,9 +22,11 @@ struct Context {
 pub(super) fn router() -> Router {
     Router::with_path("api/native/v1/runner")
         .push(completion::router())
+        .push(files::historical())
         .push(
             Router::new()
                 .hoop(authenticate)
+                .push(files::current())
                 .push(Router::with_path("tasks").get(list_tasks))
                 .push(Router::with_path("delegations").post(delegate))
                 .push(Router::with_path("conversations").post(open_conversation))
