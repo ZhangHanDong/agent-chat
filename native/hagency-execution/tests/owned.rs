@@ -39,7 +39,7 @@ fn binary() -> PathBuf {
 }
 fn limits() -> Limits {
     Limits {
-        operation_ms: 10_000,
+        operation_ms: 25_000,
         response_ms: 1500,
     }
 }

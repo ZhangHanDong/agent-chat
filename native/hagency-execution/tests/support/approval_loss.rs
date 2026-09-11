@@ -43,7 +43,7 @@ fn host(root: &std::path::Path, fault: Fault, mode: &str) -> Host {
         BTreeMap::from([("work".into(), root.to_owned())]),
     )
     .unwrap()
-    .with_approvals(ApprovalHost::new(2, 1, 5000, 1500).unwrap())
+    .with_approvals(ApprovalHost::new(2, 1, 20_000, 1500).unwrap())
     .unwrap();
     host.approval_fault = Some(fault);
     host
@@ -160,7 +160,7 @@ async fn native_owned_approval_caller_loss() {
             cap.clone(),
             host(&work, fault, "owned-approval"),
             Limits {
-                operation_ms: 10000,
+                operation_ms: 25_000,
                 response_ms: 1500,
             },
         )
@@ -279,7 +279,7 @@ async fn native_owned_approval_barriers_pending_receipt() {
             cap.clone(),
             configured,
             Limits {
-                operation_ms: 10000,
+                operation_ms: 25_000,
                 response_ms: 1500,
             },
         )
@@ -397,7 +397,7 @@ async fn native_owned_approval_usage_successful_control() {
         cap,
         configured,
         Limits {
-            operation_ms: 10000,
+            operation_ms: 25_000,
             response_ms: 1500,
         },
     )
@@ -469,7 +469,7 @@ async fn native_owned_approval_usage_unknown_slot() {
         cap,
         configured,
         Limits {
-            operation_ms: 10000,
+            operation_ms: 25_000,
             response_ms: 1500,
         },
     )

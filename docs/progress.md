@@ -6989,3 +6989,13 @@ schema and makes no live configuration, provider, login or production cutover ch
   `native_matrix_upload_custody_capacity` child process gets 180 s to load the
   unoptimized test executable. Both pass on macOS; the file-service suite passes
   on Linux.
+- Hosted run for `58ec3c9`: Node CI passed; native macOS and Ubuntu passed for
+  the first time since the file-service tests were added; Windows dropped from
+  14 failures to two owned-approval fixtures whose five-second owner window and
+  ten-second operation budget expired on the hosted runner
+  (`approval_resume` returned RunnerAuthority at verdict time,
+  `barriers_pending_receipt` saw ApprovalCancelled). The shared test policies
+  now allow a 20 s owner wait and 25 s operation budget; the dedicated 300 ms
+  expiry test is unchanged. The console-browser job failed once on a Playwright
+  wait for the transient Busy logout state in the resource-configuration flow;
+  it passed at 1baa80d and is not caused by these changes.

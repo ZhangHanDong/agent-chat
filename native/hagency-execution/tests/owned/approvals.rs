@@ -204,7 +204,7 @@ async fn native_owned_approval_cancellation() {
 
 #[tokio::test]
 async fn native_owned_approval_capacity() {
-    let shared = hagency_execution::ApprovalHost::new(3, 1, 5000, 1500).unwrap();
+    let shared = hagency_execution::ApprovalHost::new(3, 1, 20_000, 1500).unwrap();
     let first = Fixture::configured(true);
     let (mut a, mut notices) = operation(&first, "owned-approval", shared.clone());
     notice(&mut notices).await;

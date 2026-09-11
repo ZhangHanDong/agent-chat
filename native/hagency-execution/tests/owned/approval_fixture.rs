@@ -50,7 +50,7 @@ pub(super) fn bindings(db: &mut DomainRepository, engagement: &str) {
     .unwrap();
 }
 pub(super) fn policy() -> ApprovalHost {
-    ApprovalHost::new(4, 2, 5000, 1500).unwrap()
+    ApprovalHost::new(4, 2, 20_000, 1500).unwrap()
 }
 pub(super) fn operation(
     f: &Fixture,
