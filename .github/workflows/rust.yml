@@ -10,6 +10,37 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  console-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-console-browser
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+          cache: npm
+          cache-dependency-path: mockup/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: mockup
+      - name: Install the explicit browser test prerequisite
+        working-directory: mockup
+        run: npx --no-install playwright-core install --with-deps chromium
+      - name: Build retained native console assets
+        run: node mockup/scripts/build-native-console.mjs --output "$RUNNER_TEMP/native-console-assets"
+      - name: Qualify actual browser and native executable
+        shell: bash
+        run: |
+          export HAGENCY_NATIVE_CONSOLE_ASSETS="$RUNNER_TEMP/native-console-assets"
+          export HAGENCY_BROWSER_NODE="$(command -v node)"
+          export HAGENCY_BROWSER_CHROME="$(cd mockup && node -e 'process.stdout.write(require("playwright-core").chromium.executablePath())')"
+          cargo clippy --locked -p hagency --all-targets --features native-console-browser -- -D warnings
+          cargo test --locked -p hagency --features native-console-browser --test console -- --nocapture
   native:
     strategy:
       fail-fast: false

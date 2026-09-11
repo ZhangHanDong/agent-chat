@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+native-console-browser = []
+
 [dependencies]
 hagency-core = { path = "../hagency-core" }
 hagency-store = { path = "../hagency-store" }
@@ -18,6 +22,7 @@ hagency-files = { path = "../hagency-files" }
 hagency-media = { path = "../hagency-media" }
 hagency-media-store = { path = "../hagency-media-store" }
 cap-std = "=4.0.3"
+cap-fs-ext = "=4.0.3"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

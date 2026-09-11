@@ -5,6 +5,7 @@ import DataStatus from '@/components/DataStatus';
 import { makeDerive } from '@/lib/derive';
 import { fetchLive, CONTRACT_SLICES } from '@/lib/api';
 import * as fixture from '@/lib/mock-data';
+import { NATIVE_MODE, exchangeAccess, fetchNative, logoutNative, selection } from '@/lib/native-api';
 
 /*
  * One data context for the console, with provenance attached.
@@ -102,7 +103,81 @@ export function useData() {
   return useContext(DataContext);
 }
 
-export function DataProvider({ children }) {
+// The build-time choice preserves the existing provider's callable contract.
+export const DataProvider = NATIVE_MODE ? NativeDataProvider : LegacyDataProvider;
+
+function NativeDataProvider({ children }) {
+  const initial = { nativeConsole: true, phase: 'loading', refreshing: false, requestKey: null, engagements: [], selected: null, report: null, next_after: null, error: null };
+  const [state, setState] = useState(initial);
+  const generation = useRef(0);
+  const inFlight = useRef(0);
+  const admitted = useRef(false);
+  const logoutPending = useRef(Promise.resolve());
+  const cursor = useRef('');
+  const load = async (after = cursor.current) => {
+    if (!admitted.current) return;
+    const mine = ++generation.current;
+    inFlight.current += 1;
+    let requestKey = null;
+    try {
+      const requested = selection(window.location);
+      requestKey = JSON.stringify([requested, after]);
+      setState((s) => s.requestKey === requestKey && ['ready', 'stale'].includes(s.phase)
+        ? { ...s, refreshing: true, error: null }
+        : { ...initial });
+      const value = await fetchNative(requested, after);
+      if (mine !== generation.current || !admitted.current) return;
+      cursor.current = after;
+      setState({ ...initial, ...value, phase: 'ready', requestKey });
+    } catch (error) {
+      if (mine !== generation.current) return;
+      if (error.message === 'console_access_required') admitted.current = false;
+      setState((s) => error.message === 'native_unavailable' && s.requestKey === requestKey && ['ready', 'stale'].includes(s.phase)
+        ? { ...s, phase: 'stale', refreshing: false, error: error.message }
+        : { ...initial, phase: error.message === 'console_access_required' ? 'access' : 'error', error: error.message });
+    } finally { inFlight.current -= 1; }
+  };
+  useEffect(() => {
+    let stopped = false;
+    const enter = async () => {
+      const mine = ++generation.current;
+      admitted.current = false;
+      setState({ ...initial });
+      try {
+        await exchangeAccess(window.location, window.history, logoutPending.current);
+        if (!stopped && mine === generation.current) { admitted.current = true; await load(''); }
+      } catch (error) { if (!stopped && mine === generation.current) setState({ ...initial, phase: 'access', error: error.message }); }
+    };
+    void enter();
+    const refresh = () => { if (!stopped && inFlight.current === 0 && document.visibilityState === 'visible') void load(); };
+    const navigate = () => { if (!stopped) void load(); };
+    const renew = () => { if (!stopped && window.location.hash) void enter(); };
+    const timer = setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('popstate', navigate);
+    window.addEventListener('hashchange', renew);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { stopped = true; admitted.current = false; generation.current += 1; clearInterval(timer); window.removeEventListener('focus', refresh); window.removeEventListener('popstate', navigate); window.removeEventListener('hashchange', renew); document.removeEventListener('visibilitychange', refresh); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const choose = (value) => {
+    window.history.pushState(window.history.state, '', `/console/usage/?engagement_id=${encodeURIComponent(value)}`);
+    void load();
+  };
+  const logout = async () => {
+    admitted.current = false;
+    const mine = ++generation.current;
+    setState({ ...initial, phase: 'access' });
+    const pending = logoutNative();
+    logoutPending.current = pending;
+    try { await pending; }
+    catch (error) { if (mine === generation.current) setState({ ...initial, phase: 'access', error: error.message }); }
+    finally { if (logoutPending.current === pending) logoutPending.current = Promise.resolve(); }
+  };
+  return <DataContext.Provider value={{ ...state, choose, refresh: () => load(), nextPage: () => load(state.next_after), firstPage: () => load(''), logout }}>{children}</DataContext.Provider>;
+}
+
+function LegacyDataProvider({ children }) {
   const [state, setState] = useState(() => assemble(
     FIXTURE_DATA,
     {

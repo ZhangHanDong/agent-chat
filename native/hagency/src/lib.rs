@@ -1,6 +1,7 @@
 use hagency_core::custody::{Delivery, MAX_DELIVERY_BYTES};
 use hagency_store::{DomainStore, Error, Store};
 pub mod bootstrap;
+pub mod console;
 pub(crate) mod file_service;
 pub mod mcp;
 pub(crate) mod receive_service;
@@ -28,6 +29,7 @@ pub struct App {
     development: Option<bootstrap::StatusHandle>,
     files: Option<file_service::FileHandle>,
     receives: Option<receive_service::ReceiveHandle>,
+    console: Option<console::Console>,
 }
 
 impl App {
@@ -51,11 +53,17 @@ impl App {
             development: None,
             files: None,
             receives: None,
+            console: None,
         })
     }
 
     pub fn with_domain(mut self, domain: DomainStore) -> Self {
         self.domain = Some(domain);
+        self
+    }
+
+    pub fn with_console(mut self, console: console::Console) -> Self {
+        self.console = Some(console);
         self
     }
 
@@ -79,12 +87,14 @@ impl App {
             .hoop(self)
             .push(Router::with_path("health").get(health))
             .push(runner::router())
+            .push(console::router())
             .push(
                 Router::with_path("api/native/v1")
                     .hoop(authorize)
                     .push(Router::with_path("capabilities").get(capabilities))
                     .push(resources::router())
                     .push(usage::router())
+                    .push(console::operator_router())
                     .push(Router::with_path("custody").post(receive)),
             )
     }

@@ -6,7 +6,7 @@ run in the existing JS/TS implementation. Native capability responses distinguis
 development resource/task APIs from unavailable Agent execution, connected Palpo/
 Matrix transport and production API parity.
 
-The current developer checkpoint includes domain schema 20: scoped tasks,
+The current developer checkpoint includes domain schema 21: scoped tasks,
 internal groups, durable graphs, verified-input task activation, owner approvals
 and notice/final-reply send custody, with exact negative Matrix transport fencing. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
@@ -85,8 +85,12 @@ frozen thread/private relation. Coherent metadata/key replacement cannot settle.
 Complete event acceptance can recover first Delivered after restart without a
 new upload or event write. A lost final SDK settlement ACK releases retained
 media only after exact private receipt/already-Delivered acceptance replay;
-unmatched retained jobs stay unknown. Cache paths and native file tools remain
-separate application integration work. Schema17 also stores host-attributed token observations and exposes
+unmatched retained jobs stay unknown. Native file publication and receive services
+are now integrated development slices, with current-only HTTP/MCP discovery,
+retained checked bytes and one-shot workspace writes. Incoming executable
+qualification currently has four of five strict scenarios passing; an unresolved
+pre-entry failure prevents claiming that workflow complete. Installed runtime and
+production migration gates remain open. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one
@@ -580,3 +584,57 @@ and unknown-write recovery are unfinished. Private rooms require encryption and
 the complete current verified device set; missing trust or Olm sessions refuses
 the send. Fixtures exercise real SDK ciphertext and local HTTPS, not live account
 provisioning or autonomous service operation.
+
+## Retained native usage console (ADR107)
+
+The opt-in console serves the existing usage page, preferences and English/Chinese
+presentation through Salvo. It reads the typed engagement ledger. Null periods,
+incomplete evidence, regressed latest counts and historical lower bounds remain
+visible; it does not provide fleet totals, provider billing, quota enforcement,
+other console workflows or dynamically provisioned Agent detail pages.
+
+Build assets with Node as a development tool, then use only the native executable
+for serving and access. The asset output must be a new directory. Its real path
+must contain no symbolic-link components and its root must be private to the
+current owner. An existing Next font cache can be supplied with `--font-cache`
+to replay the retained layout's actual downloaded font bytes without network.
+
+```sh
+node mockup/scripts/build-native-console.mjs --output /absolute/new-console-assets
+hagency serve --state-dir /absolute/native-state --console-assets /absolute/new-console-assets
+hagency console-access --state-dir /absolute/native-state
+```
+
+Open the printed link within two minutes. The browser removes its fragment and
+exchanges that one-use read-only ticket for a 15-minute HttpOnly session. The
+operator token remains in the private state directory and never enters browser
+assets, JavaScript storage or the access link. Reissuing a link invalidates the
+previous outstanding ticket; issuance is limited to one per second, and at most
+four sessions coexist. End access revokes the current session. This is an opt-in
+loopback HTTP development profile, without production configuration changes.
+
+The startup manifest allows at most 512 assets, 4 MiB each, 32 MiB total and 128 KiB of
+manifest JSON. Every actual source snapshot and digest is retained; later HTTP
+requests serve only captured bytes. A build exceeding a limit fails explicitly.
+The retained artifact contains 134 assets totaling 6,010,899 bytes, with a largest
+asset of 239,884 bytes.
+Build staging and failed outputs are retained
+for diagnosis; neither the builder nor runtime trims required chunks to fit.
+
+Ordinary Cargo runs execute browser authority, file and usage tests without Node.
+The separate mandatory browser CI job enables the explicit feature. Its local
+equivalent is below; missing prerequisites fail in that enabled lane.
+
+```sh
+export HAGENCY_NATIVE_CONSOLE_ASSETS=/absolute/new-console-assets
+export HAGENCY_BROWSER_NODE=/absolute/path/to/node
+export HAGENCY_BROWSER_CHROME=/absolute/path/to/chromium
+cargo test --locked -p hagency --features native-console-browser --test console -- --nocapture
+```
+
+The real browser fixture creates another canonical engagement while Chromium is
+open, then verifies runtime selection and reload of its query URL. A separate
+real executable fixture starts `hagency serve` and `console-access` with an empty
+runtime PATH and drives that server from Chromium. Node/Chromium remain external
+build/test tools; there is no deployed Next server. These local browser results
+do not qualify untested operating systems or complete the remaining M7 workflows.

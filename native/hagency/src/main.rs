@@ -35,6 +35,13 @@ enum Command {
         #[arg(long)]
         state_dir: PathBuf,
     },
+    /// Print a short-lived read-only console link using local operator authority.
+    ConsoleAccess {
+        #[arg(long)]
+        state_dir: PathBuf,
+        #[arg(long, default_value = "127.0.0.1:13300")]
+        listen: SocketAddr,
+    },
     /// Run the isolated native API. Does not load .env or any existing Hagency state.
     Serve {
         #[arg(long)]
@@ -46,6 +53,9 @@ enum Command {
         /// Execute one configured development attempt after authenticated Matrix refresh.
         #[arg(long)]
         development_driver: bool,
+        /// Private validated static build of the retained native usage console.
+        #[arg(long)]
+        console_assets: Option<PathBuf>,
     },
 }
 
@@ -109,13 +119,21 @@ async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             listen,
             queue_capacity,
             development_driver,
+            console_assets,
         } => {
+            let console = console_assets
+                .as_deref()
+                .map(hagency::console::Console::load)
+                .transpose()?;
             let mut bootstrap = hagency::bootstrap::Bootstrap::open(
                 &state_dir,
                 listen,
                 queue_capacity,
                 development_driver,
             )?;
+            if let Some(console) = console {
+                bootstrap = bootstrap.with_console(console);
+            }
             let cancel = hagency_matrix::CancellationToken::new();
             let signal = cancel.clone();
             tokio::spawn(async move {
@@ -138,6 +156,12 @@ async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 return Err(error.into());
             }
+        }
+        Command::ConsoleAccess { state_dir, listen } => {
+            println!(
+                "{}",
+                hagency::console::client::access(&state_dir, listen).await?
+            );
         }
     }
     Ok(())

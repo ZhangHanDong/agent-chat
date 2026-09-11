@@ -6296,3 +6296,62 @@ external evidence, and the original invocation completed without intervention.
 The lifecycle's test-name coverage does not distinguish cfg branches: its Windows
 assertion label is not Windows execution evidence. Actual Windows validation stays
 pending. Final local hagency/hagency-store Clippy with warnings denied also passes.
+## 2026-09-11 — ADR107 first retained native usage slice
+
+Root accepted the browser authority design and exact 31-path boundary before its
+source additions (27 original paths, pinned cap-fs-ext manifest/lock amendment,
+then `.github/workflows/rust.yml` for the explicit browser lane and
+`native/scripts/check-rust-spec-bindings.mjs` for all-feature selector inventory).
+Work is isolated
+from migration1cb60d7 in `hagency-native-console-usage-20260911`; original dirty
+checkout and live services remain untouched. Contract parse/lint completed before
+implementation and the amendments; lint warnings remain recorded.
+
+Implemented retained native page/data mode, safe bounded engagement-label and
+typed usage reads, separate finite issuer/session authority, native access CLI,
+startup nofollow asset snapshots and the Node-free Salvo serving path. Ordinary
+Cargo and the mandatory feature-enabled browser lane are separate.
+
+Validation before final refresh presentation: enabled console integration 5/5 passed, including actual
+Chromium en/zh/preferences, dynamic engagement creation/selection, missing periods,
+explicit failure, raw native API refusal, logout, and the actual executable with
+empty runtime PATH. Current JS regression 16/16 passes (native 2, retained usage 6,
+refresh 8): the first latest invocation matched only native/refresh 10 tests, and
+the correctly named retained usage selector separately executed its six tests.
+Initial failures are preserved in the external console-first-check, tests1/2 and
+Vitest1 logs: Salvo macro binding names, the intentionally refused macOS `/var`
+alias, a route-announcer test locator, async SSR assertion and provider harness
+compatibility, and JSON charset handling. No failure was counted as success.
+Feature-enabled all-target Hagency Clippy with warnings denied and ordinary
+workspace rustfmt passed. Ordinary native console/HTTP/usage regressions passed
+10/10. All-feature workspace test inventory found 537 bindings with none missing;
+listing compiles tests but is not their execution. An initial inventory invocation
+omitted the assigned target and created a local target; it was unqualified evidence,
+then removed with Cargo clean after confirming inactivity. Remaining commands use
+the external task-local target wrapper.
+
+Final strict lifecycle passed 8/8: the explicit 31-path boundary and seven selectors,
+each with exactly one actual passing test and no failed/ignored tests in stdout.
+This is a disclosed feature-adapted lifecycle, not unmodified stock agent-spec.
+The external wrapper at
+`/Users/yuechen/Library/Caches/hagency-rust-migration/2026-09-10/console-tools/run`
+has SHA256 `f8fff88eb7382abdf1a5e509f08298414c208d17ae35db64bcc1d6ad3b675e62`.
+For each bound selector it invokes the actual Cargo command
+`cargo test --locked -p hagency --features native-console-browser -q <selector>`.
+The wrapper source, actual argv JSONL and original complete lifecycle stdout are
+retained under that external cache; ordinary rustfmt, Clippy and CI commands are
+separate, with no feature-adaptation environment. Result files are
+`console-lifecycle-final.json` and `console-lifecycle-counts.json`.
+
+The final artifact 6 contains 134 assets / 6,010,899 bytes / largest 239,884 bytes.
+Actual final browser screenshots are `console-screenshots-final/console-usage-en.png`
+and `console-usage-zh.png`; the earlier unstyled controls remain in the original
+`console-screenshots` directory as before evidence. Existing button, field and
+split styles now preserve light/dark presentation. The final real Chromium run
+also delays a same-selection read, confirms visible observations plus busy status,
+aborts one actual transport to confirm explicit stale state, and succeeds on retry.
+It preserves actual delayed navigation and logout regressions. Independent source
+review found the original three races fixed and no material defect in the final
+refresh delta; that review did not rerun tests. Neither local browser evidence nor
+the new CI job claims unexecuted platform qualification. M7 and the overall
+migration remain open.

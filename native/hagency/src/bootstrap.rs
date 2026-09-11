@@ -307,11 +307,19 @@ impl Bootstrap {
     pub fn status(&self) -> Status {
         self.status.get()
     }
+    /// Install an already validated startup asset owner before HTTP admission.
+    pub fn with_console(mut self, console: crate::console::Console) -> Self {
+        self.app = self.app.with_console(console);
+        self
+    }
     /// Borrowing close retains this original owner/writer wrapper on failure.
     /// Driver receipts stay inspectable; the existing writer shutdown API may
     /// return an unknown final outcome. Neither wrapper presence nor timeout
     /// proves its repository remains open or has closed. Retain this Bootstrap.
     pub async fn close(&mut self) -> Result<(), Failure> {
+        if let Some(console) = &self.app.console {
+            console.retire();
+        }
         if let Some(receives) = &self.receives {
             receives.quiesce();
         }
