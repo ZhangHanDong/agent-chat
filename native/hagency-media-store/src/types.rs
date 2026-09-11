@@ -302,6 +302,10 @@ pub struct RestoredEncrypted {
     pub(crate) _permit: Permit,
 }
 impl RestoredEncrypted {
+    /// Original storage partition commitment, never execution authority.
+    pub fn namespace_digest(&self) -> &[u8; 32] {
+        self.namespace.digest()
+    }
     pub fn ciphertext(&self) -> &[u8] {
         &self.bytes
     }

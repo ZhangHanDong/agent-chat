@@ -2178,3 +2178,11 @@ create an immediate timer loop. The deterministic clock reproduction establishes
 this code defect, while original7cf0dc0 Node CI's30s launch-recovery timeout still
 has no observed inner cause. That fixture now emits fixed-stage and row evidence
 on failure without changing its timeout or assertions.
+
+
+ADR090 upload association compares the full original private identity plus fence,
+not fence alone. A matching retired claim remains historically associated and
+must still fail independent current validation. RestoredEncrypted namespace_digest
+is borrowed storage metadata only; no raw constructor or source/send grant is
+added. The actual consuming owner must compare namespace, operation, receipt,
+kind, byte length and qualified sync before accepting staged bytes.

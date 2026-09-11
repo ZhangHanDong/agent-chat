@@ -149,6 +149,14 @@ pub struct UploadSend {
     route: ReplyRoute,
 }
 impl UploadSend {
+    /// Original association only, including after retirement. The consuming
+    /// owner must separately validate this same claim against current state.
+    pub fn matches_claim(&self, claim: &UploadClaim) -> bool {
+        self.identity.id == claim.identity.id
+            && self.identity.request == claim.identity.request
+            && self.identity.capability == claim.identity.capability
+            && self.fence == claim.fence
+    }
     pub fn identity(&self) -> &UploadIdentity {
         &self.identity
     }

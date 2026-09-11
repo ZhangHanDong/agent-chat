@@ -40,6 +40,11 @@ fn native_media_restore_exact_ciphertext() {
             assert_eq!(restored.receipt().kind(), Kind::Encrypted);
             assert_eq!(restored.receipt().len(), data.len());
             assert!(restored.receipt().replayed());
+            assert_eq!(restored.namespace_digest(), namespace().digest());
+            assert_ne!(
+                restored.namespace_digest(),
+                HostNamespace::new("other").unwrap().digest()
+            );
             assert!(restored.matches_namespace(&namespace()));
             assert!(!restored.matches_namespace(&HostNamespace::new("other").unwrap()));
             assert_eq!(

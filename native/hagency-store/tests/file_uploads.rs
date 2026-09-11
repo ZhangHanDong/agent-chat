@@ -193,6 +193,40 @@ fn acceptance() -> UploadAcceptance {
 }
 
 #[test]
+fn native_upload_send_claim_association() {
+    let mut f = Fixture::new(true, None);
+    let (a, _) = f.ready("first");
+    let (b, _) = f.ready("second");
+    let claim_a = f.db.claim_upload(&f.cap, &a, 1020, 1000).unwrap().unwrap();
+    let claim_b = f.db.claim_upload(&f.cap, &b, 1020, 1000).unwrap().unwrap();
+    assert_eq!(claim_a.fence(), claim_b.fence());
+    let send_a = f.db.begin_upload(&f.cap, &claim_a, 1021).unwrap();
+    let send_b = f.db.begin_upload(&f.cap, &claim_b, 1021).unwrap();
+    assert!(send_a.matches_claim(&claim_a));
+    assert!(send_a.matches_claim(&claim_a.clone()));
+    assert!(send_b.matches_claim(&claim_b));
+    assert!(!send_a.matches_claim(&claim_b));
+    assert!(!send_b.matches_claim(&claim_a));
+    // A replacement claim for the same upload must not match an older fence.
+    let (c, _) = f.ready("replacement");
+    let old = f.db.claim_upload(&f.cap, &c, 1022, 1).unwrap().unwrap();
+    let current = f.db.claim_upload(&f.cap, &c, 1024, 100).unwrap().unwrap();
+    let send_c = f.db.begin_upload(&f.cap, &current, 1025).unwrap();
+    assert!(send_c.matches_claim(&current));
+    assert!(!send_c.matches_claim(&old));
+    assert!(f.db.begin_upload(&f.cap, &old, 1026).is_err());
+    f.db.validate_upload_send(&f.cap, &claim_a, 1026).unwrap();
+    f.db.cancel_upload(&a, 1027).unwrap();
+    // Historical association survives cancellation; current permission does not.
+    assert!(send_a.matches_claim(&claim_a));
+    assert!(f.db.validate_upload_send(&f.cap, &claim_a, 1028).is_err());
+    // Unrelated current work remains valid and still cannot stand in for A.
+    f.db.validate_upload_send(&f.cap, &claim_b, 1028).unwrap();
+    assert!(!send_a.matches_claim(&claim_b));
+    assert!(f.db.claim_upload(&f.cap, &a, 1028, 100).is_err());
+}
+
+#[test]
 fn native_upload_reservation() {
     // Any future transport/console deserializer or secret Debug derivation
     // makes these trait selections ambiguous at compile time.
