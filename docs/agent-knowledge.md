@@ -1,5 +1,13 @@
 # Repository audit knowledge
 
+- **Windows worker evidence, 2026-09-10:** a856aa5's original Windows store
+  suite failed a shutdown and a short-lease concurrency assertion.100ms can
+  validly expire between serialized writer calls; ADR075 separates concurrency
+  under an explicitly valid lease from elapsed-time replacement and retains
+  exact no-duplicate-Start checks. Its shutdown cause is still unknown; fixed
+  phase diagnostics preserve the original timeout result. Successful unrelated
+  Matrix diagnostics do not turn the original suite green.
+
 - **Native encrypted upload, 2026-09-10:** ADR072 borrows an actual SDK Encrypted
   object and uploads only its ciphertext to the configured HTTPS homeserver.
   Descriptor keys and filenames never enter the request. A finite attempt slot

@@ -514,7 +514,10 @@ mod clock_tests {
             1
         );
         drop(inspect);
-        store.shutdown().await.unwrap();
+        let (result, snapshot) = store.shutdown_observed().await;
+        if let Err(error) = result {
+            panic!("queued completion shutdown failed: {error:?}; {snapshot:?}");
+        }
     }
 
     #[tokio::test]

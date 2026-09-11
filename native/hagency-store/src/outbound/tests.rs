@@ -1075,6 +1075,11 @@ async fn native_outbound_custody_worker() {
         .await
         .unwrap();
     let mut tasks = tokio::task::JoinSet::new();
+    // Concurrency is checked inside one unexpired lease. The old 100ms lease
+    // could legally expire between two real SQLite transactions on Windows.
+    // This valid request lease changes no worker timeout or production policy.
+    const CONCURRENT_LEASE_MS: u64 = 120_000;
+    let claims_started = std::time::Instant::now();
     for id in ["claim-a", "claim-b"] {
         let store = store.clone();
         let s = s.clone();
@@ -1086,7 +1091,7 @@ async fn native_outbound_custody_worker() {
                             scope: s,
                             lane: Lane::Matrix,
                             id: id.into(),
-                            lease_ms: 100
+                            lease_ms: CONCURRENT_LEASE_MS
                         },
                         5
                     )
@@ -1100,6 +1105,10 @@ async fn native_outbound_custody_worker() {
     while let Some(result) = tasks.join_next().await {
         claims += usize::from(result.unwrap());
     }
+    assert!(
+        claims_started.elapsed() < std::time::Duration::from_millis(CONCURRENT_LEASE_MS),
+        "fixture exceeded its explicitly requested concurrency lease"
+    );
     assert_eq!(claims, 1);
     store.shutdown().await.unwrap();
     let store = Store::start(Repository::open(&dir.path().join("state")).unwrap(), 1).unwrap();
@@ -1294,4 +1303,47 @@ async fn native_outbound_custody_worker_execution_clock() {
         );
         store.shutdown().await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn native_outbound_custody_worker_elapsed_lease() {
+    let (_dir, mut db, scope) = setup();
+    receive(&mut db, &scope, delivery("short-lease", Lane::Matrix));
+    ack(&mut db, &scope, Lane::Matrix, "short-lease");
+    let first = claim(&mut db, &scope, Lane::Matrix, "first", 5).unwrap();
+    let store = Store::start(db, 16).unwrap();
+    // Use the existing host submission-time seam to model 200ms already spent
+    // in a queue. The real writer must expire the first 100ms lease before
+    // deciding whether a fresh attempt may claim the same delivery.
+    let second = store
+        .outbound_at(
+            Command::Claim {
+                scope,
+                lane: Lane::Matrix,
+                id: "second".into(),
+                lease_ms: 120_000,
+            },
+            5,
+            std::time::Instant::now() - std::time::Duration::from_millis(200),
+        )
+        .await
+        .unwrap();
+    let Reply::Claim(Some(second)) = second else {
+        panic!("expired unstarted work must be reclaimable");
+    };
+    assert_ne!(first.id(), second.id());
+    assert!(matches!(
+        store.outbound(Command::Start(first), 205).await,
+        Err(Error::State)
+    ));
+    let started = store
+        .outbound(Command::Start(second.clone()), 205)
+        .await
+        .unwrap();
+    assert!(matches!(started, Reply::Started(_)));
+    assert!(matches!(
+        store.outbound(Command::Start(second), 206).await,
+        Err(Error::State)
+    ));
+    store.shutdown().await.unwrap();
 }

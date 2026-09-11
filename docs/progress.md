@@ -4375,3 +4375,29 @@ queued after the selected trigger and exclusion of later input/projection.
 Before this correction, all139 affected store tests, Windows GNU Clippy and
 strict lifecycle6/6 across24 explicit changed paths passed. These results do not
 substitute for verification of the correction, which will be rerun in integration.
+
+## 2026-09-10 — Windows worker failure evidence
+
+Native run34549222503 at a856aa5 passed Linux/macOS but failed Windows; Node
+run34549222562 passed. The original Windows suite printed442 passes plus two
+failures (the pass count includes one proxy child). Both failures were in the
+store library: queued completion cancellation returned OutcomeUnknown only at
+shutdown, and the outbound concurrency fixture counted two claims. All original
+Matrix outgoing/media tests passed; their later successful diagnostics cannot
+replace the failed store suite. Original complete logs are retained externally.
+
+ADR075 corrects the concurrency fixture's100ms lease assumption while keeping
+its exact one-claim assertion. Its explicit valid120s lease must remain unexpired
+through the check; no production deadline changes. A separate actual writer
+regression models200ms host submission age and proves an expired100ms claim may
+be replaced while its old ticket and duplicate Start both fail. Four affected
+worker selectors pass. The historical CI timing is not recorded, so the exact
+original timing cause remains an inference, not a reproduced Windows diagnosis.
+
+Queued completion shutdown now reports the existing fixed phase snapshot on the
+original error and keeps its two unchanged two-second waits. Its historical
+shutdown cause remains unknown. Fresh Windows execution is still required.
+
+ADR075 strict lifecycle passes5/5 across its six explicit changed paths, with
+zero failed/skipped/uncertain/pending verdicts. This is local fixture validation,
+not an actual Windows rerun or an explanation of the historical shutdown.
