@@ -51,17 +51,25 @@ async function request(path, options = {}) {
     const bytes = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
     const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    if (!response.ok) throw new Error(response.status === 401 ? 'console_access_required' : (response.status === 404 ? 'not_found' : 'native_unavailable'));
+    if (!response.ok) {
+      if (value?.code === 'console_busy' && response.status === 429) throw new Error('busy');
+      const known = { busy: 503, outcome_unknown: 504, resource_revision_conflict: 409, resource_publication_scope_required: 403 };
+      if (known[value?.code] === response.status) throw new Error(value.code);
+      throw new Error(response.status === 401 ? 'console_access_required' : (response.status === 404 ? 'not_found' : 'native_unavailable'));
+    }
     return value;
   } catch (error) {
-    if (['console_access_required', 'not_found', 'invalid_native_response', 'invalid_selection'].includes(error.message)) throw error;
+    if (['console_access_required', 'not_found', 'invalid_native_response', 'invalid_selection', 'busy', 'outcome_unknown', 'resource_revision_conflict', 'resource_publication_scope_required'].includes(error.message)) throw error;
+    if (options.method === 'DELETE') throw new Error('logout_unknown');
+    if (options.method === 'POST' && path.endsWith('/publication')) throw new Error('outcome_unknown');
     throw new Error('native_unavailable');
   } finally { clearTimeout(timer); }
 }
-export function selection(location) {
+export function resourceView(location) { return /^\/console\/resources\/?$/.test(location.pathname); }
+export function selection(location, field = 'engagement_id') {
   const query = new URLSearchParams(location.search);
-  if ([...query.keys()].some((k) => k !== 'engagement_id') || query.getAll('engagement_id').length > 1) throw new Error('invalid_selection');
-  const value = query.get('engagement_id');
+  if ([...query.keys()].some((k) => k !== field) || query.getAll(field).length > 1) throw new Error('invalid_selection');
+  const value = query.get(field);
   if (value !== null && !id(value)) throw new Error('invalid_selection');
   return value;
 }
@@ -81,3 +89,40 @@ export async function fetchNative(selected, after = '') {
   return { ...list, selected: chosen, report };
 }
 export async function logoutNative() { await request('/session', { method: 'DELETE' }); }
+
+const revision = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+const text = (v, max) => typeof v === 'string' && v.length <= max;
+const optionalText = (v, max) => v === null || text(v, max);
+const periodFields = (v) => !Object.hasOwn(v, 'period') || v.period === null || text(v.period, 64 * 1024);
+const ceiling = (v) => v === null || (v && Object.keys(v).every((k) => ['tokens', 'period'].includes(k)) && (v.tokens === null || number(v.tokens)) && periodFields(v));
+export function validateResources(value) {
+  if (!object(value, ['resources', 'roles', 'next_after', 'permissions']) || !Array.isArray(value.resources) || value.resources.length > 16
+    || !(value.next_after === null || id(value.next_after)) || !object(value.permissions, ['publishResource']) || typeof value.permissions.publishResource !== 'boolean'
+    || value.resources.some((r) => !object(r, ['id', 'framework', 'model', 'provider', 'reasoning', 'ceiling', 'published', 'roles', 'revision'])
+      || !id(r.id) || !text(r.framework, 64) || !text(r.model, 256) || !optionalText(r.provider, 128) || !optionalText(r.reasoning, 128)
+      || !ceiling(r.ceiling) || typeof r.published !== 'boolean' || !Array.isArray(r.roles) || r.roles.length > 64 || !r.roles.every((v) => text(v, 64)) || !revision(r.revision))
+    || !Array.isArray(value.roles) || value.roles.length !== 6 || value.roles.some((r) => !object(r, ['role', 'explicitPublication', 'available', 'crossFamily', 'defaultTier'])
+      || !text(r.role, 64) || !(r.explicitPublication === null || typeof r.explicitPublication === 'boolean') || typeof r.available !== 'boolean' || typeof r.crossFamily !== 'boolean'
+      || !(r.defaultTier === null || ['lightweight', 'medium', 'strong'].includes(r.defaultTier)))) throw new Error('invalid_native_response');
+  return value;
+}
+export function validateBudget(v) {
+  const amount = (n) => n === null || number(n);
+  if (!object(v, ['scope', 'pool', 'seat', 'reserved', 'remainingTokens']) || v.scope !== 'resource' || !number(v.reserved) || !amount(v.remainingTokens)
+    || !object(v.pool, ['ceiling', 'period', 'committed', 'remaining']) || !amount(v.pool.ceiling) || !optionalText(v.pool.period, 64 * 1024) || !number(v.pool.committed) || !amount(v.pool.remaining)
+    || !object(v.seat, ['quota', 'period', 'committed', 'remaining', 'status']) || !amount(v.seat.quota) || !optionalText(v.seat.period, 64 * 1024) || !number(v.seat.committed) || !amount(v.seat.remaining)
+    || !['undeclared', 'declared', 'period_mismatch'].includes(v.seat.status)) throw new Error('invalid_native_response');
+  return v;
+}
+export async function fetchResources(selected, after = '') {
+  if ((selected !== null && !id(selected)) || (after && !id(after))) throw new Error('invalid_selection');
+  const list = validateResources(await request(`/api/resources?limit=16${after ? `&after=${after}` : ''}`));
+  const chosen = selected ?? list.resources[0]?.id ?? null;
+  const budget = chosen === null ? null : validateBudget(await request(`/api/resources/${chosen}/budget`));
+  return { ...list, selected: chosen, budget, resourceConsole: true };
+}
+export async function publishResource(resource, published) {
+  const value = await request(`/api/resources/${resource.id}/publication`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: resource.revision, published }) });
+  if (!object(value, ['resourceId', 'published', 'revision']) || value.resourceId !== resource.id || value.published !== published || !revision(value.revision)) throw new Error('outcome_unknown');
+  return value;
+}

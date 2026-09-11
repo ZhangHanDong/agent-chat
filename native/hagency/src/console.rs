@@ -2,6 +2,7 @@
 mod assets;
 mod authority;
 pub mod client;
+mod resources;
 mod usage;
 use crate::{App, refusal};
 use authority::{Authority, COOKIE, Session};
@@ -19,6 +20,8 @@ pub enum Error {
     Invalid,
     #[error("native console access is required or expired")]
     Unauthorized,
+    #[error("resource publication management scope is required")]
+    Forbidden,
     #[error("native console capacity is exhausted")]
     Busy,
     #[error("native console is unavailable")]
@@ -52,12 +55,15 @@ pub(crate) fn router() -> Router {
         .push(
             Router::with_path("api")
                 .hoop(authenticate)
-                .push(usage::router()),
+                .push(usage::router())
+                .push(resources::router()),
         )
         .push(Router::with_path("{**asset}").get(asset))
 }
 pub(crate) fn operator_router() -> Router {
-    Router::with_path("console/access").post(issue)
+    Router::new()
+        .push(Router::with_path("console/access").post(issue))
+        .push(Router::with_path("console/resource-publication-access").post(issue_publication))
 }
 fn console(depot: &Depot) -> Result<&Console, Error> {
     depot
@@ -73,6 +79,7 @@ fn failed(res: &mut Response, error: Error) {
         }
         Error::Invalid => (StatusCode::BAD_REQUEST, "invalid_console_request"),
         Error::Unauthorized => (StatusCode::UNAUTHORIZED, "console_access_required"),
+        Error::Forbidden => (StatusCode::FORBIDDEN, "resource_publication_scope_required"),
         Error::Busy => (StatusCode::TOO_MANY_REQUESTS, "console_busy"),
     };
     refusal(res, status, code);
@@ -203,6 +210,13 @@ async fn body(req: &mut Request, maximum: usize) -> Result<Vec<u8>, Error> {
 }
 #[handler]
 async fn issue(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    issue_scope(req, depot, res, false).await;
+}
+#[handler]
+async fn issue_publication(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    issue_scope(req, depot, res, true).await;
+}
+async fn issue_scope(req: &mut Request, depot: &Depot, res: &mut Response, publication: bool) {
     let result = async {
         let c = console(depot)?;
         let _permit =
@@ -213,7 +227,11 @@ async fn issue(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         if req.uri().query().is_some() || !body(req, 1).await?.is_empty() {
             return Err(Error::Invalid);
         }
-        let value = c.0.authority.issue()?;
+        let value = if publication {
+            c.0.authority.issue_publication()?
+        } else {
+            c.0.authority.issue()?
+        };
         Ok(serde_json::json!({"ticket":value,"expires_in":120}))
     }
     .await;
@@ -292,7 +310,8 @@ async fn asset(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     };
     let path = req.uri().path();
     // Only document navigation may start outside this origin. Assets never grant data authority.
-    let document = matches!(path, "/console/usage" | "/console/usage/");
+    let resource_document = matches!(path, "/console/resources" | "/console/resources/");
+    let document = resource_document || matches!(path, "/console/usage" | "/console/usage/");
     if !document
         && req
             .headers()
@@ -303,7 +322,12 @@ async fn asset(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         return;
     }
     if (!document && req.uri().query().is_some())
-        || (document && usage::selection_query(req).is_err())
+        || (document
+            && if resource_document {
+                resources::selection_query(req).is_err()
+            } else {
+                usage::selection_query(req).is_err()
+            })
     {
         failed(res, Error::Invalid);
         return;

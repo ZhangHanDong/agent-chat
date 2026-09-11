@@ -41,6 +41,9 @@ enum Command {
         state_dir: PathBuf,
         #[arg(long, default_value = "127.0.0.1:13300")]
         listen: SocketAddr,
+        /// Grant only finite native resource catalog publication management.
+        #[arg(long)]
+        manage_resource_publication: bool,
     },
     /// Run the isolated native API. Does not load .env or any existing Hagency state.
     Serve {
@@ -157,10 +160,18 @@ async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 return Err(error.into());
             }
         }
-        Command::ConsoleAccess { state_dir, listen } => {
+        Command::ConsoleAccess {
+            state_dir,
+            listen,
+            manage_resource_publication,
+        } => {
             println!(
                 "{}",
-                hagency::console::client::access(&state_dir, listen).await?
+                if manage_resource_publication {
+                    hagency::console::client::publication_access(&state_dir, listen).await?
+                } else {
+                    hagency::console::client::access(&state_dir, listen).await?
+                }
             );
         }
     }

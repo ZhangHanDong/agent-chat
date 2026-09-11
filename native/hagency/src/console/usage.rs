@@ -9,7 +9,7 @@ pub(super) fn router() -> Router {
         .push(Router::with_path("engagements").get(engagements))
         .push(Router::with_path("engagements/{id}/usage").get(report))
 }
-fn query(req: &Request, allowed: &[&str], limit: usize) -> Result<(), Error> {
+pub(super) fn query(req: &Request, allowed: &[&str], limit: usize) -> Result<(), Error> {
     if req
         .uri()
         .query()

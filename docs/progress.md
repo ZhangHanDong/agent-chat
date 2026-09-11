@@ -6563,3 +6563,72 @@ in the external approval-router evidence cache. Runtime pumping, finite parked
 maintenance, deadline configuration, actual transmission and executable
 interactive qualification remain separate gates. No runtime, sandbox, timeout,
 dependency or live action changed, and full M6 parity remains incomplete.
+
+## 2026-09-11 — ADR108 retained native resource management slice
+
+Started from clean dfba95b in an isolated worktree after parent review of the exact
+31-path manifest/lock order/transition table; NativeUsage was explicitly approved
+as path 32 for shared truthful logout. ADR108 and its task contract were parsed
+and linted before source changes, including the amendment. No main checkout,
+live configuration, services, dependencies or schema changed.
+
+Implemented safe resources/selected budget/roles in the retained console and the
+explicit finite native publication ticket. The store command captures original
+scope and revision, keeps pending custody, checks actual SQLite/session locks and
+changes only publication/derived roles. Default access remains read only. Unknown
+and conflict persist through current-state reads; Busy/unknown logout offers a
+visible retry without claiming revocation. Full native resource creation/editing,
+Agent workflows and remote publication remain separate work.
+
+Preserved original failures: an absent-selector run after a wrong working directory
+is unqualified; the actual clock test later ran one passing test. The first clock
+fixture incorrectly assumed edit_resource(None) would restore publication; it
+now uses the existing explicit publication path for fixture reset. Native refusal
+`code` mismatch was caught by actual HTTP, corrected in the browser parser and
+rerun. Oversized observation coverage uses two individually admissible rows,
+because the store correctly refuses a single command exceeding 64 KiB. Browser
+loss-relay missing Fetch Metadata was diagnosed from actual headers and corrected
+only in the disclosed fixture relay. No failing or zero-match run is a pass.
+
+Current evidence includes real SQLite CAS/current clock checks, 15 passing JS
+resource/usage/refresh tests, native HTTP scope and observations, actual bilingual
+publication/dynamic resource/conflict/unknown/Busy logout, and an actual native
+executable browser with empty runtime PATH. Feature-enabled all-target Clippy for
+hagency and hagency-store passes with warnings denied. The retained asset build 2
+contains 136 files / 6,069,255 bytes / largest 239,884 bytes and replays only actual
+cached font bytes. Real light-English/dark-Chinese screenshots are retained under
+external cache `resource-screenshots-4`. Final lifecycle results follow separately.
+
+All Cargo/Node checks use external `resource-tools/run`, SHA256
+`bae1c6b3f0a7593b61295cec6d24ea69d32e2f2a0b56c9385a5e3ef0c8891cb9`,
+which forces the allocated prepared-stage-target and records actual argv. Its
+explicit HAGENCY_RESOURCE_FEATURE_LIFECYCLE=1 adapter dispatches store selectors to
+`cargo test --locked -p hagency-store -q <selector>` and console selectors to
+`cargo test --locked -p hagency --features native-console-browser -q <selector>`.
+This is adapted lifecycle execution, not unmodified stock agent-spec. Ordinary
+rustfmt/Clippy/CI are separate; browser inventory alone is not browser execution.
+
+Final ADR108 qualification passes strict adapted lifecycle 7/7: the exact 32-path
+boundary plus six selectors, each with exactly one actual passing test and zero
+failed or ignored tests in stdout. The final run uses artifact 4 (136 files /
+6,069,438 bytes / largest 239,884 bytes). `resource-lifecycle-final.json` and
+`resource-lifecycle-counts.json` retain the original output and inspected counts.
+Earlier artifact-3 lifecycle output is retained separately, not overwritten.
+
+The final ordinary console checks pass 8/8; the complete feature-enabled console
+suite passes 9/9 including the original usage and both new resource browser/process
+cases. The final copy-only resource change passes its five JS tests after the
+15/15 combined resource/usage/refresh run. All-feature inventory lists 543 bound
+Rust selectors with none missing; this is listing only. Final feature-enabled
+all-target Clippy for both changed Rust packages and rustfmt check pass.
+
+Parent visual review accepted the retained layout and requested Chinese resource
+catalog/period labels; those now use 资源配置, 本地资源目录, 可用角色 and the existing
+localized monthly label. Runtime-proof explanation is in Technical details.
+Role keys remain unchanged under the existing dictionary contract. A final Busy
+logout wording correction says the console is busy, because generic request
+capacity can refuse logout even when no resource mutation is pending. Final
+artifact-4 Chromium screenshots are `resource-screenshots-artifact4/console-resources-en.png`
+and `console-resources-zh.png`. No production or unexecuted OS qualification is
+claimed. Publication remains explicitly local-only pending its separate wire
+integration, and resource creation/full editing plus complete M7 remain open.

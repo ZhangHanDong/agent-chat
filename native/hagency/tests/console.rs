@@ -3,6 +3,8 @@
 mod browser;
 #[path = "console/fixture.rs"]
 mod fixture;
+#[path = "console/resources.rs"]
+mod resources;
 use fixture::*;
 use salvo::{
     prelude::*,

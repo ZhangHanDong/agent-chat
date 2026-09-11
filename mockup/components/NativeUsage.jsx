@@ -5,6 +5,16 @@ import { useData } from '@/components/Data';
 import { useT } from '@/components/Prefs';
 
 const KINDS = ['input', 'output', 'cacheWrite', 'cacheRead'];
+export function NativeAccessNotice() {
+  const data = useData(); const t = useT();
+  if (data.phase !== 'access') return null;
+  const status = data.logoutStatus;
+  return <section className="panel" data-native-state="access" data-logout-state={status ?? undefined}>
+    <h2>{t(status ? `nr.logout.${status}` : 'nu.access')}</h2>
+    {['busy', 'unknown'].includes(status) && <><p role="alert">{t('nr.logoutUnresolved')}</p><button className="btn" onClick={data.logout}>{t('nr.retryLogout')}</button></>}
+    {status !== 'pending' && <><p>{t('nu.accessHelp')}</p><code>hagency console-access --state-dir &lt;state&gt; --listen &lt;address&gt;</code></>}
+  </section>;
+}
 function Counts({ value, label }) {
   const t = useT();
   return <section className="panel" style={{ marginTop: 0 }}><h3>{label}</h3><dl>{KINDS.map((kind) => <div key={kind} className="kv">
@@ -27,7 +37,7 @@ export default function NativeUsage() {
     <PageHead title={t('us.title')} sub={t('nu.sub')} />
     <p className="muted">{t('nu.evidence')}</p>
     {phase === 'loading' && <p role="status">{t('nu.loading')}</p>}
-    {phase === 'access' && <section className="panel" data-native-state="access"><h2>{t('nu.access')}</h2><p>{t('nu.accessHelp')}</p><code>hagency console-access --state-dir &lt;state&gt; --listen &lt;address&gt;</code></section>}
+    <NativeAccessNotice />
     {phase === 'error' && <section className="panel" role="alert"><h2>{t('nu.failed')}</h2><p>{t(error === 'not_found' ? 'nu.notFound' : 'nu.retryHelp')}</p><button className="btn" onClick={data.refresh}>{t('nu.refresh')}</button></section>}
     {['ready', 'stale'].includes(phase) && <div data-native-state={phase} aria-busy={data.refreshing === true}>
       {data.refreshing && <p role="status">{t('nu.refreshing')}</p>}

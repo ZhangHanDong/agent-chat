@@ -5,7 +5,7 @@ import DataStatus from '@/components/DataStatus';
 import { makeDerive } from '@/lib/derive';
 import { fetchLive, CONTRACT_SLICES } from '@/lib/api';
 import * as fixture from '@/lib/mock-data';
-import { NATIVE_MODE, exchangeAccess, fetchNative, logoutNative, selection } from '@/lib/native-api';
+import { NATIVE_MODE, exchangeAccess, fetchNative, fetchResources, resourceView, publishResource, logoutNative, selection } from '@/lib/native-api';
 
 /*
  * One data context for the console, with provenance attached.
@@ -107,12 +107,17 @@ export function useData() {
 export const DataProvider = NATIVE_MODE ? NativeDataProvider : LegacyDataProvider;
 
 function NativeDataProvider({ children }) {
-  const initial = { nativeConsole: true, phase: 'loading', refreshing: false, requestKey: null, engagements: [], selected: null, report: null, next_after: null, error: null };
+  const initial = { nativeConsole: true, resourceConsole: false, phase: 'loading', refreshing: false, requestKey: null, engagements: [], resources: [], roles: [], permissions: { publishResource: false }, selected: null, report: null, budget: null, next_after: null, error: null };
   const [state, setState] = useState(initial);
+  const [logoutStatus, setLogoutStatus] = useState(null);
+  const [action, setAction] = useState(null);
+  const mutation = useRef(false);
+  const admissionEpoch = useRef(0);
   const generation = useRef(0);
   const inFlight = useRef(0);
   const admitted = useRef(false);
   const logoutPending = useRef(Promise.resolve());
+  const endingAccess = useRef(false);
   const cursor = useRef('');
   const load = async (after = cursor.current) => {
     if (!admitted.current) return;
@@ -120,19 +125,20 @@ function NativeDataProvider({ children }) {
     inFlight.current += 1;
     let requestKey = null;
     try {
-      const requested = selection(window.location);
-      requestKey = JSON.stringify([requested, after]);
+      const resources = resourceView(window.location);
+      const requested = selection(window.location, resources ? 'resource_id' : 'engagement_id');
+      requestKey = JSON.stringify([resources, requested, after]);
       setState((s) => s.requestKey === requestKey && ['ready', 'stale'].includes(s.phase)
         ? { ...s, refreshing: true, error: null }
         : { ...initial });
-      const value = await fetchNative(requested, after);
+      const value = await (resources ? fetchResources(requested, after) : fetchNative(requested, after));
       if (mine !== generation.current || !admitted.current) return;
       cursor.current = after;
       setState({ ...initial, ...value, phase: 'ready', requestKey });
     } catch (error) {
       if (mine !== generation.current) return;
       if (error.message === 'console_access_required') admitted.current = false;
-      setState((s) => error.message === 'native_unavailable' && s.requestKey === requestKey && ['ready', 'stale'].includes(s.phase)
+      setState((s) => ['native_unavailable', 'busy'].includes(error.message) && s.requestKey === requestKey && ['ready', 'stale'].includes(s.phase)
         ? { ...s, phase: 'stale', refreshing: false, error: error.message }
         : { ...initial, phase: error.message === 'console_access_required' ? 'access' : 'error', error: error.message });
     } finally { inFlight.current -= 1; }
@@ -141,7 +147,9 @@ function NativeDataProvider({ children }) {
     let stopped = false;
     const enter = async () => {
       const mine = ++generation.current;
+      admissionEpoch.current += 1;
       admitted.current = false;
+      setLogoutStatus(null); setAction(null);
       setState({ ...initial });
       try {
         await exchangeAccess(window.location, window.history, logoutPending.current);
@@ -161,20 +169,44 @@ function NativeDataProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const choose = (value) => {
-    window.history.pushState(window.history.state, '', `/console/usage/?engagement_id=${encodeURIComponent(value)}`);
+    const resources = resourceView(window.location);
+    window.history.pushState(window.history.state, '', `/console/${resources ? 'resources/?resource_id' : 'usage/?engagement_id'}=${encodeURIComponent(value)}`);
     void load();
   };
   const logout = async () => {
+    if (endingAccess.current) return;
+    endingAccess.current = true;
     admitted.current = false;
+    admissionEpoch.current += 1;
     const mine = ++generation.current;
+    setLogoutStatus('pending');
+    if (mutation.current) setAction((a) => a ? { ...a, kind: 'unknown' } : a);
     setState({ ...initial, phase: 'access' });
     const pending = logoutNative();
     logoutPending.current = pending;
-    try { await pending; }
-    catch (error) { if (mine === generation.current) setState({ ...initial, phase: 'access', error: error.message }); }
-    finally { if (logoutPending.current === pending) logoutPending.current = Promise.resolve(); }
+    try { await pending; if (mine === generation.current) setLogoutStatus('ended'); }
+    catch (error) { if (mine === generation.current) { setLogoutStatus(error.message === 'busy' ? 'busy' : 'unknown'); setState({ ...initial, phase: 'access', error: error.message }); } }
+    finally { endingAccess.current = false; if (logoutPending.current === pending) logoutPending.current = Promise.resolve(); }
   };
-  return <DataContext.Provider value={{ ...state, choose, refresh: () => load(), nextPage: () => load(state.next_after), firstPage: () => load(''), logout }}>{children}</DataContext.Provider>;
+  const publish = async (resource, published) => {
+    if (!admitted.current || mutation.current) return;
+    mutation.current = true;
+    const epoch = admissionEpoch.current;
+    const identity = { id: resource.id, label: `${resource.framework} · ${resource.model}` };
+    setAction({ ...identity, kind: 'pending' });
+    try {
+      await publishResource(resource, published);
+      if (epoch !== admissionEpoch.current) return;
+      setAction({ ...identity, kind: 'saved' });
+      await load();
+    } catch (error) {
+      if (epoch !== admissionEpoch.current) return;
+      const kind = error.message === 'resource_revision_conflict' ? 'conflict' : error.message === 'busy' ? 'busy' : ['outcome_unknown', 'native_unavailable', 'invalid_native_response'].includes(error.message) ? 'unknown' : 'refused';
+      setAction({ ...identity, kind, error: error.message });
+      if (error.message === 'console_access_required') { admitted.current = false; generation.current += 1; setState({ ...initial, phase: 'access', error: error.message }); }
+    } finally { mutation.current = false; }
+  };
+  return <DataContext.Provider value={{ ...state, action, publish, logoutStatus, choose, refresh: () => load(), nextPage: () => load(state.next_after), firstPage: () => load(''), logout }}>{children}</DataContext.Provider>;
 }
 
 function LegacyDataProvider({ children }) {

@@ -2948,3 +2948,44 @@ Runtime response reserve never revives an expired domain decision: capture the
 owner cutoff, domain expiry and original response deadline together before
 parking, or refuse a configuration whose margin does not fit. This prerequisite
 does not introduce a parked renewal or a longer operation timeout.
+
+## 2026-09-11 — ADR108 finite native resource publication
+
+Retained `/console/resources/?resource_id=...` displays safe configured profiles,
+local catalog inclusion, actual PoolBudget/SeatBudget and typed role observations.
+Do not adapt those DTOs into nonexistent legacy names, rate caps, discovery,
+account members/authentication or measured usage. Missing/native periods retain
+actual meaning. The page explicitly says local catalog changes do not verify
+Palpo delivery; executable publisher integration is a separate partition.
+
+Default console authority remains read only. The explicit publication issuer and
+CLI flag share existing finite issuer limits. Only management-session entries own
+opaque ResourcePublicationAccess; one non-Clone non-Deserialize command captures
+its original access, resource/revision/desired state and request deadline. Pending
+custody starts at preparation and lasts through worker disposal. Logout refuses
+Busy while queued or committing and offers a visible retry; it never waits for
+SQLite while holding the global map. Store ordering is SQLite IMMEDIATE then
+nonblocking original session gate, with no inverse map acquisition. Retirement
+uses an immediate atomic fence; clocks occur under the original gate after SQLite
+waiting and around commit. Post-commit loss is unknown, not claimed rollback.
+
+Native refusal DTOs use `code`, not `error`. The browser must preserve conflict,
+Busy and unknown explicitly. Publication affects only visibility/derived roles
+under actual configuration CAS; reconciliation reads do not attribute a previous
+lost action and never retry writes. Neither scripts nor asset manifests retain
+session or resource observations. Full creation/editing and other M7 work remain.
+
+For deliberate reply loss, Playwright route interception lacks Chromium's later
+Fetch Metadata. The test relay checks the actual page origin, forwards the actual
+HttpOnly cookie and supplies same-origin metadata, then discards the actual native
+response. This is a disclosed transport fixture; production authorization is not
+weakened, and publication through ordinary browser requests is tested separately.
+
+ADR108 final qualification is strict adapted lifecycle 7/7, with one actual passing
+test for each of the six selectors and the exact boundary of 32 files; the full
+console feature suite passes 9/9 and ordinary console checks pass 8/8. Final artifact
+4 contains 136 files / 6,069,438 bytes, largest 239,884. Original output, counts, argv
+and source hashes live in external migration cache `resource-*` evidence. The
+inventory of 543 selectors with none missing is listing only.
+The final Busy logout text is deliberately generic: both pending mutation custody
+and the shared finite HTTP request capacity can refuse revocation as Busy.

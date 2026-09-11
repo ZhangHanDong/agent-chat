@@ -33,6 +33,9 @@ pub fn assets(path: &Path) {
         .collect();
     private::write_new(&path.join("manifest.json"), json!({"version":1,"assets":[{"path":"usage/index.html","size":bytes.len(),"sha256":digest,"mime":"text/html; charset=utf-8"}]}).to_string().as_bytes()).unwrap();
 }
+pub fn native_resource(preset: &str) -> hagency_core::project::Resource {
+    serde_json::from_value(json!({"presetId":preset,"seatId":"private_resource_account","framework":"codex","model":"gpt-5.6-sol","reasoning":"medium","ceiling":{"tokens":5000,"period":"monthly"}})).unwrap()
+}
 pub fn seed(state: &Path) -> (DomainRepository, String) {
     let mut db = DomainRepository::open(state).unwrap();
     db.register(&common::registration()).unwrap();

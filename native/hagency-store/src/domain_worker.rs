@@ -2368,6 +2368,14 @@ impl DomainStore {
         self.call(weight(&id)?, move |db| db.resource_budget(&id))
             .await
     }
+    /// Host-only concrete publication command; never part of RunnerCommand.
+    pub async fn publish_resource(
+        &self,
+        command: crate::ResourcePublicationCommand,
+    ) -> Result<crate::ResourcePublicationResult, Error> {
+        self.call(command.weight(), move |db| db.publish_resource(command))
+            .await
+    }
     pub async fn register(&self, registration: Registration) -> Result<(), Error> {
         self.call(weight(&registration)?, move |db| db.register(&registration))
             .await

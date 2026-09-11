@@ -1,4 +1,4 @@
-//! Local operator command; its output contains only a short-lived read-only ticket.
+//! Local operator command; its output contains only a short-lived ticket for the explicitly selected scope.
 use super::Error;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, body::Bytes, client::conn::http1};
@@ -14,6 +14,16 @@ struct Issued {
     expires_in: u64,
 }
 pub async fn access(state: &Path, address: SocketAddr) -> Result<String, Error> {
+    scoped_access(state, address, false).await
+}
+pub async fn publication_access(state: &Path, address: SocketAddr) -> Result<String, Error> {
+    scoped_access(state, address, true).await
+}
+async fn scoped_access(
+    state: &Path,
+    address: SocketAddr,
+    publication: bool,
+) -> Result<String, Error> {
     if !address.ip().is_loopback()
         || address.port() == 0
         || matches!(address, SocketAddr::V6(v) if v.scope_id()!=0 || v.flowinfo()!=0)
@@ -26,11 +36,14 @@ pub async fn access(state: &Path, address: SocketAddr) -> Result<String, Error> 
     if !(32..=256).contains(&token.len()) || !token.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(Error::Unavailable);
     }
-    tokio::time::timeout(Duration::from_secs(5), exchange(address, token))
-        .await
-        .map_err(|_| Error::Unavailable)?
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        exchange(address, token, publication),
+    )
+    .await
+    .map_err(|_| Error::Unavailable)?
 }
-async fn exchange(address: SocketAddr, token: &str) -> Result<String, Error> {
+async fn exchange(address: SocketAddr, token: &str, publication: bool) -> Result<String, Error> {
     let stream = TcpStream::connect(address)
         .await
         .map_err(|_| Error::Unavailable)?;
@@ -45,7 +58,11 @@ async fn exchange(address: SocketAddr, token: &str) -> Result<String, Error> {
     authorization.set_sensitive(true);
     let request = Request::builder()
         .method("POST")
-        .uri("/api/native/v1/console/access")
+        .uri(if publication {
+            "/api/native/v1/console/resource-publication-access"
+        } else {
+            "/api/native/v1/console/access"
+        })
         .header("host", address.to_string())
         .header("authorization", authorization)
         .header("connection", "close")
@@ -88,7 +105,8 @@ async fn exchange(address: SocketAddr, token: &str) -> Result<String, Error> {
             return Err(Error::Unavailable);
         }
         Ok(format!(
-            "http://{address}/console/usage/#access={}",
+            "http://{address}/console/{}/#access={}",
+            if publication { "resources" } else { "usage" },
             issued.ticket
         ))
     };

@@ -591,7 +591,8 @@ The opt-in console serves the existing usage page, preferences and English/Chine
 presentation through Salvo. It reads the typed engagement ledger. Null periods,
 incomplete evidence, regressed latest counts and historical lower bounds remain
 visible; it does not provide fleet totals, provider billing, quota enforcement,
-other console workflows or dynamically provisioned Agent detail pages.
+dynamically provisioned Agent detail pages or the remaining console workflows.
+ADR108 adds resource observations and explicitly scoped native catalog actions below.
 
 Build assets with Node as a development tool, then use only the native executable
 for serving and access. The asset output must be a new directory. Its real path
@@ -610,14 +611,15 @@ exchanges that one-use read-only ticket for a 15-minute HttpOnly session. The
 operator token remains in the private state directory and never enters browser
 assets, JavaScript storage or the access link. Reissuing a link invalidates the
 previous outstanding ticket; issuance is limited to one per second, and at most
-four sessions coexist. End access revokes the current session. This is an opt-in
+four sessions coexist. End access confirms revocation only after success; a pending
+resource action can return Busy and the browser offers an explicit retry. This is an opt-in
 loopback HTTP development profile, without production configuration changes.
 
 The startup manifest allows at most 512 assets, 4 MiB each, 32 MiB total and 128 KiB of
 manifest JSON. Every actual source snapshot and digest is retained; later HTTP
 requests serve only captured bytes. A build exceeding a limit fails explicitly.
-The retained artifact contains 134 assets totaling 6,010,899 bytes, with a largest
-asset of 239,884 bytes.
+The usage-and-resource artifact contains 136 assets totaling 6,069,438 bytes,
+with a largest asset of 239,884 bytes.
 Build staging and failed outputs are retained
 for diagnosis; neither the builder nor runtime trims required chunks to fit.
 
@@ -638,3 +640,40 @@ real executable fixture starts `hagency serve` and `console-access` with an empt
 runtime PATH and drives that server from Chromium. Node/Chromium remain external
 build/test tools; there is no deployed Next server. These local browser results
 do not qualify untested operating systems or complete the remaining M7 workflows.
+
+
+## Retained native resource controls (ADR108)
+
+The existing resource page now reads safe configured profiles, included/withdrawn
+catalog status, actual selected pool/shared-account allocation and native role
+observations. Null limits and missing periods remain unknown. These are local
+configuration/allocation facts, not provider usage, installed runtime readiness or
+proof of delivery to Palpo. Selection uses `/console/resources/?resource_id=...`
+and works for rows created after the static artifact was built.
+
+Ordinary console tickets remain read only. To grant only native catalog visibility
+changes for the finite session, request the explicit scope:
+
+```sh
+hagency console-access --state-dir /absolute/native-state --manage-resource-publication
+```
+
+The retained Include/Withdraw control compares the exact actual configuration
+revision and changes publication and its derived roles only. Conflicts require a
+fresh read. Lost responses remain unknown; reading current state does not prove
+which action caused it. Writes never retry automatically. Busy or unknown logout
+clears observations but keeps unresolved revocation visible with a retry button.
+
+The store retains a concrete command from the original management session before
+queue admission. SQLite IMMEDIATE precedes a nonblocking per-session mutation
+gate; the global session map is never held across disk IO. Original deadlines,
+session expiry and retirement are checked after SQLite waits and around commit.
+Read-only sessions cannot construct commands. No internal account/preset identity,
+full resource configuration, credential or auth-home enters browser DTOs.
+
+Full creation/editing, names, rate caps, execution policy, host discovery, Agent
+routes, account membership/authentication and remote publication remain separate
+migration slices. ADR108 is the first native resource management step, not full M7
+parity. The mandatory browser lane above includes both resource selectors; it
+exercises actual publication in both languages and a native executable with an
+empty runtime PATH. It does not use live configuration or a deployed Node server.

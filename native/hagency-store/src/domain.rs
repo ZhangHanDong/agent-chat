@@ -35,6 +35,7 @@ pub(crate) mod file_delivery;
 mod peers;
 pub(crate) mod received_files;
 mod replies;
+pub(crate) mod resource_publication;
 mod task_intents;
 pub(crate) mod uploads;
 mod usage;

@@ -1,5 +1,8 @@
 //! Finite in-memory browser authority, distinct from the operator credential.
 use super::Error;
+use hagency_store::{
+    ResourcePublicationAccess, ResourcePublicationCommand, ResourcePublicationRetirement,
+};
 use sha2::{Digest, Sha256};
 use std::{
     sync::Mutex,
@@ -14,6 +17,8 @@ pub(super) const COOKIE: &str = "hagency_console";
 struct Grant {
     hash: [u8; 32],
     expires: Instant,
+    manage_publication: bool,
+    publication: Option<ResourcePublicationAccess>,
 }
 struct State {
     retired: bool,
@@ -21,7 +26,7 @@ struct State {
     sessions: Vec<Grant>,
     issued: Option<Instant>,
 }
-pub(super) struct Authority(Mutex<State>);
+pub(super) struct Authority(Mutex<State>, ResourcePublicationRetirement);
 pub(super) struct Session([u8; 32]);
 
 fn secret() -> Result<String, Error> {
@@ -44,21 +49,34 @@ fn matches(grant: &Grant, digest: &[u8; 32], now: Instant) -> bool {
 }
 impl Authority {
     pub(super) fn new() -> Self {
-        Self(Mutex::new(State {
-            retired: false,
-            ticket: None,
-            sessions: Vec::new(),
-            issued: None,
-        }))
+        Self(
+            Mutex::new(State {
+                retired: false,
+                ticket: None,
+                sessions: Vec::new(),
+                issued: None,
+            }),
+            ResourcePublicationRetirement::default(),
+        )
     }
     pub(super) fn issue(&self) -> Result<String, Error> {
         self.issue_with(Instant::now)
+    }
+    pub(super) fn issue_publication(&self) -> Result<String, Error> {
+        self.issue_scope(Instant::now, true)
     }
     #[cfg(test)]
     fn issue_at(&self, now: Instant) -> Result<String, Error> {
         self.issue_with(|| now)
     }
     fn issue_with(&self, clock: impl FnOnce() -> Instant) -> Result<String, Error> {
+        self.issue_scope(clock, false)
+    }
+    fn issue_scope(
+        &self,
+        clock: impl FnOnce() -> Instant,
+        manage_publication: bool,
+    ) -> Result<String, Error> {
         let mut state = self.0.lock().map_err(|_| Error::Unavailable)?;
         let now = clock();
         if state.retired {
@@ -74,6 +92,8 @@ impl Authority {
         state.ticket = Some(Grant {
             hash: hash(&value)?,
             expires: now + TICKET_LIFETIME,
+            manage_publication,
+            publication: None,
         });
         state.issued = Some(now);
         Ok(value)
@@ -108,10 +128,14 @@ impl Authority {
             return Err(Error::Busy);
         }
         let value = secret()?;
+        let manage_publication = state.ticket.as_ref().is_some_and(|t| t.manage_publication);
         state.ticket = None;
         state.sessions.push(Grant {
             hash: hash(&value)?,
             expires: now + SESSION_LIFETIME,
+            manage_publication,
+            publication: manage_publication
+                .then(|| ResourcePublicationAccess::new(now + SESSION_LIFETIME, self.1.clone())),
         });
         Ok(value)
     }
@@ -141,17 +165,73 @@ impl Authority {
     }
     pub(super) fn revoke(&self, session: &Session) -> Result<(), Error> {
         let mut state = self.0.lock().map_err(|_| Error::Unavailable)?;
+        if let Some(access) = state
+            .sessions
+            .iter()
+            .find(|s| bool::from(s.hash.ct_eq(&session.0)))
+            .and_then(|s| s.publication.as_ref())
+        {
+            access.revoke().map_err(|e| {
+                if matches!(e, hagency_store::Error::Busy) {
+                    Error::Busy
+                } else {
+                    Error::Unavailable
+                }
+            })?;
+        }
         state
             .sessions
             .retain(|s| !bool::from(s.hash.ct_eq(&session.0)));
         Ok(())
     }
     pub(super) fn retire(&self) {
+        self.1.retire();
         if let Ok(mut state) = self.0.lock() {
             state.retired = true;
             state.ticket = None;
             state.sessions.clear();
         }
+    }
+    pub(super) fn can_publish(&self, session: &Session) -> Result<bool, Error> {
+        let state = self.0.lock().map_err(|_| Error::Unavailable)?;
+        if state.retired {
+            return Err(Error::Unavailable);
+        }
+        let now = Instant::now();
+        state
+            .sessions
+            .iter()
+            .find(|s| matches(s, &session.0, now))
+            .map(|s| s.publication.is_some())
+            .ok_or(Error::Unauthorized)
+    }
+    pub(super) fn publication(
+        &self,
+        session: &Session,
+        resource: String,
+        revision: String,
+        published: bool,
+        deadline: Instant,
+    ) -> Result<ResourcePublicationCommand, Error> {
+        let state = self.0.lock().map_err(|_| Error::Unavailable)?;
+        if state.retired {
+            return Err(Error::Unavailable);
+        }
+        let now = Instant::now();
+        let grant = state
+            .sessions
+            .iter()
+            .find(|s| matches(s, &session.0, now))
+            .ok_or(Error::Unauthorized)?;
+        let access = grant.publication.as_ref().ok_or(Error::Forbidden)?;
+        access
+            .prepare(resource, revision, published, deadline)
+            .map_err(|e| match e {
+                hagency_store::Error::Busy => Error::Busy,
+                hagency_store::Error::LocalAuthority => Error::Unauthorized,
+                hagency_store::Error::Invalid(_) => Error::Invalid,
+                _ => Error::Unavailable,
+            })
     }
 }
 
@@ -245,5 +325,62 @@ mod tests {
             drop(held);
             assert!(matches!(call.join().unwrap(), Err(Error::Unauthorized)));
         }
+    }
+    #[test]
+    fn native_console_resource_scope_expiry() {
+        let authority = Authority::new();
+        let now = Instant::now();
+        let ticket = authority.issue_scope(|| now, true).unwrap();
+        assert!(matches!(
+            authority.exchange_at(&ticket, now + TICKET_LIFETIME),
+            Err(Error::Unauthorized)
+        ));
+        let ticket = authority
+            .issue_scope(|| now + Duration::from_secs(1), true)
+            .unwrap();
+        let cookie = authority
+            .exchange_at(&ticket, now + Duration::from_secs(1))
+            .unwrap();
+        let session = authority.authenticate(&cookie).unwrap();
+        assert!(authority.can_publish(&session).unwrap());
+        let command = authority
+            .publication(
+                &session,
+                "resource".into(),
+                "a".repeat(64),
+                false,
+                Instant::now() + Duration::from_secs(2),
+            )
+            .unwrap();
+        assert!(matches!(authority.revoke(&session), Err(Error::Busy)));
+        authority.check(&session).unwrap();
+        drop(command);
+        authority.revoke(&session).unwrap();
+        assert!(matches!(
+            authority.check(&session),
+            Err(Error::Unauthorized)
+        ));
+        let ticket = authority
+            .issue_scope(|| now + Duration::from_secs(2), true)
+            .unwrap();
+        let cookie = authority
+            .exchange_at(&ticket, now + Duration::from_secs(2))
+            .unwrap();
+        let session = Session(hash(&cookie).unwrap());
+        assert!(matches!(
+            authority.check_at(&session, now + Duration::from_secs(2) + SESSION_LIFETIME),
+            Err(Error::Unauthorized)
+        ));
+        authority.retire();
+        assert!(matches!(
+            authority.publication(
+                &session,
+                "resource".into(),
+                "a".repeat(64),
+                false,
+                Instant::now() + Duration::from_secs(2)
+            ),
+            Err(Error::Unavailable)
+        ));
     }
 }

@@ -3,6 +3,10 @@ mod database;
 mod domain;
 mod domain_worker;
 pub mod private;
+pub use domain::resource_publication::{
+    ResourcePublicationAccess, ResourcePublicationCommand, ResourcePublicationResult,
+    ResourcePublicationRetirement, resource_publication_revision,
+};
 pub use domain::uploads::UploadSettlement;
 pub use domain::{
     AttachmentTicket, DomainRepository, Effect, EffectOutcome, EffectState, KnownTokens,
@@ -25,6 +29,8 @@ pub use worker::Store;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("local management session is expired or retired")]
+    LocalAuthority,
     #[error("runner capability is missing, stale or outside the task scope")]
     RunnerAuthority,
     #[error("session or resource requires inspected recovery")]
