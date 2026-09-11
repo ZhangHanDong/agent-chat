@@ -16,6 +16,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --locked -p hagency-media-store --example windows_directory_flush -- -D warnings
+      - run: cargo test --locked -p hagency-media-store --example windows_directory_flush native_windows_directory_profile_flags -- --exact
       - run: cargo build --locked -p hagency-media-store --example windows_directory_flush
       - name: Preserve original native Windows probe verdict
         id: original

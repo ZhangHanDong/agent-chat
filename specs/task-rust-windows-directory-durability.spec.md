@@ -13,7 +13,7 @@ changing production media durability or enabling file upload.
 ## Constraints
 
 ### Must
-- Run the actual qualification executable on Windows under an effective same-user token with administrator membership disabled and no enabled privileges.
+- Run the actual qualification executable on Windows under an effective same-user token with administrator membership disabled no enabled privileges and no app-container token.
 - Open only fixed relative dot beneath the retained directory and verify complete volume and 128-bit file identity plus existing private handle checks.
 - Require actual local NTFS device classification and independent successful file and directory flush acknowledgements.
 - Run real bounded snapshot encryption staging and exact process-restart restoration only after the candidate passes.
@@ -50,6 +50,13 @@ changing production media durability or enabling file upload.
 - Existing CI workflows production media synchronization and service profiles remain outside this task.
 
 ## Acceptance Criteria
+
+Scenario: Only explicitly classified mounted device flags are admitted
+  Test: native_windows_directory_profile_flags
+  Given the exact mounted bit and optional named app-container traversal flag
+  When the profile includes any other bit a wrong device or lacks mounted status
+  Then classification refuses while both exact known profiles remain eligible for actual verification
+  And this pure classification never supplies file or directory acknowledgement
 
 Scenario: Ordinary-token retained local NTFS candidate qualifies or refuses explicitly
   Test: native_windows_directory_probe

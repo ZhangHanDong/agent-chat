@@ -5584,3 +5584,17 @@ An independent exact11-path source check confirms the allowed boundary, append
 only coordination changes, unchanged lock and production forbid-only attribute.
 The unsafe-checker audit records actual token and handle RAII, bounded aligned
 FFI output storage, complete native status checks and one-child cleanup custody.
+
+ADR103 original Windows run34574539701/job103183905652 failed at the device
+profile gate. Actual ordinary-token/RW same-object/private/NTFS checks passed;
+read-only baseline sync returned Win32 error5. Characteristics0x20020 caused
+refusal before candidate sync, mutation or staging. Artifact original_exit=78
+and complete original failed job log are retained externally.
+
+The approved probe-only follow-up classifies exactly the documented optional
+FILE_DEVICE_ALLOW_APPCONTAINER_TRAVERSAL bit, requires an actually non-app-container
+token, and retains zero enabled privileges and every other existing gate. The
+pure profile test passes1/1, covering both exact allowed profiles, each of the
+other30 bits, missing mount status and wrong device classes. Native example
+and Windows GNU all-target Clippy pass. The next native run is separate evidence;
+no flush or restoration success is inferred from these checks.

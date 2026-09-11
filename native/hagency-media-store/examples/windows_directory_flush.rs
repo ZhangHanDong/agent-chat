@@ -73,3 +73,41 @@ fn native_windows_directory_probe() {
         "actual Windows qualification refused; preserve original evidence"
     );
 }
+
+// MS-FSCC FileFsDeviceInformation. Keep this pure gate visible to native tests;
+// every accepted actual device still needs the complete Windows evidence path.
+#[cfg(any(windows, test))]
+fn supported_profile(device: u32, characteristics: u32) -> bool {
+    const FILE_DEVICE_IS_MOUNTED: u32 = 0x20;
+    const FILE_DEVICE_ALLOW_APPCONTAINER_TRAVERSAL: u32 = 0x20000;
+    device == 7
+        && characteristics & FILE_DEVICE_IS_MOUNTED != 0
+        && characteristics & !(FILE_DEVICE_IS_MOUNTED | FILE_DEVICE_ALLOW_APPCONTAINER_TRAVERSAL)
+            == 0
+}
+
+#[test]
+fn native_windows_directory_profile_flags() {
+    assert!(supported_profile(7, 0x20));
+    assert!(supported_profile(7, 0x20020));
+    for value in [0, 0x20000, u32::MAX] {
+        assert!(!supported_profile(7, value));
+    }
+    for bit in 0..32 {
+        if bit != 5 && bit != 17 {
+            assert!(!supported_profile(7, 0x20 | (1 << bit)));
+        }
+    }
+    for device in [0, 2, 8, 0x14, u32::MAX] {
+        assert!(!supported_profile(device, 0x20));
+        assert!(!supported_profile(device, 0x20020));
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Wdk::System::SystemServices::{
+            FILE_DEVICE_ALLOW_APPCONTAINER_TRAVERSAL, FILE_DEVICE_IS_MOUNTED,
+        };
+        assert_eq!(FILE_DEVICE_IS_MOUNTED, 0x20);
+        assert_eq!(FILE_DEVICE_ALLOW_APPCONTAINER_TRAVERSAL, 0x20000);
+    }
+}

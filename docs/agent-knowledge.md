@@ -2407,3 +2407,9 @@ is distinct from upload acceptance and canonical task Done.
   flush without the directory-structure operation. This probe changes no
   production sync evidence or upload gate. A later implementation must retain
   that filesystem restriction; successful file sync alone remains insufficient.
+- ADR103's first actual Windows refusal observed0x20020: mounted plus the named
+  FILE_DEVICE_ALLOW_APPCONTAINER_TRAVERSAL characteristic. MS-FSCC ties that extra
+  bit to app-container clients with traversal privilege, not remote/virtual
+  storage. The explicit follow-up accepts only that named optional bit and
+  additionally proves TokenIsAppContainer=false; all other bits remain refused.
+  Original failure occurred before candidate flush and remains failed.

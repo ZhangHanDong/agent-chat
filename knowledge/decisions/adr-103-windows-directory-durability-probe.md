@@ -48,6 +48,17 @@ bounded internal custody. Token query memory is fixed and diagnostics contain
 no private identifiers or material. The crate's production unsafe prohibition
 remains explicit; only audited example FFI modules permit unsafe.
 
+The original native run34574539701 at06e859d failed before candidate sync:
+ordinary-token, RW same-object/privacy and NTFS/type7 checks passed, but the
+observed characteristics0x20020 exceeded the initial mounted-only whitelist.
+Baseline read-only sync returned actual error5. The follow-up admits only the
+exact named FILE_DEVICE_ALLOW_APPCONTAINER_TRAVERSAL bit alongside mounted,
+with actual TokenIsAppContainer=false and zero enabled privileges. MS-FSCC
+specifies this bit changes traversal checks only for app-container tokens with
+traversal privilege; it does not classify remote or virtual storage. Every
+other bit still refuses. [Device characteristics](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/616b66d5-b335-4e1c-8f87-b4a55e8d3e4a).
+The original failure stays failed; its artifact contains original_exit=78.
+
 ## Consequences
 
 A positive result qualifies the observed local NTFS OS-acknowledgement mechanism

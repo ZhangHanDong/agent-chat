@@ -170,6 +170,17 @@ impl Ordinary {
         // SAFETY: This is a newly owned successful query handle.
         let effective = unsafe { OwnedHandle::from_raw_handle(effective) };
         let current_user = information(effective.as_raw_handle(), TokenUser)?;
+        {
+            let app_container = information(effective.as_raw_handle(), TokenIsAppContainer)?;
+            if app_container.bytes != size_of::<u32>() {
+                return Err(Failure::refused("app_container_size"));
+            }
+            // SAFETY: The initialized aligned buffer contains the documented
+            // DWORD result of TokenIsAppContainer, with its exact byte length.
+            if unsafe { *app_container.storage.as_ptr().cast::<u32>() } != 0 {
+                return Err(Failure::refused("app_container_token"));
+            }
+        }
         let current_sid = sid(&current_user)?;
         for service in [WinLocalSystemSid, WinLocalServiceSid, WinNetworkServiceSid] {
             // SAFETY: The validated SID remains borrowed from current_user.
@@ -224,7 +235,7 @@ impl Ordinary {
             return Err(Failure::refused("enabled_privilege"));
         }
         println!(
-            "{{\"phase\":\"effective_non_admin\",\"same_user\":true,\"enabled_privileges\":0}}"
+            "{{\"phase\":\"effective_non_admin\",\"same_user\":true,\"enabled_privileges\":0,\"app_container\":false}}"
         );
         Ok(guard)
     }

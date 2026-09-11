@@ -145,9 +145,10 @@ fn profile(file: &File) -> Result<()> {
         "{{\"phase\":\"filesystem_profile\",\"ntfs\":true,\"device_type\":{},\"characteristics\":{}}}",
         device.DeviceType, device.Characteristics
     );
-    // MS-FSCC: 7 = disk; only the documented mounted bit is admitted here.
-    // Remote, virtual, readonly, removable and any unknown characteristic refuse.
-    if device.DeviceType != 7 || device.Characteristics != 0x20 {
+    // The optional named app-container traversal bit is classified explicitly.
+    // The actual token must not be an app container and has no enabled
+    // privileges. Every other characteristic still refuses.
+    if !super::supported_profile(device.DeviceType, device.Characteristics) {
         return Err(Failure::refused("local_mounted_disk"));
     }
     Ok(())
