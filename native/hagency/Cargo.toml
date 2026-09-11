@@ -54,5 +54,9 @@ path = "tests/fixtures/owned_mcp_peer.rs"
 name = "hagency-file-mcp-probe"
 path = "tests/fixtures/file_mcp_peer.rs"
 
+[[bin]]
+name = "hagency-receive-mcp-probe"
+path = "tests/fixtures/receive_mcp_peer.rs"
+
 [lints]
 workspace = true
