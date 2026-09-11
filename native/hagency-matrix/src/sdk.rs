@@ -30,6 +30,9 @@ mod approval_intake;
 mod attachments;
 mod keys;
 mod outgoing;
+mod upload_custody;
+#[path = "upload_custody.rs"]
+pub(crate) mod upload_state;
 
 const JOURNAL: &[u8] = b"hagency.observer.sync.v1";
 const DATABASES: [&str; 2] = ["matrix-sdk-state.sqlite3", "matrix-sdk-crypto.sqlite3"];
@@ -39,6 +42,8 @@ const MAX_SYNCS: usize = 64;
 const MAX_JOURNAL_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Default, Serialize, Deserialize)]
 struct Journal {
+    #[serde(default)]
+    uploads: Option<upload_state::Marker>,
     #[serde(default)]
     attachments: std::collections::BTreeMap<String, crate::attachments::Manifest>,
     #[serde(default)]
@@ -61,6 +66,10 @@ struct Journal {
     outgoing_receipts: Vec<crate::outgoing::state::Receipt>,
 }
 enum Command {
+    Upload(
+        upload_custody::Command,
+        oneshot::Sender<Result<upload_custody::Reply, Error>>,
+    ),
     Attachment(
         Box<hagency_store::AttachmentTicket>,
         tokio::sync::OwnedSemaphorePermit,
@@ -119,10 +128,13 @@ enum Command {
     Close(oneshot::Sender<Result<(), Error>>),
 }
 pub(crate) struct Owner {
+    upload_context: upload_state::Context,
     tx: mpsc::Sender<Command>,
     timeout: Duration,
 }
 struct Init {
+    upload_context: upload_state::Context,
+    upload_epoch: std::sync::Arc<()>,
     approval: bool,
     existing: bool,
     root: PathBuf,
@@ -140,6 +152,8 @@ impl Owner {
     }
     async fn open_mode(config: &HostConfig, existing: bool) -> Result<Self, Error> {
         let init = Init {
+            upload_context: upload_state::Context::new(config)?,
+            upload_epoch: std::sync::Arc::new(()),
             approval: config.approval,
             existing,
             root: config.root.clone(),
@@ -183,10 +197,18 @@ impl Owner {
                         }
                     };
                     if let Some(ready) = ready.take() {
-                        let _ = ready.send(Ok(()));
+                        let _ = ready.send(Ok(sdk.upload_context.clone()));
                     }
                     while let Some(command) = rx.recv().await {
                         match command {
+                            Command::Upload(command, reply) => {
+                                #[cfg(test)]
+                                let lose = matches!(&command, upload_custody::Command::Accept(..) | upload_custody::Command::Reserve(..) | upload_custody::Command::Possible(..)) && std::mem::take(&mut sdk.upload_reply_loss);
+                                let result = sdk.upload(command).await;
+                                #[cfg(test)]
+                                if lose && result.is_ok() { drop(reply); continue; }
+                                let _ = reply.send(result);
+                            }
                             Command::Attachment(ticket, permit, reply) => {
                                 let _ = reply.send(sdk.attachment(*ticket, permit));
                             }
@@ -330,11 +352,12 @@ impl Owner {
                 }
             })
             .map_err(|_| Error::Storage)?;
-        tokio::time::timeout(config.limits.sdk, wait)
+        let upload_context = tokio::time::timeout(config.limits.sdk, wait)
             .await
             .map_err(|_| Error::OutcomeUnknown)?
             .map_err(|_| Error::Storage)??;
         Ok(Self {
+            upload_context,
             tx,
             timeout: config.limits.sdk,
         })
@@ -575,6 +598,12 @@ fn prepare(init: &Init) -> Result<(File, bool), Error> {
     Ok((lock, fresh))
 }
 struct Sdk {
+    upload_context: upload_state::Context,
+    upload_epoch: std::sync::Arc<()>,
+    uploads: Option<upload_state::Ledger>,
+    upload_poisoned: bool,
+    #[cfg(test)]
+    upload_reply_loss: bool,
     approval: bool,
     approval_poisoned: bool,
     outgoing_poisoned: bool,
@@ -671,6 +700,11 @@ impl Sdk {
                 None if fresh => Journal::default(),
                 None => return Err(Error::Storage),
             };
+            let mut upload_context = init.upload_context.clone();
+            upload_context.sdk = identity.clone();
+            let uploads =
+                upload_custody::load(&client, &cipher, journal.uploads.as_ref(), &upload_context)
+                    .await?;
             attachments::validate(&identity, &init.user, &init.device, &journal.attachments)?;
             if let Some(batch) = &journal.intake
                 && batch.phase == Phase::Derived
@@ -784,11 +818,17 @@ impl Sdk {
                     .map_err(|_| Error::Storage)?;
             }
             files(&init.root)?;
-            Ok(journal)
+            Ok((journal, upload_context, uploads))
         }
         .await;
         match result {
-            Ok(journal) => Ok(Self {
+            Ok((journal, upload_context, uploads)) => Ok(Self {
+                upload_context,
+                upload_epoch: init.upload_epoch.clone(),
+                uploads,
+                upload_poisoned: false,
+                #[cfg(test)]
+                upload_reply_loss: false,
                 approval: init.approval,
                 approval_poisoned: false,
                 outgoing_poisoned: false,
@@ -1386,3 +1426,7 @@ impl Owner {
         reply.await.unwrap()
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/upload_custody/mod.rs"]
+mod upload_fixture;

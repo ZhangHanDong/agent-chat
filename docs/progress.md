@@ -4795,3 +4795,46 @@ selectors ran after the strict final-deadline check was added. Native and Window
 GNU all-target platform Clippy pass with warnings denied; fmt/diff pass. Actual
 hosted qualification remains pending; controlled pause/exit evidence does not
 identify the original macOS CI schedule or turn its failure into success.
+
+## 2026-09-10 — Protected upload acceptance SDK journal (ADR084)
+
+Created an isolated8fce06e worktree, read the accepted staging/upload boundaries
+and external acceptance-journal design, and parsed/linted the bounded contract
+before source changes. Incorporated ADR083's committed sealed-response dependency
+without editing its files. The SDK now owns a separate encrypted custom journal,
+versioned main-journal marker, exact owner-bound one-use reservation and finite
+response custody. Historical exact-id lookup restores bounded metadata only.
+
+The first six actual SQLite/SDK and local TLS tests passed. They cover original
+raw whitespace/escaping through reopen, lost acknowledgement, stale owner permits,
+negative exact identity, cancellation/historical settlement, a real SQLite abort,
+corruption/torn bootstrap and capacity independent of main-journal growth. Added
+lost reservation/Possible acknowledgements, decoded malformed-route validation,
+maximum body capacity and exact historical lookup before final verification.
+Production entry points remain deliberately unwired and carry narrow dead-code
+expectations only at future-coordinator methods. Final checks are recorded below.
+
+Uncommitted positive bytes remain bounded in the poisoned owner only until close;
+no process-global recovery map exists. An original host-retained UploadAttempt may
+later resubmit its exact sealed response after validated SDK reopen. This does not
+repeat HTTP, recover a lost original attempt after process death, or prove actual
+response-to-operation association. Domain-only staging observations in fixtures
+qualify the real registry boundary, not physical ADR079 staging or Windows sync.
+
+Final contract verification passed7/7: all six explicit SDK scenarios and the
+boundary check covering eight exact paths, with zero failed/skipped/uncertain or
+pending-review results. Native and Windows GNU all-target Clippy pass with
+warnings denied; rustfmt and diff checks pass. Strict lifecycle's initial added
+fence fixture expected Storage although the validator returned Identity; its
+failed report is retained externally, and the corrected fixture now asserts that
+exact refusal. A real issued601-byte opaque thread root verifies compatibility
+with domain SessionBinding syntax while the complete identity remains capped.
+Global64 memory custody covers queued/uncommitted copies; each SDK's permanent
+ledger separately bounds committed/restored bodies. No global retained-body bound
+or native Windows runtime durability result is implied by cross-compilation.
+
+The final full Matrix regression passes104 tests:83 library,6 download,6 upload
+and9 transport, with zero failures or ignored tests. External upload-custody-*
+logs retain final parse/lint, focused/full test, native/Windows GNU Clippy and
+strict lifecycle results. Native Windows execution and a consuming cross-crate
+upload coordinator remain separate qualification work.
