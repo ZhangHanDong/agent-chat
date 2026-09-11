@@ -62,6 +62,134 @@ impl Response {
     }
 }
 impl Http {
+    /// Build only the fixed encrypted upload path. The host already holds
+    /// bounded attempt/transfer custody; this method performs no network I/O.
+    pub(crate) fn prepare_upload(
+        &self,
+        ciphertext: &[u8],
+        cap: usize,
+    ) -> Result<reqwest::Request, Error> {
+        if ciphertext.len() > cap {
+            return Err(Error::BodyTooLarge);
+        }
+        let mut body = Vec::new();
+        body.try_reserve_exact(ciphertext.len())
+            .map_err(|_| Error::Capacity)?;
+        body.extend_from_slice(ciphertext);
+        let mut url = self.base.clone();
+        url.path_segments_mut()
+            .map_err(|_| Error::Config)?
+            .clear()
+            .extend(["_matrix", "media", "v3", "upload"]);
+        self.client
+            .post(url)
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .header(header::CONTENT_LENGTH, body.len())
+            .body(body)
+            .build()
+            .map_err(|_| Error::Config)
+    }
+    /// Caller marks WritePossible before polling this future. A failure cannot
+    /// establish non-delivery; existing JSON request behavior remains unchanged.
+    pub(crate) async fn upload(
+        &self,
+        request: reqwest::Request,
+        deadline: Instant,
+        cancel: &CancellationToken,
+    ) -> Result<crate::MediaId, Error> {
+        const CAP: usize = 4096;
+        let mut response = wait(
+            cancel,
+            deadline.min(Instant::now() + self.limits.headers),
+            self.client.execute(request),
+        )
+        .await?
+        .map_err(|_| Error::Transport)?;
+        let headers = response.headers();
+        if headers.len() > 64
+            || headers
+                .iter()
+                .map(|(k, v)| k.as_str().len() + v.len())
+                .sum::<usize>()
+                > 16384
+            || [
+                header::CONTENT_LENGTH,
+                header::TRANSFER_ENCODING,
+                header::CONTENT_ENCODING,
+                header::CONTENT_TYPE,
+            ]
+            .iter()
+            .any(|name| headers.get_all(name).iter().count() > 1)
+            || headers
+                .get(header::CONTENT_ENCODING)
+                .is_some_and(|v| v != "identity")
+            || headers
+                .get(header::TRANSFER_ENCODING)
+                .is_some_and(|v| v != "chunked")
+            || (headers.contains_key(header::CONTENT_LENGTH)
+                && headers.contains_key(header::TRANSFER_ENCODING))
+        {
+            return Err(Error::Headers);
+        }
+        let declared = headers
+            .get(header::CONTENT_LENGTH)
+            .map(|v| {
+                let value = v.to_str().map_err(|_| Error::Headers)?;
+                if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(Error::Headers);
+                }
+                value.parse::<u64>().map_err(|_| Error::Headers)
+            })
+            .transpose()?;
+        match response.status().as_u16() {
+            200 => {}
+            300..=399 => return Err(Error::Redirect),
+            401 | 403 => return Err(Error::Unauthorized),
+            status => return Err(Error::Remote(status)),
+        }
+        if headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(';').next())
+            .is_none_or(|v| v.trim() != "application/json")
+        {
+            return Err(Error::Headers);
+        }
+        if declared.is_some_and(|n| n > CAP as u64) {
+            return Err(Error::BodyTooLarge);
+        }
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(CAP).map_err(|_| Error::Capacity)?;
+        loop {
+            let next = wait(
+                cancel,
+                deadline.min(Instant::now() + self.limits.body_idle),
+                response.chunk(),
+            )
+            .await?
+            .map_err(|_| Error::Transport)?;
+            let Some(next) = next else {
+                break;
+            };
+            if next.len() > CAP.saturating_sub(bytes.len()) {
+                return Err(Error::BodyTooLarge);
+            }
+            bytes.extend_from_slice(&next);
+        }
+        if declared.is_some_and(|n| n != bytes.len() as u64) {
+            return Err(Error::Transport);
+        }
+        let body = wire::json(&bytes)?;
+        let object = body
+            .as_object()
+            .filter(|v| v.len() == 1)
+            .ok_or(Error::Wire)?;
+        let mxc = object
+            .get("content_uri")
+            .and_then(Value::as_str)
+            .ok_or(Error::Wire)?;
+        crate::MediaId::new(mxc).map_err(|_| Error::Wire)
+    }
     /// Binary repository GET. JSON request/response behavior below is unchanged.
     /// The caller already holds a finite transfer permit and absolute deadline.
     pub(crate) async fn download(

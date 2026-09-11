@@ -1139,7 +1139,9 @@ name = "hagency-matrix"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "cap-std",
  "hagency-core",
+ "hagency-files",
  "hagency-matrix-format",
  "hagency-media",
  "hagency-store",

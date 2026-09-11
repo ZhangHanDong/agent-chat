@@ -25,6 +25,10 @@ pub struct MediaId {
     media: String,
 }
 impl MediaId {
+    /// Bounded repository identity only; never an HTTP destination or event proof.
+    pub fn to_mxc(&self) -> String {
+        format!("mxc://{}/{}", self.server, self.media)
+    }
     pub fn new(mxc: &str) -> Result<Self, MediaDownloadError> {
         let invalid = || MediaDownloadError::MediaId;
         if mxc.len() > 517 || !mxc.is_ascii() {

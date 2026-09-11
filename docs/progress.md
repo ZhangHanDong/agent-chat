@@ -4284,3 +4284,34 @@ regression passed. Windows passed all19 outgoing cases, media8/8, download6/6 an
 approval8/8; both failure-only diagnostics were skipped, not additional evidence.
 All release builds and Clippy passed. The old3b5db90 Windows failures remain
 unexplained. These results concern a2f8348, not the later usage capture changes.
+
+## 2026-09-10 — Bounded encrypted media upload transport
+
+ADR072 adds an actual binary HTTPS POST primitive under the existing hardened
+client. A caller-held attempt borrows the exact SDK Encrypted object, retains a
+finite slot and moves irreversibly to WritePossible before request polling.
+Future drop, cancellation, timeout or invalid responses preserve uncertainty and
+the caller's ciphertext/descriptor custody. Accepted is stored only after complete
+bounded unambiguous JSON, validated MXC and a final cancellation/deadline check.
+Neither an error nor a returned URI establishes room/event/delivery authority or
+safe automatic retry. No domain/file-tool/live service or staged-media adapter is
+enabled. Existing JSON and download methods remain unchanged.
+
+Five real local TLS selectors pass with actual retained file snapshots and SDK
+encryption. They inspect exact ciphertext, bearer destination and absent secret
+metadata; exercise valid4096/refused4097 response size, duplicate fields, invalid
+MXCs, malformed framing, header limits, truncated/unclean EOF, cancellation,
+future drop, header/body/absolute deadlines, terminal no-resend and shared active
+plus held-attempt limits. Header-negative fixtures carry otherwise valid URI
+bodies. Initial test compilation exposed only a helper-name shadow and unused
+import, fixed before executing tests; original log is retained externally.
+All 85 affected Matrix tests pass: 65 library, 6 download, 5 upload and 9
+transport. Native and Windows GNU all-target Clippy pass with warnings denied;
+the first Clippy run requested one equivalent boolean simplification, corrected
+without changing policy. Windows cross-check is compilation evidence only;
+actual Windows execution remains an integration CI gate. Formatting and diff
+checks pass. Strict crate-scoped agent-spec lifecycle passes 6/6 (five bound TLS
+selectors plus the explicit eleven-path boundary), with zero failed, skipped,
+uncertain or pending-review verdicts. External media-upload-* logs retain the
+original failures and successful checks. No full workspace build or live
+service was needed.

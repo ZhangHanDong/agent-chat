@@ -1,5 +1,14 @@
 # Repository audit knowledge
 
+- **Native encrypted upload, 2026-09-10:** ADR072 borrows an actual SDK Encrypted
+  object and uploads only its ciphertext to the configured HTTPS homeserver.
+  Descriptor keys and filenames never enter the request. A finite attempt slot
+  retains Prepared/WritePossible/Accepted state; possible writes cannot resend
+  on the same attempt, even after cancellation or a lost response. Valid bounded
+  content_uri acceptance does not establish event or room authority. This is an
+  in-memory transport boundary, not a durable retry journal: Matrix POST upload
+  has no transaction ID, and dropping unknown custody is not remote absence proof.
+
 - **Typed runtime usage, 2026-09-10:** ADR071 adds pure fixed untrusted Codex
   counter normalization, separate from ADR070's actual execution/source binding.
   The pinned nonzero cache-write fixture makes fresh input equal input minus

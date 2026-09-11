@@ -27,6 +27,8 @@ http = "=1.5.0"
 ruma = { version = "=0.16.0", features = ["client-api-c", "events"] }
 
 [dev-dependencies]
+hagency-files = { path = "../hagency-files" }
+cap-std = "=4.0.3"
 base64 = "=0.22.1"
 tempfile.workspace = true
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
