@@ -35,6 +35,7 @@ struct QueueObservation;
 
 mod approval_intake;
 mod attachments;
+pub(crate) mod enrollment;
 pub(crate) mod file_publication;
 mod keys;
 mod outgoing;
@@ -50,6 +51,8 @@ const MAX_SYNCS: usize = 64;
 const MAX_JOURNAL_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Default, Serialize, Deserialize)]
 struct Journal {
+    #[serde(default)]
+    enrollment: Option<String>,
     #[serde(default)]
     uploads: Option<upload_state::Marker>,
     #[serde(default)]
@@ -74,6 +77,10 @@ struct Journal {
     outgoing_receipts: Vec<crate::outgoing::state::Receipt>,
 }
 enum Command {
+    Enrollment(
+        enrollment::Command,
+        oneshot::Sender<Result<crate::enrollment::state::View, Error>>,
+    ),
     #[cfg(test)]
     Observed(CommandTrace, Box<Command>),
     Upload(
@@ -147,6 +154,7 @@ pub(crate) struct Owner {
     timeout: Duration,
 }
 struct Init {
+    enrollment: Option<crate::enrollment::state::Profile>,
     upload_context: upload_state::Context,
     upload_epoch: std::sync::Arc<()>,
     approval: bool,
@@ -169,6 +177,7 @@ impl Owner {
         let opening_observation = observation::current();
         observe!(OpenRequested);
         let init = Init {
+            enrollment: config.enrollment.clone(),
             upload_context: upload_state::Context::new(config)?,
             upload_epoch: std::sync::Arc::new(()),
             approval: config.approval,
@@ -252,6 +261,27 @@ impl Owner {
                         #[cfg(test)]
                         observation::command(&command_observation, ObservationPhase::Started, None);
                         match command {
+                            Command::Enrollment(command, reply) => {
+                                #[cfg(test)]
+                                let boundary = match &command {
+                                    enrollment::Command::Prepare(_) => 1,
+                                    enrollment::Command::Accept(..) => 2,
+                                    enrollment::Command::Finish => 3,
+                                    _ => 0,
+                                };
+                                let result = sdk.enrollment(command).await;
+                                if result.is_err() && sdk.enrollment.as_ref().is_some_and(|r| r.phase != crate::enrollment::state::Phase::Complete) {
+                                    sdk.enrollment_poisoned = true;
+                                }
+                                #[cfg(test)]
+                                if result.is_ok() && sdk.enrollment_hold.as_ref().is_some_and(|hold| hold.target == boundary) {
+                                    let hold = sdk.enrollment_hold.take().expect("matching original enrollment reply hold");
+                                    let _ = hold.reached.send(());
+                                    let _ = hold.release.await;
+                                    if hold.lose_reply { drop(reply); continue; }
+                                }
+                                let _ = reply.send(result);
+                            }
                             #[cfg(test)]
                             Command::Observed(..) => unreachable!("SDK command observation is not nested"),
                             Command::Upload(command, reply) => {
@@ -326,6 +356,13 @@ impl Owner {
                                 let _ = reply.send(());
                             }
                             Command::Outgoing(command, reply) => {
+                                let new_start = matches!(&command, crate::outgoing::state::Command::Start(..) | crate::outgoing::state::Command::StartFile(..));
+                                if new_start && (sdk.enrollment_poisoned || sdk.enrollment.as_ref().is_some_and(|r| r.phase != crate::enrollment::state::Phase::Complete)
+                                    || (sdk.enrollment_profile.is_some() && sdk.enrollment.is_none())
+                                    || sdk.enrollment.as_ref().is_some_and(|record| sdk.enrollment_profile.as_ref() != Some(&record.context.profile))) {
+                                    let _ = reply.send(Err(Error::OutcomeUnknown));
+                                    continue;
+                                }
                                 #[cfg(test)]
                                 let accept =
                                     matches!(&command, crate::outgoing::state::Command::Accept(..));
@@ -870,6 +907,22 @@ fn prepare(init: &Init) -> Result<(File, bool), Error> {
     Ok((lock, fresh))
 }
 struct Sdk {
+    enrollment_binding: String,
+    enrollment_profile: Option<crate::enrollment::state::Profile>,
+    enrollment: Option<crate::enrollment::state::Ledger>,
+    enrollment_query: Option<crate::enrollment::state::Query>,
+    enrollment_original: Option<matrix_sdk_crypto::CrossSigningBootstrapRequests>,
+    enrollment_claim: Option<(
+        ruma::OwnedTransactionId,
+        ruma::api::client::keys::claim_keys::v3::Request,
+    )>,
+    enrollment_signatures: Vec<ruma::api::client::keys::upload_signatures::v3::Request>,
+    enrollment_reservation: Option<Vec<u8>>,
+    enrollment_poisoned: bool,
+    #[cfg(test)]
+    enrollment_fault: u8,
+    #[cfg(test)]
+    enrollment_hold: Option<enrollment::ReplyHold>,
     upload_context: upload_state::Context,
     upload_epoch: std::sync::Arc<()>,
     uploads: Option<upload_state::Ledger>,
@@ -987,6 +1040,16 @@ impl Sdk {
             let uploads =
                 upload_custody::load(&client, &cipher, journal.uploads.as_ref(), &upload_context)
                     .await?;
+            let enrollment = enrollment::load(
+                &client,
+                &cipher,
+                journal.enrollment.as_deref(),
+                &init.binding,
+                &identity,
+                &init.user,
+                &init.device,
+            )
+            .await?;
             attachments::validate(&identity, &init.user, &init.device, &journal.attachments)?;
             if let Some(batch) = &journal.intake
                 && batch.phase == Phase::Derived
@@ -1101,11 +1164,24 @@ impl Sdk {
                     .map_err(|_| Error::Storage)?;
             }
             files(&init.root)?;
-            Ok((journal, upload_context, uploads))
+            Ok((journal, upload_context, uploads, enrollment))
         }
         .await;
         match result {
-            Ok((journal, upload_context, uploads)) => Ok(Self {
+            Ok((journal, upload_context, uploads, enrollment)) => Ok(Self {
+                enrollment_binding: init.binding.clone(),
+                enrollment_profile: init.enrollment.clone(),
+                enrollment,
+                enrollment_query: None,
+                enrollment_original: None,
+                enrollment_claim: None,
+                enrollment_signatures: Vec::new(),
+                enrollment_reservation: None,
+                enrollment_poisoned: false,
+                #[cfg(test)]
+                enrollment_fault: 0,
+                #[cfg(test)]
+                enrollment_hold: None,
                 upload_context,
                 upload_epoch: init.upload_epoch.clone(),
                 uploads,

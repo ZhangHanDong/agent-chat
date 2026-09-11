@@ -33,6 +33,8 @@ struct Config {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Matrix {
+    #[serde(default)]
+    crypto_enrollment: Option<CryptoEnrollment>,
     origin: String,
     server_name: String,
     registration_fingerprint: String,
@@ -45,6 +47,18 @@ struct Matrix {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct CryptoEnrollment {
+    profile: String,
+    peer_masters: Vec<PeerMaster>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PeerMaster {
+    user_id: String,
+    master_key: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Room {
     id: String,
     generation: u64,
@@ -54,6 +68,7 @@ pub(super) struct Prepared {
     pub host: Host,
     pub matrix: Option<HostConfig>,
     pub files: Option<crate::file_service::Setup>,
+    pub enrollment: bool,
     pub claim: OwnedClaimProfile,
     pub limits: Limits,
     #[cfg(test)]
@@ -132,6 +147,7 @@ impl Prepared {
     pub(super) fn load(state: &Path, address: SocketAddr) -> Result<Self, Failure> {
         let bytes = read(&state.join("development-driver.json"), CONFIG_BYTES)?;
         let config: Config = serde_json::from_slice(&bytes).map_err(|_| Failure::Config)?;
+        let enrollment = config.matrix.crypto_enrollment.is_some();
         if config.profile != "codex_app_server_development_v1"
             || config.workspaces.is_empty()
             || config.workspaces.len() > 16
@@ -228,6 +244,20 @@ impl Prepared {
             hagency_matrix::Limits::default(),
         )
         .map_err(|_| Failure::Config)?;
+        if let Some(profile) = config.matrix.crypto_enrollment {
+            if profile.profile != "fresh_own_account_v1" {
+                return Err(Failure::Config);
+            }
+            matrix = matrix
+                .with_fresh_account_enrollment(
+                    profile
+                        .peer_masters
+                        .into_iter()
+                        .map(|p| (p.user_id, p.master_key))
+                        .collect(),
+                )
+                .map_err(|_| Failure::Config)?;
+        }
         let ca = state.join("matrix.ca.pem");
         if ca.try_exists().map_err(|_| Failure::Config)? {
             matrix = matrix
@@ -248,6 +278,7 @@ impl Prepared {
             host,
             matrix: Some(matrix),
             files,
+            enrollment,
             claim,
             limits,
             #[cfg(test)]

@@ -141,7 +141,10 @@ ADR101 positive Windows gate remains unpassed on unconfirmed directory sync.
 
 Use the existing pinned SDK dependencies. The hagency dev-dependency additions
 are only the same matrix-sdk-crypto 0.18.0 and ruma 0.16.0 versions for an independent
-real recipient. Cargo.lock may change only if required by that explicit fixture
+real recipient, plus matrix-sdk-base, matrix-sdk-sqlite and
+matrix-sdk-store-encryption 0.18.0 to inspect the original protected journal after
+the service process is reaped. This inspection creates no SDK machine and writes
+no authority or journal values. Cargo.lock may change only for these fixture
 dependency declaration. No new executable or configurable crypto provider is added.
 
 ## Out of Scope

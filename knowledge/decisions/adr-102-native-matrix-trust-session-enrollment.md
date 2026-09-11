@@ -257,3 +257,41 @@ setters, continuity pinning alone and trusting server-provided master keys would
 bypass the required verified-recipient policy. Repeating bootstrap(false) or a
 claim after an unknown result could replace original ownership. Reusing positive
 cfg(test) SDK preparation in the native executable would conceal the prerequisite.
+
+
+### 2026-09-11 — Final enrollment and native file integration checkpoint
+
+All eight actual Matrix enrollment selectors pass on final source. Native and
+Windows GNU all-target Matrix Clippy pass with warnings denied. Restoration now
+checks exact original request order and required fields, applied ACK shapes,
+operator anchors, original recipient curves and bounded before/after session IDs.
+Actual caller-loss fixtures retain the same SDK command/result at Prepare, Accept
+and Finish boundaries; unknown work never generates a replacement identity or
+request. Inspectors use dedicated runtimes, closed and destroyed before another
+owner opens the original SDK, to finish scheduled background connection drops.
+
+The complete native file_service target passes all three tests: actual group and
+DM delivery; first Delivered recovery with an original-context native MCP read;
+and uncertain actual POST/PUT plus a departed-human Direct-room refusal. Old
+process teardown now explicitly checks kill/wait. The historical own-ID query
+returns Delivered and an unrelated ID refuses, even with current whoami401 and
+no source file. Truncated POST/PUT cases remain Unknown with no acceptance or
+replay; their actual runtime negative result is never called helper success.
+Initial room refusal supersedes queued work without claiming or sending.
+All-target hagency Clippy passes with warnings denied.
+
+Prerequisites are explicit: the disposable peer privately captures only its real
+inherited context, and the previously validated ADR101 status fixes preserve
+Delivered after cancellation. Before that prerequisite was integrated, the new
+actual historical query failed with Unknown despite domain Delivered; the failure
+is retained. Earlier uncertainty fixture failures used the positive-only waiter
+and assumed a refused dispatch remained queued rather than superseded; both
+were corrected without changing polling/deadlines or weakening positive checks.
+An earlier Matrix reopen test failed without recording its error. Later passes
+and the inspector lifetime improvement do not establish that failure's cause.
+All original failure logs remain separate from final successful checks.
+
+This is an isolated implementation checkpoint. Final main-branch combined tests,
+strict lifecycle/binding checks and native Windows positive staging are still
+required. Windows GNU compilation alone is not platform qualification; full
+migration and production cutover remain incomplete.

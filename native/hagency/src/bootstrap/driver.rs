@@ -50,6 +50,7 @@ impl Driver {
                         collector: &collector,
                         workspace: &workspace,
                         files: files.as_ref(),
+                        enrollment: prepared.enrollment,
                         cancel: &signal,
                         status: &status,
                         #[cfg(test)]
@@ -164,6 +165,7 @@ struct Attempt<'a> {
     collector: &'a Collector,
     workspace: &'a WorkspaceAccess,
     files: Option<&'a crate::file_service::FileHandle>,
+    enrollment: bool,
     cancel: &'a CancellationToken,
     status: &'a StatusHandle,
     #[cfg(test)]
@@ -178,6 +180,7 @@ async fn run(input: Attempt<'_>) -> Result<Option<Box<Report>>, Failure> {
         collector,
         workspace,
         files,
+        enrollment,
         cancel,
         status,
         #[cfg(test)]
@@ -187,7 +190,7 @@ async fn run(input: Attempt<'_>) -> Result<Option<Box<Report>>, Failure> {
     let refresh = collector.collect(cancel).await;
     // Fresh collect initializes the SDK. Failed refresh may only recover an old
     // protected receipt; it can never turn historical success into readiness.
-    if files.is_some() {
+    if files.is_some() || enrollment {
         let resumed = collector.resume_outgoing_custody(cancel).await;
         if refresh.is_ok() {
             let result = resumed.map_err(|_| Failure::OutcomeUnknown)?;
@@ -203,6 +206,19 @@ async fn run(input: Attempt<'_>) -> Result<Option<Box<Report>>, Failure> {
             Failure::Refresh
         }
     })?;
+    if enrollment {
+        status.phase("enrolling");
+        collector
+            .enroll_fresh_account(cancel)
+            .await
+            .map_err(|error| {
+                if error == hagency_matrix::Error::OutcomeUnknown {
+                    Failure::OutcomeUnknown
+                } else {
+                    Failure::Startup
+                }
+            })?;
+    }
     if let Some(files) = files {
         files.initialize().await.map_err(|e| {
             if e == crate::file_service::FileError::Unknown {
@@ -396,6 +412,7 @@ mod tests {
                     .unwrap(),
             ),
             files: None,
+            enrollment: false,
             claim: OwnedClaimProfile::new(
                 transport,
                 vec![

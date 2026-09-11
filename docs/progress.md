@@ -5701,3 +5701,77 @@ underlying OS/SQLite cause. Both later Windows diagnostic steps passed separate
 selectors. Node passed4291/0fail/1platformskip in293files; its verifier separately
 passed508checks. Available Linux/Node artifact ZIPs match GitHub SHA256.
 The PR records original failed results separately from diagnostics and fixes.
+### 2026-09-11 — Actual native encrypted file delivery and first settlement recovery
+
+The real native serve process now loads the explicit fresh-account enrollment
+profile before file readiness and the original dispatch claim. The executable
+fixture uses an independent recipient SDK and actual TLS key upload, signature,
+claim, binary media upload, encrypted key share and room event exchanges. It does
+not seed or open the service SDK to create trust or sessions.
+
+The exact native_file_service_executable test passed both a group thread and DM:
+independent decryption recovered the original bytes, Chinese filename, caption,
+MIME, size and correct relation; actual status was Delivered while the canonical
+task remained in_progress. Each case used one dispatch, five enrollment writes,
+one signed claim, one key share and one room event. Production capability flags
+remain false.
+
+The exact native_file_service_restart test passed after an actual SQLite trigger
+refused the first domain Delivered transaction. The original runtime correctly
+became negative/unknown. After killing and reaping that native process, a separate
+state-store reader decrypted the original protected journal and independently
+confirmed its File Complete record, original ID, route, content and event ACK.
+It created no OlmMachine and wrote no authority or journal value. The inspector
+closed its pool before restart. After removing the source file and returning 401
+for current whoami, a fresh native process recorded the first Delivered for that
+original transaction and content digest. No extra dispatch, key write, claim,
+media upload or room send occurred. Historical acceptance did not restore current
+readiness.
+
+Both exact selectors passed locally on macOS with zero failures/ignored cases.
+Original fixture failures are preserved externally: a receipt-read race in the
+positive fixture, the invalid assumption that a poisoned domain writer could
+finish normal MCP reads, reuse of a create_new stderr path on restart, and an
+incorrect acceptance field name. Each was corrected in fixture code, without
+changing production deadlines or promoting a negative workflow to delivery.
+These checks do not qualify Windows durability or the full ADR101/102 lifecycle;
+enrollment negative/custody/restore checks and final integrated validation remain
+in progress. No production service or live Matrix account was changed.
+
+
+### 2026-09-11 — Final enrollment and native file integration checkpoint
+
+All eight actual Matrix enrollment selectors pass on final source. Native and
+Windows GNU all-target Matrix Clippy pass with warnings denied. Restoration now
+checks exact original request order and required fields, applied ACK shapes,
+operator anchors, original recipient curves and bounded before/after session IDs.
+Actual caller-loss fixtures retain the same SDK command/result at Prepare, Accept
+and Finish boundaries; unknown work never generates a replacement identity or
+request. Inspectors use dedicated runtimes, closed and destroyed before another
+owner opens the original SDK, to finish scheduled background connection drops.
+
+The complete native file_service target passes all three tests: actual group and
+DM delivery; first Delivered recovery with an original-context native MCP read;
+and uncertain actual POST/PUT plus a departed-human Direct-room refusal. Old
+process teardown now explicitly checks kill/wait. The historical own-ID query
+returns Delivered and an unrelated ID refuses, even with current whoami401 and
+no source file. Truncated POST/PUT cases remain Unknown with no acceptance or
+replay; their actual runtime negative result is never called helper success.
+Initial room refusal supersedes queued work without claiming or sending.
+All-target hagency Clippy passes with warnings denied.
+
+Prerequisites are explicit: the disposable peer privately captures only its real
+inherited context, and the previously validated ADR101 status fixes preserve
+Delivered after cancellation. Before that prerequisite was integrated, the new
+actual historical query failed with Unknown despite domain Delivered; the failure
+is retained. Earlier uncertainty fixture failures used the positive-only waiter
+and assumed a refused dispatch remained queued rather than superseded; both
+were corrected without changing polling/deadlines or weakening positive checks.
+An earlier Matrix reopen test failed without recording its error. Later passes
+and the inspector lifetime improvement do not establish that failure's cause.
+All original failure logs remain separate from final successful checks.
+
+This is an isolated implementation checkpoint. Final main-branch combined tests,
+strict lifecycle/binding checks and native Windows positive staging are still
+required. Windows GNU compilation alone is not platform qualification; full
+migration and production cutover remain incomplete.

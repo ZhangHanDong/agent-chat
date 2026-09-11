@@ -19,6 +19,7 @@ macro_rules! observe {
 pub(crate) use observe;
 
 pub(crate) struct Inner {
+    pub(crate) enrollment_jobs: crate::enrollment::Jobs,
     pub(crate) config: HostConfig,
     pub(crate) http: Http,
     pub(crate) domain: DomainStore,
@@ -128,6 +129,7 @@ impl Inner {
     pub(crate) fn new(config: HostConfig, domain: DomainStore) -> Result<Arc<Self>, Error> {
         let http = Http::new(&config)?;
         Ok(Arc::new(Self {
+            enrollment_jobs: crate::enrollment::Jobs::default(),
             config,
             http,
             domain,

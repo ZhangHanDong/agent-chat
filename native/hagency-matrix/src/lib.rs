@@ -1,10 +1,12 @@
 //! Bounded authenticated account/room observations and scoped SDK event intake.
-//! Host-owned frozen sends support provisioned verified crypto. Account/key
-//! enrollment, missing-session claims and production service cutover remain gated.
+//! Host-owned frozen sends require verified crypto. Explicit fresh-account
+//! enrollment establishes anchored identities and original recipient sessions;
+//! general account recovery and production service cutover remain separate.
 mod attachments;
 pub use attachments::AttachmentHandle;
 mod collector;
 mod config;
+mod enrollment;
 mod event_batch;
 mod http;
 pub use http::UploadResponse;

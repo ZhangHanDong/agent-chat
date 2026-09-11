@@ -2464,3 +2464,27 @@ file event or canonical Done.
   close-result test follows the owner into Bootstrap, and the closed-receiver
   test stays in Driver. Model-only closure tests remain protocol evidence; actual
   connection/process destruction requires separately observed teardown.
+### Native first-file restart evidence
+
+An HTTP room-event ACK alone is insufficient to prove recoverable file delivery.
+The actual native restart fixture first refuses domain settlement, reaps the
+original service, decrypts the original SDK journal and requires File Complete
+with the original content and event response. Only then may a fresh process
+prove first Delivered. The state-store inspector can perform SQLite housekeeping
+on open; it does not create an OlmMachine or write journal/authority values.
+Current whoami can fail while historical acceptance still succeeds, and removing
+the original source before restart proves recovery does not recapture it.
+A SQLite domain transaction failure can fence subsequent MCP reads; its negative
+runtime outcome is an expected fault observation, never a delivery receipt.
+
+
+- **Native historical file projection:** original delivery acceptance outranks
+  an earlier cancellation record. The final executable fixture checks an actual
+  fresh MCP query, not merely the SQL Delivered row; omitting the ADR101 projection
+  fix produces a real Unknown response and fails that test. Reuse only privately
+  captured original inherited context, with no new capability or source capture.
+- **SDK inspector destruction:** SqliteStateStore close can schedule final
+  connection destruction on background blocking tasks. A dedicated fixture runtime
+  must be destroyed after close before another owner opens the original store.
+  This is an actual lifetime barrier, not a longer timeout or a claim about the
+  cause of a previously unobserved error.

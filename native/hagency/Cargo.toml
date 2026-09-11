@@ -34,6 +34,11 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
+matrix-sdk-base = { version = "=0.18.0", features = ["e2e-encryption"] }
+matrix-sdk-sqlite = { version = "=0.18.0", default-features = false, features = ["state-store", "bundled"] }
+matrix-sdk-store-encryption = "=0.18.0"
+matrix-sdk-crypto = "=0.18.0"
+ruma = { version = "=0.16.0", features = ["client-api-c", "events"] }
 hagency-metering = { path = "../hagency-metering" }
 tokio = { workspace = true, features = ["process"] }
 rmcp = { version = "=1.8.0", default-features = false, features = ["client", "transport-async-rw"] }

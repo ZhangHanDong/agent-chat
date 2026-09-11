@@ -65,6 +65,7 @@ pub struct HostRoom {
 }
 /// Constructed by the process host only. No Deserialize, Debug or credential setters.
 pub struct HostConfig {
+    pub(crate) enrollment: Option<crate::enrollment::state::Profile>,
     pub(crate) approval: bool,
     pub(crate) endpoint: Url,
     pub(crate) authorization: HeaderValue,
@@ -152,6 +153,7 @@ impl HostConfig {
             HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Error::Config)?;
         authorization.set_sensitive(true);
         Ok(Self {
+            enrollment: None,
             approval: false,
             endpoint: url,
             authorization,
@@ -180,5 +182,21 @@ impl HostConfig {
         } else {
             Ok(identity)
         }
+    }
+    /// Explicit ordinary fresh-account enrollment. Public peer masters must be
+    /// provisioned by the host outside the Matrix key-query channel.
+    pub fn with_fresh_account_enrollment(
+        mut self,
+        anchors: Vec<(String, String)>,
+    ) -> Result<Self, Error> {
+        if self.approval || self.endpoint.scheme() != "https" {
+            return Err(Error::Config);
+        }
+        self.enrollment = Some(crate::enrollment::state::Profile::new(
+            anchors,
+            &self.identity.transport.sender_mxid,
+            &self.identity.server_name,
+        )?);
+        Ok(self)
     }
 }
