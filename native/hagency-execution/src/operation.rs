@@ -83,6 +83,50 @@ pub enum Settlement {
     Unknown,
 }
 
+/// Fixed diagnostics from the original owned runtime, never execution authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeStage {
+    Initialize,
+    ThreadStart,
+    TurnStart,
+    Update,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeWriteObservation {
+    pub accepted_bytes: usize,
+    pub total_bytes: usize,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeObservation {
+    pub stage: RuntimeStage,
+    pub session_error: Option<session::Error>,
+    pub transport_cause: Option<hagency_runtime::codex::transport::Error>,
+    pub pending_requests: Option<usize>,
+    pub pending_server_requests: Option<usize>,
+    pub write: Option<RuntimeWriteObservation>,
+}
+impl RuntimeObservation {
+    fn capture(stage: RuntimeStage, runner: &OwnedSession) -> Self {
+        let termination = runner.transport_termination();
+        Self {
+            stage,
+            session_error: match runner.protocol_outcome() {
+                Some(Outcome::Unknown { reason }) => Some(*reason),
+                _ => None,
+            },
+            transport_cause: termination.map(|t| t.cause),
+            pending_requests: termination.map(|t| t.pending_requests),
+            pending_server_requests: termination.map(|t| t.pending_server_requests),
+            write: termination
+                .and_then(|t| t.unconfirmed_write.as_ref())
+                .map(|w| RuntimeWriteObservation {
+                    accepted_bytes: w.accepted_bytes,
+                    total_bytes: w.total_bytes,
+                }),
+        }
+    }
+}
+
 /// Private host result: no Serialize/Debug or automatic console/Matrix projection.
 /// An unresolved owner remains retained here; retrying stop never clears a lease.
 pub struct Report {
@@ -91,6 +135,7 @@ pub struct Report {
     pub canonical_status: Option<TaskState>,
     pub settlement: Settlement,
     pub failure: Option<Failure>,
+    runtime_observation: Option<RuntimeObservation>,
     pub text: Option<String>,
     owner: Option<OwnedSession>,
     reconciliation: Option<(DomainStore, RunnerCapability, OwnedFailure)>,
@@ -108,6 +153,7 @@ impl Report {
             canonical_status: None,
             settlement: Settlement::Pending,
             failure: None,
+            runtime_observation: None,
             text: None,
             owner: None,
             reconciliation: None,
@@ -116,6 +162,11 @@ impl Report {
             handoff,
             registration: None,
         }
+    }
+    /// Immutable original observation survives retry_stop discarding a stopped
+    /// owner. No descriptor, process ID, payload or private stderr is exposed.
+    pub fn runtime_observation(&self) -> Option<&RuntimeObservation> {
+        self.runtime_observation.as_ref()
     }
     pub fn usage_status(&self) -> UsageStatus {
         self.usage
@@ -486,6 +537,7 @@ async fn execute(
         }
         Failure::SpawnFailed
     })?;
+    let mut runtime_stage = RuntimeStage::Initialize;
     let drive = async {
         watched(
             runner.initialize(),
@@ -497,6 +549,7 @@ async fn execute(
             &mut report.canonical_status,
         )
         .await?;
+        runtime_stage = RuntimeStage::ThreadStart;
         watched(
             runner.start_thread(),
             domain,
@@ -507,6 +560,7 @@ async fn execute(
             &mut report.canonical_status,
         )
         .await?;
+        runtime_stage = RuntimeStage::TurnStart;
         watched(
             runner.start_turn(input),
             domain,
@@ -520,6 +574,7 @@ async fn execute(
         let usage = report.usage.as_mut().ok_or(Failure::UsageBinding)?;
         usage.attach(&runner);
         loop {
+            runtime_stage = RuntimeStage::Update;
             let (update, observation) = watched(
                 runner.next_observed_update(),
                 domain,
@@ -546,6 +601,10 @@ async fn execute(
         Ok(())
     }
     .await;
+    // Capture before coordinator stop/removal. The runtime's own failure guard
+    // may already have stopped it; its first transport cause remains retained.
+    // Observation cannot alter the original drive or cleanup result.
+    report.runtime_observation = Some(RuntimeObservation::capture(runtime_stage, &runner));
     report.protocol = match runner.protocol_outcome() {
         Some(Outcome::Completed { text }) => {
             report.text = Some(text.clone());

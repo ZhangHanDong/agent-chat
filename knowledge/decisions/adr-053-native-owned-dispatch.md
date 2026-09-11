@@ -191,6 +191,19 @@ activate the optional cgroup recovery path or claim simultaneous custodian loss.
 
 One retained worker owns cancellation, domain reconciliation and the actual process handle. Upstream completion remains distinct from canonical Done, reply custody and platform qualification.
 
+### Original runtime observation amendment
+
+Before stop or reconciliation can discard the original OwnedSession, Report
+copies its last entered operation stage, typed Unknown session reason and first
+transport termination cause with optional original pending counts and unfinished
+write byte counts. The immutable observation contains no request identity, text,
+stderr, path or authority token. A missing transport termination stays absent;
+normal cleanup must not replace it with HostClosed. Later retry_stop preserves
+the same snapshot even when proven whole-tree cleanup removes the process owner.
+The existing failure, protocol, cleanup and settlement remain independent facts.
+This observation diagnoses an original attempt; it cannot authorize replay,
+settlement, cleanup or a longer execution interval.
+
 ## Alternatives Considered
 
 Launching before the original Started acknowledgement or reconstructing authority after losing that response could execute unowned work. A general command endpoint or detached cleanup path would bypass the fixed host operation.

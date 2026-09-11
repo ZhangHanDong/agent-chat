@@ -46,12 +46,101 @@ impl Observation {
     }
 }
 
+const HELPER_RECEIPTS: [&str; 5] = ["admission", "read-error", "delivery", "task", "receipt"];
+const HELPER_RECEIPT_BYTES: u64 = 8192;
+#[derive(Clone, Copy)]
+enum ReceiptBaseline {
+    Absent,
+    Present,
+    Unavailable,
+}
+struct HelperObservation {
+    root: PathBuf,
+    baseline: [ReceiptBaseline; 5],
+}
+impl HelperObservation {
+    fn new(root: PathBuf) -> Self {
+        let baseline = HELPER_RECEIPTS.map(|name| {
+            match fs::symlink_metadata(root.join(format!("file-mcp.{name}"))) {
+                Ok(_) => ReceiptBaseline::Present,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    ReceiptBaseline::Absent
+                }
+                Err(_) => ReceiptBaseline::Unavailable,
+            }
+        });
+        Self { root, baseline }
+    }
+    fn snapshot(&self) -> Value {
+        let mut result = serde_json::Map::new();
+        for (index, name) in HELPER_RECEIPTS.iter().enumerate() {
+            result.insert((*name).into(), json!(self.receipt(index, name)));
+        }
+        Value::Object(result)
+    }
+    fn receipt(&self, index: usize, name: &str) -> &'static str {
+        match self.baseline[index] {
+            ReceiptBaseline::Present => return "preexisting",
+            ReceiptBaseline::Unavailable => return "baseline_unavailable",
+            ReceiptBaseline::Absent => {}
+        }
+        let path = self.root.join(format!("file-mcp.{name}"));
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if !metadata.file_type().is_file() => return "unsupported",
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return "absent",
+            Err(_) => return "read_failed",
+        }
+        let mut bytes = Vec::new();
+        if fs::File::open(path)
+            .and_then(|file| file.take(HELPER_RECEIPT_BYTES + 1).read_to_end(&mut bytes))
+            .is_err()
+        {
+            return "read_failed";
+        }
+        if bytes.len() > HELPER_RECEIPT_BYTES as usize {
+            return "oversized";
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+            return "malformed";
+        };
+        match name {
+            "admission" | "read-error" => match value.get("isError").and_then(Value::as_bool) {
+                Some(false) => "accepted",
+                Some(true) => "rejected",
+                None => "malformed",
+            },
+            "delivery" => match value.get("status").and_then(Value::as_str) {
+                Some("queued") => "queued",
+                Some("delivered") => "delivered",
+                Some("failed") => "failed",
+                Some("outcome_unknown") => "outcome_unknown",
+                Some(_) => "unsupported",
+                None => "malformed",
+            },
+            "task" => match value.get("status").and_then(Value::as_str) {
+                Some("in_progress") => "in_progress",
+                Some("done") => "done",
+                Some(_) => "unsupported",
+                None => "malformed",
+            },
+            "receipt" => match value.get("helper_exit").and_then(Value::as_bool) {
+                Some(true) => "helper_exited",
+                Some(false) => "exit_unconfirmed",
+                None => "malformed",
+            },
+            _ => "unsupported",
+        }
+    }
+}
+
 pub struct Running {
     child: Option<Child>,
     observation: Rc<Cell<Observation>>,
     // Independent read offset, opened before this original child is spawned.
     // A later fixture rename/relaunch cannot substitute another child's output.
     stderr: fs::File,
+    helper: HelperObservation,
 }
 impl Running {
     fn snapshot(&mut self) -> Value {
@@ -78,7 +167,7 @@ impl Running {
         json!({"variant":observation.variant,"phase":observation.phase,
             "last_http":observation.last_http,"requests":observation.requests,
             "status":observation.status,"elapsed_ms":observation.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-            "child":child,"stderr":stderr,"stderr_bytes":bytes.len().min(8192),"stderr_truncated":bytes.len()>8192,
+            "helper":self.helper.snapshot(),"child":child,"stderr":stderr,"stderr_bytes":bytes.len().min(8192),"stderr_truncated":bytes.len()>8192,
             "bootstrap_phase":boundary_phase(&bytes, b"native startup boundary: ", &[
                 "runtime_entered", "runtime_ready", "bootstrap_entered", "configuration_entered",
                 "executable_verify_entered", "executable_hash_entered", "executable_hash_completed",
@@ -630,7 +719,9 @@ impl Fixture {
         let stderr = self.root.path().join("native.stderr");
         let file = private::open(&stderr, true).unwrap();
         let stderr = fs::File::open(&stderr).unwrap();
+        let helper = HelperObservation::new(self.work.clone());
         Running {
+            helper,
             child: Some(
                 self.command(enabled)
                     .stderr(Stdio::from(file))
@@ -774,6 +865,13 @@ async fn native_file_service_original_observation() {
     assert_eq!(live["phase"], "observation.whoami");
     assert_eq!(live["last_http"], "whoami");
     assert_eq!(live["requests"], 1);
+    assert!(
+        live["helper"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|state| state == "absent")
+    );
     // The spawned Driver can issue its first request before the parent logs
     // serving. Both fixed phases follow original bind and initial server poll.
     assert!(matches!(
@@ -811,6 +909,13 @@ async fn native_file_service_original_observation() {
     assert_eq!(exited["last_http"], "none");
     assert_eq!(exited["bootstrap_phase"], "configuration_entered");
     assert_eq!(exited["media_phase"], "unobserved");
+    assert!(
+        exited["helper"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|state| state == "absent")
+    );
     fs::rename(
         f.root.path().join("native.stderr"),
         f.root.path().join("native-observation-refused.stderr"),
@@ -837,4 +942,87 @@ async fn native_file_service_original_observation() {
     );
     f.fake.no_request().await;
     f.fake.close().await;
+}
+
+#[test]
+fn native_file_service_helper_observation_bounds() {
+    let root = tempfile::tempdir().unwrap();
+    let original = HelperObservation::new(root.path().into());
+    assert!(
+        original
+            .snapshot()
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|v| v == "absent")
+    );
+    fs::write(
+        root.path().join("file-mcp.admission"),
+        br#"{"isError":false,"private":"DO_NOT_PROJECT_SECRET"}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("file-mcp.read-error"),
+        br#"{"isError":true}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("file-mcp.delivery"),
+        br#"{"status":"delivered","delivery_id":"PRIVATE_ID"}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("file-mcp.task"),
+        br#"{"status":"in_progress","id":"PRIVATE_TASK"}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("file-mcp.receipt"),
+        br#"{"helper_exit":true}"#,
+    )
+    .unwrap();
+    let snapshot = original.snapshot();
+    assert_eq!(
+        snapshot,
+        json!({"admission":"accepted","read-error":"rejected","delivery":"delivered","task":"in_progress","receipt":"helper_exited"})
+    );
+    let rendered = serde_json::to_string(&snapshot).unwrap();
+    assert!(rendered.len() < 256 && !rendered.contains("PRIVATE") && !rendered.contains("SECRET"));
+    // A new launch cannot relabel old helper receipts as its own observations.
+    let later = HelperObservation::new(root.path().into());
+    assert!(
+        later
+            .snapshot()
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|v| v == "preexisting")
+    );
+    for (bytes, expected) in [
+        (b"{".to_vec(), "malformed"),
+        (
+            br#"{"status":"future_state_PRIVATE"}"#.to_vec(),
+            "unsupported",
+        ),
+        (br#"{"status":null}"#.to_vec(), "malformed"),
+        (vec![b'x'; HELPER_RECEIPT_BYTES as usize + 1], "oversized"),
+    ] {
+        fs::write(root.path().join("file-mcp.delivery"), bytes).unwrap();
+        assert_eq!(original.snapshot()["delivery"], expected);
+    }
+    fs::remove_file(root.path().join("file-mcp.delivery")).unwrap();
+    fs::create_dir(root.path().join("file-mcp.delivery")).unwrap();
+    assert_eq!(original.snapshot()["delivery"], "unsupported");
+    let unavailable = HelperObservation {
+        root: root.path().into(),
+        baseline: [ReceiptBaseline::Unavailable; 5],
+    };
+    assert!(
+        unavailable
+            .snapshot()
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|v| v == "baseline_unavailable")
+    );
 }

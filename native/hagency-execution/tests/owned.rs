@@ -281,6 +281,48 @@ async fn native_owned_dispatch_cancel_and_unknown() {
 }
 
 #[tokio::test]
+async fn native_owned_runtime_failure_observation() {
+    use hagency_execution::RuntimeStage;
+    use hagency_runtime::codex::{session, transport};
+    for (mode, cause) in [
+        ("silent", transport::Error::Timeout),
+        ("eof", transport::Error::PeerEof),
+    ] {
+        let f = Fixture::new();
+        let mut operation = f.operation(mode);
+        let mut report = operation.wait().await.unwrap();
+        assert!(
+            f.marker().is_file(),
+            "the original child must actually enter"
+        );
+        assert_eq!(report.failure, Some(Failure::Protocol));
+        assert_eq!(report.protocol, Protocol::Unknown);
+        let original = *report.runtime_observation().unwrap();
+        assert_eq!(original.stage, RuntimeStage::Initialize);
+        assert_eq!(
+            original.session_error,
+            Some(session::Error::Transport(cause))
+        );
+        assert_eq!(original.transport_cause, Some(cause));
+        assert_eq!(original.pending_requests, Some(1));
+        assert_eq!(original.pending_server_requests, Some(0));
+        assert_eq!(original.write, None); // the original initialize write completed
+        report.retry_stop();
+        assert_eq!(report.runtime_observation(), Some(&original));
+        assert_eq!(report.failure, Some(Failure::Protocol));
+        assert_eq!(report.protocol, Protocol::Unknown);
+        if cfg!(target_os = "macos") {
+            assert!(report.retains_process_custody());
+        } else {
+            assert!(!report.retains_process_custody());
+        }
+        f.quarantined();
+        drop(report);
+        f.domain.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn native_owned_dispatch_admission_and_protocol_failure() {
     for mode in [
         "wrong-workspace",

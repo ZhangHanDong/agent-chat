@@ -38,6 +38,77 @@ mod custody_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    #[test]
+    fn native_bootstrap_runtime_observation_projection() {
+        use hagency_execution::{RuntimeObservation, RuntimeStage, RuntimeWriteObservation};
+        use hagency_runtime::codex::{self, session, transport};
+        let observation = RuntimeObservation {
+            stage: RuntimeStage::ThreadStart,
+            session_error: Some(session::Error::UnsupportedRequest),
+            transport_cause: Some(transport::Error::Protocol(codex::Error::UnexpectedEof)),
+            pending_requests: Some(usize::MAX),
+            pending_server_requests: Some(usize::MAX),
+            write: Some(RuntimeWriteObservation {
+                accepted_bytes: usize::MAX,
+                total_bytes: usize::MAX,
+            }),
+        };
+        // Longest labels and maximum-width counts bound the whole existing
+        // operator status projection, not only a typical runtime observation.
+        let handle = StatusHandle::new(true);
+        {
+            let mut status = handle.0.lock().unwrap();
+            status.runtime = Some(RuntimeStatus::from(&observation));
+            status.owned_failure = Some(owned_failure_label(
+                hagency_execution::Failure::UnsupportedApproval,
+            ));
+            status.protocol = Some("not_started");
+            status.cleanup = Some("whole_tree_stopped");
+            status.settlement = Some("canonical_reply_ready");
+        }
+        handle.fail(Failure::OutcomeUnknown);
+        let value = serde_json::to_value(handle.get()).unwrap();
+        assert_eq!(value["state"], "outcome_unknown");
+        assert_eq!(value["error"], "outcome_unknown");
+        assert_eq!(
+            value["runtime"]["transport_cause"],
+            "protocol_unexpected_eof"
+        );
+        assert_eq!(value["runtime"]["write_accepted_bytes"], usize::MAX);
+        assert_eq!(value["runtime"].as_object().unwrap().len(), 7);
+        assert!(serde_json::to_vec(&value).unwrap().len() <= 768);
+        assert_eq!(
+            session_error_label(session::Error::Rejected(i64::MIN)),
+            "rejected"
+        );
+        assert_eq!(
+            session_error_label(session::Error::Rejected(i64::MAX)),
+            "rejected"
+        );
+        let absent = RuntimeObservation {
+            stage: RuntimeStage::Update,
+            session_error: None,
+            transport_cause: None,
+            pending_requests: None,
+            pending_server_requests: None,
+            write: None,
+        };
+        let value = serde_json::to_value(RuntimeStatus::from(&absent)).unwrap();
+        assert_eq!(value["stage"], "update");
+        assert!(
+            value
+                .as_object()
+                .unwrap()
+                .iter()
+                .filter(|(key, _)| *key != "stage")
+                .all(|(_, value)| value.is_null())
+        );
+        let disabled = serde_json::to_value(StatusHandle::new(false).get()).unwrap();
+        assert_eq!(disabled["state"], "disabled");
+        assert!(disabled["runtime"].is_null());
+        assert!(disabled["owned_failure"].is_null());
+    }
+
     #[tokio::test]
     async fn native_bootstrap_custody_consumed_close_ack() {
         // Preserve the original consuming-API protocol regression at its new
@@ -97,6 +168,94 @@ mod custody_tests {
         }
     }
 }
+// Existing authenticated operator diagnostics only. No raw report serialization.
+#[derive(Clone, Serialize)]
+struct RuntimeStatus {
+    stage: &'static str,
+    session_error: Option<&'static str>,
+    transport_cause: Option<&'static str>,
+    pending_requests: Option<usize>,
+    pending_server_requests: Option<usize>,
+    write_accepted_bytes: Option<usize>,
+    write_total_bytes: Option<usize>,
+}
+fn owned_failure_label(error: hagency_execution::Failure) -> &'static str {
+    use hagency_execution::Failure::*;
+    match error {
+        Admission => "admission",
+        Cancelled => "cancelled",
+        StartUnknown => "start_unknown",
+        UsageBinding => "usage_binding",
+        SpawnFailed => "spawn_failed",
+        LostAuthority => "lost_authority",
+        Protocol => "protocol",
+        UnsupportedApproval => "unsupported_approval",
+        Deadline => "deadline",
+        CleanupUnknown => "cleanup_unknown",
+        SettlementUnknown => "settlement_unknown",
+        Worker => "worker",
+    }
+}
+fn session_error_label(error: hagency_runtime::codex::session::Error) -> &'static str {
+    use hagency_runtime::codex::session::Error::*;
+    match error {
+        Settings => "settings",
+        State => "state",
+        Scope => "scope",
+        Malformed => "malformed",
+        Capacity => "capacity",
+        Policy => "policy",
+        Rejected(_) => "rejected",
+        UnsupportedRequest => "unsupported_request",
+        UnsupportedEvent => "unsupported_event",
+        Cancelled => "cancelled",
+        Transport(_) => "transport",
+    }
+}
+fn transport_error_label(error: hagency_runtime::codex::transport::Error) -> &'static str {
+    use hagency_runtime::codex::{Error as WireError, transport::Error::*};
+    match error {
+        Configuration => "configuration",
+        Closed => "closed",
+        CancelledOperation => "cancelled_operation",
+        Timeout => "timeout",
+        Io => "io",
+        PeerEof => "peer_eof",
+        Capacity => "capacity",
+        HostClosed => "host_closed",
+        Protocol(error) => match error {
+            WireError::Closed => "protocol_closed",
+            WireError::State => "protocol_state",
+            WireError::Envelope => "protocol_envelope",
+            WireError::Capacity => "protocol_capacity",
+            WireError::Identity => "protocol_identity",
+            WireError::Timeout => "protocol_timeout",
+            WireError::Clock => "protocol_clock",
+            WireError::UnexpectedEof => "protocol_unexpected_eof",
+            WireError::Transport => "protocol_transport",
+        },
+    }
+}
+impl From<&hagency_execution::RuntimeObservation> for RuntimeStatus {
+    fn from(observation: &hagency_execution::RuntimeObservation) -> Self {
+        use hagency_execution::RuntimeStage;
+        Self {
+            stage: match observation.stage {
+                RuntimeStage::Initialize => "initialize",
+                RuntimeStage::ThreadStart => "thread_start",
+                RuntimeStage::TurnStart => "turn_start",
+                RuntimeStage::Update => "update",
+            },
+            session_error: observation.session_error.map(session_error_label),
+            transport_cause: observation.transport_cause.map(transport_error_label),
+            pending_requests: observation.pending_requests,
+            pending_server_requests: observation.pending_server_requests,
+            write_accepted_bytes: observation.write.map(|w| w.accepted_bytes),
+            write_total_bytes: observation.write.map(|w| w.total_bytes),
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct Status {
     mode: &'static str,
@@ -106,6 +265,8 @@ pub struct Status {
     cleanup: Option<&'static str>,
     settlement: Option<&'static str>,
     error: Option<&'static str>,
+    owned_failure: Option<&'static str>,
+    runtime: Option<RuntimeStatus>,
 }
 #[derive(Clone)]
 pub(crate) struct StatusHandle(Arc<Mutex<Status>>);
@@ -119,6 +280,8 @@ impl StatusHandle {
             cleanup: None,
             settlement: None,
             error: None,
+            owned_failure: None,
+            runtime: None,
         })))
     }
     pub(crate) fn get(&self) -> Status {
@@ -155,6 +318,8 @@ impl StatusHandle {
         use hagency_execution::{Protocol, Settlement};
         use hagency_runtime::owned::Cleanup;
         let mut status = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        status.owned_failure = report.failure.map(owned_failure_label);
+        status.runtime = report.runtime_observation().map(RuntimeStatus::from);
         status.protocol = Some(match report.protocol {
             Protocol::NotStarted => "not_started",
             Protocol::Completed => "completed",

@@ -6,7 +6,10 @@ mod registration;
 mod usage;
 mod workspace;
 pub use host::{Host, Limits};
-pub use operation::{Failure, Operation, Protocol, Report, Settlement};
+pub use operation::{
+    Failure, Operation, Protocol, Report, RuntimeObservation, RuntimeStage,
+    RuntimeWriteObservation, Settlement,
+};
 pub use registration::{LaunchAck, RegistrationError, WorkspaceRegistration};
 pub use usage::{UsageFailure, UsageStatus};
 pub use workspace::{StartedWorkspace, WorkspaceError, WorkspaceReceive, WorkspaceReceiveError};

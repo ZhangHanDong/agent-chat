@@ -6661,3 +6661,28 @@ Corrected verify-ci completed successfully, including113 kernel/CLI tests.
 Agent-spec's Cargo-only lifecycle reports these two Node scenarios as skipped;
 that is retained as a non-passing lifecycle result, not relabeled as success.
 The exact8-test Vitest run and passing verify-ci supply the actual JS evidence.
+
+### Original FileService failure diagnostic partition (2026-09-11)
+
+Parent approved the exact 11-file observation task from b211301. The bounded
+contract was parsed and linted before implementation after reading ADR053 and
+ADR101. Report snapshots the same original runner before stop; the existing
+authenticated operator status projects closed failure labels and optional
+counts. Original fixture failure output adds bounded existing helper-receipt
+states, including absent, malformed, oversized, unsupported and preexisting.
+No native event, keepalive, timeout, retry, process or domain behavior changed.
+The original b856b47 Windows failure and later diagnostic cancellation remain
+separate; local tests do not establish its source-derived timeout candidate.
+
+The actual owned timeout/EOF regression, maximum-width operator projection and
+complete FileService target pass locally: eight tests, zero failed or ignored.
+Warnings-denied all-target Clippy passes for the execution and application
+packages. Strict lifecycle passes 5/5 bounded checks, with zero failed, skipped,
+uncertain or pending-review results. Its four selectors each execute one actual
+test; 92 unrelated zero-test target outputs per selector are not counted as tests.
+The full lifecycle JSON retains the separate wider requirement-trace diagnostic
+for scenarios outside this task. Original b856b47 evidence and final-source
+qualification records remain in the external migration cache; actual Windows
+execution of these new diagnostics remains pending.
+Windows GNU all-target compilation passes for both changed packages; this is
+compile evidence only, not an executed Windows diagnostic or production fix.

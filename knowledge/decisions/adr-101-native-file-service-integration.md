@@ -288,6 +288,19 @@ paths, credentials, room IDs or request payloads. Observation preserves original
 wait budgets, errors and cleanup and does not infer service exit from missing HTTP.
 The original Linux 85427cb failures remain failed and unexplained by local passes.
 
+The original b856b47 Windows executable failure is also retained unchanged.
+The existing authenticated operator status now projects the original owned
+failure category and ADR053 runtime snapshot with closed labels and optional
+counts. It does not expose the private report or change the product flow.
+The original offline fixture separately observes five existing helper receipts
+through reads capped at 8,193 bytes each, reporting only known status labels.
+Absent, malformed, oversized, unsupported and read-failed observations remain
+distinct. A receipt present before this service launch stays preexisting and
+cannot be attributed to the later launch. No private helper context is read.
+These local fixture receipts are observations, not domain or delivery authority;
+an absent receipt cannot prove that the helper never executed its preceding step.
+No event, keepalive, deadline, retry or original failure behavior changes.
+
 
 Positive: one original bootstrap and Matrix owner can support a real scoped file tool.
 Negative: unknown jobs consume finite capacity and can prevent clean shutdown.
