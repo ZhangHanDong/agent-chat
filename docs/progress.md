@@ -6196,3 +6196,63 @@ binding outputs remain intact; a later result must have separate provenance.
 An additional workspace inventory was terminated after its first test process
 stalled before output; its actual sample shows only dyld entry. That observation
 does not establish the cause of separate runtime handshake failures.
+
+### 2026-09-11 — Actual incoming native receive executable partition
+
+Added the accepted nine-path executable partition on the integrated receive
+source. The new independent SDK sender publishes its actual signed public keys
+to the local TLS homeserver fixture, accepts actual service enrollment writes,
+and delivers authenticated Olm/Megolm incoming attachment events. The test does
+not open the service SDK store or manufacture inputs, visibility, capabilities or
+Started bindings. Real native serve performs the one intake, selected inbox claim
+and launch. The offline runtime discovers the two receive tools through actual
+native MCP and reads the returned generated file through its real cwd.
+
+The latest complete incoming target passes 4/4 with zero ignored tests. The first
+case covers both a DM attachment wake and an unmentioned group attachment selected
+as context by the later addressed message in the same thread. Exact replay after
+six seconds preserves the original path without another authenticated GET; actual
+runtime mutation then refuses without overwrite. An incomplete TLS body produces
+Failed without a destination; reopening the service refuses the old Ready path
+despite inherited original context and leaves the old bytes unchanged. Each case
+counts the actual original GET and persistent records. App all-target Clippy
+passes with warnings denied; exact lifecycle and final source evidence follow.
+
+Original failed observations remain outside the tree under the authorized cache:
+the initial SDK iterator compile errors; enrollment refusal caused by replacing
+the sender's original device self-signature instead of merging SDK signatures;
+an observer race after the helper published its real successful byte receipt;
+and a silent scripted runtime exceeding its unchanged 1500 ms response deadline
+during the six-second replay wait. Bounded commentary events now keep that actual
+protocol alive while the original service write deadline ages. Separate pre-helper
+launch failures persist as unresolved observations: one complete run was 0/4 and
+one diagnostic selector was 0/1 with actual intake/Started but no GET or helper
+phase, followed by unchanged-source 1/1 and 4/4 passes. Less concurrent local work
+coincided with those passes and does not establish causation. No deadline was
+widened and no failure was converted into a pass. Checked original server PID
+reaping is separate from the still-unqualified whole-process cleanup outcome.
+Installed Codex, all-platform positive filesystem evidence, additional ADR105
+lifecycle faults and full production migration remain incomplete.
+
+The application regression selection passes 46 tests (library 18, bootstrap 5,
+MCP 4, runner 11 and task client 8). Strict lifecycle first passed 5/5, including
+the exact nine paths and four selectors each running one actual test. After
+clarifying the contract's integration doubles and grouping, the final lifecycle
+is 4/5 and remains non-passing: the truncated-media selector again failed before
+helper entry with zero GETs; the other three selectors each passed one test.
+All outputs retain zero skipped, uncertain and pending-review scenarios. The
+installed agent-spec 1.4.0 also reports four advisory output/metadata warnings
+despite the explicit file-output step and Level/Test Double lines; its parsed
+scenario metadata omits those lines. No newer verified binary was available.
+
+Added a bounded fixed runtime-entry record before the peer watchdog and handshake
+to improve future failure evidence. Its focused selector passes once. A fixed
+six-trial direct-binary diagnostic and four-trial Cargo diagnostic also pass, but
+do not replace the non-passing final lifecycle. Read-only sampling of ancestry-
+verified native children in those Cargo trials observes 112 KiB footprint,
+only _dyld_start and no binary images before Rust entry. Those sampled children
+belong to the native init/service boundary; no failed runtime helper was sampled,
+so this does not establish the cause of its failure. No production timeout or
+policy changed. The checkpoint is ready for integration review, not qualification
+completion. Logs, strict verdicts, sampled stacks and source manifests remain in
+the authorized external receive-executable evidence cache.

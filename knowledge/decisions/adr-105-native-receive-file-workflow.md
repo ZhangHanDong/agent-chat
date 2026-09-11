@@ -50,6 +50,19 @@ actual fresh enrollment, independent encrypted input, native intake/selection an
 MCP workspace bytes. Acceptance of this work is not a passing test verdict or
 authorization for production activation.
 
+Its local macOS executable observation now passes four cases: actual incoming DM
+and addressed-group receive, retained read-only replay after the original write
+deadline plus mutation refusal, truncated authenticated media refusal, and fresh
+service refusal of a historical Ready path. Each success reads actual bytes in
+the launched runtime workspace through the real native MCP. Earlier pre-helper
+launch outcomes remain unknown and recorded; their cause is unresolved. This
+evidence does not establish process-tree cleanup, every lifecycle fault, installed
+Codex sandbox behavior, positive evidence on other platforms or production parity.
+The current final lifecycle observation is non-passing: four checks pass and the
+truncated-media selector fails before helper entry or any media GET. An earlier
+five-check lifecycle passed. Neither that earlier pass nor later passing isolated
+diagnostic trials resolves the current launch failure.
+
 Root additionally accepted the application receive-service ownership partition on
 2026-09-11 under the operator's existing full migration authorization. Its active
 boundary is `specs/task-rust-receive-service.spec.md`: retained jobs, fixed worker,

@@ -48,26 +48,36 @@ workflow acceptance, not installed Codex sandbox or production migration parity.
 
 ## Acceptance Criteria
 
-Scenario: Actual native MCP receives the selected encrypted attachment
+Rule: receive-original — Actual native receive preserves the original source and workspace
+
+Scenario: Actual native MCP writes the selected encrypted attachment file output
+  Level: integration
+  Test Double: actual native service and MCP with independently encrypted SDK input and a scripted local TLS homeserver and runtime protocol peer
   Test: native_receive_executable
   Given fresh service state and an independently signed encrypted DM or addressed group attachment
   When native intake selects the original inbox and the launched runtime invokes actual MCP discovery and receive
-  Then one authenticated media GET produces a generated path whose actual workspace bytes size and hash match the sender
+  Then one authenticated media GET produces file output at a generated path whose actual workspace bytes size and hash match the sender
   And selected context tool markers and canonical task status preserve their original meanings
 
 Scenario: Exact Ready replay revalidates original bytes and refuses later mutation
+  Level: integration
+  Test Double: actual native service and MCP with a scripted runtime reading and modifying its original received file
   Test: native_receive_replay_bounds
   Given a successful original receive in the still-running original runtime
   When native MCP repeats the exact event and then the retained destination changes
   Then the intact original replays without another GET and changed bytes refuse without overwrite
 
-Scenario: Incomplete transport cannot produce a received path
+Scenario: Incomplete transport failure cannot produce a received path
+  Level: integration
+  Test Double: actual native service and MCP with deliberately truncated authenticated local TLS media response
   Test: native_receive_uncertainty
   Given an actual admitted receive whose authenticated media response is incomplete
   When the original transport deadline or framing check refuses the response
   Then native MCP exposes no successful path and no local Ready record or replacement GET appears
 
 Scenario: Restart does not restore an original received path owner
+  Level: integration
+  Test Double: two actual native service processes in sequence and real MCP using inherited original context
   Test: native_receive_restart
   Given actual received cache facts and the original process is gone
   When a fresh native service opens the same state and inherited original context asks for the file

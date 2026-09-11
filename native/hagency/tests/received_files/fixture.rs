@@ -159,9 +159,28 @@ impl Sender {
         server.query = json!({"device_keys":{crypto::HUMAN:{crypto::HUMAN_DEVICE:upload.device_keys.as_ref().unwrap()}},"master_keys":{crypto::HUMAN:bootstrap.upload_signing_keys_req.master_key.unwrap()},"self_signing_keys":{crypto::HUMAN:bootstrap.upload_signing_keys_req.self_signing_key.unwrap()},"user_signing_keys":{crypto::HUMAN:bootstrap.upload_signing_keys_req.user_signing_key.unwrap()},"failures":{}});
         let signed = serde_json::to_value(bootstrap.upload_signatures_req.signed_keys).unwrap();
         for (id, value) in signed[crypto::HUMAN].as_object().unwrap() {
-            if id == crypto::HUMAN_DEVICE {
-                server.query["device_keys"][crypto::HUMAN][id]["signatures"] =
-                    value["signatures"].clone();
+            let current = if id == crypto::HUMAN_DEVICE {
+                &mut server.query["device_keys"][crypto::HUMAN][id]
+            } else {
+                let table = ["master_keys", "self_signing_keys", "user_signing_keys"]
+                    .into_iter()
+                    .find(|table| {
+                        server.query[*table][crypto::HUMAN]["keys"]
+                            .as_object()
+                            .is_some_and(|keys| keys.values().any(|key| key.as_str() == Some(id)))
+                    })
+                    .expect("original sender signature identifies its real key");
+                &mut server.query[table][crypto::HUMAN]
+            };
+            // SDK signature uploads extend the original signed object. Retain
+            // its device self-signature while adding actual cross-signatures.
+            for (signer, signatures) in value["signatures"].as_object().unwrap() {
+                if current["signatures"].get(signer).is_none() {
+                    current["signatures"][signer] = json!({});
+                }
+                for (id, signature) in signatures.as_object().unwrap() {
+                    current["signatures"][signer][id] = signature.clone();
+                }
             }
         }
         let (id, _) = machine.query_keys_for_users([machine.user_id()]);
@@ -222,7 +241,7 @@ impl Sender {
         claim.one_time_keys =
             serde_json::from_value(json!({crypto::SENDER:{crypto::DEVICE:{key:value}}})).unwrap();
         let (id, _) = human
-            .get_missing_sessions([ruma::user_id!("@worker:example.test")])
+            .get_missing_sessions([ruma::user_id!("@worker:example.test")].into_iter())
             .await
             .unwrap()
             .unwrap();
@@ -231,7 +250,7 @@ impl Sender {
         let shares = human
             .share_room_key(
                 &room,
-                [ruma::user_id!("@worker:example.test")],
+                [ruma::user_id!("@worker:example.test")].into_iter(),
                 EncryptionSettings::default(),
             )
             .await
@@ -500,6 +519,14 @@ impl Fixture {
         let mut observation = self.observation.get();
         observation.requests += 1;
         observation.phase = "matrix.request";
+        observation.last_http = match request.target.as_str() {
+            "/_matrix/client/v3/account/whoami" => "whoami",
+            "/_matrix/client/v1/media/download/remote.media/native_incoming" => "media.get",
+            target if target.starts_with("/_matrix/client/v3/sync?") => "sync",
+            target if target.starts_with("/_matrix/client/v3/keys/") => "keys",
+            target if target.ends_with("/state") => "room.state",
+            _ => "other",
+        };
         self.observation.set(observation);
         assert_eq!(
             request.headers.get("authorization"),
@@ -532,7 +559,14 @@ impl Fixture {
                 if self.negative {
                     request.unclean(b"HTTP/1.1 200 OK\r\nContent-Length: 500\r\nConnection: close\r\n\r\ntruncated".to_vec());
                 } else {
-                    request.raw(common::response(200, self.encrypted.ciphertext()));
+                    let body = self.encrypted.ciphertext();
+                    let mut response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .into_bytes();
+                    response.extend_from_slice(body);
+                    request.raw(response);
                 }
             }
             _ => {
@@ -567,16 +601,26 @@ impl Fixture {
                 self.respond(request).await;
                 continue;
             }
+            // The actual runtime can publish its receipt during the HTTP wait.
+            // Preserve its independently checked file result before observing
+            // the later, separately qualified process cleanup outcome.
+            if let Some(value) = self.receipt("receipt") {
+                return value;
+            }
             let status = self.capabilities().await["development_execution"].clone();
             assert!(
                 !matches!(
                     status["state"].as_str(),
                     Some("unavailable" | "outcome_unknown" | "no_work")
                 ),
-                "actual incoming workflow refused: {status}; intake={}, GET={}, keys={}",
+                "actual incoming workflow refused: {status}; intake={}, GET={}, keys={}, runtime_entry={:?}, helper_phase={:?}, list={:?}, first={:?}",
                 self.intakes,
                 self.gets,
-                self.sender.server.writes.len()
+                self.sender.server.writes.len(),
+                self.receipt("entry"),
+                self.receipt("phase"),
+                self.receipt("list"),
+                self.receipt("first")
             );
             assert!(
                 tokio::time::Instant::now() < deadline,
@@ -605,8 +649,19 @@ impl Fixture {
                 assert!(bytes.len() <= 16384);
                 let response = String::from_utf8(bytes).unwrap();
                 if response.starts_with("HTTP/1.1 200") {
-                    return serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1)
-                        .unwrap();
+                    let value: Value =
+                        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+                    let mut observation = self.observation.get();
+                    observation.status = match value["development_execution"]["state"].as_str() {
+                        Some("running") => "running",
+                        Some("completed") => "completed",
+                        Some("outcome_unknown") => "outcome_unknown",
+                        Some("unavailable") => "unavailable",
+                        Some("no_work") => "no_work",
+                        _ => "other",
+                    };
+                    self.observation.set(observation);
+                    return value;
                 }
             }
             assert!(

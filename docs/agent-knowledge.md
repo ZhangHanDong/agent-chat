@@ -2698,7 +2698,8 @@ run's underlying protocol cause is unobserved. Later lifecycle selector success
 and the independently passing main-worktree bootstrap run do not replace those
 original failures or establish host contention. Original hosted and local logs,
 measurements, lifecycle output and hashes remain in the external migration cache.
-# Cargo target provenance across migration worktrees
+
+### Cargo target provenance across migration worktrees
 
 On 2026-09-11 a shared target directory reused an older worktree's media test
 artifact while main contained an additional CTR equality test. Relative dep-info
@@ -2707,3 +2708,34 @@ all current source. Preserve source/artifact hashes and the actual test inventor
 invalidate affected package artifacts when switching between differing source
 trees. A zero-missing binding inventory remains required. Original success logs
 are evidence of that command's result, not proof of current-source completeness.
+
+### Native incoming executable evidence (2026-09-11)
+
+The receive executable fixture uses a separately generated SDK sender and a fake
+homeserver public-key table populated from real enrollment requests. SDK signature
+uploads extend signed objects: merging the real cross-signatures must preserve
+the existing device self-signature. Replacing that map makes actual enrollment
+refuse. No service SDK seeding is needed for encrypted DM or selected group input.
+
+Actual native MCP success is corroborated by bytes read by the launched runtime
+in its original cwd, plus independent expected bytes, size/hash and counted TLS
+GETs. A fresh service cannot reconstruct that owner from a historical Ready row
+or captured inherited context. A retained owner can revalidate after its original
+write deadline using the separate read-only deadline; changed bytes refuse.
+
+The offline protocol peer must remain responsive while waiting to test elapsed
+write authority: finite commentary events keep the existing 1500 ms runtime
+response bound active without forging any tool result. Observe its atomic
+completed receipt again after a network wait before attributing a later process
+cleanup outcome to the file operation. The latest four-case incoming target
+passes locally, while earlier pre-helper unknown launch outcomes remain preserved
+and unexplained. These tests do not qualify installed Codex, every lifecycle
+fault, whole-tree cleanup or other platforms.
+
+The current strict incoming lifecycle is non-passing at 4/5 after another
+pre-helper launch failure; preserve that result alongside the earlier 5/5 pass.
+Bounded runtime-entry diagnostics and separate fixed diagnostic trials help
+locate future failures but are not replacement acceptance. Actual sampled native
+children have stalled in _dyld_start before Rust entry, with 112 KiB footprint
+and no binary images. That observation is at init/service startup, not an actual
+failed runtime helper, so the helper failure's cause remains unproven.

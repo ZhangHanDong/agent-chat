@@ -49,6 +49,7 @@ fn send(out: &mut impl Write, value: Value) -> io::Result<()> {
     out.flush()
 }
 fn request(input: &mut impl BufRead, method: &str, log: &mut fs::File) -> io::Result<Value> {
+    receipt("phase", json!({"stage":"runtime_wait","method":method}))?;
     let value = read(input)?;
     if value["method"] != method {
         return Err(invalid());
@@ -72,6 +73,7 @@ fn rpc(
     method: &str,
     params: Value,
 ) -> io::Result<Value> {
+    receipt("phase", json!({"rpc_id":id,"method":method}))?;
     send(
         out,
         json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
@@ -88,7 +90,8 @@ fn receipt(stage: &str, value: Value) -> io::Result<()> {
     fs::write(&temporary, serde_json::to_vec(&value)?)?;
     fs::rename(temporary, target)
 }
-fn helper(params: &Value, turn: &Value) -> io::Result<()> {
+fn helper(params: &Value, turn: &Value, progress: &mut impl Write) -> io::Result<()> {
+    receipt("phase", json!({"stage":"check_helper_config"}))?;
     use sha2::{Digest, Sha256};
     let config = &params["config"];
     let table = &config["mcp_servers.hagency_task_writer"];
@@ -115,6 +118,7 @@ fn helper(params: &Value, turn: &Value) -> io::Result<()> {
     {
         return Err(invalid());
     }
+    receipt("phase", json!({"stage":"check_selected_prompt"}))?;
     let prompt = serde_json::to_string(&turn["input"])?;
     if !prompt.contains("$incoming") || prompt.contains("mxc://") || prompt.contains("key_ops") {
         return Err(invalid());
@@ -239,6 +243,28 @@ fn helper(params: &Value, turn: &Value) -> io::Result<()> {
             json!({"bytes":bytes,"cwd":std::env::current_dir()?.to_str().ok_or_else(invalid)?,"size":value["size"],"sha256":value["sha256"],"path":path}),
         )?;
         if mode == "replay" {
+            // The original five-second write deadline has elapsed. A retained
+            // Ready owner must use its fresh read-only response deadline.
+            send(
+                progress,
+                json!({"method":"item/started","params":{"startedAtMs":1,"threadId":"owned-thread","turnId":"owned-turn","item":{"id":"replay_wait","type":"agentMessage","phase":"commentary","text":""}}}),
+            )?;
+            let mut text = String::new();
+            for _ in 0..12 {
+                // Real scripted runtime progress keeps the unchanged protocol
+                // response deadline live while the service write deadline ages.
+                std::thread::sleep(Duration::from_millis(500));
+                let delta = "Waiting to verify the retained original file. ";
+                text.push_str(delta);
+                send(
+                    progress,
+                    json!({"method":"item/agentMessage/delta","params":{"threadId":"owned-thread","turnId":"owned-turn","itemId":"replay_wait","delta":delta}}),
+                )?;
+            }
+            send(
+                progress,
+                json!({"method":"item/completed","params":{"completedAtMs":6001,"threadId":"owned-thread","turnId":"owned-turn","item":{"id":"replay_wait","type":"agentMessage","phase":"commentary","text":text}}}),
+            )?;
             let repeated = rpc(&mut input, &mut output, 4, "tools/call", call.clone())?;
             receipt("replay", repeated.clone())?;
             if repeated["isError"] != false
@@ -325,7 +351,7 @@ fn fake() -> io::Result<()> {
         &mut output,
         json!({"id":turn["id"],"result":{"turn":{"id":"owned-turn","status":"inProgress","items":[]}}}),
     )?;
-    helper(params, &turn["params"])?;
+    helper(params, &turn["params"], &mut output)?;
     {
         send(
             &mut output,
@@ -354,6 +380,10 @@ fn main() -> io::Result<()> {
     if args.as_slice() != [std::ffi::OsString::from("app-server")] {
         return Err(invalid());
     }
+    receipt(
+        "entry",
+        json!({"stage":"runtime_main","pid":std::process::id()}),
+    )?;
     // Disposable peer-wide bound: even a broken synchronous pipe cannot hang a
     // fixture forever. No detached daemon cleanup and no successful exit claim.
     let (release, wait) = mpsc::sync_channel::<()>(1);
