@@ -64,11 +64,18 @@ fn plan() -> HostIntakePlan {
 }
 async fn prime(c: &Collector, f: &common::Fixture, fake: &mut common::Fake, encrypted: bool) {
     let cancel = CancellationToken::new();
-    let (result, _) = tokio::join!(c.collect(&cancel), async {
-        fake.next().await.json(200, common::who());
-        fake.next().await.json(200, common::sync("bootstrap"));
-        fake.next().await.json(200, state(encrypted));
-    });
+    let (result, _) = common::scripted(c.collect(&cancel), async {
+        fake.next_phase(Some("intake prime: whoami"))
+            .await
+            .json(200, common::who());
+        fake.next_phase(Some("intake prime: sync"))
+            .await
+            .json(200, common::sync("bootstrap"));
+        fake.next_phase(Some("intake prime: room state"))
+            .await
+            .json(200, state(encrypted));
+    })
+    .await;
     result.unwrap();
     f.store
         .resolve_verified_matrix_session(SessionBinding {
@@ -80,20 +87,73 @@ async fn prime(c: &Collector, f: &common::Fixture, fake: &mut common::Fake, encr
         .await
         .unwrap();
 }
+#[derive(Clone, Copy)]
+enum IntakeHttpPhase {
+    Whoami,
+    Sync,
+    RoomState,
+    ScriptComplete,
+}
+struct IntakeHttpObservation {
+    batch: u8,
+    last: std::cell::Cell<&'static str>,
+}
+impl IntakeHttpObservation {
+    fn new(batch: u8) -> Self {
+        assert!(batch < 2);
+        Self {
+            batch,
+            last: std::cell::Cell::new("before intake polling"),
+        }
+    }
+    fn mark(&self, phase: IntakeHttpPhase) -> &'static str {
+        let label = match (self.batch, phase) {
+            (0, IntakeHttpPhase::Whoami) => "manifest batch 0: whoami",
+            (0, IntakeHttpPhase::Sync) => "manifest batch 0: sync",
+            (0, IntakeHttpPhase::RoomState) => "manifest batch 0: room state",
+            (0, IntakeHttpPhase::ScriptComplete) => "manifest batch 0: HTTP script complete",
+            (1, IntakeHttpPhase::Whoami) => "manifest batch 1: whoami",
+            (1, IntakeHttpPhase::Sync) => "manifest batch 1: sync",
+            (1, IntakeHttpPhase::RoomState) => "manifest batch 1: room state",
+            (1, IntakeHttpPhase::ScriptComplete) => "manifest batch 1: HTTP script complete",
+            _ => unreachable!("bounded fixture batch"),
+        };
+        self.last.set(label);
+        label
+    }
+}
 async fn run(
     c: &Collector,
     fake: &mut common::Fake,
     value: Value,
     encrypted: bool,
 ) -> Result<IntakeSummary, Error> {
+    run_observed(c, fake, value, encrypted, None).await
+}
+async fn run_observed(
+    c: &Collector,
+    fake: &mut common::Fake,
+    value: Value,
+    encrypted: bool,
+    observation: Option<&IntakeHttpObservation>,
+) -> Result<IntakeSummary, Error> {
     let cancel = CancellationToken::new();
     let (result, _) = tokio::join!(c.intake(plan(), &cancel), async {
-        fake.next().await.json(200, common::who());
-        let request = fake.next().await;
+        fake.next_phase(observation.map(|o| o.mark(IntakeHttpPhase::Whoami)))
+            .await
+            .json(200, common::who());
+        let request = fake
+            .next_phase(observation.map(|o| o.mark(IntakeHttpPhase::Sync)))
+            .await;
         assert!(request.target.contains("sync?"));
         assert!(request.target.contains("since=bootstrap") || request.target.contains("since="));
         request.json(200, value);
-        fake.next().await.json(200, state(encrypted));
+        fake.next_phase(observation.map(|o| o.mark(IntakeHttpPhase::RoomState)))
+            .await
+            .json(200, state(encrypted));
+        if let Some(observation) = observation {
+            observation.mark(IntakeHttpPhase::ScriptComplete);
+        }
     });
     result
 }
@@ -304,7 +364,7 @@ async fn native_matrix_intake_rotation_historical_commit_settles_without_new_pro
     assert_eq!(rows(&f, "session_inputs"), 1);
     assert_eq!(status(&c, &mut fake).await.stage, "idle");
     c.close().await.unwrap();
-    f.store.shutdown().await.unwrap();
+    common::shutdown_domain(&f.store, "historical rotation cleanup").await;
     fake.close().await;
 }
 
@@ -492,7 +552,7 @@ async fn native_matrix_intake_sdk_custody_interrupted_apply_retains_exact_raw_an
                 .any(|v| v == b"private unknown canary")
         );
     }
-    f.store.shutdown().await.unwrap();
+    common::shutdown_domain(&f.store, "interrupted apply cleanup").await;
     fake.close().await;
 }
 
@@ -960,7 +1020,7 @@ async fn native_matrix_intake_rotation_old_inspector_cannot_retire_new_device_in
         .unwrap();
     let cancel = CancellationToken::new();
     let (result, ()) = common::scripted(c.intake_status(&cancel), async {
-        fake.next().await.json(
+        fake.next_phase(Some("old inspector: whoami")).await.json(
             200,
             json!({"user_id":"@wrong:example.test","device_id":"OTHER"}),
         );
@@ -1060,7 +1120,7 @@ async fn native_matrix_intake_sdk_custody_restore_checks_authenticated_journal_c
         assert_eq!(result, Err(Error::Storage), "{corrupt}");
         assert_eq!(rows(&f, "admitted_messages"), 0);
         c.close().await.unwrap();
-        f.store.shutdown().await.unwrap();
+        common::shutdown_domain(&f.store, "corrupt SDK history cleanup").await;
         fake.close().await;
     }
 }
@@ -1111,3 +1171,20 @@ mod rejections;
 
 mod attachments;
 mod receive;
+
+#[tokio::test]
+#[should_panic(expected = "collector completed before its HTTP script: Err(Identity)")]
+async fn native_matrix_intake_prime_reports_early_identity() {
+    let f = common::Fixture::new();
+    let mut fake = common::Fake::start(false).await;
+    let mut identity = f.identity.clone();
+    identity.transport.device_id = "OTHER".into();
+    let c = Collector::new(
+        config(&f, &fake.endpoint, identity, 1, false),
+        f.store.clone(),
+    )
+    .unwrap();
+    // The actual peer supplies DEVICE_1, so collection refuses before sync.
+    // No artificial delay or clock makes an impossible next request time out.
+    prime(&c, &f, &mut fake, false).await;
+}

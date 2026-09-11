@@ -148,6 +148,12 @@ where
         output = &mut collector => panic!("collector completed before its HTTP script: {output:?}"),
     }
 }
+/// Observe the original domain shutdown once. A failure stays a failure; late
+/// worker cleanup or a future reopen cannot replace this Result.
+pub async fn shutdown_domain(store: &DomainStore, label: &'static str) {
+    let (result, snapshot) = store.shutdown_observed().await;
+    result.unwrap_or_else(|error| panic!("domain shutdown {label}: {error:?}; {snapshot:?}"));
+}
 struct ScriptedResponse {
     pieces: Vec<(Duration, Vec<u8>)>,
     clean: bool,
@@ -250,10 +256,18 @@ impl Fake {
         }
     }
     pub async fn next(&mut self) -> Request {
+        self.next_phase(None).await
+    }
+    pub async fn next_phase(&mut self, phase: Option<&'static str>) -> Request {
         // An SDK bootstrap or committed sync runs between HTTP requests. This
         // is a fixture orchestration bound, not an HTTP/production deadline.
-        timeout(limits().sdk + limits().request, self.requests.recv())
-            .await
+        let result = timeout(limits().sdk + limits().request, self.requests.recv()).await;
+        if (result.is_err() || matches!(&result, Ok(None)))
+            && let Some(phase) = phase
+        {
+            eprintln!("scripted HTTP phase: {phase}");
+        }
+        result
             .expect("scripted HTTP request missing after SDK plus HTTP budget")
             .expect("scripted HTTP peer closed")
     }

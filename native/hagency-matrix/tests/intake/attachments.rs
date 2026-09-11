@@ -272,7 +272,15 @@ async fn native_matrix_attachment_manifest_bounds() {
             .collect();
         let value = packet(&c, values, true, &format!("bound_batch_{n}")).await;
         replay = Some(value.clone());
-        assert_eq!(run(&c, &mut fake, value, true).await.unwrap().admitted, 64);
+        let observation = IntakeHttpObservation::new(n);
+        let result = run_observed(&c, &mut fake, value, true, Some(&observation)).await;
+        let result = result.unwrap_or_else(|error| {
+            panic!(
+                "attachment manifest batch {n}, phase {}, original intake result: {error:?}",
+                observation.last.get()
+            )
+        });
+        assert_eq!(result.admitted, 64);
     }
     let mut replay = replay.unwrap();
     replay["next_batch"] = json!("full_exact_replay");

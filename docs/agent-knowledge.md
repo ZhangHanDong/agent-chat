@@ -2193,3 +2193,14 @@ line/end_line offsets changed, with every offset moving up one line. Regenerate
 only after confirming classifications/counts/gates are unchanged; the SSE installer
 assertion moves from7938 to7937. Initial full Node results and later corrected
 runs must remain distinct, including any unrelated subprocess timeout evidence.
+
+- **Windows Matrix failure observation, 2026-09-10:** Original7cf0dc0 had475
+  printed passes and six Matrix library failures. Four were DomainStore shutdown
+  after successful SDK close, one was a64-event attachment batch after its full
+  HTTP script, and one timed out in a shared request fixture with no original
+  stage label. ADR088 observes the original four shutdown paths with the existing
+  fixed snapshot, labels the two manifest batches' HTTP phases, and exposes early
+  bootstrap collector errors via existing scripted driving. No timeout, retry,
+  production result or CI scheduling changed. Script completion does not locate
+  a later backend failure; missing snapshot phases mean unobserved. Historical
+  Windows failure and later19 outgoing/22 transport diagnostic passes stay separate.

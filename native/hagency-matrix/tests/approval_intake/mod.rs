@@ -271,7 +271,7 @@ fn plan(t: &ApprovalIntakeTarget) -> HostApprovalPlan {
 }
 async fn shutdown(f: common::Fixture, fake: common::Fake, c: ApprovalCollector) {
     c.close().await.unwrap();
-    f.store.shutdown().await.unwrap();
+    common::shutdown_domain(&f.store, "approval fixture cleanup").await;
     fake.close().await;
 }
 #[tokio::test]

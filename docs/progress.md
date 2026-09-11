@@ -4995,3 +4995,30 @@ tests;64nonselected tests are excluded, not scenario passes. ESLint/diff checks
 and explicit parsed scope comparison pass. The post-correction complete suite
 runs separately; original failed verification remains retained. No live runtime,
 service, credential, merge, push or production timeout changed.
+
+## 2026-09-10 — Original Windows Matrix failure observation (ADR088)
+
+Read original7cf0dc0 Windows logs and traced all six library failures without
+running tests or changing production. Four exact assertions were DomainStore
+shutdown after successful Collector close; the attachment failure followed its
+completed whoami/sync/state script, and the old-inspector request timeout had an
+unprotected prime join. The external windows-7cf0dc0-review.md preserves exact
+source/log references and explains why no production timing fix is yet justified.
+
+Created a clean97968d8 worktree and parsed/linted the eight-path contract before
+fixture edits. Original domain shutdown calls now use existing shutdown_observed
+with fixed failure labels. The attachment loop records only bounded batch index
+and fixed HTTP phase; script completion does not claim backend completion. Prime
+uses existing common::scripted and an actual wrong-device local HTTP regression
+checks early Identity visibility. No production, deadline, CI parallelism, raw
+payload output or retry behavior changed. Validation is recorded below.
+
+Final strict agent-spec1.4 lifecycle passes8/8: seven explicit selectors covering
+all six original failing cases plus the new early-refusal regression, and all
+eight declared file boundaries. There are zero failed/skipped/uncertain or
+pending-review verdicts. One full Matrix run passes105 tests (84 library,6
+download,6 upload,9 transport), with zero failures or ignored tests. Native
+all-target Matrix Clippy with warnings denied, rustfmt and diff checks pass.
+External windows-matrix-observation-* logs retain these checks. These are local
+fixture validations, not native Windows root-cause proof; original7cf0dc0 remains
+failed and its separate diagnostic reruns keep their original verdicts.
