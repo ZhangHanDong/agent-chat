@@ -2000,3 +2000,11 @@ Never infer syncability from a cloned capability. Media staging now obtains fixe
 relative dot with read access, verifies same device/inode and private permissions,
 and retains both handles. This preserves renamed-directory custody. NativeCI at
 3b5db90 remains failed until the corrected Linux runtime assertions actually pass.
+
+
+Windows3b5db90 proved approval fixture correction8/8 and original media staging7/7.
+Its eight outgoing failures remain unexplained; serial transport tests never ran
+those library cases. Compare diagnostics with the same workspace/all-target
+feature selection; do not claim a targeted build or diagnostic pass reverses
+the original failure. OutcomeUnknown alone cannot identify queue versus commit
+versus SDK delay or justify a duplicate send.

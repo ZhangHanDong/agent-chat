@@ -4183,3 +4183,21 @@ JSON path is additionally covered by the complete affected Matrix suite. Parent
 independent review found no blocking issue; allocator wording now distinguishes
 logical payload caps from allocator rounding and total physical RSS. Actual
 Linux/macOS/Windows integrated execution remains the coordinator's CI gate.
+
+
+## 2026-09-10 — Actual Windows outgoing failures identified
+
+The original Windows job103092158594 at3b5db90 completed with eight outgoing
+library failures (Matrix56pass/8fail), while all seven media staging cases and
+all eight approval coordinator cases passed, including the corrected write-cancel
+phase. One outgoing failure directly exposed claim_final_reply OutcomeUnknown;
+two exposed an early collector OutcomeUnknown and five only a missing scripted
+HTTP request. The60,000 argument is a lease, not the bounded writer response
+deadline. Logs do not prove the source of that delay or a production defect.
+
+The old serial diagnostic reran only Matrix9 and Palpo13 transport tests, all
+passing; it missed every failed outgoing library case and cannot reverse the
+original result. A new failure-only five-minute step runs native_matrix_outgoing
+serially with the SAME workspace/all-target feature selection. The normal full
+suite stays fatal, production deadlines/assertions remain unchanged, and existing
+transport diagnostics remain. Original and split logs are retained externally.
