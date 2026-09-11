@@ -15,7 +15,7 @@ Windows Matrix library failures while preserving deadlines and error results.
 ### Must
 - Use existing DomainStore shutdown_observed for the four known original failing shutdown call sites and retain its exact Result.
 - Print only fixed labels bounded batch indices and the existing fixed shutdown or HTTP phase observations on failure.
-- Drive the original intake bootstrap collector and HTTP script with existing common scripted error visibility.
+- Drive the original intake bootstrap and explicitly observed attachment intake with existing common scripted error visibility while preserving unobserved intake helper behavior.
 - Preserve every authentication restart negative-authority admission and corruption assertion.
 - Keep original Windows7cf0dc0 failure and later diagnostic successes as distinct evidence.
 
@@ -78,6 +78,12 @@ Scenario: Early bootstrap refusal exposes its original collector error
   Given a real local whoami response for a different configured device
   When the bootstrap collector settles before its remaining scripted requests
   Then the actual Identity failure is reported instead of a later fake-peer timeout
+
+Scenario: Observed attachment intake exposes its early original error
+  Test: native_matrix_intake_observed_reports_early_identity
+  Given a real local whoami response for a different configured device during observed intake
+  When intake settles before the remaining observed HTTP script
+  Then the original Identity failure and latest fixed HTTP phase remain visible without waiting for another request
 
 ## Out of Scope
 

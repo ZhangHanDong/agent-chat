@@ -33,8 +33,11 @@ already uses common::scripted. Change the original prime pair to that existing
 script-first driver, retain its three requests and session assertions, and add
 fixed optional HTTP phase labels. The original log cannot prove which of these
 sites timed out; this is diagnostic visibility, not its historical root cause.
-A real wrong-device local HTTP bootstrap regression proves early Identity
-propagation without artificial clocks or changed deadlines.
+Real wrong-device local HTTP bootstrap and observed-intake regressions prove early
+Identity propagation without artificial clocks or changed deadlines. The explicitly
+observed manifest path also uses common::scripted so its own early error cannot
+be masked by a later missing request. Its last fixed HTTP phase is printed on
+error; the unobserved run helper retains its existing join semantics.
 
 All changes are in fixture files. Every production/SDK/HTTP/shutdown/fake deadline,
 CI parallelism setting and original Result remains unchanged. The new helper never

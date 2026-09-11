@@ -138,7 +138,8 @@ async fn run_observed(
     observation: Option<&IntakeHttpObservation>,
 ) -> Result<IntakeSummary, Error> {
     let cancel = CancellationToken::new();
-    let (result, _) = tokio::join!(c.intake(plan(), &cancel), async {
+    let intake = c.intake(plan(), &cancel);
+    let script = async {
         fake.next_phase(observation.map(|o| o.mark(IntakeHttpPhase::Whoami)))
             .await
             .json(200, common::who());
@@ -154,7 +155,19 @@ async fn run_observed(
         if let Some(observation) = observation {
             observation.mark(IntakeHttpPhase::ScriptComplete);
         }
-    });
+    };
+    let (result, _) = if let Some(observation) = observation {
+        let observed = async {
+            let result = intake.await;
+            if result.is_err() {
+                eprintln!("observed intake HTTP phase: {}", observation.last.get());
+            }
+            result
+        };
+        common::scripted(observed, script).await
+    } else {
+        tokio::join!(intake, script)
+    };
     result
 }
 async fn resume(
@@ -1187,4 +1200,29 @@ async fn native_matrix_intake_prime_reports_early_identity() {
     // The actual peer supplies DEVICE_1, so collection refuses before sync.
     // No artificial delay or clock makes an impossible next request time out.
     prime(&c, &f, &mut fake, false).await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "collector completed before its HTTP script: Err(Identity)")]
+async fn native_matrix_intake_observed_reports_early_identity() {
+    let f = common::Fixture::new();
+    let mut fake = common::Fake::start(false).await;
+    let mut identity = f.identity.clone();
+    identity.transport.device_id = "OTHER".into();
+    let c = Collector::new(
+        config(&f, &fake.endpoint, identity, 1, false),
+        f.store.clone(),
+    )
+    .unwrap();
+    let observation = IntakeHttpObservation::new(0);
+    // The actual DEVICE_1 response refuses intake before targets or sync;
+    // observed driving must expose Identity rather than wait for another request.
+    let _ = run_observed(
+        &c,
+        &mut fake,
+        sync("never_received", vec![]),
+        false,
+        Some(&observation),
+    )
+    .await;
 }

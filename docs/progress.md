@@ -5022,3 +5022,18 @@ all-target Matrix Clippy with warnings denied, rustfmt and diff checks pass.
 External windows-matrix-observation-* logs retain these checks. These are local
 fixture validations, not native Windows root-cause proof; original7cf0dc0 remains
 failed and its separate diagnostic reruns keep their original verdicts.
+
+ADR088 review followup: the observed attachment branch still joined its script,
+which could hide an early returned error behind Fake.next. Revised and
+parsed/linted the contract before switching only that branch to existing
+common::scripted. A real wrong-device observed intake now preserves Err(Identity)
+and the latest fixed HTTP phase. Its focused regression and the existing manifest
+bounds selector pass. The full105 run above preceded this followup; revised
+strict lifecycle and Clippy results are recorded separately below.
+
+Followup validation: strict lifecycle passes9/9 (eight selectors plus declared
+eight-path boundary), with zero failed/skipped/uncertain/pending-review results.
+Native all-target Matrix Clippy with warnings denied, rustfmt and diff checks
+pass. Focused and lifecycle logs are retained externally with followup names;
+there was no repeat full Matrix run or native Windows execution in this followup.
+The original six Windows failures remain failed with unresolved inner causes.

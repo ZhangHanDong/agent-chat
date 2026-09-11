@@ -2204,3 +2204,9 @@ runs must remain distinct, including any unrelated subprocess timeout evidence.
   production result or CI scheduling changed. Script completion does not locate
   a later backend failure; missing snapshot phases mean unobserved. Historical
   Windows failure and later19 outgoing/22 transport diagnostic passes stay separate.
+
+ADR088's explicitly observed attachment helper also races intake against its
+HTTP script: otherwise an early Identity/SDK/domain error could remain hidden
+behind the next request wait. The unobserved helper retains its original join
+behavior. A real wrong-device response verifies the original Identity panic and
+fixed latest phase, without changing HTTP waits or exposing payload values.
