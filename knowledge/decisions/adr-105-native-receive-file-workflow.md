@@ -44,6 +44,13 @@ No test is declared passing by this decision.
 
 ## Decision
 
+Root additionally accepted the application receive-service ownership partition on
+2026-09-11 under the operator's existing full migration authorization. Its active
+boundary is `specs/task-rust-receive-service.spec.md`: retained jobs, fixed worker,
+safe projections and bootstrap ownership. Sink and transport integration remain
+separate partitions; this acceptance does not declare executable or platform
+qualification complete.
+
 ### One bounded development workflow
 
 Add optional receive_file and receive_inbox settings to the existing private

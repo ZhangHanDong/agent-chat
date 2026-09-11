@@ -212,6 +212,7 @@ pub struct Bootstrap {
     driver: Option<driver::Driver>,
     shared: Option<Shared>,
     files: Option<crate::file_service::FileOwner>,
+    receives: Option<crate::receive_service::ReceiveOwner>,
     collector_close: Option<tokio::task::JoinHandle<Result<(), hagency_matrix::Error>>>,
     collector_closed: Option<Result<(), Failure>>,
     status: StatusHandle,
@@ -266,14 +267,24 @@ impl Bootstrap {
             ),
             _ => None,
         };
-        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: app_entered");
         let status = StatusHandle::new(development);
+        let receives = match (&shared, prepared.as_mut().and_then(|p| p.receives.take())) {
+            (Some(shared), Some(setup)) => Some(
+                crate::receive_service::ReceiveOwner::start(shared.clone(), setup)
+                    .map_err(|_| Failure::Startup)?,
+            ),
+            _ => None,
+        };
+        tracing::trace!(target: "hagency_startup_observation", "native startup boundary: app_entered");
         let mut app = crate::App::new(store.clone(), &token, listen)
             .map_err(|_| Failure::Startup)?
             .with_domain(domain.clone())
             .with_development(status.clone());
         if let Some(files) = &files {
             app = app.with_files(files.handle());
+        }
+        if let Some(receives) = &receives {
+            app = app.with_receive_service(receives.handle());
         }
         tracing::trace!(target: "hagency_startup_observation", "native startup boundary: bootstrap_ready");
         Ok(Self {
@@ -285,6 +296,7 @@ impl Bootstrap {
             driver: None,
             shared,
             files,
+            receives,
             collector_close: None,
             collector_closed: None,
             status,
@@ -300,6 +312,9 @@ impl Bootstrap {
     /// return an unknown final outcome. Neither wrapper presence nor timeout
     /// proves its repository remains open or has closed. Retain this Bootstrap.
     pub async fn close(&mut self) -> Result<(), Failure> {
+        if let Some(receives) = &self.receives {
+            receives.quiesce();
+        }
         if let Some(files) = &self.files {
             files.quiesce();
         }
@@ -311,6 +326,12 @@ impl Bootstrap {
         }
         if let Some(files) = &mut self.files {
             files.close().await.map_err(|_| Failure::OutcomeUnknown)?;
+        }
+        if let Some(receives) = &mut self.receives {
+            receives
+                .close()
+                .await
+                .map_err(|_| Failure::OutcomeUnknown)?;
         }
         if let Some(driver) = &mut self.driver {
             driver.close().await?;

@@ -22,6 +22,8 @@ struct Config {
     #[serde(default)]
     send_file: bool,
     #[serde(default)]
+    receive_file: bool,
+    #[serde(default)]
     receive_inbox: Option<hagency_core::received_files::ReceiveInboxPlan>,
     executable: PathBuf,
     executable_sha256: String,
@@ -70,6 +72,7 @@ pub(super) struct Prepared {
     pub host: Host,
     pub matrix: Option<HostConfig>,
     pub files: Option<crate::file_service::Setup>,
+    pub receives: Option<crate::receive_service::Setup>,
     pub enrollment: bool,
     pub receive_inbox: Option<hagency_core::received_files::ReceiveInboxPlan>,
     pub claim: OwnedClaimProfile,
@@ -225,6 +228,11 @@ impl Prepared {
         if config.send_file {
             host = host.with_file_tools().map_err(|_| Failure::Config)?;
         }
+        if config.receive_file {
+            hagency_core::received_files::receive_limit(config.file_limit)
+                .map_err(|_| Failure::Config)?;
+            host = host.with_receive_tools().map_err(|_| Failure::Config)?;
+        }
         let namespace = hagency_core::canonical::digest(&serde_json::json!([
             "native_file_storage_v1",
             config.matrix.origin,
@@ -294,6 +302,11 @@ impl Prepared {
             host,
             matrix: Some(matrix),
             files,
+            receives: config
+                .receive_file
+                .then_some(crate::receive_service::Setup {
+                    limit: config.file_limit,
+                }),
             enrollment,
             receive_inbox: config.receive_inbox,
             claim,

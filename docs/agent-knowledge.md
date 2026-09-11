@@ -1,5 +1,17 @@
 # Repository audit knowledge
 
+- **Original receive ownership, 2026-09-11:** ADR105's application owner has two
+  live jobs and one fixed synchronous worker. Durable reservation precedes GET,
+  and the original prepared sink remains inside its job before effects. Unknown
+  completion keeps custody and quota. Ready releases download permits and live
+  slots only after joining the original task, while a separate bounded cache
+  retains the original file and read-only Matrix scope. Every path response
+  rechecks original current authority, domain facts and held-file readback under
+  a fresh read-only deadline; metadata after restart cannot recreate a path.
+  Bootstrap alone owns lifecycle ordering before the shared Collector closes.
+  Service tests do not replace the incoming encrypted executable gate or prove
+  actual interrupted filesystem writes or platform qualification.
+
 - **Original file publication association, 2026-09-10:** ADR100 adds a bounded
   historical content lookup that compares full immutable request and capture data
   with the original domain row before yielding settlement custody. Its pure media

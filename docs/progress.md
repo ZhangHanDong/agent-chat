@@ -6051,3 +6051,30 @@ is reinterpreted as passing. This checkpoint awaits the separately bounded exact
 ReceiveWrite capability matcher and fresh writer time after SQLite waits, final
 checks and strict lifecycle. Real Windows file operations and the incoming
 executable workflow remain independent gates.
+
+### 2026-09-11 — Own native receive jobs and original Ready destinations
+
+The root-accepted ADR105 application partition now owns two bounded receive jobs
+on one fixed synchronous worker using the existing Shared Collector, DomainStore
+and WorkspaceAccess. Reservation precedes GET; unique WritePossible precedes sink
+effects. Original jobs retain checked results and prepared sinks through caller
+loss or uncertainty. Exact task IDs associate completion and unwind. Ready drops
+checked bytes and releases the live slot only after task completion, retaining a
+bounded original read-only scope and destination. Every path response revalidates
+current authority, immutable domain facts and actual original file readback.
+
+Configuration defaults receive tools off. Bootstrap owns the receive worker and
+closes it before the shared Collector. Actual dependency snapshots from the sink
+and adapter partitions were used for compilation and hashed externally; they are
+excluded from this service commit. The service's two new selectors, all18 app
+library tests, five bootstrap regressions and warnings-denied all-target app
+Clippy pass. Strict scoped lifecycle passes3/3 with both selectors each executing
+one actual test and the fourteen declared paths accepted. The later admission
+test extension also checks exact live replay and the two-job bound.
+
+Two initial adapter snapshot compile errors (Salvo handler name collision and an
+untyped large JSON integer), initial formatting output and an unqualified exact
+selector with zero matches remain externally recorded. The zero-match invocation
+is not a passing test. Full encrypted incoming executable acceptance, actual
+partial-write worker-unwind evidence and platform qualification remain separate
+required integration gates. Original85427cb hosted failures are unchanged.

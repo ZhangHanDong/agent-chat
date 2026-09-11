@@ -423,6 +423,7 @@ mod tests {
                     .unwrap(),
             ),
             files: None,
+            receives: None,
             enrollment: false,
             receive_inbox: None,
             claim: OwnedClaimProfile::new(

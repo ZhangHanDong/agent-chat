@@ -125,6 +125,19 @@ impl WorkspaceAccess {
     }
 }
 impl WorkspaceGuard {
+    pub(crate) fn prepare_receive(
+        &self,
+        write: hagency_store::ReceiveWrite,
+        deadline: std::time::Instant,
+    ) -> Result<hagency_execution::WorkspaceReceive, Failure> {
+        if self.retired.load(Ordering::Acquire) {
+            return Err(Failure::Registration);
+        }
+        self.entry
+            .binding
+            .prepare_receive(&self.entry.capability, write, deadline)
+            .map_err(|_| Failure::Registration)
+    }
     pub(crate) async fn validate_current(&self) -> Result<(), Failure> {
         if self.retired.load(Ordering::Acquire) {
             return Err(Failure::Registration);
