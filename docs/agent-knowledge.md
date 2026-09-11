@@ -2488,3 +2488,12 @@ runtime outcome is an expected fault observation, never a delivery receipt.
   must be destroyed after close before another owner opens the original store.
   This is an actual lifetime barrier, not a longer timeout or a claim about the
   cause of a previously unobserved error.
+
+
+- **Crypto inspection cleanup:** wrapper close acknowledgement can precede
+  scheduled destruction of the contained SQLite connections. The enrollment
+  fixtures destroy their OlmMachine first, close the same shared pool inside a
+  dedicated runtime, and destroy that runtime before another owner opens the
+  files. This joins close-generated jobs only. Preserve safe branch/error details
+  in a failed reopen assertion; a later passing run cannot explain a hidden
+  original error or prove that a separately found lifetime gap caused it.

@@ -5775,3 +5775,30 @@ This is an isolated implementation checkpoint. Final main-branch combined tests,
 strict lifecycle/binding checks and native Windows positive staging are still
 required. Windows GNU compilation alone is not platform qualification; full
 migration and production cutover remain incomplete.
+
+
+### 2026-09-11 — Combined enrollment regression and inspector close boundary
+
+The original combined workspace run at6e52450 stopped with234 printed passes and
+one failure: Matrix library111pass/1fail, native_matrix_enrollment_unknown at the
+original reopen assertion. Its matches! assertion hid the fault branch and actual
+error. The original partial log and SHA256 are retained externally; unrun targets
+are not counted as passing. A diagnostic-only full Matrix library run passed112/0/0,
+so it did not reproduce or explain that original failure.
+
+Source review separately confirmed that three crypto-inspector callers closed
+the shared pool on their ambient runtime and could proceed before its scheduled
+connection drops completed. Their unchanged machine destruction now precedes a
+test-only close wrapper that transfers the same shared pool's close into a
+dedicated runtime and destroys that runtime before returning. This adds no SDK
+owner, reopen, retry or deadline change and preserves the actual close error. It
+only joins work scheduled by this close, not unrelated earlier ambient work.
+The original assertion now retains fixed phase labels and safe result/error
+diagnostics without exposing ledger content. Full Matrix library112/0/0 passes
+after this fixture correction; that result does not establish original causality.
+Final combined all-target and strict contract checks remain separately required.
+
+The same final source passes native and Windows GNU all-target Matrix Clippy with
+warnings denied. The first native Clippy failed on a now-unused CryptoStore trait
+import in the existing-identity fixture; only that obsolete import was removed.
+The initial warning/failure log remains separate from both final successful checks.

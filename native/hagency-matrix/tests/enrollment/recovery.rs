@@ -7,9 +7,47 @@ use matrix_sdk_crypto::{CollectStrategy, EncryptionSettings, OlmMachine, store::
 use matrix_sdk_sqlite::{SqliteCryptoStore, SqliteStateStore, SqliteStoreConfig};
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{device_id, room_id, user_id};
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
-pub async fn open_crypto(config: &crate::HostConfig) -> (OlmMachine, SqliteCryptoStore) {
+pub(super) struct CryptoInspection {
+    store: SqliteCryptoStore,
+}
+impl Deref for CryptoInspection {
+    type Target = SqliteCryptoStore;
+
+    fn deref(&self) -> &Self::Target {
+        &self.store
+    }
+}
+impl CryptoInspection {
+    // All three callers drop their original machine before this close. Transfer
+    // closing the SAME shared pool into a dedicated runtime; this clone neither
+    // reopens SQLite nor creates an SDK owner. Deadpool schedules the contained
+    // connection drops there, and dropping that runtime joins those jobs before
+    // another fixture owner opens the original files. Earlier background work on
+    // the ambient runtime is not covered by this close-generated-work barrier.
+    // This lifetime correction does not establish the original hidden error.
+    pub(super) async fn close(&self) -> Result<(), <SqliteCryptoStore as CryptoStore>::Error> {
+        let store = self.store.clone();
+        tokio::task::spawn_blocking(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let result = runtime.block_on(async move {
+                let result = store.close().await;
+                drop(store);
+                result
+            });
+            drop(runtime);
+            result
+        })
+        .await
+        .unwrap()
+    }
+}
+
+pub(super) async fn open_crypto(config: &crate::HostConfig) -> (OlmMachine, CryptoInspection) {
     let store = SqliteCryptoStore::open_with_config(
         &SqliteStoreConfig::new(&config.root)
             .key(Some(&config.key))
@@ -29,7 +67,7 @@ pub async fn open_crypto(config: &crate::HostConfig) -> (OlmMachine, SqliteCrypt
     )
     .await
     .unwrap();
-    (machine, store)
+    (machine, CryptoInspection { store })
 }
 
 pub async fn decrypt_from_original_sessions(f: &mut Fixture) {
@@ -245,10 +283,26 @@ async fn native_matrix_enrollment_unknown() {
             assert!(record.writes[0].phase == WritePhase::Applying);
             assert!(record.writes[0].response.is_some());
         }
-        assert!(matches!(
-            sdk_status(&f.collector).await,
-            Err(Error::OutcomeUnknown)
-        ));
+        let trace = crate::collector::observation::Trace::new(
+            "enrollment.unknown.original-status",
+            Some(if fault == 1 { "preparing" } else { "applying" }),
+            None,
+        );
+        let reopened =
+            crate::collector::observation::observed(trace, sdk_status(&f.collector)).await;
+        assert!(
+            matches!(reopened, Err(Error::OutcomeUnknown)),
+            "fault {fault} original reopened enrollment status: {:?}",
+            reopened.as_ref().map(|view| match view {
+                View::Absent => "absent",
+                View::Complete => "complete",
+                View::Query(_) => "query",
+                View::Write(_) => "write",
+                View::Verify => "verify",
+                View::Ready => "ready",
+                View::Unit => "unit",
+            })
+        );
         f.fake.no_request().await;
         f.close().await;
     }

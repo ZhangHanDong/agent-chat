@@ -3,7 +3,6 @@ use crate::{CancellationToken, Collector, Error};
 mod fixture;
 mod recovery;
 use fixture::*;
-use matrix_sdk_crypto::store::CryptoStore;
 use serde_json::json;
 
 #[tokio::test]
