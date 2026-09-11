@@ -2237,6 +2237,13 @@ while supplying meaningful Context, Decision, Consequences and Alternatives.
 Node and Rust binding catalogs resolve 543 and 400 selectors respectively; these
 catalog checks do not execute the bound test suites or prove a lifecycle pass.
 
+ADR097 separates durable file metadata and event publication from upload acceptance.
+The actual upload owner consumes UploadSend, so later publication must compare its
+retained UploadClaim's full private identity/fence and separately verify private SDK
+media history. Captured size equals ciphertext stage length for fixed AES-CTR;
+contradictory host facts refuse before either capture facts or stage commit. Domain
+receipt correlations are host data, not a public verified-SDK proof constructor.
+
 ADR089 StagedUpload failure returns original typed custody; Collector admission
 must recheck full matches because failure.into_input can contain a mismatch.
 Current-token whoami is mandatory even with prior available domain observation

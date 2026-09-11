@@ -2156,3 +2156,163 @@ impl DomainStore {
 #[cfg(test)]
 #[path = "../tests/file_uploads/worker.rs"]
 mod upload_tests;
+
+// Separate host-only file-delivery methods. ADR096's compatible claim seam is
+// independent of this block. Current time is sampled within BEGIN IMMEDIATE.
+mod file_delivery_methods {
+    use super::*;
+    use crate::domain::file_delivery as files;
+    use hagency_core::file_delivery::*;
+    impl DomainStore {
+        pub async fn reserve_file_delivery(
+            &self,
+            cap: RunnerCapability,
+            input: FileDeliveryRequest,
+        ) -> Result<crate::FileDeliveryAdmission, Error> {
+            files::request_input(&cap, &input)?;
+            self.call(weight(&(&cap, &input))?, move |db| {
+                db.upload_transaction(writer_time, |tx, n| files::reserve(tx, &cap, &input, n))
+            })
+            .await
+        }
+        pub async fn restore_file_delivery(
+            &self,
+            cap: RunnerCapability,
+            input: FileDeliveryRequest,
+        ) -> Result<Option<crate::FileDeliveryIdentity>, Error> {
+            files::request_input(&cap, &input)?;
+            self.call(weight(&(&cap, &input))?, move |db| {
+                db.restore_file_delivery(&cap, &input)
+            })
+            .await
+        }
+        pub async fn inspect_file_delivery(
+            &self,
+            cap: RunnerCapability,
+            id: String,
+        ) -> Result<FileDeliveryReceipt, Error> {
+            files::cap_input(&cap)?;
+            files::id_input(&id)?;
+            self.call(weight(&(&cap, &id))?, move |db| {
+                db.inspect_file_delivery(&cap, &id)
+            })
+            .await
+        }
+        pub async fn bind_file_delivery_stage(
+            &self,
+            cap: RunnerCapability,
+            id: crate::FileDeliveryIdentity,
+            preparation: Arc<crate::UploadPreparation>,
+            captured: CapturedFile,
+            stage: hagency_core::uploads::StageCommitment,
+        ) -> Result<FileDeliveryReceipt, Error> {
+            files::cap_input(&cap)?;
+            captured.validate()?;
+            stage.validate()?;
+            self.call(
+                weight(&(
+                    &cap,
+                    id.queue_value(),
+                    preparation.queue_value(),
+                    &captured,
+                    &stage,
+                ))?,
+                move |db| {
+                    db.upload_transaction(writer_time, |tx, n| {
+                        files::bind(tx, &cap, &id, &preparation, &captured, &stage, n)
+                    })
+                },
+            )
+            .await
+        }
+        pub async fn claim_file_publication(
+            &self,
+            cap: RunnerCapability,
+            id: crate::FileDeliveryIdentity,
+            lease: u64,
+        ) -> Result<Option<crate::FilePublicationClaim>, Error> {
+            files::cap_input(&cap)?;
+            self.call(weight(&(&cap, id.queue_value(), lease))?, move |db| {
+                db.upload_transaction(writer_time, |tx, n| files::claim(tx, &cap, &id, n, lease))
+            })
+            .await
+        }
+        pub async fn begin_file_publication(
+            &self,
+            cap: RunnerCapability,
+            claim: crate::FilePublicationClaim,
+        ) -> Result<crate::FilePublicationSend, Error> {
+            files::cap_input(&cap)?;
+            self.call(weight(&(&cap, claim.queue_value()))?, move |db| {
+                db.upload_transaction(writer_time, |tx, n| files::begin(tx, &cap, &claim, n))
+            })
+            .await
+        }
+        pub async fn validate_file_publication(
+            &self,
+            cap: RunnerCapability,
+            claim: crate::FilePublicationClaim,
+        ) -> Result<(), Error> {
+            files::cap_input(&cap)?;
+            self.call(weight(&(&cap, claim.queue_value()))?, move |db| {
+                db.upload_transaction(writer_time, |tx, n| files::validate(tx, &cap, &claim, n))
+            })
+            .await
+        }
+        pub async fn cancel_file_delivery(
+            &self,
+            id: crate::FileDeliveryIdentity,
+            reason: FileDeliveryFailure,
+        ) -> Result<FileDeliveryReceipt, Error> {
+            self.call(weight(&(id.queue_value(), reason))?, move |db| {
+                db.upload_transaction(writer_time, |tx, n| files::cancel(tx, &id, reason, n))
+            })
+            .await
+        }
+        pub async fn mark_file_publication_uncertain(
+            &self,
+            id: crate::FileDeliveryIdentity,
+            fence: u64,
+        ) -> Result<FileDeliveryReceipt, Error> {
+            self.call(weight(&(id.queue_value(), fence))?, move |db| {
+                db.upload_transaction(writer_time, |tx, n| files::uncertain(tx, &id, fence, n))
+            })
+            .await
+        }
+        pub async fn restore_file_delivery_settlement(
+            &self,
+            input: FilePublicationLocator,
+        ) -> Result<Option<crate::FileDeliverySettlement>, Error> {
+            files::lookup_input(&input)?;
+            self.call(weight(&input)?, move |db| {
+                db.restore_file_delivery_settlement(&input)
+            })
+            .await
+        }
+        pub async fn inspect_file_delivery_settlement(
+            &self,
+            settlement: Arc<crate::FileDeliverySettlement>,
+        ) -> Result<FileDeliveryReceipt, Error> {
+            self.call(weight(&settlement.queue_value())?, move |db| {
+                db.inspect_file_delivery_settlement(&settlement)
+            })
+            .await
+        }
+        pub async fn record_file_delivery_settlement(
+            &self,
+            settlement: Arc<crate::FileDeliverySettlement>,
+            observed: FileDeliveryAcceptance,
+        ) -> Result<FileDeliveryReceipt, Error> {
+            observed.validate()?;
+            self.call(weight(&(settlement.queue_value(), &observed))?, move |db| {
+                db.upload_transaction(writer_time, |tx, n| {
+                    files::settle(tx, &settlement, &observed, n)
+                })
+            })
+            .await
+        }
+    }
+}
+#[cfg(test)]
+#[path = "../tests/file_delivery/worker.rs"]
+mod file_delivery_tests;

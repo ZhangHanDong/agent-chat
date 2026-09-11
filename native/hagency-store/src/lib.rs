@@ -64,3 +64,9 @@ pub enum Error {
     #[error("serialization error")]
     Json(#[from] serde_json::Error),
 }
+
+// Separate file-event custody; no Matrix acknowledgement proof constructor.
+pub use domain::file_delivery::{
+    FileDeliveryAdmission, FileDeliveryIdentity, FileDeliverySettlement, FilePublicationClaim,
+    FilePublicationSend,
+};

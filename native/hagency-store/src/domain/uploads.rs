@@ -111,12 +111,47 @@ pub(crate) fn settlement_lookup(
     }
     Ok(())
 }
+/// Crate-private association for the separate file-event registry. It grants no
+/// additional upload operation and keeps the existing upload state authoritative.
+pub(crate) struct UploadContext {
+    pub scope: String,
+    pub route: ReplyRoute,
+    pub receipt: UploadReceipt,
+    pub fence: u64,
+    pub stage: Option<StageCommitment>,
+    pub acceptance: Option<String>,
+}
+pub(crate) fn file_context(db: &Connection, id: &UploadIdentity) -> Result<UploadContext, Error> {
+    let row = identity(db, id)?;
+    Ok(UploadContext {
+        receipt: row.receipt(true),
+        scope: row.scope,
+        route: row.route,
+        fence: row.fence,
+        stage: row.stage,
+        acceptance: row.acceptance,
+    })
+}
+pub(crate) fn file_current(
+    db: &Connection,
+    cap: &RunnerCapability,
+    id: &UploadIdentity,
+    now: u64,
+) -> Result<(), Error> {
+    current(db, cap, &identity(db, id)?, now)
+}
+pub(crate) fn file_identity(db: &Connection, id: &str) -> Result<UploadIdentity, Error> {
+    Ok(read(db, id)?.identity)
+}
 /// Only the first committed reservation yields this value. Never restored.
 pub struct UploadPreparation {
     identity: UploadIdentity,
     secret: String,
 }
 impl UploadPreparation {
+    pub(crate) fn matches_identity(&self, id: &UploadIdentity) -> bool {
+        self.identity.queue_value() == id.queue_value()
+    }
     pub(crate) fn queue_value(&self) -> serde_json::Value {
         json!([self.identity.queue_value(), self.secret])
     }
@@ -133,6 +168,9 @@ pub struct UploadClaim {
     secret: String,
 }
 impl UploadClaim {
+    pub(crate) fn matches_identity(&self, id: &UploadIdentity) -> bool {
+        self.identity.queue_value() == id.queue_value()
+    }
     pub fn fence(&self) -> u64 {
         self.fence
     }
@@ -263,7 +301,10 @@ pub(crate) fn settle(
 fn cap_digest(cap: &RunnerCapability) -> Result<String, Error> {
     Ok(canonical::digest(&json!(["upload_cap_v1", cap]))?)
 }
-fn original(cap: &RunnerCapability, request: &UploadRequest) -> Result<UploadIdentity, Error> {
+pub(crate) fn original(
+    cap: &RunnerCapability,
+    request: &UploadRequest,
+) -> Result<UploadIdentity, Error> {
     request.validate()?;
     hagency_core::project::identifier(&cap.dispatch_id, 128)?;
     hagency_core::project::identifier(&cap.runner_id, 128)?;

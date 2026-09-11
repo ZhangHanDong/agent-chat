@@ -5297,3 +5297,15 @@ Root post-integration binding catalogs resolve543 Node and420 Rust selectors,
 with no missing bindings. Whitespace checks pass. The previously completed full
 native521-independent-test run and Clippy remain the source validation for this
 metadata-only integration; no redundant full runtime suite is claimed here.
+## 2026-09-10 — File-delivery domain implementation checkpoint
+
+ADR097 implements schema020 immutable metadata plus original upload reservation in
+one transaction and distinct publication claim/begin/current/historical interfaces.
+This is a local compiling checkpoint for the dependent ADR098 publisher, not a
+completed acceptance or integration claim. Actual service/MCP and SDK qualification
+remain separate. Root review corrected association to retained UploadClaim and
+required captured-size/stage-length equality. Core/store check passes. The first
+focused run had seven passes and one failure in a new fixture's nonexistent SQL
+execution_epoch column; its original log is retained as adr097-tests-first.log.
+The fixture now targets the actual canonical-task JSON field. Focused and full
+validation, strict lifecycle and final review remain pending at this checkpoint.

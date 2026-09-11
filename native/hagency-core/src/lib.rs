@@ -29,3 +29,5 @@ pub mod approvals;
 pub mod completions;
 
 pub mod uploads;
+
+pub mod file_delivery;

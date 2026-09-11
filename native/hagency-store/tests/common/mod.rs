@@ -177,7 +177,7 @@ pub fn remove_usage_schema(db: &rusqlite::Connection) {
 
 /// Remove exactly the later attachment migration when constructing an old DB.
 pub fn remove_upload_schema(db: &rusqlite::Connection) {
-    db.execute_batch("DROP TABLE IF EXISTS file_uploads;")
+    db.execute_batch("DROP TABLE IF EXISTS file_deliveries; DROP TABLE IF EXISTS file_uploads;")
         .unwrap();
 }
 
