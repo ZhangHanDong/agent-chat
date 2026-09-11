@@ -6,28 +6,28 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
 Current integration priorities (2026-09-10): ADR070/071 connect actual owned
 runtime usage to the historical ledger; ADR072 supplies a bounded encrypted
-upload primitive. ADR073 now adds schema18 attachment metadata and frozen
-visibility. Only actual selected inbox input establishes a source cutoff; an
-independent projection cutoff excludes late copies. ADR074 retains authenticated
-encrypted file/image manifests in the SDK journal, with private host lookup and
-current ticket checks around asynchronous work. Actual downloads, cache paths,
-MCP file tools and durable upload recovery remain the next file-delivery steps.
-ADR077 now restores exact encrypted staging under original operation/receipt
-identity, clean journal recovery and qualified file/directory sync. This does
-not authorize replay of a possibly written upload.
+upload primitive. ADR073 schema18 freezes attachment visibility at the actual
+selected inbox trigger and independent projection cutoff. ADR074 retains
+verified encrypted file/image manifests in the SDK journal. ADR076 now joins
+current domain authority, retained manifests and configured HTTPS download,
+rechecking authority before returning complete checked host bytes. ADR077
+restores exact encrypted staging under the original operation/receipt and actual
+qualified sync evidence; it never grants permission to retry a possible upload.
+Cache paths, file tools, durable upload recovery and service integration remain.
 
-At integrated3a9616a, the locked full workspace passes458 unique tests plus one
-proxy child,84 suite summaries and no failed/ignored tests. All321 Rust spec
-selectors resolve without missing tests. Full warnings-denied Clippy, rustfmt
-and diff checks pass. Integrated ADR073 lifecycle passes6/6 across27 paths,
-ADR074 passes7/7 across14; ADR075 passes5/5 across6 paths. Windows GNU Clippy
-passed for the affected store and Matrix slices; actual Windows CI remains open.
+At integrated a96fd30 the locked full workspace passes468 unique tests plus one
+proxy child,84 suite summaries and no failed/ignored tests. All331 Rust spec
+selectors resolve. Full warnings-denied Clippy, rustfmt and diff checks pass.
+Integrated strict lifecycle passes ADR0767/7 across10 explicit changed paths
+and ADR0775/5 across11, with no failed/skipped/uncertain/pending verdicts.
 
-Native CI at a856aa5 passed Linux/macOS but failed Windows in two store tests;
-Node CI passed. The original Windows Matrix tests passed. ADR075 separates
-short-lease expiry from concurrency and adds unchanged shutdown phase evidence;
-the historical shutdown cause remains unproven. Fresh Windows CI is required.
-The all-platform green a2f8348 run is older evidence, not the current verdict.
+Remote native CI34551463344 at ff8be6b passes Linux, macOS and Windows, including
+original full workspace tests, warnings-denied Clippy and release builds. Printed
+test counts are460/459/456 respectively, each includes one proxy child; no failed
+or ignored tests. Both failure-only Windows diagnostics were skipped. Node CI
+34551463340 passes. These runs precede ADR076/077 and do not qualify their new
+runtime cases. Historical a856aa5 Windows shutdown failure remains unexplained;
+a later passing run does not establish its cause.
 
 Keep canonical Done, cleanup, owner decision, runtime application, usage and
 message acceptance separate. Approval application proof, complete room/history

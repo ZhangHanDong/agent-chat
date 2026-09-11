@@ -4537,3 +4537,34 @@ skipped, uncertain or pending-review verdicts. Formatting and whitespace checks
 pass. Full combined tests and three-platform runtime qualification remain the
 parent integration/CI step; the local affected result is97/97, with the subsequent
 deadline-only fixture refinement covered by focused execution and lifecycle.
+
+## 2026-09-10 — Integrated receive and encrypted recovery checkpoint
+
+Root8a6bb3a adds ADR077; a96fd30 integrates agent ADR0765b7fdef. The progress
+conflict contained independent append sections, and resolution preserved every
+nonempty line from both parents. Independent review found no production blocker.
+
+Locked full workspace now passes468 unique tests plus one proxy-environment child
+(469 printed),84 suite summaries, zero failed/ignored. All331 Rust selectors
+resolve without missing tests. Full all-target warnings-denied Clippy, rustfmt
+and diff checks pass. Integrated lifecycle checks are recorded below when complete.
+Evidence remains in external file-receive-integrated-* logs.
+
+Native34551463344 at preceding ff8be6b is fully green on actual Linux, macOS and
+Windows, including original tests, Clippy and release builds. Their printed
+counts are460/459/456 respectively, each includes one proxy child and84 summaries.
+Both Windows failure-only diagnostics were skipped. Node34551463340 also passes.
+Historical a856aa5 Windows shutdown cause remains unproven. ff8be6b does not yet
+qualify these new ADR076/077 runtime cases; fresh integration CI is required.
+
+Next work runs in separate clean worktrees: ADR078 plans durable upload domain
+custody; ADR079 retains an original encrypted staging commitment before its first
+write. Neither turns a possibly written POST into retry authority. No live
+service or production Matrix/model connection changed. Migration parity and
+M0-M9 completion remain unclaimed.
+
+Final integrated strict lifecycle passes ADR0767/7 across10 explicit changed
+paths and ADR0775/5 across11, with zero failed/skipped/uncertain/pending review.
+The four new restoration selectors include the reviewed complete-frame unknown
+write boundary. Exact external file-receive-integrated-lifecycle and
+file-restoration-integrated-lifecycle records preserve these outcomes.

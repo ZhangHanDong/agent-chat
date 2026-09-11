@@ -53,9 +53,11 @@ encrypted file/image intake now retains private descriptors independently of syn
 completion. Schema18 stores safe metadata and freezes attachment visibility from
 the dispatch's actual selected inbox trigger plus a separate projection cutoff.
 Host lookup checks current capability and exact scope before and after its
-asynchronous work. Keys stay in the encrypted SDK journal. Actual receive
-coordination, cache paths, durable upload recovery and native file tools remain
-to implement. Schema17 also stores host-attributed token observations and exposes
+asynchronous work. Keys stay in the encrypted SDK journal. Current-dispatch
+receive now coordinates the retained manifest, bounded authenticated download
+and final authority revalidation under one deadline, returning host-only checked
+bytes. Four held results remain bounded across SDK Owner reopen. Cache paths,
+durable upload recovery and native file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one
