@@ -11,6 +11,7 @@ hagency-core = { path = "../hagency-core" }
 hagency-store = { path = "../hagency-store" }
 hagency-runtime = { path = "../hagency-runtime" }
 hagency-platform = { path = "../hagency-platform" }
+hagency-metering = { path = "../hagency-metering" }
 tokio = { workspace = true, features = ["io-util", "net"] }
 serde_json.workspace = true
 thiserror.workspace = true

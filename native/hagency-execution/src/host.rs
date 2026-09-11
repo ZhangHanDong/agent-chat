@@ -43,6 +43,8 @@ pub struct Host {
     task_helper: Option<(PathBuf, SocketAddr)>,
     #[cfg(test)]
     pub(crate) discard_start_reply: bool,
+    #[cfg(test)]
+    pub(crate) discard_usage_binding_reply: bool,
 }
 impl Host {
     pub fn new(
@@ -89,6 +91,8 @@ impl Host {
             task_helper: None,
             #[cfg(test)]
             discard_start_reply: false,
+            #[cfg(test)]
+            discard_usage_binding_reply: false,
         })
     }
     /// Host-selected native executable and literal loopback endpoint only. The

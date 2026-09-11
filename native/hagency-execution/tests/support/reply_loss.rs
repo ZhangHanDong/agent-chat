@@ -1,9 +1,7 @@
 // Included by the library's test build so the receipt-discard seam cannot exist
 // in a normal library. This is not an independently compiled integration test.
-#[path = "../../../hagency-store/tests/common/mod.rs"]
-mod common;
+use crate::test_common::*;
 use crate::{Failure, Host, Limits, Operation, Protocol, Settlement};
-use common::*;
 use hagency_core::tasks::*;
 use hagency_store::{DomainRepository, DomainStore, EffectOutcome, OwnedObservation};
 use serde_json::json;
@@ -14,6 +12,13 @@ use std::{
 
 #[tokio::test]
 async fn native_owned_dispatch_lost_receipt_never_spawns() {
+    lost_reply(false).await;
+}
+#[tokio::test]
+async fn native_owned_usage_lost_binding_never_spawns() {
+    lost_reply(true).await;
+}
+async fn lost_reply(usage: bool) {
     let root = tempfile::tempdir().unwrap();
     let work = root.path().canonicalize().unwrap();
     let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
@@ -70,7 +75,8 @@ async fn native_owned_dispatch_lost_receipt_never_spawns() {
         BTreeMap::from([("work".into(), work)]),
     )
     .unwrap();
-    host.discard_start_reply = true;
+    host.discard_start_reply = !usage;
+    host.discard_usage_binding_reply = usage;
     let mut operation = Operation::start(
         domain.clone(),
         cap,
@@ -82,7 +88,14 @@ async fn native_owned_dispatch_lost_receipt_never_spawns() {
     )
     .unwrap();
     let report = operation.wait().await.unwrap();
-    assert_eq!(report.failure, Some(Failure::StartUnknown));
+    assert_eq!(
+        report.failure,
+        Some(if usage {
+            Failure::UsageBinding
+        } else {
+            Failure::StartUnknown
+        })
+    );
     assert_eq!(report.protocol, Protocol::NotStarted);
     assert_eq!(report.cleanup, hagency_runtime::owned::Cleanup::Pending);
     assert_eq!(
@@ -90,6 +103,20 @@ async fn native_owned_dispatch_lost_receipt_never_spawns() {
         Settlement::Negative(OwnedObservation::Fenced)
     );
     let inspect = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+    assert_eq!(
+        inspect
+            .query_row("SELECT COUNT(*) FROM usage_sources", [], |r| r
+                .get::<_, u64>(0))
+            .unwrap(),
+        u64::from(usage)
+    );
+    assert_eq!(
+        inspect
+            .query_row("SELECT COUNT(*) FROM usage_receipts", [], |r| r
+                .get::<_, u64>(0))
+            .unwrap(),
+        0
+    );
     assert_eq!(
         inspect
             .query_row("SELECT COUNT(*) FROM resource_leases", [], |r| r

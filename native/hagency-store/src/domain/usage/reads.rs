@@ -81,7 +81,7 @@ impl DomainRepository {
             latest_incomplete_sources: 0,
             historically_incomplete_sources: 0,
             regression_observations: 0,
-            evidence: UsageEvidence::HostAttributedUntrustedTranscript,
+            evidence: UsageEvidence::HostAttributedUntrustedUsage,
         };
         let mut latest = zero();
         let mut known = KnownTokens::default();
@@ -138,7 +138,7 @@ impl DomainRepository {
                 known_growth_lower_bound: serde_json::from_str(&known)?,
                 incomplete,
                 observations: count,
-                evidence: UsageEvidence::HostAttributedUntrustedTranscript,
+                evidence: UsageEvidence::HostAttributedUntrustedUsage,
             })
         })
         .transpose()

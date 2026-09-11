@@ -1,3 +1,4 @@
+use crate::usage::{UsageFailure, UsageRun, UsageStatus};
 use crate::{Host, Limits};
 use hagency_core::tasks::{RunnerCapability, RunnerCommand, Task, TaskState};
 use hagency_runtime::{
@@ -27,6 +28,8 @@ pub enum Failure {
     Cancelled,
     #[error("durable start response unknown; no child launched")]
     StartUnknown,
+    #[error("usage source binding failed or its response is unknown; no child launched")]
+    UsageBinding,
     #[error("owned native child startup failed")]
     SpawnFailed,
     #[error("dispatch authority expired, changed or was revoked")]
@@ -47,7 +50,7 @@ pub enum Failure {
 impl Failure {
     fn observation(self) -> OwnedFailure {
         match self {
-            Self::Admission => OwnedFailure::Admission,
+            Self::Admission | Self::UsageBinding => OwnedFailure::Admission,
             Self::Cancelled => OwnedFailure::Cancelled,
             Self::StartUnknown => OwnedFailure::StartUnknown,
             Self::SpawnFailed => OwnedFailure::SpawnFailed,
@@ -89,6 +92,7 @@ pub struct Report {
     pub text: Option<String>,
     owner: Option<OwnedSession>,
     reconciliation: Option<(DomainStore, RunnerCapability, OwnedFailure)>,
+    usage: Option<UsageRun>,
 }
 impl Report {
     fn new() -> Self {
@@ -101,6 +105,20 @@ impl Report {
             text: None,
             owner: None,
             reconciliation: None,
+            usage: None,
+        }
+    }
+    pub fn usage_status(&self) -> UsageStatus {
+        self.usage
+            .as_ref()
+            .map_or_else(UsageStatus::default, UsageRun::status)
+    }
+    /// Explicit retry of one retained historical observation. Never restarts
+    /// capture, execution, cleanup, canonical completion or message delivery.
+    pub async fn retry_usage(&mut self) -> Result<UsageStatus, UsageFailure> {
+        match &mut self.usage {
+            Some(usage) => usage.record_pending().await,
+            None => Ok(UsageStatus::default()),
         }
     }
     /// A bounded negative-only retry after a lost database response. Cancellation
@@ -177,6 +195,9 @@ impl Operation {
                     ))
                 }))
                 .unwrap_or(Err(Failure::Worker));
+                if let Some(usage) = &mut report.usage {
+                    usage.close();
+                }
                 if let Err(failure) = outcome {
                     // execute retains any returned owner; stop before negative domain
                     // observation too. This can never authorize lease release.
@@ -336,6 +357,22 @@ async fn execute(
     })?;
     report.canonical_status = Some(started.task().status);
     checkpoint(cancel, until)?;
+    let binding = bounded(
+        UsageRun::bind(domain.clone(), cap.clone(), started.clone()),
+        cancel,
+        until,
+    )
+    .await?;
+    // Test build only: discard an actual acknowledged source binding, never
+    // manufacture a successful write or reopen execution after receipt loss.
+    #[cfg(test)]
+    let binding = if host.discard_usage_binding_reply && binding.is_ok() {
+        Err(hagency_store::Error::OutcomeUnknown)
+    } else {
+        binding
+    };
+    report.usage = Some(binding.map_err(|_| Failure::UsageBinding)?);
+    checkpoint(cancel, until)?;
     let mut runner = OwnedSession::spawn(
         &host.guardian,
         &launch,
@@ -380,9 +417,11 @@ async fn execute(
             &mut report.canonical_status,
         )
         .await?;
+        let usage = report.usage.as_mut().ok_or(Failure::UsageBinding)?;
+        usage.attach(&runner);
         loop {
-            match watched(
-                runner.next_update(),
+            let (update, observation) = watched(
+                runner.next_observed_update(),
                 domain,
                 cap,
                 &expected,
@@ -390,8 +429,13 @@ async fn execute(
                 until,
                 &mut report.canonical_status,
             )
-            .await?
-            {
+            .await?;
+            if usage.observe(&observation) {
+                // Storage refusal closes capture only. Cancellation/deadline
+                // still reaches the existing retained process cleanup path.
+                let _ = bounded(usage.record_pending(), cancel, until).await?;
+            }
+            match update {
                 Update::TurnEnded => break,
                 Update::Approval(_) | Update::ApprovalResolved { .. } => {
                     return Err(Failure::UnsupportedApproval);

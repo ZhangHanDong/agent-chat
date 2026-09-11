@@ -157,7 +157,7 @@ async fn native_usage_api_projection() {
         assert_eq!(summary["latest_incomplete_sources"], u64::from(!complete));
         assert_eq!(summary["historically_incomplete_sources"], 1);
         assert_eq!(summary["regression_observations"], 1);
-        assert_eq!(summary["evidence"], "host_attributed_untrusted_transcript");
+        assert_eq!(summary["evidence"], "host_attributed_untrusted_usage");
         assert_eq!(report["daily"]["key"], "1970-01-01");
         assert_eq!(report["monthly"]["key"], "1970-01");
         assert_eq!(report["daily"]["incomplete"], true);

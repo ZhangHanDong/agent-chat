@@ -119,7 +119,7 @@ pub struct UsageReport {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageEvidence {
-    HostAttributedUntrustedTranscript,
+    HostAttributedUntrustedUsage,
 }
 #[derive(Debug, Serialize)]
 pub struct UsagePeriod {

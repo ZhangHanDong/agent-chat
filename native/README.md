@@ -44,7 +44,11 @@ or incomplete storage remains explicit; Windows unconfirmed directory sync is
 distinct from durable admission. A host-only encrypted downloader now uses authenticated HTTPS to the configured
 homeserver, consumes complete bounded ciphertext and verifies it before returning
 checked plaintext. Event provenance, uploads and native file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
-aggregate operator reads while preserving unknown and incomplete evidence.
+aggregate operator reads while preserving unknown and incomplete evidence. The
+private owned runner now binds a historical source before spawn and records exact
+fresh-session usage through typed normalization. Fixed counter evidence and one
+pending receipt survive bounded failure; retries cannot renew execution or claim
+provider billing. Runtime stream coverage remains explicitly incomplete.
 Service Agent execution and actual Matrix delivery remain disabled.
 The sections below record the successive checkpoints.
 

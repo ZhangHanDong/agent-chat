@@ -2018,3 +2018,13 @@ those library cases. Compare diagnostics with the same workspace/all-target
 feature selection; do not claim a targeted build or diagnostic pass reverses
 the original failure. OutcomeUnknown alone cannot identify queue versus commit
 versus SDK delay or justify a duplicate send.
+
+
+ADR070 capture must bind Started before spawn, and only the private fresh
+OwnedSession path may attach. A restored usage source is historical evidence,
+never a replacement process binding. One exact pending tuple is retained across
+await; explicit retry cannot reopen capture. Storage and normalization failures
+remain separate from process cleanup, canonical Done, Matrix delivery and quotas.
+The latter preserves one fixed rejected projection, not a fabricated zero record.
+Every runtime snapshot remains stream-incomplete. Existing opaque IDs permit
+alphanumeric/underscore/hyphen only: host sequence calls use runtime_v1_<n>.

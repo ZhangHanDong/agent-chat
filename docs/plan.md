@@ -4,21 +4,24 @@ This is coordination, not canonical runtime task state. There is no provisioned
 `task-writer` in this source checkout. User instruction: execute the Rust migration
 in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
-Current integration priorities (2026-09-10): schema17 usage observations (ADR063),
-operator aggregate reads (ADR067), private approval intake (ADR064), terminal
-per-event refusals (ADR065), private media staging (ADR066), bounded encrypted
-media downloads (ADR068) and exact runtime usage observations (ADR069) are integrated.
-At pushed3b5db90, macOS and Node CI passed. Linux found a media directory fsync
-failure: the retained cap-std O_PATH handle is not syncable. The root fix derives
-and verifies a readable descriptor through that same retained directory. Actual
-Linux rerun is required. Windows's full suite also failed eight Matrix outgoing cases; approval8/8 and
-media7/7 passed. The new bounded diagnostic exercises the actual failed selectors. Do not replace either original failure
-with local checks or later diagnostic success. Combined local verification passes427 unique
-tests, 287 bound selectors, warnings-denied Clippy and formatting.
+Current integration priorities (2026-09-10): schema17 usage observations,
+operator aggregate reads, private approval intake, terminal event refusals, private
+media staging and encrypted downloads are integrated. ADR069 exact runtime
+observations now pass through ADR071 typed normalization into ADR070's private
+owned-execution ledger attachment. Affected tests pass25/25; the locked full workspace passes441 unique tests
+plus one proxy child, with301 resolved selectors and warnings-denied Clippy.
+Strict lifecycle integration passes10/10 across all20 explicit changed paths.
 
-Keep canonical Done, cleanup, owner decision, runtime application and message
-acceptance separate. Approval application proof, file event admission/uploads,
-usage ledger attachment, browser/service wiring, provisioning and release parity
+At a2f8348, Linux and macOS native jobs and Node CI passed. Windows
+native job also completed successfully, including original full tests and release. This
+proves the Linux O_PATH directory-sync correction on actual Linux and the
+corrected approval fixture on Windows. The earlier eight Windows outgoing
+failures at3b5db90 remain unexplained; their later green run does not identify
+the historical cause.
+
+Keep canonical Done, cleanup, owner decision, runtime application, usage and
+message acceptance separate. Approval application proof, file event admission
+and uploads, browser/service wiring, provisioning, quotas and release parity
 remain open. No milestone or overall migration is complete by this checkpoint.
 
 1. M0/M1 first checkpoint: native Salvo process, protected fresh state, custody,

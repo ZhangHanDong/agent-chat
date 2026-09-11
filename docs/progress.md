@@ -4242,3 +4242,45 @@ eight explicit changed paths, with no skipped uncertain failed or pending-review
 verdicts. The crate-scoped code root avoids a redundant full workspace build.
 Formatting and whitespace checks pass. Evidence is in external
 typed-runtime-usage-* logs; no live runtime was contacted.
+
+
+## 2026-09-10 — Owned runtime usage reaches the historical ledger
+
+ADR070 binds the exact acknowledged Started scope before native child creation,
+then attaches only the private operation's fresh OwnedSession. Every observed
+update advances the same source sequence; usage passes through ADR071 without
+synthetic transcript JSON. One exact normalized pending tuple survives cancelled
+waits and lost responses. Capture failures close new admission, while existing
+runner cleanup, canonical completion and delivery still run independently. A
+normalization refusal retains the fixed original counter projection; an explicit
+retry cannot convert it into an admitted record. Runtime evidence always remains
+stream-incomplete and aggregate labels now cover untrusted usage from both forms.
+
+The first focused run failed three new fixture setups because project proof
+timestamps were compared with wall-clock time rather than their fixture clock.
+Correcting only admission/approval fixture timestamps let all eight initial
+capture tests pass. Clippy then found the common test module loaded twice; both
+unit modules now share one crate-local fixture import. A later actual native
+capacity fixture proves storage refusal leaves protocol completion independent.
+All25 affected execution/metering tests and warnings-denied Clippy now pass.
+No source/receipt capacity, production timeout or execution assertion was weakened.
+
+Independent review corrected reattachment testing after source sequence advancement
+and required the retained normalization rejection. The integrated locked workspace passes441 unique tests plus one proxy child
+(442 printed),83 suite summaries and zero failures/ignored. All301 Rust selectors
+resolve. Full workspace warnings-denied Clippy, Windows GNU affected Clippy,
+formatting and whitespace checks pass. Strict agent-spec1.4 lifecycle passes10/10, covering all nine bound scenarios
+and all20 explicit changed paths, with zero failed/skipped/uncertain/pending-review
+verdicts. The fixed metadata/no-authority lint suggestions do not alter those results. No live provider or runtime state
+was opened, and no deployment or service cutover is enabled.
+
+
+At a2f8348, actual native CI34545625733 completed successfully on all three
+platforms and Node CI34545625740 passed. Linux printed429 passes (428 unique plus
+one proxy child), macOS428 (427 unique plus child), Windows425 (424 unique plus
+child); each has82 suite summaries and zero failed/ignored. Platform-specific
+selectors account for the different counts. Linux's new retained-directory fsync
+regression passed. Windows passed all19 outgoing cases, media8/8, download6/6 and
+approval8/8; both failure-only diagnostics were skipped, not additional evidence.
+All release builds and Clippy passed. The old3b5db90 Windows failures remain
+unexplained. These results concern a2f8348, not the later usage capture changes.

@@ -1110,6 +1110,7 @@ name = "hagency-execution"
 version = "0.1.0"
 dependencies = [
  "hagency-core",
+ "hagency-metering",
  "hagency-platform",
  "hagency-runtime",
  "hagency-store",

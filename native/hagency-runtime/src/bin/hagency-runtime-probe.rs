@@ -206,6 +206,45 @@ fn fake(mode: &str, marker: &Path) -> io::Result<()> {
         )?;
         return pulse(marker);
     }
+    if mode == "usage-gate" {
+        fs::write(marker.with_extension("usage-ready"), b"ready")?;
+        let until = Instant::now() + Duration::from_secs(4);
+        while !marker.with_extension("usage-release").is_file() {
+            if Instant::now() >= until {
+                return Err(io::Error::other("offline usage gate expired"));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    if matches!(mode, "usage" | "usage-overflow" | "usage-gate") {
+        // Pinned cumulative usage categories, emitted through actual child
+        // stdout. A repeated snapshot must not be summed as fresh consumption.
+        let snapshots: &[(u64, u64, u64, u64)] = if mode == "usage-overflow" {
+            &[(9_007_199_254_740_991, 1, 0, 0)]
+        } else {
+            &[
+                (100, 10, 40, 60),
+                (100, 10, 40, 60),
+                (130, 20, 45, 65),
+                (20, 5, 5, 5),
+            ]
+        };
+        for &(input, output, cached, write) in snapshots {
+            note(
+                "thread/tokenUsage/updated",
+                json!({
+                    "threadId":"owned-thread", "turnId":"owned-turn",
+                    "tokenUsage": {
+                        "total": {"totalTokens":input + output,"inputTokens":input,"cachedInputTokens":cached,
+                            "cacheWriteInputTokens":write,"outputTokens":output,"reasoningOutputTokens":0},
+                        "last": {"totalTokens":1,"inputTokens":0,"cachedInputTokens":0,
+                            "cacheWriteInputTokens":0,"outputTokens":1,"reasoningOutputTokens":0},
+                        "modelContextWindow":200000
+                    }
+                }),
+            )?;
+        }
+    }
     note(
         "item/started",
         json!({ "threadId": "owned-thread", "turnId": "owned-turn", "startedAtMs": 1, "item": { "id": "answer", "type": "agentMessage", "phase": "final_answer", "text": "" } }),
