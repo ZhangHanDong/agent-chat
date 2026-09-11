@@ -94,6 +94,16 @@ exits without unwinding buffers. This changes only the probe rename mechanism,
 not production or any positive-evidence requirement. [Documentation history](https://github.com/MicrosoftDocs/sdk-api/commit/d1debc569f40cda761474d216903f27c8aa7c7af),
 [native rename API](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile).
 
+Run34578232660 ate7ba863 reached qualified stage and actual immediate/final
+NT rename success, then destination open failed32 while the DELETE source was
+still held. Pinned cap-primitives4.0.3 oflags.rs clears FILE_SHARE_DELETE for
+maybe_dir opens even when explicitly requested. The released fixture now checks
+original post-rename private/full ID, closes that rename handle, then opens the
+fixed destination under the still-retained exclusive root and compares its full
+ID/private policy to the frozen original. The held32 gate is unchanged. This
+is released fixture validation, not a new atomic namespace authority guarantee;
+fresh-process restoration remains required and the original failure is retained.
+
 ## Consequences
 
 A positive result qualifies the observed local NTFS OS-acknowledgement mechanism

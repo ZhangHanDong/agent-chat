@@ -2437,3 +2437,10 @@ is distinct from upload acceptance and canonical task Done.
   prove the exact rejected argument. The explicit NT relative-root contract is
   the separately reviewed probe mechanism; actual immediate/final status plus
   same-object checks and fresh-process restoration remain mandatory evidence.
+
+- cap-primitives4.0.3 Windows prepare_open_options_for_open clears
+  FILE_SHARE_DELETE for maybe_dir even if the caller requested it. A retained
+  DELETE rename handle therefore conflicts with another such directory open.
+  ADR103 releases that fixture handle only after actual rename and original
+  post-operation private/full-ID verification, then checks the fixed new entry
+  against the frozen ID. This is not a production rename or authority primitive.

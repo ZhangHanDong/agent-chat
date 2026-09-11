@@ -19,6 +19,7 @@ changing production media durability or enabling file upload.
 - Run real bounded snapshot encryption staging and exact process-restart restoration only after the candidate passes.
 - Retain the original nonzero unknown or refusal verdict and bounded static diagnostic artifact.
 - Require rooted DELETE-open sharing refusal while held and exact same-object no-replace NT handle rename after release with immediate and final status success.
+- Validate renamed source identity before closing its DELETE handle then validate the fixed destination against that frozen identity under the retained private root.
 - Delete only synthetic files through their original create_new handles with DELETE access actual delete-pending observation and fresh-create confirmation.
 - Limit each controller to one child at a time and two fixed child modes with finite wall waits and owned child cleanup.
 - Keep at most four probe-owned directory or file handles concurrently and one existing bounded Store Workspace snapshot and result.

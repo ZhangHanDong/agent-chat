@@ -5647,3 +5647,19 @@ origin and bounded token/handle lifetimes were re-audited. Native profile1/1,
 native example and Windows GNU all-target warnings-denied Clippy pass. No existing
 CI, dependency, production sync or service gate changes; the next actual original
 native run remains required for the full stage+fresh-process acceptance.
+
+ADR103 run34578232660/job103195538364 ate7ba863 remains failed, artifact
+exit78. Actual staging was qualified and native retained-root rename acknowledged
+both immediate/final status. Destination identity reopening then refused32 while
+the rename's DELETE handle remained held; no second process ran. Pinned
+cap-primitives maybe_dir preparation clears FILE_SHARE_DELETE, explaining this
+fixture sharing conflict despite its requested flags. The approved correction
+checks original post-rename ID/private policy, closes only that rename handle,
+then requires rooted destination full-ID/private equality under the retained
+exclusive fixture root. All existing held32 and fresh-process gates remain.
+
+The rename-release correction passes native profile1/1, native example and
+Windows GNU all-target warnings-denied Clippy, task parse/lint and formatting.
+Unsafe review confirms native input/IOSB lifetime is unchanged and the source
+closes only after actual completion and its own post-rename identity check.
+A sixth original native run remains pending; no fresh recovery is inferred.

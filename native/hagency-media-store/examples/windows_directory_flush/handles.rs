@@ -417,6 +417,11 @@ pub(super) fn rename_released(
     if identity(&source)? != expected {
         return Err(Failure::refused("rename_retained_identity"));
     }
+    // cap-primitives' maybe_dir preparation clears FILE_SHARE_DELETE even if
+    // requested below. Finish this released-custody rename handle before the
+    // rooted destination open; compare against the original frozen full ID.
+    // The exclusive private fixture root remains held, with no new authority.
+    drop(source);
     let mut options = OpenOptions::new();
     options
         .read(true)
