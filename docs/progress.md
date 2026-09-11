@@ -6008,3 +6008,15 @@ the required example now gives Store the original ordinary Dir, and a separate
 child must restore the exact earlier bytes/descriptor/commitments. Neither local
 checks nor ADR103's candidate-injection success supplies this new platform gate.
 No upload, FileService, Matrix, task Done or production cutover is claimed.
+
+
+## 2026-09-11 — Preserve valid CTR byte equality
+
+The isolated CI closure retains original ADR104 Windows run34582323420's failed
+interoperability assertion: ciphertext0x11 can equal plaintext0x11 under CTR.
+The test now checks actual ciphertext hash, SDK/native round trips and independent
+key/IV metadata. A fixed public Node/OpenSSL equality vector passes through the
+actual codec and SDK and still rejects corruption. Production crypto is unchanged.
+The full media integration target passes5/5 locally; fmt and warnings-denied
+Clippy pass. Original FileService startup failures remain independently open.
+See knowledge/context/native-media-ctr-equality.md and the bounded task contract.

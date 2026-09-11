@@ -2600,3 +2600,12 @@ Incoming serve/MCP/cache materialization and platform qualification remain open.
   release them or imply bounded OS completion. Probe success and default-Store
   success are distinct gates, and only actual native Windows execution proves
   the latter. No runtime or upload readiness follows from cross-compilation.
+
+
+- **CTR equality CI evidence, 2026-09-11:** original ADR104 Windows Cargo failed
+  because random one-byte ciphertext equaled plaintext. CTR may preserve bytes;
+  never require every nonempty ciphertext to differ from plaintext. Keep actual
+  ciphertext integrity, SDK compatibility and metadata freshness checks, plus the
+  fixed equality regression. This is a test defect, separate from original
+  Linux/Windows FileService startup failures; see
+  `knowledge/context/native-media-ctr-equality.md`.

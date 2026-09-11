@@ -57,9 +57,16 @@ fn native_media_interoperability() {
         let (_dir, workspace) = fixture(&expected, 1);
         let encrypted = codec.encrypt(snapshot(&workspace)).unwrap();
         assert_eq!(encrypted.ciphertext().len(), expected.len());
-        if !expected.is_empty() {
-            assert_ne!(encrypted.ciphertext(), expected);
-        }
+        // CTR may preserve a byte when its corresponding keystream byte is
+        // zero. Ciphertext inequality is not an encryption invariant.
+        let metadata: Value =
+            serde_json::from_slice(encrypted.descriptor().private_event_json()).unwrap();
+        assert_eq!(
+            metadata["hashes"]["sha256"],
+            STANDARD
+                .encode(Sha256::digest(encrypted.ciphertext()))
+                .trim_end_matches('=')
+        );
         let info: MediaEncryptionInfo =
             serde_json::from_slice(encrypted.descriptor().private_event_json()).unwrap();
         let mut input = Cursor::new(encrypted.ciphertext());
@@ -75,11 +82,52 @@ fn native_media_interoperability() {
     let (_dir, workspace) = fixture("文件内容 🐒\n".as_bytes(), 2);
     let first = codec.encrypt(snapshot(&workspace)).unwrap();
     let second = codec.encrypt(snapshot(&workspace)).unwrap();
-    assert_ne!(first.ciphertext(), second.ciphertext());
+    let first_metadata: Value =
+        serde_json::from_slice(first.descriptor().private_event_json()).unwrap();
+    let second_metadata: Value =
+        serde_json::from_slice(second.descriptor().private_event_json()).unwrap();
+    assert_ne!(first_metadata["key"]["k"], second_metadata["key"]["k"]);
+    assert_ne!(first_metadata["iv"], second_metadata["iv"]);
     let checked = codec
         .decrypt(first.descriptor(), first.ciphertext())
         .unwrap();
     assert_eq!(checked.bytes(), "文件内容 🐒\n".as_bytes());
+}
+
+#[test]
+fn native_media_ctr_equal_plaintext_vector() {
+    // Public Node/OpenSSL AES256-CTR vector: key is 30 zero bytes then 0x016a,
+    // IV is all zero, plaintext/ciphertext is 0x11. AES(key, IV) starts with
+    // zero, so CTR legitimately preserves this byte. No production randomness
+    // is overridden, and the actual SDK must still decrypt the fixed vector.
+    let metadata = json!({
+        "v": "v2",
+        "key": {
+            "kty": "oct", "alg": "A256CTR", "ext": true,
+            "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWo",
+            "key_ops": ["encrypt", "decrypt"]
+        },
+        "iv": "AAAAAAAAAAAAAAAAAAAAAA",
+        "hashes": {"sha256": "SmShB/DLMlNuW85smMOT2yHMp/TqGHuoxNyotR1OqAo"}
+    });
+    let plaintext = [17u8];
+    let ciphertext = STANDARD.decode("EQ==").unwrap();
+    assert_eq!(ciphertext, plaintext);
+    let descriptor = descriptor(&metadata);
+    let codec = Codec::new(Limits::default());
+    let checked = codec.decrypt(&descriptor, &ciphertext).unwrap();
+    assert_eq!(checked.bytes(), plaintext);
+    assert_eq!(&checked.digest()[..], Sha256::digest(plaintext).as_slice());
+    let info: MediaEncryptionInfo = serde_json::from_value(metadata).unwrap();
+    let mut input = Cursor::new(&ciphertext);
+    let mut sdk = AttachmentDecryptor::new(&mut input, info).unwrap();
+    let mut actual = Vec::new();
+    sdk.read_to_end(&mut actual).unwrap();
+    assert_eq!(actual, plaintext);
+    assert!(matches!(
+        codec.decrypt(&descriptor, &[ciphertext[0] ^ 1]),
+        Err(Error::Integrity)
+    ));
 }
 
 #[test]
