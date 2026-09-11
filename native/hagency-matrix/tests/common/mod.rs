@@ -148,22 +148,39 @@ where
         output = &mut collector => panic!("collector completed before its HTTP script: {output:?}"),
     }
 }
+struct ScriptedResponse {
+    pieces: Vec<(Duration, Vec<u8>)>,
+    clean: bool,
+}
 pub struct Request {
     pub method: String,
     pub target: String,
     pub headers: BTreeMap<String, String>,
     pub body: Vec<u8>,
-    response: oneshot::Sender<Vec<(Duration, Vec<u8>)>>,
+    response: oneshot::Sender<ScriptedResponse>,
 }
 impl Request {
     pub fn json(self, status: u16, body: Value) {
         self.raw(response(status, &serde_json::to_vec(&body).unwrap()));
     }
     pub fn raw(self, bytes: Vec<u8>) {
-        let _ = self.response.send(vec![(Duration::ZERO, bytes)]);
+        let _ = self.response.send(ScriptedResponse {
+            pieces: vec![(Duration::ZERO, bytes)],
+            clean: true,
+        });
+    }
+    /// Deliberately omit TLS close_notify to exercise truncated transport EOF.
+    pub fn unclean(self, bytes: Vec<u8>) {
+        let _ = self.response.send(ScriptedResponse {
+            pieces: vec![(Duration::ZERO, bytes)],
+            clean: false,
+        });
     }
     pub fn chunks(self, pieces: Vec<(Duration, Vec<u8>)>) {
-        let _ = self.response.send(pieces);
+        let _ = self.response.send(ScriptedResponse {
+            pieces,
+            clean: true,
+        });
     }
 }
 pub fn response(status: u16, body: &[u8]) -> Vec<u8> {
@@ -307,7 +324,7 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, tx: mpsc::Sende
     if tx.send(request).await.is_err() {
         return;
     }
-    if let Ok(pieces) = rx.await {
+    if let Ok(ScriptedResponse { pieces, clean }) = rx.await {
         for (delay, bytes) in pieces {
             tokio::time::sleep(delay).await;
             if stream.write_all(&bytes).await.is_err() {
@@ -316,6 +333,12 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, tx: mpsc::Sende
             if stream.flush().await.is_err() {
                 return;
             }
+        }
+        if clean {
+            // TlsStream drop alone does not send close_notify. A bounded clean
+            // shutdown lets close-delimited bodies prove actual TLS EOF; the
+            // explicit unclean fixture remains a transport failure.
+            let _ = timeout(Duration::from_millis(200), stream.shutdown()).await;
         }
     }
 }

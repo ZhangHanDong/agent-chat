@@ -1137,8 +1137,10 @@ dependencies = [
 name = "hagency-matrix"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "hagency-core",
  "hagency-matrix-format",
+ "hagency-media",
  "hagency-store",
  "http",
  "matrix-sdk-base",

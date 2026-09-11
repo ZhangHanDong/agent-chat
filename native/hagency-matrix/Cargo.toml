@@ -10,6 +10,7 @@ publish.workspace = true
 hagency-core = { path = "../hagency-core" }
 hagency-store = { path = "../hagency-store" }
 hagency-matrix-format = { path = "../hagency-matrix-format" }
+hagency-media = { path = "../hagency-media" }
 sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -26,6 +27,7 @@ http = "=1.5.0"
 ruma = { version = "=0.16.0", features = ["client-api-c", "events"] }
 
 [dev-dependencies]
+base64 = "=0.22.1"
 tempfile.workspace = true
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }

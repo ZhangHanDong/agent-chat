@@ -62,6 +62,104 @@ impl Response {
     }
 }
 impl Http {
+    /// Binary repository GET. JSON request/response behavior below is unchanged.
+    /// The caller already holds a finite transfer permit and absolute deadline.
+    pub(crate) async fn download(
+        &self,
+        segments: &[&str],
+        cap: usize,
+        deadline: Instant,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<u8>, Error> {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let mut url = self.base.clone();
+        url.path_segments_mut()
+            .map_err(|_| Error::Config)?
+            .clear()
+            .extend(segments);
+        let mut response = wait(
+            cancel,
+            deadline.min(Instant::now() + self.limits.headers),
+            self.client
+                .get(url)
+                .header(header::ACCEPT, "application/octet-stream")
+                .send(),
+        )
+        .await?
+        .map_err(|_| Error::Transport)?;
+        let headers = response.headers();
+        if headers.len() > 64
+            || headers
+                .iter()
+                .map(|(k, v)| k.as_str().len() + v.len())
+                .sum::<usize>()
+                > 16384
+            || [
+                header::CONTENT_LENGTH,
+                header::TRANSFER_ENCODING,
+                header::CONTENT_ENCODING,
+                header::CONTENT_TYPE,
+            ]
+            .iter()
+            .any(|name| headers.get_all(name).iter().count() > 1)
+            || headers
+                .get(header::CONTENT_ENCODING)
+                .is_some_and(|v| v != "identity")
+            || headers
+                .get(header::TRANSFER_ENCODING)
+                .is_some_and(|v| v != "chunked")
+            || (headers.contains_key(header::CONTENT_LENGTH)
+                && headers.contains_key(header::TRANSFER_ENCODING))
+        {
+            return Err(Error::Headers);
+        }
+        let declared = headers
+            .get(header::CONTENT_LENGTH)
+            .map(|v| {
+                let text = v.to_str().map_err(|_| Error::Headers)?;
+                if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(Error::Headers);
+                }
+                text.parse::<u64>().map_err(|_| Error::Headers)
+            })
+            .transpose()?;
+        match response.status().as_u16() {
+            200 => {}
+            300..=399 => return Err(Error::Redirect),
+            401 | 403 => return Err(Error::Unauthorized),
+            status => return Err(Error::Remote(status)),
+        }
+        if declared.is_some_and(|n| n > cap as u64) {
+            return Err(Error::BodyTooLarge);
+        }
+        let mut bytes = Vec::new();
+        // Request checked capacity without geometric Vec growth. Allocator
+        // rounding/overhead is separate from the enforced logical byte cap.
+        bytes.try_reserve_exact(cap).map_err(|_| Error::Capacity)?;
+        loop {
+            let chunk = wait(
+                cancel,
+                deadline.min(Instant::now() + self.limits.body_idle),
+                response.chunk(),
+            )
+            .await?
+            .map_err(|_| Error::Transport)?;
+            let Some(chunk) = chunk else {
+                break;
+            };
+            if chunk.len() > cap.saturating_sub(bytes.len()) {
+                return Err(Error::BodyTooLarge);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if declared.is_some_and(|n| n != bytes.len() as u64) {
+            return Err(Error::Transport);
+        }
+        Ok(bytes)
+    }
+
     pub(crate) fn new(config: &HostConfig) -> Result<Self, Error> {
         let mut headers = HeaderMap::new();
         headers.insert(header::AUTHORIZATION, config.authorization.clone());

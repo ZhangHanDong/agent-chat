@@ -1,5 +1,18 @@
 # Repository audit knowledge
 
+- **Native encrypted repository download, 2026-09-10:** ADR068 adds bounded
+  authenticated HTTPS GET through the configured homeserver only. An MXC's
+  server is a repository path, never a token destination. Typed components
+  explicitly reject empty/escaped/dot media paths; pinned ruma's MxcUri offset
+  narrowing is avoided by validating bounded components. HTTP body EOF, complete
+  ciphertext hash and actual SDK decryption precede CheckedBytes. This is not
+  event/sender/dispatch proof; future collector and receive_file must enforce
+  authenticated descriptor provenance and frozen privacy scope before exposure.
+  Active buffers and held codec results have shared finite permits. No upload,
+  SDK enrollment, state directory, automatic staging or service is created.
+  Close-delimited TLS needs close_notify: fixture drop alone is an unclean EOF,
+  retained as an explicit negative regression.
+
 - **Native shutdown diagnostics, 2026-09-10:** Windows 79b036c failed four
   fixture teardowns with OutcomeUnknown; queue, SQLite destruction and reply
   scheduling remain unproven causes. Optional per-job static phase timestamps
