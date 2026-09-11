@@ -1,5 +1,6 @@
 use super::*;
 use crate::collector::fixtures as common;
+use crate::collector::observation::{Trace, observed};
 use crate::{HostConfig, HostIdentity, HostRoom};
 use hagency_core::{replies::*, tasks::SessionBinding};
 use serde_json::{Value, json};
@@ -63,17 +64,31 @@ fn plan() -> HostIntakePlan {
     HostIntakePlan::new(vec!["root".into()]).unwrap()
 }
 async fn prime(c: &Collector, f: &common::Fixture, fake: &mut common::Fake, encrypted: bool) {
+    prime_named(c, f, fake, encrypted, "intake prime", None).await;
+}
+async fn prime_named(
+    c: &Collector,
+    f: &common::Fixture,
+    fake: &mut common::Fake,
+    encrypted: bool,
+    callsite: &'static str,
+    variant: Option<&'static str>,
+) {
     let cancel = CancellationToken::new();
-    let (result, _) = common::scripted(c.collect(&cancel), async {
-        fake.next_phase(Some("intake prime: whoami"))
-            .await
-            .json(200, common::who());
-        fake.next_phase(Some("intake prime: sync"))
-            .await
-            .json(200, common::sync("bootstrap"));
-        fake.next_phase(Some("intake prime: room state"))
-            .await
-            .json(200, state(encrypted));
+    let result = observed(Trace::new(callsite, variant, None), async {
+        let (result, _) = common::scripted(c.collect(&cancel), async {
+            fake.next_phase(Some("intake prime: whoami"))
+                .await
+                .json(200, common::who());
+            fake.next_phase(Some("intake prime: sync"))
+                .await
+                .json(200, common::sync("bootstrap"));
+            fake.next_phase(Some("intake prime: room state"))
+                .await
+                .json(200, state(encrypted));
+        })
+        .await;
+        result
     })
     .await;
     result.unwrap();
@@ -164,7 +179,15 @@ async fn run_observed(
             }
             result
         };
-        common::scripted(observed, script).await
+        let result = crate::collector::observation::observed(
+            Trace::new("manifest intake", None, Some(observation.batch)),
+            async {
+                let (result, ()) = common::scripted(observed, script).await;
+                result
+            },
+        )
+        .await;
+        (result, ())
     } else {
         tokio::join!(intake, script)
     };
@@ -397,7 +420,7 @@ async fn native_matrix_intake_crypto_verified_human_dm_no_mention_and_spoof_refu
             f.store.clone(),
         )
         .unwrap();
-        prime(&c, &f, &mut fake, true).await;
+        prime_named(&c, &f, &mut fake, true, "crypto prime", Some(variant)).await;
         let mut value = if variant == "plaintext" {
             let mut v = sync(
                 "spoof",
@@ -429,10 +452,14 @@ async fn native_matrix_intake_crypto_verified_human_dm_no_mention_and_spoof_refu
                 json!("@other:example.test");
         }
         let cancel = CancellationToken::new();
-        let (result, ()) = common::scripted(c.intake(plan(), &cancel), async {
-            fake.next().await.json(200, common::who());
-            fake.next().await.json(200, value);
-            fake.next().await.json(200, state(true));
+        let result = observed(Trace::new("crypto intake", Some(variant), None), async {
+            let (result, ()) = common::scripted(c.intake(plan(), &cancel), async {
+                fake.next().await.json(200, common::who());
+                fake.next().await.json(200, value);
+                fake.next().await.json(200, state(true));
+            })
+            .await;
+            result
         })
         .await;
         if variant == "verified" {
@@ -578,41 +605,48 @@ async fn native_matrix_intake_handoff_concurrent_cancel_and_negative_room_cannot
         f.store.clone(),
     )
     .unwrap();
-    prime(&c, &f, &mut fake, false).await;
+    prime_named(&c, &f, &mut fake, false, "handoff cancellation prime", None).await;
     c.inner
         .handoff_fault
         .store(3, std::sync::atomic::Ordering::SeqCst);
     let cancel = CancellationToken::new();
-    let (result, ()) = common::scripted(c.intake(plan(), &cancel), async {
-        fake.next().await.json(200, common::who());
-        fake.next().await.json(
-            200,
-            sync(
-                "cancelled",
-                vec![event(
-                    "cancelled",
-                    "Frozen old room",
-                    &["@worker:example.test"],
-                    None,
-                )],
-            ),
-        );
-        fake.next().await.json(200, state(false));
-        c.inner.handoff_reached.notified().await;
-        f.store
-            .invalidate_matrix_room(MatrixRoomInvalidation {
-                engagement_id: f.identity.transport.engagement_id.clone(),
-                registration_generation: 1,
-                transport_generation: 1,
-                room_id: "!project:example.test".into(),
-                generation: 2,
-                reason: "Authenticated loss while event waits".into(),
+    let result = observed(
+        Trace::new("handoff cancellation intake", None, None),
+        async {
+            let (result, ()) = common::scripted(c.intake(plan(), &cancel), async {
+                fake.next().await.json(200, common::who());
+                fake.next().await.json(
+                    200,
+                    sync(
+                        "cancelled",
+                        vec![event(
+                            "cancelled",
+                            "Frozen old room",
+                            &["@worker:example.test"],
+                            None,
+                        )],
+                    ),
+                );
+                fake.next().await.json(200, state(false));
+                c.inner.handoff_reached.notified().await;
+                f.store
+                    .invalidate_matrix_room(MatrixRoomInvalidation {
+                        engagement_id: f.identity.transport.engagement_id.clone(),
+                        registration_generation: 1,
+                        transport_generation: 1,
+                        room_id: "!project:example.test".into(),
+                        generation: 2,
+                        reason: "Authenticated loss while event waits".into(),
+                    })
+                    .await
+                    .unwrap();
+                cancel.cancel();
+                c.inner.handoff_continue.notify_one();
             })
-            .await
-            .unwrap();
-        cancel.cancel();
-        c.inner.handoff_continue.notify_one();
-    })
+            .await;
+            result
+        },
+    )
     .await;
     assert_eq!(result, Err(Error::Generation));
     assert_eq!(rows(&f, "admitted_messages"), 0);
@@ -1175,7 +1209,9 @@ async fn native_matrix_intake_handoff_changed_event_cannot_reuse_old_receipt() {
     assert!(f.available().await);
     assert_eq!(rows(&f, "session_inputs"), 1);
     assert_eq!(status(&c, &mut fake).await.stage, "quarantined");
-    c.close().await.unwrap();
+    observed(Trace::new("changed-event close", None, None), c.close())
+        .await
+        .unwrap();
     f.store.shutdown().await.unwrap();
     fake.close().await;
 }

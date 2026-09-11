@@ -5,6 +5,19 @@ use serde_json::{Value, json};
 use std::{collections::BTreeSet, sync::Arc};
 use tokio::sync::{Mutex, Semaphore};
 
+#[cfg(test)]
+pub(crate) mod observation;
+macro_rules! observe {
+    ($phase:ident) => {
+        observe!($phase, None);
+    };
+    ($phase:ident, $index:expr) => {
+        #[cfg(test)]
+        crate::collector::observation::mark(crate::collector::observation::Phase::$phase, $index);
+    };
+}
+pub(crate) use observe;
+
 pub(crate) struct Inner {
     pub(crate) config: HostConfig,
     pub(crate) http: Http,
@@ -59,12 +72,15 @@ impl Collector {
             .map_err(|_| Error::Busy)?;
         let inner = self.inner.clone();
         let cancel = cancel.clone();
-        tokio::spawn(async move {
+        #[cfg(test)]
+        let observation = observation::current();
+        let job = async move {
             let _permit = permit;
             inner.collect(&cancel).await
-        })
-        .await
-        .map_err(|_| Error::OutcomeUnknown)?
+        };
+        #[cfg(test)]
+        let job = observation::owned(observation, job);
+        tokio::spawn(job).await.map_err(|_| Error::OutcomeUnknown)?
     }
     pub async fn close(&self) -> Result<(), Error> {
         let _permit = self
@@ -75,8 +91,11 @@ impl Collector {
             .map_err(|_| Error::Busy)?;
         self.inner.uploads.close()?;
         let inner = self.inner.clone();
-        tokio::spawn(async move {
+        #[cfg(test)]
+        let observation = observation::current();
+        let job = async move {
             let _permit = _permit;
+            observe!(CloseTransportRead);
             if let Some(state) = inner
                 .domain
                 .matrix_transport_state(inner.config.identity.transport.engagement_id.clone())
@@ -84,6 +103,7 @@ impl Collector {
                 && state.available
                 && state.observation == inner.config.identity.transport
             {
+                observe!(CloseTransportFence);
                 inner
                     .domain
                     .invalidate_matrix_transport(MatrixTransportInvalidation {
@@ -92,13 +112,16 @@ impl Collector {
                     })
                     .await?;
             }
+            observe!(CloseOwnerLock);
             if let Some(owner) = inner.owner.lock().await.take() {
+                observe!(CloseSdk);
                 owner.close().await?;
             }
             Ok(())
-        })
-        .await
-        .map_err(|_| Error::OutcomeUnknown)?
+        };
+        #[cfg(test)]
+        let job = observation::owned(observation, job);
+        tokio::spawn(job).await.map_err(|_| Error::OutcomeUnknown)?
     }
 }
 impl Inner {
@@ -132,6 +155,7 @@ impl Inner {
 
     async fn collect(&self, cancel: &CancellationToken) -> Result<ObservationSummary, Error> {
         let t = &self.config.identity.transport;
+        observe!(ExpectedTransport);
         let prior = self
             .domain
             .matrix_transport_state(t.engagement_id.clone())
@@ -146,18 +170,24 @@ impl Inner {
         }
         let expected = prior.map_or_else(|| t.clone(), |p| p.observation);
         let result = async {
+            observe!(Whoami);
             self.whoami(cancel).await?;
+            observe!(OwnerLock);
             let mut guard = self.owner.lock().await;
             if guard.is_none() {
+                observe!(OpenOwner);
                 *guard = Some(Owner::open(&self.config).await?);
             }
             let owner = guard.as_ref().ok_or(Error::Storage)?;
+            observe!(Batch);
             if let Some(batch) = owner.batch().await?
                 && batch.phase != crate::event_batch::Phase::Derived
             {
                 return Err(Error::OutcomeUnknown);
             }
+            observe!(IntakeMode);
             if !owner.intake_mode().await? {
+                observe!(Cursor);
                 let cursor = owner.cursor().await?;
                 let filter = json!({
                     "room": {
@@ -176,18 +206,21 @@ impl Inner {
                 if let Some(cursor) = cursor.as_deref() {
                     query.push(("since", cursor));
                 }
+                observe!(SyncHttp);
                 let value = self
                     .http
                     .request(&["_matrix", "client", "v3", "sync"], Some(&query), cancel)
                     .await?
                     .success()?;
                 self.sync_bounds(&value)?;
+                observe!(SyncApply);
                 owner.sync(value).await?;
             }
             drop(guard);
             if cancel.is_cancelled() {
                 return Err(Error::Cancelled);
             }
+            observe!(PublishTransport);
             self.domain.observe_matrix_transport(t.clone()).await?;
             #[cfg(test)]
             if self
@@ -206,12 +239,15 @@ impl Inner {
         }
         .await;
         if let Err(error) = result {
+            #[cfg(test)]
+            observation::primary(error);
             return self.fence_observation(expected, error).await;
         }
         result
     }
     pub(crate) async fn expected_transport(&self) -> Result<MatrixTransportObservation, Error> {
         let t = &self.config.identity.transport;
+        observe!(ExpectedTransport);
         let prior = self
             .domain
             .matrix_transport_state(t.engagement_id.clone())
@@ -231,6 +267,8 @@ impl Inner {
         expected: MatrixTransportObservation,
         error: Error,
     ) -> Result<T, Error> {
+        #[cfg(test)]
+        observation::primary(error);
         let t = &self.config.identity.transport;
         // Conservative whole-device fence: incomplete collection cannot
         // leave an earlier private room or long-lived grant usable.
@@ -243,6 +281,7 @@ impl Inner {
             vec![expected, t.clone()]
         };
         for expected in candidates {
+            observe!(Fence);
             match self
                 .domain
                 .invalidate_matrix_transport(MatrixTransportInvalidation {
@@ -251,9 +290,21 @@ impl Inner {
                 })
                 .await
             {
-                Ok(()) | Err(hagency_store::Error::Generation | hagency_store::Error::Conflict) => {
+                Ok(()) => {
+                    #[cfg(test)]
+                    observation::fence(None);
                 }
-                Err(_) => failed = true,
+                Err(
+                    _error @ (hagency_store::Error::Generation | hagency_store::Error::Conflict),
+                ) => {
+                    #[cfg(test)]
+                    observation::fence(Some(_error.into()));
+                }
+                Err(_error) => {
+                    #[cfg(test)]
+                    observation::fence(Some(_error.into()));
+                    failed = true;
+                }
             }
         }
         if failed {
@@ -276,11 +327,13 @@ impl Inner {
         cancel: &CancellationToken,
     ) -> Result<MatrixRoomObservation, Error> {
         let t = &self.config.identity.transport;
+        observe!(RoomPrior);
         let prior = self
             .domain
             .matrix_room_state(t.engagement_id.clone(), target.room_id.clone())
             .await?;
         let result = async {
+            observe!(RoomHttp);
             let state = self
                 .http
                 .request(
@@ -296,7 +349,9 @@ impl Inner {
             if cancel.is_cancelled() {
                 return Err(Error::Cancelled);
             }
+            observe!(RoomPublish);
             self.domain.observe_matrix_room(observation.clone()).await?;
+            observe!(RoomRecheck);
             let current = self
                 .domain
                 .matrix_room_state(t.engagement_id.clone(), target.room_id.clone())
@@ -307,6 +362,10 @@ impl Inner {
             Ok(observation)
         }
         .await;
+        #[cfg(test)]
+        if let Err(error) = &result {
+            observation::primary(*error);
+        }
         if result.is_err()
             && let Some(prior) = prior
             && prior.available
@@ -327,7 +386,11 @@ impl Inner {
             {
                 Ok(()) | Err(hagency_store::Error::Generation | hagency_store::Error::Conflict) => {
                 }
-                Err(_) => return Err(Error::OutcomeUnknown),
+                Err(_error) => {
+                    #[cfg(test)]
+                    observation::fence(Some(_error.into()));
+                    return Err(Error::OutcomeUnknown);
+                }
             }
         }
         result

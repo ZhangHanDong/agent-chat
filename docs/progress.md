@@ -5208,3 +5208,21 @@ copied SQLite fixture initially used default nonprivate creation and then hit
 correct restart fencing. Final fixture precreates a private file and explicitly
 restores stale rows only as a negative alternate-writer setup; production
 recovery is unchanged. Original failed logs remain external.
+
+ADR094 original Matrix operation observation (2026-09-10): approved scope expanded
+from eleven to thirteen allowed paths after preserved fc57d6b original evidence.
+The amended contract parsed/linted before outgoing edits. Test-only finite traces
+now follow original collector/intake/outgoing tasks and SDK open/queued work,
+with separate primary/fencing errors and fixed operation/variant/batch labels.
+Two original outgoing shutdown callsites reuse the existing domain shutdown
+observer. All original send/refusal/recovery assertions and deadlines remain.
+
+Three actual held-owner regressions pass. One complete native Matrix crate run
+passes 115/115 (94 library, 6 HTTP, 6 media upload, 9 transport; zero ignored). Native
+all-target Clippy with warnings denied passes. That full run predates only the
+final preparation-failure phase label and reuse of the existing shutdown observer
+in the new regression. Final strict lifecycle passes 14/14 (thirteen selectors
+plus all twelve actual changed paths), with zero failed/skipped/uncertain/pending
+scenarios. Final native and Windows GNU all-target Clippy, rustfmt and whitespace
+checks pass after those refinements. Cross-compilation is not Windows runtime
+qualification; original Windows runs at 706172d and fc57d6b remain failed.

@@ -1,4 +1,5 @@
 use super::*;
+use crate::collector::observation::{Phase as ObservationPhase, Trace, observed};
 use crate::{HostConfig, HostIdentity, HostIntakePlan, HostRoom, collector::fixtures as common};
 use hagency_core::{ingress::VerifiedTaskRequest, task_intents::TaskDefinition, tasks::*};
 use serde_json::{Value, json};
@@ -45,7 +46,26 @@ fn room(encrypted: bool) -> Value {
     }
     v
 }
+async fn scripted<T: std::fmt::Debug, S: std::future::Future>(
+    callsite: &'static str,
+    variant: Option<&'static str>,
+    operation: impl std::future::Future<Output = Result<T, Error>>,
+    script: S,
+) -> (Result<T, Error>, S::Output) {
+    let trace = Trace::new(callsite, variant, None);
+    let result = common::scripted(observed(trace.clone(), operation), script).await;
+    assert!(trace.has(ObservationPhase::OwnerReturned));
+    result
+}
 async fn ready(encrypted: bool, direct: bool) -> (common::Fixture, common::Fake, Collector) {
+    ready_named(encrypted, direct, "outgoing bootstrap", None).await
+}
+async fn ready_named(
+    encrypted: bool,
+    direct: bool,
+    callsite: &'static str,
+    variant: Option<&'static str>,
+) -> (common::Fixture, common::Fake, Collector) {
     let f = common::Fixture::new();
     let mut fake = common::Fake::start(true).await;
     let c = Collector::new(
@@ -54,7 +74,7 @@ async fn ready(encrypted: bool, direct: bool) -> (common::Fixture, common::Fake,
     )
     .unwrap();
     let cancel = CancellationToken::new();
-    let (r, ()) = common::scripted(c.collect(&cancel), async {
+    let (r, ()) = scripted(callsite, variant, c.collect(&cancel), async {
         fake.next().await.json(200, common::who());
         fake.next().await.json(200, common::sync("boot"));
         fake.next().await.json(200, room(encrypted));
@@ -201,15 +221,26 @@ async fn native_matrix_outgoing_plain_final_actual_https_formatted_and_idempoten
 async fn native_matrix_outgoing_recovery_accepted_response_survives_busy_lost_domain_reply_and_restart()
  {
     for fault in [1, 2] {
-        let (f, mut fake, c) = ready(false, false).await;
+        let variant_label = Some(if fault == 1 {
+            "busy"
+        } else {
+            "lost domain reply"
+        });
+        let (f, mut fake, c) =
+            ready_named(false, false, "accepted recovery bootstrap", variant_label).await;
         let claim = final_claim(&f).await;
         let cancel = CancellationToken::new();
         c.inner.outgoing_fault.store(fault, Ordering::SeqCst);
-        let (result, ()) = common::scripted(c.send_final(claim.clone(), &cancel), async {
-            plain_wire(&mut fake)
-                .await
-                .json(200, json!({"event_id":"$journaled"}));
-        })
+        let (result, ()) = scripted(
+            "accepted recovery send",
+            variant_label,
+            c.send_final(claim.clone(), &cancel),
+            async {
+                plain_wire(&mut fake)
+                    .await
+                    .json(200, json!({"event_id":"$journaled"}));
+            },
+        )
         .await;
         assert_eq!(
             result,
@@ -230,12 +261,22 @@ async fn native_matrix_outgoing_recovery_accepted_response_survives_busy_lost_do
             f.store.clone(),
         )
         .unwrap();
-        let r = c.resume_outgoing_custody(&cancel).await.unwrap();
+        let r = observed(
+            Trace::new("accepted recovery resume", variant_label, None),
+            c.resume_outgoing_custody(&cancel),
+        )
+        .await
+        .unwrap();
         assert_eq!(r.state, OutgoingState::Delivered);
         assert!(r.replayed);
         fake.no_request().await;
         assert_eq!(state(&f, &claim.id), "delivered");
-        c.close().await.unwrap();
+        observed(
+            Trace::new("accepted recovery close", variant_label, None),
+            c.close(),
+        )
+        .await
+        .unwrap();
         f.store.shutdown().await.unwrap();
         fake.close().await;
     }
@@ -243,19 +284,30 @@ async fn native_matrix_outgoing_recovery_accepted_response_survives_busy_lost_do
 #[tokio::test]
 async fn native_matrix_outgoing_recovery_lost_http_and_begin_do_not_replay() {
     for lost_begin in [false, true] {
-        let (f, mut fake, c) = ready(false, false).await;
+        let variant_label = Some(if lost_begin {
+            "lost begin"
+        } else {
+            "lost HTTP"
+        });
+        let (f, mut fake, c) =
+            ready_named(false, false, "lost write recovery bootstrap", variant_label).await;
         let claim = final_claim(&f).await;
         let cancel = CancellationToken::new();
         if lost_begin {
             c.inner.outgoing_fault.store(4, Ordering::SeqCst);
         }
-        let (result, ()) = common::scripted(c.send_final(claim.clone(), &cancel), async {
-            if lost_begin {
-                preflight(&mut fake, false).await;
-            } else {
-                drop(plain_wire(&mut fake).await);
-            }
-        })
+        let (result, ()) = scripted(
+            "lost write recovery send",
+            variant_label,
+            c.send_final(claim.clone(), &cancel),
+            async {
+                if lost_begin {
+                    preflight(&mut fake, false).await;
+                } else {
+                    drop(plain_wire(&mut fake).await);
+                }
+            },
+        )
         .await;
         assert!(result.is_err());
         assert_eq!(state(&f, &claim.id), "sending");
@@ -266,7 +318,13 @@ async fn native_matrix_outgoing_recovery_lost_http_and_begin_do_not_replay() {
         )
         .unwrap();
         assert_eq!(
-            c.resume_outgoing_custody(&cancel).await.unwrap().state,
+            observed(
+                Trace::new("lost write recovery resume", variant_label, None),
+                c.resume_outgoing_custody(&cancel)
+            )
+            .await
+            .unwrap()
+            .state,
             OutgoingState::Uncertain
         );
         fake.no_request().await;
@@ -275,7 +333,12 @@ async fn native_matrix_outgoing_recovery_lost_http_and_begin_do_not_replay() {
             Err(Error::OutcomeUnknown)
         );
         fake.no_request().await;
-        c.close().await.unwrap();
+        observed(
+            Trace::new("lost write recovery close", variant_label, None),
+            c.close(),
+        )
+        .await
+        .unwrap();
         f.store.shutdown().await.unwrap();
         fake.close().await;
     }
@@ -310,7 +373,9 @@ async fn notice_claim(
     let cancel = CancellationToken::new();
     let event = json!({"event_id":"$question","sender":"@owner:example.test","type":"m.room.message","origin_server_ts":now(),"content":{"msgtype":"m.text","body":"Please implement","m.mentions":{"user_ids":["@worker:example.test"]}}});
     let sync = json!({"next_batch":"question","rooms":{"join":{"!project:example.test":{"timeline":{"limited":false,"events":[event]},"state":{"events":[]}}}},"to_device":{"events":[]}});
-    let (r, ()) = common::scripted(
+    let (r, ()) = scripted(
+        "outgoing notice intake",
+        None,
         c.intake(HostIntakePlan::new(vec!["root".into()]).unwrap(), &cancel),
         async {
             fake.next().await.json(200, common::who());
@@ -346,15 +411,20 @@ async fn notice_claim(
 }
 #[tokio::test]
 async fn native_matrix_outgoing_plain_notice_activates_only_after_real_acceptance() {
-    let (f, mut fake, c) = ready(false, false).await;
+    let (f, mut fake, c) = ready_named(false, false, "notice bootstrap", None).await;
     let cancel = CancellationToken::new();
     let (claim, task_id) = notice_claim(&f, &mut fake, &c).await;
-    let (r, body) = common::scripted(c.send_notice(claim.clone(), &cancel), async {
-        let request = plain_wire(&mut fake).await;
-        let body: Value = serde_json::from_slice(&request.body).unwrap();
-        request.json(200, json!({"event_id":"$notice"}));
-        body
-    })
+    let (r, body) = scripted(
+        "notice send",
+        None,
+        c.send_notice(claim.clone(), &cancel),
+        async {
+            let request = plain_wire(&mut fake).await;
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            request.json(200, json!({"event_id":"$notice"}));
+            body
+        },
+    )
     .await;
     assert_eq!(r.unwrap().state, OutgoingState::Delivered);
     assert_eq!(body["msgtype"], "m.notice");
@@ -369,7 +439,9 @@ async fn native_matrix_outgoing_plain_notice_activates_only_after_real_acceptanc
             )
             .unwrap();
     assert_eq!(row, ("active".into(), "$notice".into()));
-    c.close().await.unwrap();
+    observed(Trace::new("notice close", None, None), c.close())
+        .await
+        .unwrap();
     f.store.shutdown().await.unwrap();
     fake.close().await;
 }
@@ -438,7 +510,8 @@ async fn native_matrix_outgoing_crypto_unverified_missing_or_changed_keys_never_
         "malformed_signing",
         "bad_device_signature",
     ] {
-        let (f, mut fake, c) = ready(true, true).await;
+        let (f, mut fake, c) =
+            ready_named(true, true, "crypto refusal bootstrap", Some(variant)).await;
         let claim = final_claim(&f).await;
         let peer = c
             .inner
@@ -450,44 +523,60 @@ async fn native_matrix_outgoing_crypto_unverified_missing_or_changed_keys_never_
             .outgoing_fixture(variant != "unverified")
             .await;
         let cancel = CancellationToken::new();
-        let (r, ()) = common::scripted(c.send_final(claim, &cancel), async {
-            preflight(&mut fake, true).await;
-            let mut keys = peer.query.clone();
-            if variant == "own_missing" {
-                keys["device_keys"]["@worker:example.test"]
-                    .as_object_mut()
-                    .unwrap()
-                    .clear();
-            }
-            if variant == "malformed_master" {
-                keys["master_keys"]["@owner:example.test"] = json!({});
-            }
-            if variant == "malformed_signing" {
-                keys["self_signing_keys"]["@owner:example.test"] = json!({});
-            }
-            if variant == "bad_device_signature" {
-                keys["device_keys"]["@owner:example.test"]["HUMAN"]["signatures"] = json!({});
-            }
-            fake.next().await.json(200, keys);
-            if variant == "changed_before_share" {
+        let (r, ()) = scripted(
+            "crypto refusal send",
+            Some(variant),
+            c.send_final(claim, &cancel),
+            async {
                 preflight(&mut fake, true).await;
-                let mut changed = peer.query.clone();
-                changed["device_keys"]["@owner:example.test"]
-                    .as_object_mut()
-                    .unwrap()
-                    .clear();
-                fake.next().await.json(200, changed);
-            }
-        })
+                let mut keys = peer.query.clone();
+                if variant == "own_missing" {
+                    keys["device_keys"]["@worker:example.test"]
+                        .as_object_mut()
+                        .unwrap()
+                        .clear();
+                }
+                if variant == "malformed_master" {
+                    keys["master_keys"]["@owner:example.test"] = json!({});
+                }
+                if variant == "malformed_signing" {
+                    keys["self_signing_keys"]["@owner:example.test"] = json!({});
+                }
+                if variant == "bad_device_signature" {
+                    keys["device_keys"]["@owner:example.test"]["HUMAN"]["signatures"] = json!({});
+                }
+                fake.next().await.json(200, keys);
+                if variant == "changed_before_share" {
+                    preflight(&mut fake, true).await;
+                    let mut changed = peer.query.clone();
+                    changed["device_keys"]["@owner:example.test"]
+                        .as_object_mut()
+                        .unwrap()
+                        .clear();
+                    fake.next().await.json(200, changed);
+                }
+            },
+        )
         .await;
         assert!(matches!(r, Err(Error::Recipients | Error::Identity)));
         fake.no_request().await;
         assert_eq!(
-            c.resume_outgoing_custody(&cancel).await.unwrap().state,
+            observed(
+                Trace::new("crypto refusal resume", Some(variant), None),
+                c.resume_outgoing_custody(&cancel)
+            )
+            .await
+            .unwrap()
+            .state,
             OutgoingState::Uncertain
         );
-        c.close().await.unwrap();
-        f.store.shutdown().await.unwrap();
+        observed(
+            Trace::new("crypto refusal close", Some(variant), None),
+            c.close(),
+        )
+        .await
+        .unwrap();
+        common::shutdown_domain(&f.store, "outgoing crypto refusal cleanup").await;
         fake.close().await;
     }
 }
@@ -545,10 +634,11 @@ async fn native_matrix_outgoing_bounds_wire_failures_retain_possible_writes() {
         "forbidden",
         "server_error",
     ] {
-        let (f, mut fake, c) = ready(false, false).await;
+        let (f, mut fake, c) =
+            ready_named(false, false, "wire refusal bootstrap", Some(kind)).await;
         let claim = final_claim(&f).await;
         let cancel = CancellationToken::new();
-        let (r,())=common::scripted(c.send_final(claim.clone(),&cancel),async {
+        let (r,())=scripted("wire refusal send", Some(kind),c.send_final(claim.clone(),&cancel),async {
             let req=plain_wire(&mut fake).await;
             match kind {
                 "duplicate"=>req.raw(common::response(200,b"{\"event_id\":\"$one\",\"event_id\":\"$two\"}")),
@@ -564,12 +654,23 @@ async fn native_matrix_outgoing_bounds_wire_failures_retain_possible_writes() {
         assert!(r.is_err(), "{kind}");
         assert_eq!(state(&f, &claim.id), "sending");
         assert_eq!(
-            c.resume_outgoing_custody(&cancel).await.unwrap().state,
+            observed(
+                Trace::new("wire refusal resume", Some(kind), None),
+                c.resume_outgoing_custody(&cancel)
+            )
+            .await
+            .unwrap()
+            .state,
             OutgoingState::Uncertain
         );
         fake.no_request().await;
-        c.close().await.unwrap();
-        f.store.shutdown().await.unwrap();
+        observed(
+            Trace::new("wire refusal close", Some(kind), None),
+            c.close(),
+        )
+        .await
+        .unwrap();
+        common::shutdown_domain(&f.store, "outgoing wire refusal cleanup").await;
         fake.close().await;
     }
 }
@@ -733,7 +834,21 @@ async fn encrypted_wire(fake: &mut common::Fake, query: &Value) -> common::Reque
 #[tokio::test]
 async fn native_matrix_outgoing_recovery_restore_rejects_inconsistent_protected_history() {
     for variant in 0..9 {
-        let (f, mut fake, c) = ready(true, false).await;
+        let variant_label = Some(
+            [
+                "history 0",
+                "history 1",
+                "history 2",
+                "history 3",
+                "history 4",
+                "history 5",
+                "history 6",
+                "history 7",
+                "history 8",
+            ][usize::from(variant)],
+        );
+        let (f, mut fake, c) =
+            ready_named(true, false, "protected history bootstrap", variant_label).await;
         let claim = final_claim(&f).await;
         let peer = c
             .inner
@@ -746,11 +861,16 @@ async fn native_matrix_outgoing_recovery_restore_rejects_inconsistent_protected_
             .await;
         c.inner.outgoing_fault.store(1, Ordering::SeqCst);
         let cancel = CancellationToken::new();
-        let (r, ()) = common::scripted(c.send_final(claim.clone(), &cancel), async {
-            encrypted_wire(&mut fake, &peer.query)
-                .await
-                .json(200, json!({"event_id":"$accepted"}));
-        })
+        let (r, ()) = scripted(
+            "protected history send",
+            variant_label,
+            c.send_final(claim.clone(), &cancel),
+            async {
+                encrypted_wire(&mut fake, &peer.query)
+                    .await
+                    .json(200, json!({"event_id":"$accepted"}));
+            },
+        )
         .await;
         assert_eq!(r, Err(Error::Busy));
         c.inner
@@ -768,13 +888,22 @@ async fn native_matrix_outgoing_recovery_restore_rejects_inconsistent_protected_
         )
         .unwrap();
         assert_eq!(
-            c.resume_outgoing_custody(&cancel).await,
+            observed(
+                Trace::new("protected history resume", variant_label, None),
+                c.resume_outgoing_custody(&cancel)
+            )
+            .await,
             Err(Error::Storage),
             "variant {variant}"
         );
         assert_eq!(state(&f, &claim.id), "sending");
         fake.no_request().await;
-        c.close().await.unwrap();
+        observed(
+            Trace::new("protected history close", variant_label, None),
+            c.close(),
+        )
+        .await
+        .unwrap();
         f.store.shutdown().await.unwrap();
         fake.close().await;
     }

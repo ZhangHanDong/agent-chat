@@ -1,4 +1,5 @@
 pub(crate) mod state;
+use crate::collector::observe;
 use crate::{CancellationToken, Collector, Error, collector::Inner, sdk::Owner};
 use hagency_core::{ingress::VerifiedNoticeClaim, replies::*};
 use hagency_matrix_format::MatrixContent;
@@ -61,7 +62,9 @@ impl Collector {
             .map_err(|_| Error::Busy)?;
         let inner = self.inner.clone();
         let cancel = cancel.child_token();
-        tokio::spawn(async move {
+        #[cfg(test)]
+        let observation = crate::collector::observation::current();
+        let job = async move {
             let _permit = permit;
             let work = inner.outgoing(source, &cancel);
             tokio::pin!(work);
@@ -73,9 +76,10 @@ impl Collector {
                     work.await
                 },
             }
-        })
-        .await
-        .map_err(|_| Error::OutcomeUnknown)?
+        };
+        #[cfg(test)]
+        let job = crate::collector::observation::owned(observation, job);
+        tokio::spawn(job).await.map_err(|_| Error::OutcomeUnknown)?
     }
 }
 impl Inner {
@@ -84,17 +88,23 @@ impl Inner {
         source: Source,
         cancel: &CancellationToken,
     ) -> Result<OutgoingSummary, Error> {
+        observe!(OwnerLock);
         let mut guard = self.owner.lock().await;
         if guard.is_none() {
             // Resume uses protected old identity/journal solely for receipt
             // recovery; it cannot restore transport observations or send.
             if matches!(source, Source::Resume) {
+                observe!(OpenOwner);
                 *guard = Some(Owner::open_existing(&self.config).await?);
             } else {
                 let expected = self.expected_transport().await?;
+                observe!(Whoami);
                 if let Err(error) = self.whoami(cancel).await {
+                    #[cfg(test)]
+                    crate::collector::observation::primary(error);
                     return self.fence_observation(expected, error).await;
                 }
+                observe!(OpenOwner);
                 *guard = Some(Owner::open(&self.config).await?);
             }
         }
@@ -132,6 +142,7 @@ impl Inner {
                             replayed: true,
                         });
                     }
+                    observe!(OutgoingPreview);
                     let send = self.domain.preview_final_reply(claim.clone()).await?;
                     (
                         Kind::Final,
@@ -144,6 +155,7 @@ impl Inner {
                     )
                 }
                 Source::Notice(claim) => {
+                    observe!(OutgoingPreview);
                     let receipt = self
                         .domain
                         .verified_notice_receipt(claim.claim.notice.id.clone())
@@ -211,6 +223,7 @@ impl Inner {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
+        observe!(OutgoingBegin);
         match &source {
             Source::Final(claim) => {
                 let begun = self.domain.begin_final_reply_send(claim.clone()).await?;
@@ -263,6 +276,7 @@ impl Inner {
                 .await?
                 .attempt
                 .ok_or(Error::Storage)?;
+            observe!(OutgoingQueryHttp);
             let response = self
                 .http
                 .post(
@@ -279,6 +293,8 @@ impl Inner {
                     return Err(Error::Recipients);
                 }
                 Err(Error::Identity) => {
+                    #[cfg(test)]
+                    crate::collector::observation::primary(Error::Identity);
                     return self
                         .fence_observation(self.config.identity.transport.clone(), Error::Identity)
                         .await;
@@ -292,6 +308,7 @@ impl Inner {
                 return Err(Error::Generation);
             }
             if attempt.route.encrypted {
+                observe!(OutgoingQueryHttp);
                 let keys = self
                     .http
                     .post(
@@ -335,6 +352,7 @@ impl Inner {
             // SDK persistence may have queued while a host retired the scope or
             // the lease expired. Recheck after that await, immediately before IO.
             self.validate_outgoing(&source, attempt.fence).await?;
+            observe!(OutgoingWriteHttp, Some(index));
             let value = if write.room {
                 self.http
                     .put(
@@ -383,6 +401,7 @@ impl Inner {
         self.settle_outgoing(owner, attempt, false).await
     }
     async fn validate_outgoing(&self, source: &Source, fence: u64) -> Result<(), Error> {
+        observe!(OutgoingValidate);
         match source {
             Source::Final(claim) => self.domain.validate_final_reply_send(claim.clone()).await?,
             Source::Notice(claim) => {
@@ -424,7 +443,10 @@ impl Inner {
             })
             .ok_or(Error::Generation)?;
         let expected = self.expected_transport().await?;
+        observe!(Whoami);
         if let Err(error) = self.whoami(cancel).await {
+            #[cfg(test)]
+            crate::collector::observation::primary(error);
             return self.fence_observation(expected, error).await;
         }
         let observation = self.collect_room_observation(target, cancel).await?;
@@ -437,6 +459,7 @@ impl Inner {
         Ok(observation.joined)
     }
     async fn retire_outgoing_room(&self, route: &ReplyRoute) -> Result<(), Error> {
+        observe!(OutgoingRetireRoom);
         self.domain
             .invalidate_matrix_room(MatrixRoomInvalidation {
                 engagement_id: route.engagement_id.clone(),
@@ -471,6 +494,7 @@ impl Inner {
             self.outgoing_reached.notify_one();
             self.outgoing_continue.notified().await;
         }
+        observe!(OutgoingSettle);
         let observation = ReplyReconciliation::Delivered(attempt.observation()?);
         match attempt.kind {
             Kind::Final => {

@@ -1,5 +1,8 @@
 //! The owner thread retains the filesystem lock until accepted SDK work and
 //! store shutdown finish, even if its caller cancels or drops the receiver.
+#[cfg(test)]
+use crate::collector::observation::{self, CommandTrace, Phase as ObservationPhase, SdkCommand};
+use crate::collector::observe;
 use crate::{
     Error, HostConfig,
     event_batch::{Acknowledgement, Batch, Phase, Receipt},
@@ -25,6 +28,10 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{mpsc, oneshot};
+#[cfg(test)]
+type QueueObservation = Option<CommandTrace>;
+#[cfg(not(test))]
+struct QueueObservation;
 
 mod approval_intake;
 mod attachments;
@@ -66,6 +73,8 @@ struct Journal {
     outgoing_receipts: Vec<crate::outgoing::state::Receipt>,
 }
 enum Command {
+    #[cfg(test)]
+    Observed(CommandTrace, Box<Command>),
     Upload(
         upload_custody::Command,
         oneshot::Sender<Result<upload_custody::Reply, Error>>,
@@ -151,6 +160,9 @@ impl Owner {
         Self::open_mode(config, true).await
     }
     async fn open_mode(config: &HostConfig, existing: bool) -> Result<Self, Error> {
+        #[cfg(test)]
+        let opening_observation = observation::current();
+        observe!(OpenRequested);
         let init = Init {
             upload_context: upload_state::Context::new(config)?,
             upload_epoch: std::sync::Arc::new(()),
@@ -164,43 +176,79 @@ impl Owner {
         };
         let (tx, mut rx) = mpsc::channel(1);
         let (ready, wait) = oneshot::channel();
+        #[cfg(test)]
+        let thread_observation = opening_observation.clone();
         std::thread::Builder::new()
             .name("hagency-matrix-sdk".into())
             .spawn(move || {
                 // Lock is outside the runtime; background store tasks cannot outlive ownership.
+                #[cfg(test)]
+                if let Some(trace) = &thread_observation { trace.record(ObservationPhase::PrepareStarted, None); }
                 let prepared = prepare(&init);
                 let (lock, fresh) = match prepared {
                     Ok(v) => v,
                     Err(e) => {
+                        #[cfg(test)]
+                        if let Some(trace) = &thread_observation { trace.record(ObservationPhase::PrepareFailed, Some(e)); }
                         let _ = ready.send(Err(e));
                         return;
                     }
                 };
+                #[cfg(test)]
+                if let Some(trace) = &thread_observation { trace.record(ObservationPhase::Prepared, None); }
                 let runtime = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                 {
                     Ok(v) => v,
                     Err(_) => {
+                        #[cfg(test)]
+                        if let Some(trace) = &thread_observation { trace.record(ObservationPhase::RuntimeFailed, Some(Error::Storage)); }
                         let _ = ready.send(Err(Error::Storage));
                         return;
                     }
                 };
                 let mut ready = Some(ready);
                 let mut init_error = None;
+                #[cfg(test)]
+                let mut close_observation = None;
+                #[cfg(test)]
+                let mut opened = false;
+                #[cfg(test)]
+                if let Some(trace) = &thread_observation { trace.record(ObservationPhase::RuntimeReady, None); }
                 let closed = runtime.block_on(async {
-                    let mut sdk = match Sdk::open(&init, fresh).await {
+                    #[cfg(test)]
+                    if let Some(trace) = &thread_observation { trace.record(ObservationPhase::SdkOpenStarted, None); }
+                    let opening = Sdk::open(&init, fresh);
+                    #[cfg(test)]
+                    let opening = observation::scope(thread_observation.clone(), opening);
+                    let mut sdk = match opening.await {
                         Ok(v) => v,
                         Err(e) => {
+                            #[cfg(test)]
+                            if let Some(trace) = &thread_observation { trace.record(ObservationPhase::SdkOpenReturned, Some(e)); }
                             init_error = Some(e);
                             return None;
                         }
                     };
+                    #[cfg(test)]
+                    { opened = true; }
+                    #[cfg(test)]
+                    if let Some(trace) = &thread_observation { trace.record(ObservationPhase::SdkOpenReturned, None); }
                     if let Some(ready) = ready.take() {
                         let _ = ready.send(Ok(sdk.upload_context.clone()));
                     }
                     while let Some(command) = rx.recv().await {
+                        #[cfg(test)]
+                        let (command, command_observation) = match command {
+                            Command::Observed(trace, command) => (*command, Some(trace)),
+                            command => (command, None),
+                        };
+                        #[cfg(test)]
+                        observation::command(&command_observation, ObservationPhase::Started, None);
                         match command {
+                            #[cfg(test)]
+                            Command::Observed(..) => unreachable!("SDK command observation is not nested"),
                             Command::Upload(command, reply) => {
                                 #[cfg(test)]
                                 let lose = matches!(&command, upload_custody::Command::Accept(..) | upload_custody::Command::Reserve(..) | upload_custody::Command::Possible(..)) && std::mem::take(&mut sdk.upload_reply_loss);
@@ -249,6 +297,8 @@ impl Owner {
                                 let accept =
                                     matches!(&command, crate::outgoing::state::Command::Accept(..));
                                 let result = sdk.outgoing(command).await;
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
                                 #[cfg(test)]
                                 if accept
                                     && result.is_ok()
@@ -308,33 +358,62 @@ impl Owner {
                                 let _ = reply.send(());
                             }
                             Command::IntakeMode(reply) => {
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, None);
                                 let _ = reply.send(sdk.journal.intake_enabled);
                             }
                             Command::IntakeBatch(reply) => {
-                                let _ = reply.send(sdk.journal.intake.clone());
+                                let batch = sdk.journal.intake.clone();
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, None);
+                                let _ = reply.send(batch);
                             }
                             Command::IntakeStart(value, targets, reply) => {
-                                let _ = reply.send(sdk.intake_start(value, targets).await);
+                                let result = sdk.intake_start(value, targets).await;
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
+                                let _ = reply.send(result);
                             }
                             Command::IntakeAck(digest, index, ack, reply) => {
-                                let _ = reply.send(sdk.intake_ack(&digest, index, ack).await);
+                                let result = sdk.intake_ack(&digest, index, ack).await;
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
+                                let _ = reply.send(result);
                             }
                             Command::IntakeFinish(digest, reply) => {
-                                let _ = reply.send(sdk.intake_finish(&digest).await);
+                                let result = sdk.intake_finish(&digest).await;
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
+                                let _ = reply.send(result);
                             }
                             Command::IntakeQuarantine(reason, reply) => {
-                                let _ = reply.send(sdk.intake_quarantine(reason).await);
+                                let result = sdk.intake_quarantine(reason).await;
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
+                                let _ = reply.send(result);
                             }
                             Command::Cursor(reply) => {
-                                let _ =
-                                    reply.send(sdk.journal.receipts.last().map(|r| r.0.clone()));
+                                let cursor = sdk.journal.receipts.last().map(|r| r.0.clone());
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, None);
+                                let _ = reply.send(cursor);
                             }
                             Command::Sync(value, reply) => {
                                 let result = sdk.sync(value).await;
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
                                 let _ = reply.send(result);
                             }
                             Command::Close(reply) => {
+                                #[cfg(test)]
+                                observation::command(&command_observation, ObservationPhase::CloseStoresStarted, None);
                                 let result = sdk.close().await;
+                                #[cfg(test)]
+                                {
+                                    observation::command(&command_observation, ObservationPhase::CloseStoresReturned, result.as_ref().err().copied());
+                                    observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
+                                    close_observation = command_observation;
+                                }
                                 return Some((reply, result));
                             }
                         }
@@ -342,25 +421,93 @@ impl Owner {
                     let _ = sdk.client.close_stores().await;
                     None
                 });
+                #[cfg(test)]
+                let boundary = |phase| {
+                    observation::command(&close_observation, phase, None);
+                    if !opened && let Some(trace) = &thread_observation { trace.record(phase, None); }
+                };
+                #[cfg(test)]
+                boundary(ObservationPhase::RuntimeDropStarted);
                 drop(runtime);
+                #[cfg(test)]
+                boundary(ObservationPhase::RuntimeDropped);
+                #[cfg(test)]
+                boundary(ObservationPhase::LockDropStarted);
                 drop(lock);
+                #[cfg(test)]
+                boundary(ObservationPhase::LockDropped);
                 if let Some(ready) = ready {
                     let _ = ready.send(Err(init_error.unwrap_or(Error::Storage)));
                 }
                 if let Some((reply, result)) = closed {
+                    #[cfg(test)]
+                    boundary(ObservationPhase::CloseAcknowledgement);
                     let _ = reply.send(result);
                 }
             })
             .map_err(|_| Error::Storage)?;
-        let upload_context = tokio::time::timeout(config.limits.sdk, wait)
+        let opened = tokio::time::timeout(config.limits.sdk, wait)
             .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Storage)??;
+            .map_err(|_| Error::OutcomeUnknown)
+            .and_then(|result| result.map_err(|_| Error::Storage))
+            .and_then(|result| result);
+        #[cfg(test)]
+        if let Some(trace) = &opening_observation {
+            trace.record(
+                ObservationPhase::OpenCallerReturned,
+                opened.as_ref().err().copied(),
+            );
+        }
+        let upload_context = opened?;
         Ok(Self {
             upload_context,
             tx,
             timeout: config.limits.sdk,
         })
+    }
+    fn enqueue(&self, command: Command) -> Result<QueueObservation, Error> {
+        #[cfg(test)]
+        let trace = match &command {
+            Command::Outgoing(command, _) => {
+                use crate::outgoing::state::Command as Outgoing;
+                CommandTrace::current(match command {
+                    Outgoing::Read => SdkCommand::OutgoingRead,
+                    Outgoing::Start(..) => SdkCommand::OutgoingStart,
+                    Outgoing::Begun => SdkCommand::OutgoingBegun,
+                    Outgoing::Query => SdkCommand::OutgoingQuery,
+                    Outgoing::Encrypt(..) => SdkCommand::OutgoingEncrypt,
+                    Outgoing::Possible(..) => SdkCommand::OutgoingPossible,
+                    Outgoing::Accept(..) => SdkCommand::OutgoingAccept,
+                    Outgoing::Settle => SdkCommand::OutgoingSettle,
+                })
+            }
+            Command::Cursor(..) => CommandTrace::current(SdkCommand::Cursor),
+            Command::Sync(..) => CommandTrace::current(SdkCommand::Sync),
+            Command::IntakeMode(..) => CommandTrace::current(SdkCommand::IntakeMode),
+            Command::IntakeBatch(..) => CommandTrace::current(SdkCommand::Batch),
+            Command::IntakeStart(..) => CommandTrace::current(SdkCommand::Start),
+            Command::IntakeAck(..) => CommandTrace::current(SdkCommand::Ack),
+            Command::IntakeFinish(..) => CommandTrace::current(SdkCommand::Finish),
+            Command::IntakeQuarantine(..) => CommandTrace::current(SdkCommand::Quarantine),
+            Command::Close(..) => CommandTrace::current(SdkCommand::Close),
+            _ => None,
+        };
+        #[cfg(test)]
+        let command = if let Some(trace) = &trace {
+            Command::Observed(trace.clone(), Box::new(command))
+        } else {
+            command
+        };
+        self.tx.try_send(command).map_err(|_| Error::Busy)?;
+        #[cfg(test)]
+        {
+            observation::command(&trace, ObservationPhase::Queued, None);
+            Ok(trace)
+        }
+        #[cfg(not(test))]
+        {
+            Ok(QueueObservation)
+        }
     }
     pub(crate) async fn outgoing(
         &self,
@@ -383,55 +530,95 @@ impl Owner {
             _ => {}
         }
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::Outgoing(command, send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::OutcomeUnknown)?
+        let _observation = self.enqueue(Command::Outgoing(command, send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::OutcomeUnknown)?
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn cursor(&self) -> Result<Option<String>, Error> {
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::Cursor(send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Storage)
+        let _observation = self.enqueue(Command::Cursor(send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::Storage)
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn sync(&self, value: Value) -> Result<(), Error> {
         // Only one accepted queued 1 MiB response + one executing response. The
         // private collector validates full serialized byte/event bounds first.
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::Sync(value, send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::OutcomeUnknown)?
+        let _observation = self.enqueue(Command::Sync(value, send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::OutcomeUnknown)?
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn intake_mode(&self) -> Result<bool, Error> {
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::IntakeMode(send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Storage)
+        let _observation = self.enqueue(Command::IntakeMode(send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::Storage)
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn batch(&self) -> Result<Option<Batch>, Error> {
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::IntakeBatch(send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Storage)
+        let _observation = self.enqueue(Command::IntakeBatch(send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::Storage)
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn intake_start(
         &self,
@@ -439,13 +626,21 @@ impl Owner {
         targets: Vec<ReplyRoute>,
     ) -> Result<(), Error> {
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::IntakeStart(value, targets, send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::OutcomeUnknown)?
+        let _observation = self.enqueue(Command::IntakeStart(value, targets, send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::OutcomeUnknown)?
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn intake_ack(
         &self,
@@ -454,44 +649,76 @@ impl Owner {
         ack: Acknowledgement,
     ) -> Result<(), Error> {
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::IntakeAck(digest, index, ack, send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::OutcomeUnknown)?
+        let _observation = self.enqueue(Command::IntakeAck(digest, index, ack, send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::OutcomeUnknown)?
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn intake_finish(&self, digest: String) -> Result<(), Error> {
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::IntakeFinish(digest, send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::OutcomeUnknown)?
+        let _observation = self.enqueue(Command::IntakeFinish(digest, send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::OutcomeUnknown)?
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn intake_quarantine(&self, reason: String) -> Result<(), Error> {
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::IntakeQuarantine(reason, send))
-            .map_err(|_| Error::Busy)?;
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::OutcomeUnknown)?
+        let _observation = self.enqueue(Command::IntakeQuarantine(reason, send))?;
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::OutcomeUnknown)?
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
     pub(crate) async fn close(self) -> Result<(), Error> {
         let (send, reply) = oneshot::channel();
-        self.tx
-            .try_send(Command::Close(send))
-            .map_err(|_| Error::Busy)?;
+        let _observation = self.enqueue(Command::Close(send))?;
         drop(self.tx);
-        tokio::time::timeout(self.timeout, reply)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Storage)?
+        let result = async {
+            tokio::time::timeout(self.timeout, reply)
+                .await
+                .map_err(|_| Error::OutcomeUnknown)?
+                .map_err(|_| Error::Storage)?
+        }
+        .await;
+        #[cfg(test)]
+        observation::command(
+            &_observation,
+            ObservationPhase::CallerReturned,
+            result.as_ref().err().copied(),
+        );
+        result
     }
 }
 fn read(path: &Path, max: u64) -> Result<Vec<u8>, Error> {
@@ -632,12 +859,15 @@ impl Sdk {
             .pool_max_size(2)
             .cache_size(500_000)
             .journal_size_limit(2_000_000);
+        observe!(StateStoreOpen);
         let state = SqliteStateStore::open_with_config(&config)
             .await
             .map_err(|_| Error::Storage)?;
+        observe!(CryptoStoreOpen);
         let crypto = SqliteCryptoStore::open_with_config(&config)
             .await
             .map_err(|_| Error::Storage)?;
+        observe!(AccountLoad);
         if !fresh
             && crypto
                 .load_account()
@@ -664,11 +894,13 @@ impl Sdk {
         };
         // Only this collector can populate these stores: fixed <=16 room IDs and
         // <=64 bounded sync batches, so RoomLoadSettings::All stays finite.
+        observe!(Activate);
         client
             .activate(meta, RoomLoadSettings::All, None)
             .await
             .map_err(|_| Error::Storage)?;
         let result = async {
+            observe!(Identity);
             let guard = client.olm_machine().await;
             let keys = guard.as_ref().ok_or(Error::Storage)?.identity_keys();
             let identity = format!(
@@ -683,6 +915,7 @@ impl Sdk {
             } else if read(&init.root.join("identity"), 256)? != identity.as_bytes() {
                 return Err(Error::Identity);
             }
+            observe!(JournalLoad);
             let stored = client
                 .state_store()
                 .get_custom_value(JOURNAL)
@@ -1430,3 +1663,7 @@ impl Owner {
 #[cfg(test)]
 #[path = "../tests/upload_custody/mod.rs"]
 mod upload_fixture;
+
+#[cfg(test)]
+#[path = "../tests/operation_observation/mod.rs"]
+mod operation_observation;

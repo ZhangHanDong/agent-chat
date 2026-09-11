@@ -2259,3 +2259,25 @@ Pinned Codex rust-v0.153.4 bwrap canonicalizes tool cwd and symlink writable roo
 fd aliases or child-only fchdir do not qualify hostile namespace isolation. This
 is separate from the accepted trusted-host development profile. Actual file
 service/runtime enablement remains a later task.
+
+ADR094 (2026-09-10): original Matrix failure evidence must identify the original
+operation, not only its HTTP fixture location. Windows at 706172d failed four
+intake library selectors; Windows at fc57d6b separately failed six outgoing
+selectors. The
+latter two direct unwrap failures were DomainStore shutdown after Collector
+close and substantive send assertions. Four scripted outgoing failures could
+have arisen in bootstrap collection, notice intake or actual send. Preserved
+original logs remain failed; later serial diagnostic passes establish no cause.
+
+The private test-only original-operation trace captures static callsite/variant,
+bounded manifest batch/event index, monotonic microseconds, a ring of 32 events and
+separate first primary/fence/SDK errors. Existing owned collector tasks, original
+SDK opening thread and each original queued command retain their exact trace;
+queue admission, start, return and caller acknowledgement are distinct. SDK
+close records store close, runtime drop, filesystem-lock release and original
+acknowledgement. Missing phases imply no success or rollback, and worker pickup
+may precede caller-side enqueue observation. No payload or identifier is stored.
+Held-stage fixtures run actual SDK/SQLite work, drop callers, verify retained
+lock/committed cursor, and retain original Identity plus failed domain fencing
+while returning the same OutcomeUnknown. This instrumentation changes no
+production/fixture deadline, retry policy, finite queue or authority boundary.
