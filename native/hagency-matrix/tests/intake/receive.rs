@@ -546,3 +546,170 @@ async fn native_matrix_receive_deadline() {
     drop(request);
     close(c, f, fake).await;
 }
+
+#[tokio::test]
+async fn native_matrix_received_scope() {
+    let (f, mut fake, c) = ready(true, vec![file("file", false)]).await;
+    let cap = cap(&f, 60_000).await;
+    let ticket = f
+        .store
+        .authorize_attachment(cap.clone(), "$file".into())
+        .await
+        .unwrap();
+    let mut scopes = vec![];
+    // More retained scopes than either four-result pool: conversion must release
+    // both the outer result permit and the plaintext codec permit.
+    for _ in 0..6 {
+        let got = receive(&c, &mut fake, &cap, "$file").await;
+        assert_eq!(got.bytes(), vector().2);
+        assert_eq!(got.ticket().manifest_id(), ticket.manifest_id());
+        assert_eq!(got.ticket().source_sequence(), ticket.source_sequence());
+        assert_eq!(got.ticket().content_digest(), ticket.content_digest());
+        got.revalidate().await.unwrap();
+        let scope = got.into_scope();
+        assert_eq!(scope.ticket().metadata(), ticket.metadata());
+        scope
+            .revalidate(
+                &CancellationToken::new(),
+                tokio::time::Instant::now() + common::limits().sdk,
+            )
+            .await
+            .unwrap();
+        scopes.push(scope);
+    }
+    f.store
+        .complete_dispatch(cap, json!({"fixture":"original turn ended"}), now())
+        .await
+        .unwrap();
+    for scope in scopes {
+        assert!(matches!(
+            scope
+                .revalidate(
+                    &CancellationToken::new(),
+                    tokio::time::Instant::now() + common::limits().sdk
+                )
+                .await,
+            Err(ReceiveError::Authority(Error::Domain | Error::Generation))
+        ));
+    }
+    fake.no_request().await;
+    close(c, f, fake).await;
+}
+
+#[tokio::test]
+async fn native_matrix_receive_lower_limit() {
+    for declared in [999, 1] {
+        let mut value = file("file", false);
+        value["content"]["info"]["size"] = json!(declared);
+        let (f, mut fake, c) = ready(true, vec![value]).await;
+        let cap = cap(&f, 60_000).await;
+        let cancel = CancellationToken::new();
+        for invalid in [0, 4 * 1024 * 1024 + 1] {
+            assert!(matches!(
+                c.receive_attachment_until(
+                    cap.clone(),
+                    "$file".into(),
+                    &cancel,
+                    tokio::time::Instant::now() + common::limits().sdk,
+                    invalid
+                )
+                .await,
+                Err(ReceiveError::Download(crate::MediaDownloadError::Config))
+            ));
+        }
+        fake.no_request().await;
+        let mut run = Box::pin(c.receive_attachment_until(
+            cap.clone(),
+            "$file".into(),
+            &cancel,
+            tokio::time::Instant::now() + common::limits().sdk,
+            256,
+        ));
+        if declared == 1 {
+            // Sender understates size; the authenticated response's actual257
+            // bytes must be refused by the shared downloader's lower256 bound.
+            next(run.as_mut(), &mut fake)
+                .await
+                .raw(response(&vector().1));
+        }
+        assert!(matches!(
+            run.await,
+            Err(ReceiveError::Download(
+                crate::MediaDownloadError::Transport(Error::BodyTooLarge)
+            ))
+        ));
+        fake.no_request().await;
+        let allowed = if declared == 1 { 257 } else { 999 };
+        let mut run = Box::pin(c.receive_attachment_until(
+            cap.clone(),
+            "$file".into(),
+            &cancel,
+            tokio::time::Instant::now() + common::limits().sdk,
+            allowed,
+        ));
+        next(run.as_mut(), &mut fake)
+            .await
+            .raw(response(&vector().1));
+        let got = run.await.unwrap();
+        assert_eq!(got.bytes(), vector().2);
+        assert_eq!(
+            got.digest().as_slice(),
+            Sha256::digest(got.bytes()).as_slice()
+        );
+        drop(got);
+        close(c, f, fake).await;
+    }
+}
+
+#[tokio::test]
+async fn native_matrix_received_scope_deadline() {
+    let (f, mut fake, c) = ready(true, vec![file("file", false)]).await;
+    let cap = cap(&f, 60_000).await;
+    let cancel = CancellationToken::new();
+    let deadline = tokio::time::Instant::now() + common::limits().sdk;
+    let mut run =
+        Box::pin(c.receive_attachment_until(cap.clone(), "$file".into(), &cancel, deadline, 1024));
+    next(run.as_mut(), &mut fake)
+        .await
+        .raw(response(&vector().1));
+    let got = run.await.unwrap();
+    got.revalidate().await.unwrap();
+    // Use the real original budget, without shortening SDK setup on loaded CI.
+    tokio::time::sleep_until(deadline).await;
+    assert_eq!(
+        got.revalidate().await,
+        Err(ReceiveError::Authority(Error::Timeout))
+    );
+    cancel.cancel();
+    assert_eq!(
+        got.revalidate().await,
+        Err(ReceiveError::Authority(Error::Cancelled))
+    );
+    let scope = got.into_scope();
+    let fresh = CancellationToken::new();
+    let read_deadline = tokio::time::Instant::now() + common::limits().sdk;
+    scope.revalidate(&fresh, read_deadline).await.unwrap();
+    assert_eq!(
+        scope.revalidate(&cancel, read_deadline).await,
+        Err(ReceiveError::Authority(Error::Cancelled))
+    );
+    assert_eq!(
+        scope.revalidate(&fresh, deadline).await,
+        Err(ReceiveError::Authority(Error::Timeout))
+    );
+    // Fresh read time cannot restore completed original task authority.
+    f.store
+        .complete_dispatch(
+            cap,
+            json!({"fixture":"expired receive and ended turn"}),
+            now(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        scope.revalidate(&fresh, read_deadline).await,
+        Err(ReceiveError::Authority(Error::Domain | Error::Generation))
+    ));
+    fake.no_request().await;
+    close(c, f, fake).await;
+}

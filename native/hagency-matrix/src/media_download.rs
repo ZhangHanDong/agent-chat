@@ -143,6 +143,21 @@ impl MediaDownloader {
         cancel: &CancellationToken,
         deadline: Instant,
     ) -> Result<CheckedBytes, MediaDownloadError> {
+        self.download_bounded_until(id, descriptor, cancel, deadline, self.0.limits.bytes)
+            .await
+    }
+    /// A per-operation limit can only reduce the shared transport/codec bound.
+    pub(crate) async fn download_bounded_until(
+        &self,
+        id: &MediaId,
+        descriptor: &Descriptor,
+        cancel: &CancellationToken,
+        deadline: Instant,
+        max_bytes: usize,
+    ) -> Result<CheckedBytes, MediaDownloadError> {
+        if max_bytes == 0 || max_bytes > self.0.limits.bytes {
+            return Err(MediaDownloadError::Config);
+        }
         let deadline = deadline.min(Instant::now() + self.0.deadline);
         checkpoint(cancel, deadline)?;
         // No waiting queue, and this permit owns the whole response buffer until
@@ -155,7 +170,7 @@ impl MediaDownloader {
                 &[
                     "_matrix", "client", "v1", "media", "download", &id.server, &id.media,
                 ],
-                self.0.limits.bytes,
+                max_bytes,
                 deadline,
                 cancel,
             )

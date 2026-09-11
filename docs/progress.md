@@ -5964,3 +5964,18 @@ passes. Strict lifecycle passes2/2: the real selector and all5 declared paths,
 zero failed skipped uncertain or pending review. The task parsed/linted before
 source edits; advisory lint warnings remain. Windows cross-compilation does not
 prove actual Windows execution, and no receive sink or full workflow is claimed.
+### 2026-09-11 — Retain checked receive scope and release completed bytes
+
+In isolated native-received-scope worktree, added the bounded Matrix checked-result
+prerequisite from ADR105. Actual encrypted SDK intake and authenticated TLS tests
+pass9/9, including six unchanged receive regressions and three new selectors.
+The new checks retain six read-only scopes beyond the four-result pool, reject
+later task retirement, apply declared and actual HTTP size bounds, and distinguish
+the expired original write deadline from a fresh current read-only scope check.
+Native and Windows GNU all-target Matrix Clippy pass. All six media-download
+transport regressions pass. Strict lifecycle passes4/4: three scenario results
+plus the exact seven-path boundary, with no fail skip uncertain or pending result.
+The first selector also matches the deadline selector, so its actual2-test output
+is preserved and not described as a separate unique scenario. Rustfmt and diff
+checks pass. This is not a completed incoming file workflow.
+Original Linux and Windows85427cb hosted failures remain separate open evidence.

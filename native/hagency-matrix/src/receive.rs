@@ -5,13 +5,18 @@ use crate::{
 };
 use hagency_core::{attachments::AttachmentMetadata, tasks::RunnerCapability};
 use hagency_media::CheckedBytes;
-use std::sync::{Arc, OnceLock};
+use hagency_store::{AttachmentTicket, DomainStore};
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 use tokio::{
     sync::{OwnedSemaphorePermit, Semaphore},
     time::Instant,
 };
 
 const MAX_RESULTS: usize = 4;
+const MAX_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ReceiveError {
@@ -39,7 +44,9 @@ impl Receiver {
 /// export requires current authority again. No serialization or public constructor.
 pub struct ReceivedAttachment {
     checked: CheckedBytes,
-    metadata: AttachmentMetadata,
+    scope: ReceivedScope,
+    deadline: Instant,
+    cancel: CancellationToken,
     _permit: OwnedSemaphorePermit,
 }
 impl ReceivedAttachment {
@@ -51,7 +58,53 @@ impl ReceivedAttachment {
     }
     /// Validated syntax only; MIME and declared size are sender observations.
     pub fn metadata(&self) -> &AttachmentMetadata {
-        &self.metadata
+        self.scope.ticket.metadata()
+    }
+    /// Host association data, not a public verification or filesystem grant.
+    pub fn ticket(&self) -> &AttachmentTicket {
+        self.scope.ticket()
+    }
+    /// Rechecks the original writer and original total receive deadline.
+    pub async fn revalidate(&self) -> Result<(), ReceiveError> {
+        self.scope.revalidate(&self.cancel, self.deadline).await
+    }
+    /// Releases plaintext and both result permits. The returned scope supports
+    /// only current read-only checks; it cannot download or authorize a write.
+    pub fn into_scope(self) -> ReceivedScope {
+        self.scope
+    }
+}
+
+/// Original receive association for a trusted host's retained cache object.
+/// No bytes, path, replacement writer, constructor, Clone, Debug or serde.
+pub struct ReceivedScope {
+    domain: DomainStore,
+    cap: RunnerCapability,
+    ticket: AttachmentTicket,
+    read_budget: Duration,
+}
+impl ReceivedScope {
+    pub fn ticket(&self) -> &AttachmentTicket {
+        &self.ticket
+    }
+    /// A later cache read has its own bounded response deadline. This checks
+    /// current captured authority only, not the cache's physical file identity.
+    pub async fn revalidate(
+        &self,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<(), ReceiveError> {
+        let deadline = deadline.min(Instant::now() + self.read_budget);
+        checkpoint(cancel, deadline)?;
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(Error::Cancelled.into()),
+            _ = tokio::time::sleep_until(deadline) => Err(Error::Timeout.into()),
+            result = self.domain.revalidate_attachment(self.cap.clone(), self.ticket.clone()) => {
+                checkpoint(cancel, deadline)?;
+                result.map_err(Error::from).map_err(ReceiveError::from)
+            }
+        }
     }
 }
 
@@ -65,7 +118,24 @@ impl Collector {
         cancel: &CancellationToken,
     ) -> Result<ReceivedAttachment, ReceiveError> {
         let deadline = Instant::now() + self.inner.config.limits.sdk;
+        self.receive_attachment_until(cap, event_id, cancel, deadline, MAX_BYTES)
+            .await
+    }
+    /// Host-owned operation deadline is captured before queueing. Both this
+    /// deadline and byte bound may only narrow existing SDK/transport limits.
+    pub async fn receive_attachment_until(
+        &self,
+        cap: RunnerCapability,
+        event_id: String,
+        cancel: &CancellationToken,
+        deadline: Instant,
+        max_bytes: usize,
+    ) -> Result<ReceivedAttachment, ReceiveError> {
+        let deadline = deadline.min(Instant::now() + self.inner.config.limits.sdk);
         checkpoint(cancel, deadline)?;
+        if !(1..=MAX_BYTES).contains(&max_bytes) {
+            return Err(MediaDownloadError::Config.into());
+        }
         let permit = self
             .inner
             .receiver
@@ -77,7 +147,7 @@ impl Collector {
             biased;
             _ = cancel.cancelled() => Err(Error::Cancelled.into()),
             _ = tokio::time::sleep_until(deadline) => Err(Error::Timeout.into()),
-            result = self.receive(cap, event_id, cancel, deadline, permit) => {
+            result = self.receive(cap, event_id, cancel, deadline, max_bytes, permit) => {
                 checkpoint(cancel, deadline)?;
                 result
             }
@@ -89,6 +159,7 @@ impl Collector {
         event_id: String,
         cancel: &CancellationToken,
         deadline: Instant,
+        max_bytes: usize,
         permit: OwnedSemaphorePermit,
     ) -> Result<ReceivedAttachment, ReceiveError> {
         let ticket = self
@@ -97,6 +168,13 @@ impl Collector {
             .authorize_attachment(cap.clone(), event_id)
             .await
             .map_err(Error::from)?;
+        if ticket
+            .metadata()
+            .declared_size
+            .is_some_and(|size| size > max_bytes as u64)
+        {
+            return Err(MediaDownloadError::Transport(Error::BodyTooLarge).into());
+        }
         let handle = self
             .attachment_manifest(cap.clone(), ticket.clone(), cancel)
             .await?;
@@ -112,17 +190,27 @@ impl Collector {
             .as_ref()
             .map_err(|e| *e)?;
         let checked = downloader
-            .download_until(handle.media_id(), handle.descriptor(), cancel, deadline)
+            .download_bounded_until(
+                handle.media_id(),
+                handle.descriptor(),
+                cancel,
+                deadline,
+                max_bytes,
+            )
             .await?;
-        self.inner
-            .domain
-            .revalidate_attachment(cap, ticket.clone())
-            .await
-            .map_err(Error::from)?;
+        let scope = ReceivedScope {
+            domain: self.inner.domain.clone(),
+            cap,
+            ticket,
+            read_budget: self.inner.config.limits.sdk,
+        };
+        scope.revalidate(cancel, deadline).await?;
         checkpoint(cancel, deadline)?;
         Ok(ReceivedAttachment {
             checked,
-            metadata: ticket.metadata().clone(),
+            scope,
+            deadline,
+            cancel: cancel.clone(),
             _permit: permit,
         })
     }

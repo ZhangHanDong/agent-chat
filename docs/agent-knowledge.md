@@ -2573,3 +2573,19 @@ full fourteen-scenario proposal stays under docs/design until those gates exist.
   same object, so a receive sink must enforce its separate single-link policy.
   Equal content and a reused pathname do not establish the original object;
   comparison alone grants neither current scope nor private-file safety.
+### Native received-result scope prerequisite (2026-09-11)
+
+ReceivedAttachment now retains the original DomainStore, runner capability,
+AttachmentTicket, cancellation and absolute deadline. Its revalidate method
+cannot replace that association or renew write time. Consuming into_scope releases
+the checked plaintext and both result permits; the opaque ReceivedScope supports
+only a bounded current read-only check using its captured writer. It proves no
+file identity, path or cache Ready receipt. A future retained cache owner must
+separately recheck its actual file, original Started workspace and durable facts.
+
+receive_attachment_until applies a positive lower byte limit before metadata
+admission and authenticated HTTP buffering, through the existing shared client,
+codec and transfer/result pools. Sender declared size remains untrusted; bounded
+actual HTTP bytes and cryptographic verification still decide the result. The
+existing absolute SDK deadline covers queue, manifest lookup, GET and final check.
+Incoming serve/MCP/cache materialization and platform qualification remain open.
