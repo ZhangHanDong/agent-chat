@@ -2159,3 +2159,13 @@ the controlled pause does not identify that uninstrumented historical schedule.
   retain the original HTTP attempt and bind its response to the actual domain
   operation. ADR085 domain identity restoration remains a separate integration
   gate; this private groundwork is no complete upload or process-restart workflow.
+
+ADR085 distinguishes reopen with retained variables from full process loss.
+Runner stores retain capability hashes, not original secrets, so historical
+uploads cannot restore through restore_upload(cap,request) alone after memory
+loss. restore_upload_settlement compares exact locator/fence/stage/full route to
+the protected original row and returns only sealed historical settlement. SDK
+receipt authenticity still belongs to its actual owner; domain matching is not
+proof of a POST. Restored history never issues capture, claim or send authority,
+and missing history never means unsent. Automatic selector/config/key discovery
+is still a separate host integration gate.

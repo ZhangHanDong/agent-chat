@@ -25,6 +25,92 @@ impl UploadIdentity {
         json!([self.id, self.request, self.capability])
     }
 }
+/// Exact protected-row association for historical acceptance only. This never
+/// exposes its identity to capture, stage, claim or send APIs. No raw constructor,
+/// Clone, Debug or serde; process recovery validates the original row again.
+pub struct UploadSettlement {
+    identity: UploadIdentity,
+    fence: u64,
+    stage: StageCommitment,
+    route: ReplyRoute,
+}
+impl UploadSettlement {
+    pub fn id(&self) -> &str {
+        self.identity.id()
+    }
+    pub(crate) fn queue_value(&self) -> serde_json::Value {
+        json!([
+            self.identity.queue_value(),
+            self.fence,
+            self.stage,
+            self.route
+        ])
+    }
+}
+/// These are bounded lookup fields, not proof of SDK acceptance or execution.
+pub(crate) fn settlement_lookup(
+    id: &str,
+    fence: u64,
+    stage: &StageCommitment,
+    route: &ReplyRoute,
+) -> Result<(), Error> {
+    use hagency_core::{project::identifier, replies::*};
+    if id.len() != 39 || !id.starts_with("upload_") {
+        return Err(hagency_core::InvalidInput("invalid historical upload id").into());
+    }
+    if !id[7..]
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(hagency_core::InvalidInput("invalid historical upload id").into());
+    }
+    generation(fence)?;
+    stage.validate()?;
+    for value in [
+        &route.session_id,
+        &route.engagement_id,
+        &route.fleet_id,
+        &route.project_id,
+    ] {
+        identifier(value, 128)?;
+    }
+    for value in [
+        route.session_generation,
+        route.registration_generation,
+        route.room_generation,
+        route.transport_generation,
+    ] {
+        generation(value)?;
+    }
+    if route.server_name.len() > 255 || !route.encrypted {
+        return Err(hagency_core::InvalidInput("invalid historical upload route").into());
+    }
+    matrix_room(&route.room_id, &route.server_name)?;
+    matrix_user(&route.sender_mxid, &route.server_name)?;
+    matrix_user(&route.owner_mxid, &route.server_name)?;
+    hagency_core::tasks::text(&route.device_id, 255)?;
+    // SessionBinding permits opaque EventId roots longer than 255 bytes. Do not
+    // reinterpret an already issued historical route through a stricter parser.
+    // Keep the existing command-size ceiling before cloning/validating that data.
+    if route
+        .thread_root
+        .as_ref()
+        .is_some_and(|root| root.len() > 64 * 1024)
+    {
+        return Err(Error::Capacity);
+    }
+    hagency_core::tasks::SessionBinding {
+        id: route.session_id.clone(),
+        engagement_id: route.engagement_id.clone(),
+        room_id: route.room_id.clone(),
+        thread_root: route.thread_root.clone(),
+    }
+    .validate()?;
+    if let RoomPrivacy::Direct { human_mxid } = &route.privacy {
+        matrix_user(human_mxid, &route.server_name)?;
+    }
+    Ok(())
+}
 /// Only the first committed reservation yields this value. Never restored.
 pub struct UploadPreparation {
     identity: UploadIdentity,
@@ -134,6 +220,37 @@ fn identity(db: &Connection, expected: &UploadIdentity) -> Result<Row, Error> {
         return Err(Error::RunnerAuthority);
     }
     Ok(row)
+}
+fn settlement_row(db: &Connection, expected: &UploadSettlement) -> Result<Row, Error> {
+    let row = identity(db, &expected.identity)?;
+    if row.fence != expected.fence
+        || row.stage.as_ref() != Some(&expected.stage)
+        || row.route != expected.route
+        || row.stage_state != UploadStageState::Staged
+        || !matches!(
+            row.state,
+            UploadState::WritePossible | UploadState::Accepted
+        )
+    {
+        return Err(Error::RunnerAuthority);
+    }
+    Ok(row)
+}
+pub(crate) fn settle(
+    tx: &Transaction<'_>,
+    expected: &UploadSettlement,
+    observed: &UploadAcceptance,
+    now: u64,
+) -> Result<UploadReceipt, Error> {
+    settlement_row(tx, expected)?;
+    accept(
+        tx,
+        &expected.identity,
+        expected.fence,
+        &expected.stage,
+        observed,
+        now,
+    )
 }
 fn cap_digest(cap: &RunnerCapability) -> Result<String, Error> {
     Ok(canonical::digest(&json!(["upload_cap_v1", cap]))?)
@@ -461,6 +578,44 @@ impl DomainRepository {
             Err(Error::NotFound) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+    /// A locator is data. Only the matching protected row establishes historical
+    /// association; neither this lookup nor its result proves an SDK response.
+    pub fn restore_upload_settlement(
+        &self,
+        id: &str,
+        fence: u64,
+        stage: &StageCommitment,
+        route: &ReplyRoute,
+    ) -> Result<Option<UploadSettlement>, Error> {
+        settlement_lookup(id, fence, stage, route)?;
+        let row = match read(&self.db, id) {
+            Ok(row) => row,
+            Err(Error::NotFound) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let restored = UploadSettlement {
+            identity: row.identity,
+            fence,
+            stage: stage.clone(),
+            route: route.clone(),
+        };
+        settlement_row(&self.db, &restored)?;
+        Ok(Some(restored))
+    }
+    pub fn inspect_upload_settlement(
+        &self,
+        restored: &UploadSettlement,
+    ) -> Result<UploadReceipt, Error> {
+        Ok(settlement_row(&self.db, restored)?.receipt(true))
+    }
+    pub fn record_upload_settlement(
+        &mut self,
+        restored: &UploadSettlement,
+        observed: &UploadAcceptance,
+        now: u64,
+    ) -> Result<UploadReceipt, Error> {
+        self.upload_transaction(|| Ok(now), |tx, n| settle(tx, restored, observed, n))
     }
     pub fn inspect_upload(&self, id: &UploadIdentity) -> Result<UploadReceipt, Error> {
         Ok(identity(&self.db, id)?.receipt(true))

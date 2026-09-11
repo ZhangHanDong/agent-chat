@@ -663,3 +663,6 @@ fn native_upload_schema_migration() {
         Err(Error::Schema)
     ));
 }
+
+#[path = "file_uploads/settlement.rs"]
+mod settlement;

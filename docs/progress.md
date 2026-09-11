@@ -4838,3 +4838,41 @@ and9 transport, with zero failures or ignored tests. External upload-custody-*
 logs retain final parse/lint, focused/full test, native/Windows GNU Clippy and
 strict lifecycle results. Native Windows execution and a consuming cross-crate
 upload coordinator remain separate qualification work.
+
+### ADR085 — historical upload settlement after process loss (2026-09-10)
+
+Read-only audit found restore_upload requires the original random runner secret
+and full request, while protected stores retain only their digests. Prior reopen
+fixtures kept the capability in memory. Saved exact source trace and SDK discovery
+limits in external next-upload-restart-settlement-review.md.
+
+In a clean43fcb8e worktree, parsed/linted the nine-path contract before code. Added
+sealed UploadSettlement restored only by exact protected row ID/fence/stage/full
+route matching in staged WritePossible/Accepted. It cannot convert to identity,
+preparation, claim, send or runner capability. Historical inspect/record recheck
+all fields; cancellation and exact receipt replay remain monotonic. No schema,
+Cargo, SDK, Matrix, runtime/API, service or current authority gate changed.
+
+Five focused tests pass, including actual writer/settler/replay child processes
+with no original capability/request/secret passed across process boundaries.
+Domain fixture acceptance is opaque synthetic host data and proves no real SDK
+provenance. The first test compilation exposed an integration module path typo;
+corrected its explicit path and preserved the original compiler log. Full store,
+strict lifecycle and native/Windows GNU Clippy evidence is external under
+upload-settlement-*. The consuming SDK coordinator remains separate work.
+
+Parent review found no production blocker and requested checking issued-route
+compatibility. That exposed a stricter-than-original 255-byte thread-root check;
+replaced it with the existing SessionBinding validation under the command bound.
+An actual issued 601-byte opaque thread root now restores, while oversized input
+is refused before copying. The five focused tests pass again. The first complete
+store run passed 156 tests; final affected validation follows the route correction.
+
+Final ADR085 validation: complete locked store regression suite passes 156 tests
+across 19 summaries, including five new settlement tests and three actual child
+process phases inside the process fixture. Strict scoped lifecycle passes five
+scenarios plus the complete nine-path boundary (6/6, no skips or uncertainty).
+Native and Windows GNU store all-target Clippy pass with warnings denied; rustfmt
+and diff checks pass. Windows cross-compilation does not replace hosted runtime
+qualification. SDK provenance, exact-reference startup discovery and the actual
+consuming network coordinator remain unimplemented by this domain-only slice.

@@ -1964,6 +1964,43 @@ impl DomainStore {
         })
         .await
     }
+    pub async fn restore_upload_settlement(
+        &self,
+        id: String,
+        fence: u64,
+        stage: hagency_core::uploads::StageCommitment,
+        route: ReplyRoute,
+    ) -> Result<Option<crate::UploadSettlement>, Error> {
+        crate::domain::uploads::settlement_lookup(&id, fence, &stage, &route)?;
+        self.call(weight(&(&id, fence, &stage, &route))?, move |db| {
+            db.restore_upload_settlement(&id, fence, &stage, &route)
+        })
+        .await
+    }
+    pub async fn inspect_upload_settlement(
+        &self,
+        restored: Arc<crate::UploadSettlement>,
+    ) -> Result<hagency_core::uploads::UploadReceipt, Error> {
+        self.call(weight(&restored.queue_value())?, move |db| {
+            db.inspect_upload_settlement(&restored)
+        })
+        .await
+    }
+    /// Arc retains the original historical handle across a lost queued result.
+    /// No current execution method accepts this type.
+    pub async fn record_upload_settlement(
+        &self,
+        restored: Arc<crate::UploadSettlement>,
+        observed: hagency_core::uploads::UploadAcceptance,
+    ) -> Result<hagency_core::uploads::UploadReceipt, Error> {
+        observed.validate()?;
+        self.call(weight(&(restored.queue_value(), &observed))?, move |db| {
+            db.upload_transaction(writer_time, |tx, now| {
+                crate::domain::uploads::settle(tx, &restored, &observed, now)
+            })
+        })
+        .await
+    }
     pub async fn inspect_upload(
         &self,
         id: crate::UploadIdentity,

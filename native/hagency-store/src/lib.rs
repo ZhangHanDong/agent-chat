@@ -3,6 +3,7 @@ mod database;
 mod domain;
 mod domain_worker;
 pub mod private;
+pub use domain::uploads::UploadSettlement;
 pub use domain::{
     AttachmentTicket, DomainRepository, Effect, EffectOutcome, EffectState, KnownTokens,
     MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES, MAX_SOURCE_USAGE_RECEIPTS,
