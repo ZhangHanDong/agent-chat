@@ -1938,3 +1938,160 @@ impl DomainStore {
         .await
     }
 }
+
+// Host-only upload registry. These methods are deliberately absent from
+// RunnerCommand and all HTTP schemas. Sample time inside BEGIN IMMEDIATE.
+impl DomainStore {
+    pub async fn reserve_upload(
+        &self,
+        cap: RunnerCapability,
+        input: hagency_core::uploads::UploadRequest,
+    ) -> Result<crate::UploadAdmission, Error> {
+        self.call(weight(&(&cap, &input))?, move |db| {
+            db.upload_transaction(writer_time, |tx, now| {
+                crate::domain::uploads::reserve(tx, &cap, &input, now)
+            })
+        })
+        .await
+    }
+    pub async fn restore_upload(
+        &self,
+        cap: RunnerCapability,
+        input: hagency_core::uploads::UploadRequest,
+    ) -> Result<Option<crate::UploadIdentity>, Error> {
+        self.call(weight(&(&cap, &input))?, move |db| {
+            db.restore_upload(&cap, &input)
+        })
+        .await
+    }
+    pub async fn inspect_upload(
+        &self,
+        id: crate::UploadIdentity,
+    ) -> Result<hagency_core::uploads::UploadReceipt, Error> {
+        self.call(weight(&id.queue_value())?, move |db| db.inspect_upload(&id))
+            .await
+    }
+    pub async fn upload_stage_commitment(
+        &self,
+        id: crate::UploadIdentity,
+    ) -> Result<Option<hagency_core::uploads::StageCommitment>, Error> {
+        self.call(weight(&id.queue_value())?, move |db| {
+            db.upload_stage_commitment(&id)
+        })
+        .await
+    }
+    pub async fn upload_fence(&self, id: crate::UploadIdentity) -> Result<u64, Error> {
+        self.call(weight(&id.queue_value())?, move |db| db.upload_fence(&id))
+            .await
+    }
+    pub async fn bind_upload_stage(
+        &self,
+        cap: RunnerCapability,
+        preparation: Arc<crate::UploadPreparation>,
+        stage: hagency_core::uploads::StageCommitment,
+    ) -> Result<hagency_core::uploads::UploadReceipt, Error> {
+        self.call(
+            weight(&(&cap, preparation.queue_value(), &stage))?,
+            move |db| {
+                db.upload_transaction(writer_time, |tx, n| {
+                    crate::domain::uploads::bind(tx, &cap, &preparation, &stage, n)
+                })
+            },
+        )
+        .await
+    }
+    pub async fn observe_upload_staged(
+        &self,
+        id: crate::UploadIdentity,
+        stage: hagency_core::uploads::StageCommitment,
+        observation: hagency_core::uploads::UploadStageObservation,
+    ) -> Result<hagency_core::uploads::UploadReceipt, Error> {
+        self.call(weight(&(id.queue_value(), &stage))? + 1, move |db| {
+            db.upload_transaction(writer_time, |tx, n| {
+                crate::domain::uploads::staged(tx, &id, &stage, observation, n)
+            })
+        })
+        .await
+    }
+    pub async fn claim_upload(
+        &self,
+        cap: RunnerCapability,
+        id: crate::UploadIdentity,
+        lease: u64,
+    ) -> Result<Option<crate::UploadClaim>, Error> {
+        self.call(weight(&(&cap, id.queue_value(), lease))?, move |db| {
+            db.upload_transaction(writer_time, |tx, n| {
+                crate::domain::uploads::claim(tx, &cap, &id, n, lease)
+            })
+        })
+        .await
+    }
+    pub async fn begin_upload(
+        &self,
+        cap: RunnerCapability,
+        claim: crate::UploadClaim,
+    ) -> Result<crate::UploadSend, Error> {
+        self.call(weight(&(&cap, claim.queue_value()))?, move |db| {
+            db.upload_transaction(writer_time, |tx, n| {
+                crate::domain::uploads::begin(tx, &cap, &claim, n)
+            })
+        })
+        .await
+    }
+    pub async fn validate_upload_send(
+        &self,
+        cap: RunnerCapability,
+        claim: crate::UploadClaim,
+    ) -> Result<(), Error> {
+        self.call(weight(&(&cap, claim.queue_value()))?, move |db| {
+            db.upload_transaction(writer_time, |tx, n| {
+                crate::domain::uploads::validate(tx, &cap, &claim, n)
+            })
+        })
+        .await
+    }
+    pub async fn record_upload_acceptance(
+        &self,
+        id: crate::UploadIdentity,
+        fence: u64,
+        stage: hagency_core::uploads::StageCommitment,
+        observed: hagency_core::uploads::UploadAcceptance,
+    ) -> Result<hagency_core::uploads::UploadReceipt, Error> {
+        self.call(
+            weight(&(id.queue_value(), fence, &stage, &observed))?,
+            move |db| {
+                db.upload_transaction(writer_time, |tx, n| {
+                    crate::domain::uploads::accept(tx, &id, fence, &stage, &observed, n)
+                })
+            },
+        )
+        .await
+    }
+    pub async fn cancel_upload(
+        &self,
+        id: crate::UploadIdentity,
+    ) -> Result<hagency_core::uploads::UploadReceipt, Error> {
+        self.call(weight(&id.queue_value())?, move |db| {
+            db.upload_transaction(writer_time, |tx, n| {
+                crate::domain::uploads::cancel(tx, &id, n)
+            })
+        })
+        .await
+    }
+    pub async fn mark_upload_uncertain(
+        &self,
+        id: crate::UploadIdentity,
+        fence: u64,
+    ) -> Result<hagency_core::uploads::UploadReceipt, Error> {
+        self.call(weight(&(id.queue_value(), fence))?, move |db| {
+            db.upload_transaction(writer_time, |tx, n| {
+                crate::domain::uploads::uncertain(tx, &id, fence, n)
+            })
+        })
+        .await
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/file_uploads/worker.rs"]
+mod upload_tests;

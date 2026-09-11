@@ -27,3 +27,5 @@ pub mod ingress;
 pub mod approvals;
 
 pub mod completions;
+
+pub mod uploads;

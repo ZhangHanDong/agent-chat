@@ -345,7 +345,7 @@ fn native_usage_migration() {
     assert_eq!(
         sql.pragma_query_value(None, "user_version", |r| r.get::<_, u64>(0))
             .unwrap(),
-        18
+        19
     );
     sql.execute_batch(
         "ALTER TABLE usage_receipts RENAME COLUMN observation TO missing_observation;",

@@ -176,6 +176,12 @@ pub fn remove_usage_schema(db: &rusqlite::Connection) {
 }
 
 /// Remove exactly the later attachment migration when constructing an old DB.
+pub fn remove_upload_schema(db: &rusqlite::Connection) {
+    db.execute_batch("DROP TABLE IF EXISTS file_uploads;")
+        .unwrap();
+}
+
 pub fn remove_attachment_schema(db: &rusqlite::Connection) {
+    remove_upload_schema(db);
     db.execute_batch("DROP TABLE IF EXISTS dispatch_attachment_windows; DROP TABLE IF EXISTS session_attachment_visibility; DROP TABLE IF EXISTS matrix_attachments;").unwrap();
 }

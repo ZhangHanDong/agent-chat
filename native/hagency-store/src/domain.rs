@@ -32,7 +32,9 @@ pub use owned_dispatch::{OwnedDispatchScope, OwnedFailure, OwnedObservation};
 mod peers;
 mod replies;
 mod task_intents;
+pub(crate) mod uploads;
 mod usage;
+pub use uploads::{UploadAdmission, UploadClaim, UploadIdentity, UploadPreparation, UploadSend};
 mod verified_ingress;
 pub use usage::{
     KnownTokens, MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES,
@@ -313,7 +315,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 18,
+                version: 19,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -335,9 +337,11 @@ impl DomainRepository {
                     ),
                     (17, include_str!("migrations/017-usage-ledger.sql")),
                     (18, include_str!("migrations/018-attachment-visibility.sql")),
+                    (19, include_str!("migrations/019-file-uploads.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT id,dispatch_id,call_id,request_digest,capability_digest,scope_fingerprint,route,preparation_hash,stage,stage_state,upload_state,claim_fence,claim_hash,claim_until,cancel_requested,outcome_unknown,acceptance,created_at,updated_at FROM file_uploads LIMIT 0",
                     "SELECT a.digest,a.content_digest,a.metadata,a.sdk_identity,a.manifest_id,v.projection_sequence,w.source_cutoff,w.projection_cutoff FROM matrix_attachments a CROSS JOIN session_attachment_visibility v CROSS JOIN dispatch_attachment_windows w LIMIT 0",
                     "SELECT id,dispatch_id,fence,engagement_id,identity_digest,framework,attribution,high_water,latest_counts,latest_observation,latest_incomplete,latest_regressed,historical_incomplete,regressions,observations,observed_at FROM usage_sources LIMIT 0",
                     "SELECT source_id,call_id,digest,observation,response FROM usage_receipts LIMIT 0",

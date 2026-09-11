@@ -1,5 +1,15 @@
 # Repository audit knowledge
 
+- **Native upload registry, 2026-09-10:** ADR078/schema19 issues an original
+  preparation only on the first committed exact request. Lost reservation/begin
+  results cannot recreate capture/send grants. Exact stage commitments precede
+  storage IO; positive qualified staging and historical upload acceptance remain
+  facts after authority retirement. Every current begin validates Started task,
+  epoch, exclusive workspace and full encrypted route after writer queue and DB
+  lock. WritePossible never rearms; cancellation remains sticky. No raw keys,
+  paths or MXCs enter domain receipts. Finite retained limits are4096 globally
+  and16 per dispatch; no pruning, file tool or actual upload adapter is enabled.
+
 - **Native scoped receive bytes, 2026-09-10:** ADR076 joins exact current
   dispatch tickets, retained verified encrypted manifests and configured-origin
   HTTPS decryption. A final writer check fences revocation, null-root promotion,

@@ -4633,3 +4633,36 @@ ADR079 also passed root integration16 tests, native/Windows GNU Clippy and
 strict5/5 across9 paths before this fixture correction. Independent preparation
 review found no production blocker; byte-level Windows fixture portability was
 revealed by the subsequent actual OS run.
+
+
+## 2026-09-10 — ADR078 durable encrypted upload registry
+
+Implemented core data contracts, opaque host preparation/identity/claim/send
+handles and domain schema19 under the existing single writer. Reservation replay
+never grants another capture, immutable staging binds before actual IO, and
+WritePossible never rearms after timeout, cancel, revoke or restart. Current
+checks derive exact Started task/epoch/exclusive workspace and full encrypted
+route. Historical acceptance stores only a private receipt commitment and cannot
+revive current execution. Public receipts contain no owner/room/workspace/media
+secrets. The domain does not verify physical staging by itself; ADR079 and a future
+transport owner must supply actual evidence and consume the send grant once.
+
+The contract was parsed/linted before implementation. Initial compile caught
+queue-weight opaque temporary borrows; bounded private JSON accounting resolves
+them without exposing an authority serializer. Initial repository5/6 passed;
+negative-room fixture used the old generation and was correctly refused. The
+fixture now uses the existing generation2 invalidation API, production unchanged.
+Corrected repository6/6 and actual writer2/2 pass, including lost successful
+responses, concurrent claims/begins and lease expiry while queued. Native and
+Windows GNU core/store all-target warnings-denied Clippy pass; the Windows result
+is compile qualification, not actual Windows execution. Full store regressions
+and strict lifecycle evidence follow. Logs are external under upload-* in the
+2026-09-10 migration cache. No network, models, service settings or live data changed.
+
+Final ADR078 complete store regression passes148 tests across19 suite summaries,
+zero failed or ignored. Strict crate-scoped lifecycle passes8/8 across23 explicit
+changed paths, with zero failed/skipped/uncertain/pending-review verdicts. Both
+native and Windows GNU all-target core/store Clippy pass with warnings denied;
+rustfmt and diff checks pass. Negative SQL epoch/owner/workspace fixtures are
+explicitly distinguished from real room/transport/revocation host APIs. Actual
+three-platform execution and wider native integration remain the parent CI step.
