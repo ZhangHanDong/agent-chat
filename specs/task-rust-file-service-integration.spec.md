@@ -2,12 +2,12 @@ spec: task
 name: "Connect development FileService to the real Bootstrap MCP and encrypted Matrix publisher"
 inherits: project
 satisfies: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS, REQ-MATRIX-DM-PRIVACY, REQ-THREE-LAYER-COMPLETION]
-tags: [proposed, rust, files, bootstrap, mcp]
+tags: [active, rust, files, bootstrap, mcp]
 ---
 
 ## Intent
 
-Implement the proposed ADR101 application slice only after review acceptance.
+Implement the ADR101 application slice accepted after root and independent review.
 This contract is design-only at creation. Its selectors are planned executable
 acceptance, not tests that currently exist or passed. Do not add them to main's
 migration inventory before implementation and actual strict lifecycle evidence.

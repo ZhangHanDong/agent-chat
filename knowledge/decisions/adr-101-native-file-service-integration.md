@@ -2,7 +2,7 @@
 kind: decision
 id: ADR-101
 title: "Connect one development FileService to the original Started workspace and Matrix owner"
-status: Proposed
+status: Accepted
 requirements: [REQ-RUST-MIGRATION-EXECUTION, REQ-THREAD-SCOPED-SESSIONS, REQ-MATRIX-DM-PRIVACY, REQ-THREE-LAYER-COMPLETION]
 tags: [rust, files, bootstrap, mcp, custody]
 ---
@@ -18,8 +18,8 @@ separate event publication state. ADR100 and the reviewed ADR098 publisher bind
 that state to the actual original encrypted staging receipt and protected SDK
 acceptance. They do not yet form an application file tool.
 
-This is a proposed executable implementation contract, not implemented feature
-coverage. It depends on integrated ADR096/097/098/100. Its tests are future exact
+This executable implementation contract is accepted after root and independent
+review; it is not implemented feature coverage. It depends on integrated ADR096/097/098/100. Its tests are future exact
 selectors and must not be registered as passing migration coverage before they
 exist and run. No current production capability is enabled by this document.
 
