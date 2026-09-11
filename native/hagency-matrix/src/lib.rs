@@ -1,6 +1,8 @@
 //! Bounded authenticated account/room observations and scoped SDK event intake.
 //! Host-owned frozen sends support provisioned verified crypto. Account/key
 //! enrollment, missing-session claims and production service cutover remain gated.
+mod attachments;
+pub use attachments::AttachmentHandle;
 mod collector;
 mod config;
 mod event_batch;

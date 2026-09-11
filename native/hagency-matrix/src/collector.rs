@@ -11,6 +11,7 @@ pub(crate) struct Inner {
     pub(crate) domain: DomainStore,
     pub(crate) owner: Mutex<Option<Owner>>,
     pub(crate) busy: Arc<Semaphore>,
+    pub(crate) attachment_handles: Arc<Semaphore>,
     #[cfg(test)]
     pub(crate) handoff_fault: std::sync::atomic::AtomicU8,
     #[cfg(test)]
@@ -106,6 +107,7 @@ impl Inner {
             domain,
             owner: Mutex::new(None),
             busy: Arc::new(Semaphore::new(1)),
+            attachment_handles: Arc::new(Semaphore::new(crate::attachments::MAX_HANDLES)),
             #[cfg(test)]
             handoff_fault: std::sync::atomic::AtomicU8::new(0),
             #[cfg(test)]

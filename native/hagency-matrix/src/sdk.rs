@@ -27,6 +27,7 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 
 mod approval_intake;
+mod attachments;
 mod keys;
 mod outgoing;
 
@@ -38,6 +39,8 @@ const MAX_SYNCS: usize = 64;
 const MAX_JOURNAL_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Default, Serialize, Deserialize)]
 struct Journal {
+    #[serde(default)]
+    attachments: std::collections::BTreeMap<String, crate::attachments::Manifest>,
     #[serde(default)]
     approval: Option<crate::approval_batch::Batch>,
     #[serde(default)]
@@ -58,6 +61,11 @@ struct Journal {
     outgoing_receipts: Vec<crate::outgoing::state::Receipt>,
 }
 enum Command {
+    Attachment(
+        Box<hagency_store::AttachmentTicket>,
+        tokio::sync::OwnedSemaphorePermit,
+        oneshot::Sender<Result<crate::AttachmentHandle, Error>>,
+    ),
     #[cfg(test)]
     ApprovalCorrupt(u8, oneshot::Sender<()>),
     #[cfg(test)]
@@ -77,6 +85,14 @@ enum Command {
         crate::outgoing::state::Command,
         oneshot::Sender<Result<crate::outgoing::state::View, Error>>,
     ),
+    #[cfg(test)]
+    AttachmentFixture(Vec<Value>, bool, oneshot::Sender<Value>),
+    #[cfg(test)]
+    AttachmentCommitFault(oneshot::Sender<()>),
+    #[cfg(test)]
+    AttachmentLegacy(oneshot::Sender<()>),
+    #[cfg(test)]
+    AttachmentInspect(oneshot::Sender<Vec<crate::attachments::Manifest>>),
     #[cfg(test)]
     CryptoFixture(bool, usize, oneshot::Sender<Value>),
     #[cfg(test)]
@@ -171,6 +187,9 @@ impl Owner {
                     }
                     while let Some(command) = rx.recv().await {
                         match command {
+                            Command::Attachment(ticket, permit, reply) => {
+                                let _ = reply.send(sdk.attachment(*ticket, permit));
+                            }
                             #[cfg(test)]
                             Command::ApprovalCorrupt(variant, reply) => {
                                 approval_fixture::corrupt(&mut sdk, variant).await;
@@ -223,6 +242,28 @@ impl Owner {
                                 crypto_fixture::trust_human(&sdk).await;
                                 let _ = reply.send(());
                             }
+                            #[cfg(test)]
+                            Command::AttachmentFixture(values, verified, reply) => {
+                                let _ = reply.send(crypto_fixture::encrypted_contents(&sdk, verified, values, false).await);
+                            }
+                            #[cfg(test)]
+                            Command::AttachmentCommitFault(reply) => {sdk.attachment_commit_fault = true; let _ = reply.send(());}
+                            #[cfg(test)]
+                            Command::AttachmentLegacy(reply) => {
+                                let batch = sdk.journal.intake.as_ref().unwrap();
+                                let digest = batch.digest.clone();
+                                let mut encoded = serde_json::to_value(batch).unwrap();
+                                encoded["events"] = serde_json::json!([]);
+                                for disposition in encoded["dispositions"].as_array_mut().unwrap() {
+                                    disposition["decision"] = serde_json::json!({"kind":"rejected","reason":"unsupported"});
+                                }
+                                sdk.journal.intake = Some(serde_json::from_value(encoded).unwrap());
+                                sdk.persist().await.unwrap();
+                                sdk.intake_finish(&digest).await.unwrap();
+                                let _ = reply.send(());
+                            }
+                            #[cfg(test)]
+                            Command::AttachmentInspect(reply) => { let _ = reply.send(sdk.journal.attachments.values().cloned().collect()); }
                             #[cfg(test)]
                             Command::CryptoFixture(verified, count, reply) => {
                                 let _ = reply.send(
@@ -537,6 +578,9 @@ struct Sdk {
     approval: bool,
     approval_poisoned: bool,
     outgoing_poisoned: bool,
+    attachments_poisoned: bool,
+    #[cfg(test)]
+    attachment_commit_fault: bool,
     #[cfg(test)]
     outgoing_reply_loss: bool,
     client: BaseClient,
@@ -627,6 +671,22 @@ impl Sdk {
                 None if fresh => Journal::default(),
                 None => return Err(Error::Storage),
             };
+            attachments::validate(&identity, &init.user, &init.device, &journal.attachments)?;
+            if let Some(batch) = &journal.intake
+                && batch.phase == Phase::Derived
+            {
+                for manifest in batch.events.iter().filter_map(|e| e.attachment.as_ref()) {
+                    let stored = journal
+                        .attachments
+                        .get(&manifest.id)
+                        .ok_or(Error::Storage)?;
+                    if serde_json::to_value(stored).map_err(|_| Error::Storage)?
+                        != serde_json::to_value(manifest).map_err(|_| Error::Storage)?
+                    {
+                        return Err(Error::Storage);
+                    }
+                }
+            }
             approval_intake::validate_journal(
                 &journal,
                 init.approval,
@@ -732,6 +792,9 @@ impl Sdk {
                 approval: init.approval,
                 approval_poisoned: false,
                 outgoing_poisoned: false,
+                attachments_poisoned: false,
+                #[cfg(test)]
+                attachment_commit_fault: false,
                 #[cfg(test)]
                 outgoing_reply_loss: false,
                 client,
@@ -852,8 +915,18 @@ impl Sdk {
                 .await?;
             return Err(error);
         }
+        if let Err(error) = self.retain_attachments() {
+            self.intake_quarantine("attachment manifest capacity or identity refused".into())
+                .await?;
+            return Err(error);
+        }
+        #[cfg(test)]
+        if std::mem::take(&mut self.attachment_commit_fault) {
+            let db = rusqlite::Connection::open(self.root.join(DATABASES[0])).unwrap();
+            db.execute_batch("CREATE TRIGGER attachment_commit_abort BEFORE INSERT ON kv_blob BEGIN SELECT RAISE(ABORT,'fixture attachment commit rollback'); END;").unwrap();
+        }
         if self.persist().await.is_err() {
-            self.journal.intake.as_mut().unwrap().phase = Phase::Applying;
+            self.poison_attachments();
             return Err(Error::OutcomeUnknown);
         }
         files(&self.root)?;
@@ -1277,6 +1350,39 @@ impl Owner {
         self.tx
             .try_send(Command::ApprovalFixture(contents, verified, send))
             .unwrap_or_else(|_| panic!("fixture queue"));
+        reply.await.unwrap()
+    }
+}
+
+#[cfg(test)]
+impl Owner {
+    pub(crate) async fn attachment_fixture(&self, values: Vec<Value>, verified: bool) -> Value {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .send(Command::AttachmentFixture(values, verified, send))
+            .await
+            .unwrap();
+        reply.await.unwrap()
+    }
+    pub(crate) async fn attachment_commit_fault(&self) {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .send(Command::AttachmentCommitFault(send))
+            .await
+            .unwrap();
+        reply.await.unwrap();
+    }
+    pub(crate) async fn attachment_legacy_refusal(&self) {
+        let (send, reply) = oneshot::channel();
+        self.tx.send(Command::AttachmentLegacy(send)).await.unwrap();
+        reply.await.unwrap();
+    }
+    pub(crate) async fn attachment_inspect(&self) -> Vec<crate::attachments::Manifest> {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .send(Command::AttachmentInspect(send))
+            .await
+            .unwrap();
         reply.await.unwrap()
     }
 }

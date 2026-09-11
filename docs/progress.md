@@ -4401,3 +4401,38 @@ shutdown cause remains unknown. Fresh Windows execution is still required.
 ADR075 strict lifecycle passes5/5 across its six explicit changed paths, with
 zero failed/skipped/uncertain/pending verdicts. This is local fixture validation,
 not an actual Windows rerun or an explanation of the historical shutdown.
+
+## 2026-09-10 — Authenticated encrypted attachment manifests
+
+ADR074's isolated Matrix slice uses root ADR073's host attachment observation and
+private ticket APIs. Actual SDK verified m.file/m.image events retain original
+ciphertext source and encrypted descriptor in a finite independent journal map
+before domain handoff. Domain input contains only validated filename, optional
+MIME/declared size and opaque digests. The source-content digest is shared across
+receivers; each manifest binds the receiver SDK fingerprint and exact full route.
+No intake/history operation downloads media. Existing terminal Unsupported source
+receipts remain terminal after the new syntax support.
+
+Safe host lookup checks the current dispatch ticket before and after SDK work.
+One total deadline/cancellation bounds lock, open, queue and both domain checks.
+The eight-held-result pool survives Owner reopen. A deterministic test promotes
+a null-root DM after secret lookup and proves that post-await validation discards
+the result. Handles retain private custody; they do not authorize future download
+or expose descriptors to runtime/console serialization.
+
+Six new actual SDK/TLS selectors exercise verified file/image metadata, group
+mentions and DM wake, exact replay/lost acknowledgement/restart, old refusals,
+invalid descriptors/MXCs/metadata, 128 manifests plus refusal, retained handle
+capacity, cancellation/deadline, generation/promotion and actual SQLite commit
+abort. Full affected Matrix tests pass 91/91 (71 library, 6 download, 5 upload,
+9 transport). The SQLite fault fixture initially expected HTTP after the existing
+transport fence; its original failure log is retained, and the corrected fixture
+requires Generation with no request. Initial Clippy requested a boxed ticket
+variant and collapsed condition; fixed without policy changes. Native and Windows
+GNU all-target Clippy pass with warnings denied. The updated full-capacity exact
+replay passes, as does strict crate-scoped lifecycle: 7/7 (six bound tests plus
+fourteen explicit changed paths), zero failed/skipped/uncertain/pending review.
+Formatting and whitespace checks pass. Logs remain in external attachment-intake-*
+files. Windows cross-compilation is not actual Windows runtime qualification;
+integration CI must execute these fixtures on that platform.
+No Matrix service, receive cache, MCP file tool or restored upload is enabled.

@@ -43,6 +43,8 @@ pub(crate) struct Event {
     input: Message,
     pub mentions: BTreeSet<String>,
     proof: Proof,
+    #[serde(default)]
+    pub(crate) attachment: Option<crate::attachments::Manifest>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Message {
@@ -80,6 +82,14 @@ enum Proof {
     },
 }
 impl Event {
+    pub(crate) fn attachment_observation(
+        &self,
+    ) -> Result<Option<hagency_core::attachments::MatrixAttachmentObservation>, Error> {
+        self.attachment
+            .as_ref()
+            .map(|m| m.observation(self.observation()))
+            .transpose()
+    }
     pub(crate) fn observation(&self) -> MatrixEventObservation {
         MatrixEventObservation {
             scope: MatrixIngressScope::from(&self.route),
@@ -205,7 +215,7 @@ impl Batch {
                     reason: Rejection::Malformed,
                 }
             } else {
-                match self.event(room, &value, &timeline.kind) {
+                match self.event(room, original, &value, &timeline.kind) {
                     Ok(Some(event)) => {
                         let index = events.len();
                         events.push(event);
@@ -241,6 +251,7 @@ impl Batch {
     fn event(
         &self,
         room: &str,
+        original: &Value,
         value: &Value,
         kind: &TimelineEventKind,
     ) -> Result<Option<Event>, Rejection> {
@@ -331,7 +342,10 @@ impl Batch {
             .get("msgtype")
             .and_then(Value::as_str)
             .ok_or(Malformed)?;
-        if !matches!(kind, "m.text" | "m.notice" | "m.emote") {
+        if !matches!(
+            kind,
+            "m.text" | "m.notice" | "m.emote" | "m.file" | "m.image"
+        ) {
             return Err(Unsupported);
         }
         let mut mentions = BTreeSet::new();
@@ -347,7 +361,32 @@ impl Batch {
                 }
             }
         }
+        let attachment = if matches!(kind, "m.file" | "m.image") {
+            let Proof::Verified {
+                device, session, ..
+            } = &proof
+            else {
+                return Err(CryptoIneligible);
+            };
+            if !target.encrypted {
+                return Err(Unsupported);
+            }
+            Some(
+                crate::attachments::Manifest::new(
+                    &self.sdk_identity,
+                    target,
+                    original,
+                    &value["content"],
+                    device,
+                    session,
+                )
+                .map_err(|_| Malformed)?,
+            )
+        } else {
+            None
+        };
         let event = Event {
+            attachment,
             route: (*target).clone(),
             mentions,
             proof,
@@ -416,6 +455,13 @@ impl Batch {
                     }
                     if let Decision::Candidate { index } = value.decision {
                         let candidate = self.events.get(index).ok_or(Error::Storage)?;
+                        if candidate
+                            .attachment
+                            .as_ref()
+                            .is_some_and(|manifest| !manifest.matches_original(event))
+                        {
+                            return Err(Error::Storage);
+                        }
                         if candidate.input.room_id != *room
                             || event.get("event_id").and_then(Value::as_str)
                                 != Some(candidate.input.event_id.as_str())
@@ -430,6 +476,7 @@ impl Batch {
                             let plain = self
                                 .event(
                                     room,
+                                    event,
                                     event,
                                     &TimelineEventKind::PlainText {
                                         event: serde_json::from_value(event.clone())
@@ -462,6 +509,18 @@ impl Batch {
         }
         for event in &self.events {
             event.observation().validate().map_err(|_| Error::Storage)?;
+            if matches!(event.input.kind.as_str(), "m.file" | "m.image")
+                != event.attachment.is_some()
+            {
+                return Err(Error::Storage);
+            }
+            if let Some(manifest) = &event.attachment {
+                manifest.validate(identity, user, device)?;
+                if manifest.route != event.route {
+                    return Err(Error::Storage);
+                }
+                event.attachment_observation()?;
+            }
             if !self.targets.contains(&event.route) || event.input.room_id != event.route.room_id {
                 return Err(Error::Storage);
             }

@@ -109,6 +109,17 @@ pub(super) async fn verified_pair(
 
 pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool, count: usize) -> Value {
     assert!((1..=2).contains(&count));
+    let values = (0..count).map(|i| json!({"event_id":if i==0 {"$encrypted"} else {"$encrypted_new"},"content":RoomMessageEventContent::text_plain("小白：已验证的私聊，无需提及")})).collect();
+    encrypted_contents(sdk, verified, values, true).await
+}
+
+pub(super) async fn encrypted_contents(
+    sdk: &Sdk,
+    verified: bool,
+    contents: Vec<Value>,
+    rotate: bool,
+) -> Value {
+    assert!(!contents.is_empty() && contents.len() <= 100);
     let (human, _) = verified_pair(sdk, verified).await;
     let guard = sdk.client.olm_machine().await;
     let receiver = guard.as_ref().unwrap();
@@ -155,8 +166,8 @@ pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool, count: usize) -> 
     }
     assert!(!to_device.is_empty());
     let mut events = vec![];
-    for i in 0..count {
-        if i > 0 {
+    for (i, value) in contents.iter().enumerate() {
+        if rotate && i > 0 {
             // A newly sent message uses a fresh ordinary outbound Megolm session.
             // The receiver's earlier session/proof and journal are never reset.
             assert!(human.discard_room_key(room).await.unwrap());
@@ -179,13 +190,17 @@ pub(super) async fn encrypted_human(sdk: &Sdk, verified: bool, count: usize) -> 
             }
         }
         let encrypted = human
-            .encrypt_room_event(
+            .encrypt_room_event_raw(
                 room,
-                RoomMessageEventContent::text_plain("小白：已验证的私聊，无需提及"),
+                "m.room.message",
+                &ruma::serde::Raw::from_json_string(
+                    serde_json::to_string(&value["content"]).unwrap(),
+                )
+                .unwrap(),
             )
             .await
             .unwrap();
-        events.push(json!({"event_id":if i==0 {"$encrypted"} else {"$encrypted_new"},"origin_server_ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,"sender":human.user_id(),"type":"m.room.encrypted","content":encrypted.content}));
+        events.push(json!({"event_id":value["event_id"],"origin_server_ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,"sender":human.user_id(),"type":"m.room.encrypted","content":encrypted.content}));
     }
     json!({"next_batch":"encrypted", "rooms":{"join":{"!project:example.test":{"state":{"events":[]},"timeline":{"limited":false,"events":events}}}},"to_device":{"events":to_device}})
 }

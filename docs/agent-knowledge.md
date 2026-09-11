@@ -8,6 +8,16 @@
   phase diagnostics preserve the original timeout result. Successful unrelated
   Matrix diagnostics do not turn the original suite green.
 
+- **Native encrypted attachment intake, 2026-09-10:** ADR074 retains a finite
+  encrypted manifest map independently of disposable SDK sync batches. Actual
+  verified file/image events supply safe metadata to ADR073; keys and MXCs remain
+  private. Shared source-content digests exclude receiver identity, while exact
+  manifest IDs include the SDK fingerprint, full route and sender-device/session
+  evidence. Old terminal Unsupported sources remain refused. Current runner
+  tickets are rechecked around local manifest lookup; held handles do not become
+  download authorization. Collector-wide result capacity survives SDK reopen.
+  No eager download, cache path, MCP file tool or upload recovery is introduced.
+
 - **Native encrypted upload, 2026-09-10:** ADR072 borrows an actual SDK Encrypted
   object and uploads only its ciphertext to the configured HTTPS homeserver.
   Descriptor keys and filenames never enter the request. A finite attempt slot

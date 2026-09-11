@@ -254,13 +254,17 @@ impl Inner {
                 return Err(Error::Cancelled);
             }
             let observation = event.observation();
+            let attachment = event.attachment_observation()?;
             // Historical read can only acknowledge an exact existing commit. It cannot
             // admit or project the event through stale or replacement authority.
-            let historical = match self
-                .domain
-                .matrix_ingress_receipt(observation.clone())
-                .await
-            {
+            let historical_result = if let Some(input) = &attachment {
+                self.domain.matrix_attachment_receipt(input.clone()).await
+            } else {
+                self.domain
+                    .matrix_ingress_receipt(observation.clone())
+                    .await
+            };
+            let historical = match historical_result {
                 Ok(receipt) => receipt,
                 Err(hagency_store::Error::RunnerAuthority | hagency_store::Error::Conflict) => {
                     owner
@@ -297,7 +301,12 @@ impl Inner {
                         self.handoff_reached.notify_one();
                         self.handoff_continue.notified().await;
                     }
-                    match self.domain.admit_matrix_event(observation).await {
+                    let admitted_result = if let Some(input) = attachment {
+                        self.domain.admit_matrix_attachment(input).await
+                    } else {
+                        self.domain.admit_matrix_event(observation).await
+                    };
+                    match admitted_result {
                         Ok(receipt) => {
                             if receipt.projected {
                                 admitted += 1;
