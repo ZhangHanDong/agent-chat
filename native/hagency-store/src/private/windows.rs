@@ -92,36 +92,38 @@ fn current_sid() -> Result<String, Error> {
     }
 }
 
-pub(super) fn directory(path: &Path) -> Result<(), Error> {
-    if !path.exists() {
-        let descriptor: Vec<_> = format!("O:{sid}D:P(A;OICI;FA;;;{sid})\0", sid = current_sid()?)
-            .encode_utf16()
-            .collect();
-        let name = wide(path)?;
-        // SAFETY: UTF-16 strings are NUL terminated; the descriptor remains owned until
-        // CreateDirectoryW completes. No handle is inherited and no raw pointers escape.
-        unsafe {
-            let mut descriptor_ptr = ptr::null_mut();
-            if ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                descriptor.as_ptr(),
-                SDDL_REVISION_1,
-                &mut descriptor_ptr,
-                ptr::null_mut(),
-            ) == 0
-            {
-                return Err(std::io::Error::last_os_error().into());
-            }
-            let _allocated = Allocation(descriptor_ptr);
-            let attributes = SECURITY_ATTRIBUTES {
-                nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
-                lpSecurityDescriptor: descriptor_ptr,
-                bInheritHandle: 0,
-            };
-            if CreateDirectoryW(name.as_ptr(), &attributes) == 0 {
-                return Err(std::io::Error::last_os_error().into());
-            }
+pub(super) fn create_directory_new(path: &Path) -> Result<(), Error> {
+    let descriptor: Vec<_> = format!("O:{sid}D:P(A;OICI;FA;;;{sid})\0", sid = current_sid()?)
+        .encode_utf16()
+        .collect();
+    let name = wide(path)?;
+    // SAFETY: UTF-16 strings are NUL terminated; the descriptor remains owned until
+    // CreateDirectoryW completes. No handle is inherited and no raw pointers escape.
+    unsafe {
+        let mut descriptor_ptr = ptr::null_mut();
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            descriptor.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor_ptr,
+            ptr::null_mut(),
+        ) == 0
+        {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let _allocated = Allocation(descriptor_ptr);
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor_ptr,
+            bInheritHandle: 0,
+        };
+        if CreateDirectoryW(name.as_ptr(), &attributes) == 0 {
+            return Err(std::io::Error::last_os_error().into());
         }
     }
+    Ok(())
+}
+
+pub(super) fn check_directory(path: &Path) -> Result<(), Error> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
@@ -135,6 +137,10 @@ pub(super) fn directory(path: &Path) -> Result<(), Error> {
 fn check(file: &File, path: &Path) -> Result<(), Error> {
     check_with_policy(file, path, false)
 }
+
+#[cfg(test)]
+#[path = "windows/directory_tests.rs"]
+mod directory_tests;
 
 pub(super) fn check_with_policy(
     file: &File,
@@ -345,7 +351,7 @@ mod tests {
     fn private_storage_rejects_public_access() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path().join("state");
-        directory(&root).unwrap();
+        crate::private::directory(&root).unwrap();
         let token = root.join("operator.token");
         drop(create_file(&token).unwrap());
         let sid = current_sid().unwrap();

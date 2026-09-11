@@ -7,24 +7,17 @@ use hagency_store::private;
 /// Existing directories never authorize replacement of a missing original journal.
 pub(super) fn open(setup: &Setup) -> Result<Store, FileError> {
     tracing::trace!(target: "hagency_startup_observation", "native media boundary: create_entered");
-    #[cfg(unix)]
-    let directory = {
-        use std::os::unix::fs::DirBuilderExt;
-        let mut directory = std::fs::DirBuilder::new();
-        directory.mode(0o700);
-        directory
-    };
-    #[cfg(not(unix))]
-    let directory = std::fs::DirBuilder::new();
-    // create() is atomic and non-recursive. A path observation alone must never
-    // choose journal creation. Windows inherits the fixed private state parent's
-    // allowlisted DACL, then the same strict private checker validates it.
-    let fresh = match directory.create(&setup.directory) {
+    // Only actual atomic creation can authorize a new journal. On Windows the
+    // new directory receives its explicit private owner/DACL during creation;
+    // existing entries are never resealed or repaired.
+    let fresh = match private::create_directory_new(&setup.directory) {
         Ok(()) => {
             tracing::trace!(target: "hagency_startup_observation", "native media boundary: created");
             true
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+        Err(hagency_store::Error::Io(error))
+            if error.kind() == std::io::ErrorKind::AlreadyExists =>
+        {
             tracing::trace!(target: "hagency_startup_observation", "native media boundary: existing");
             false
         }

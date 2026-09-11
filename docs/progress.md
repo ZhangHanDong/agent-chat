@@ -6256,3 +6256,43 @@ so this does not establish the cause of its failure. No production timeout or
 policy changed. The checkpoint is ready for integration review, not qualification
 completion. Logs, strict verdicts, sampled stacks and source manifests remain in
 the authorized external receive-executable evidence cache.
+
+
+### 2026-09-11 — Atomic private-directory creation
+
+Original 22c4993 Windows FileService children reach private_policy_refused after
+29 requests, before the media Store opens. Rust 1.95 DirBuilder uses default
+security attributes: Windows inherits parent ACLs but assigns the creating
+token's default owner. Our strict private check requires TokenUser ownership, so
+those sources are incompatible when the token's default owner differs from its
+user. The particular original CI SID predicate is unobserved and is not claimed
+as measured evidence.
+
+The bounded private-directory task adds create_directory_new: one nonrecursive
+atomic create with the existing explicit current-user owner/protected DACL on
+Windows, mode 0700 on Unix, and strict validation without recreation. Recovery
+uses the actual AlreadyExists error for existing Store::open selection. Existing
+paths are never resealed, reowned or repaired. Checker predicates, privileges,
+filesystem qualification, deadlines, worker ownership and journal policy stay
+unchanged.
+
+Local macOS verification passes the new private creation regression 1/1, original
+atomic media freshness/lock test 1/1, and the complete FileService integration
+target 5/5. Package-only rebuilt lists verify the actual edited-worktree tests in
+the reused target. Windows hagency-store/hagency all-target compilation passes;
+Windows store Clippy with warnings denied passes. The Windows regression compares
+actual current TokenOwner, default-created owner/private ACL, explicit-created
+TokenUser owner/protected DACL, and refusal of existing entries. It changes no
+token and emits only fixed boolean facts. Its Windows body is not executed on
+macOS: actual hosted Windows assertions and complete workflow qualification
+remain required. Original failures and local/cross-compile evidence are preserved
+separately in the external migration cache.
+
+Strict lifecycle completes with 4/4 passing results: the exact eight-path boundary
+and three selectors, each executing one actual passing test. There are zero failed,
+skipped, uncertain or pending-review results. The first selector also launches
+unrelated workspace binaries; its sampled pre-Rust dyld delay is preserved in the
+external evidence, and the original invocation completed without intervention.
+The lifecycle's test-name coverage does not distinguish cfg branches: its Windows
+assertion label is not Windows execution evidence. Actual Windows validation stays
+pending. Final local hagency/hagency-store Clippy with warnings denied also passes.

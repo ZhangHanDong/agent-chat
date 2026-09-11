@@ -14,9 +14,34 @@ use std::{
 };
 
 pub fn directory(path: &Path) -> Result<(), Error> {
+    if !path.exists() {
+        create_directory_new(path)
+    } else {
+        check_directory(path)
+    }
+}
+
+/// Create one new private directory under an already provisioned parent.
+/// Existing entries return the original AlreadyExists error without modification.
+/// Windows assigns the current user and protected DACL during atomic creation.
+pub fn create_directory_new(path: &Path) -> Result<(), Error> {
+    #[cfg(windows)]
+    windows::create_directory_new(path)?;
+    #[cfg(unix)]
+    fs::DirBuilder::new().mode(0o700).create(path)?;
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        return Err(Error::PlatformUnavailable);
+    }
+    #[cfg(any(unix, windows))]
+    check_directory(path)
+}
+
+fn check_directory(path: &Path) -> Result<(), Error> {
     #[cfg(windows)]
     {
-        windows::directory(path)
+        windows::check_directory(path)
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -25,10 +50,6 @@ pub fn directory(path: &Path) -> Result<(), Error> {
     }
     #[cfg(unix)]
     {
-        if !path.exists() {
-            // Parent must already exist. No recursive creation across uncontrolled paths.
-            fs::DirBuilder::new().mode(0o700).create(path)?;
-        }
         let meta = fs::symlink_metadata(path)?;
         if !meta.is_dir()
             || meta.file_type().is_symlink()
@@ -167,6 +188,71 @@ mod windows;
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn native_private_directory_creation() {
+        let temporary = tempfile::tempdir().unwrap();
+        let parent = temporary.path().join("private");
+        directory(&parent).unwrap();
+        let fresh = parent.join("fresh");
+        create_directory_new(&fresh).unwrap();
+        directory(&fresh).unwrap();
+        let before = fs::metadata(&fresh).unwrap();
+        assert_eq!(before.mode() & 0o777, 0o700);
+        write_new(&fresh.join("original"), b"original bytes").unwrap();
+        assert!(matches!(create_directory_new(&fresh), Err(Error::Io(error))
+            if error.kind() == std::io::ErrorKind::AlreadyExists));
+        let after = fs::metadata(&fresh).unwrap();
+        assert_eq!((before.dev(), before.ino()), (after.dev(), after.ino()));
+        assert_eq!(
+            read_secret(&fresh.join("original")).unwrap(),
+            b"original bytes"
+        );
+
+        fs::set_permissions(&fresh, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(create_directory_new(&fresh), Err(Error::Io(error))
+            if error.kind() == std::io::ErrorKind::AlreadyExists));
+        assert_eq!(fs::metadata(&fresh).unwrap().mode() & 0o777, 0o755);
+        assert!(matches!(directory(&fresh), Err(Error::Private)));
+        let link = parent.join("link");
+        std::os::unix::fs::symlink(&fresh, &link).unwrap();
+        assert!(create_directory_new(&link).is_err());
+        assert!(directory(&link).is_err());
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        let file = parent.join("file");
+        write_new(&file, b"existing file").unwrap();
+        assert!(create_directory_new(&file).is_err());
+        assert_eq!(read_secret(&file).unwrap(), b"existing file");
+        assert!(create_directory_new(&parent.join("missing/child")).is_err());
+        assert!(!parent.join("missing").exists());
+
+        let contested = parent.join("contested");
+        let barrier = std::sync::Barrier::new(2);
+        let outcomes = std::thread::scope(|scope| {
+            let create = || {
+                barrier.wait();
+                create_directory_new(&contested)
+            };
+            let first = scope.spawn(create);
+            let second = scope.spawn(create);
+            [first.join().unwrap(), second.join().unwrap()]
+        });
+        assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|result| matches!(result,
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists))
+                .count(),
+            1
+        );
+        directory(&contested).unwrap();
+    }
 
     #[test]
     fn private_storage_rejects_public_access() {
