@@ -15,7 +15,7 @@ service queues and executable receive integration are separately owned gates.
 
 ### Must
 - StartedWorkspace prepare_receive borrows the original workspace and capability and consumes only the unique ReceiveWrite with its original absolute deadline without filesystem IO or await.
-- Retain the same private Binding and original writer root and retirement; never expose a root or cloneable write authority.
+- Retain the same private Binding and original writer root and retirement; require the opaque write grant to match the complete original capability and never expose a root or cloneable write authority.
 - Borrowed materialize marks the attempt before its first await and retains the actual newly created file before any seal or plaintext write; errors unwind and caller loss cannot rearm that owner.
 - Use generated .hagency-received-32hex.bin from the receive identity and relative create_new NoFollow nonblocking regular-file checks private current-owner permissions and one link.
 - Check original current writer and workspace before and after effects with local retirement checks around bounded write and read chunks.

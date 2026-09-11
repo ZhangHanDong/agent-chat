@@ -61,6 +61,7 @@ impl StartedWorkspace {
     ) -> Result<WorkspaceReceive, WorkspaceReceiveError> {
         self.binding.live()?;
         if capability_digest(cap)? != self.binding.capability
+            || !write.matches_capability(cap)
             || write.scope_fingerprint() != self.binding.fingerprint
         {
             return Err(WorkspaceReceiveError::Association);

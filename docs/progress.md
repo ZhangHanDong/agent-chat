@@ -6094,3 +6094,28 @@ No platform, physical receive workflow or production readiness is implied.
 Strict lifecycle passes3/3: the exact seven-path boundary and two separately
 bound selectors, each executing one actual passing test. No fail skip uncertain
 or pending result is promoted; logs remain in the external migration cache.
+
+### 2026-09-11 — Receive sink partition validation
+
+Integrated the separately tested receive-authority prerequisite99ade8b into this
+isolated sink tree, then required its exact grant-capability matcher. Added actual
+caller loss while an independent SQLite write lock prevents current validation;
+dropping the borrowed future creates no destination and never rearms its owner.
+The earlier actual-file caller unwind, mutation, collision and retirement checks
+remain separate.
+
+Final execution all-target tests pass33/33: eleven library and twenty-two owned
+integration tests, including five new receive selectors. Native and Windows GNU
+all-target Clippy pass with warnings denied. Strict agent-spec1.4 lifecycle passes
+6/6: all ten sink paths and five independently named behavioral selectors, each
+executing exactly one passing test. There are zero failed skipped uncertain or
+pending-review lifecycle results. Rustfmt and diff checks pass. Exact outputs are
+retained outside Git in the2026-09-10 migration cache under receive-sink-v2-final-*
+alongside both earlier failing fixture runs. The separate ADR104 and receive-
+authority changes are prerequisites, not additions to the ten-path sink boundary.
+
+This closes the bounded sink partition only. Windows GNU checks are compilation,
+not actual Windows execution. The Linux/macOS/Windows incoming executable workflow,
+shared service close and live/runtime migration gates remain separate and are not
+marked passing by this result. No live service, user checkout or production state
+was changed.

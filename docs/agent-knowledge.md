@@ -2650,3 +2650,11 @@ A read-only ReceiveWrite matcher compares the complete validated original
 capability digest; equal immutable workspace fingerprints alone do not establish
 the same runner fence or secret. The sink must require both the match and current
 original-writer authority. These domain helpers establish no SDK or file proof.
+
+The receive sink checkpoint above is now closed for this bounded partition with
+the accepted receive-authority prerequisite: preparation checks the complete
+opaque grant capability, and the captured writer samples current authority only
+after acquiring its SQLite transaction. Actual pre-effect caller loss while that
+transaction is blocked leaves the attempt spent without creating a destination.
+The same borrowed owner also survives controlled caller unwind after actual file
+creation. This is not evidence that a timed-out kernel call has stopped.

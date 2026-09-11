@@ -364,6 +364,30 @@ async fn native_receive_workspace_once() {
     );
     #[cfg(windows)]
     assert!(fs::rename(&path, f.work.join("cannot-move-held")).is_err());
+    let mut lost = owner(&f, &binding, 5, b"never created").await;
+    let absent = f.work.join(lost.relative_path());
+    let lock = f.sql();
+    lock.execute_batch("BEGIN IMMEDIATE").unwrap();
+    {
+        let mut effect = pin!(lost.materialize(b"never created"));
+        std::future::poll_fn(|cx| {
+            assert!(effect.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        // Drop the borrowed caller while the original writer cannot acquire its
+        // current-authority transaction; the unique owner's attempt stays spent.
+    }
+    lock.execute_batch("ROLLBACK").unwrap();
+    assert!(!absent.exists());
+    assert_eq!(
+        lost.materialize(b"never created").await,
+        Err(WorkspaceReceiveError::Attempted)
+    );
+    assert_eq!(
+        lost.revalidate(deadline()).await,
+        Err(WorkspaceReceiveError::Incomplete)
+    );
     close(&f, &mut operation).await;
 }
 
