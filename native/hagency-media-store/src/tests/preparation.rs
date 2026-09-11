@@ -18,7 +18,7 @@ fn returned(failure: StageFailure, expected: Error, data: &[u8]) {
     );
 }
 fn plan(f: &Fixture, store: &mut Store, id: &str, data: &[u8]) -> Option<PreparedEncrypted> {
-    let before = fs::read(f.journal()).unwrap();
+    let before = journal_bytes(store);
     assert_sync(store.sync);
     let result = store.prepare_encrypted(&op(id), encrypted(f, data));
     let result = match store.sync {
@@ -28,7 +28,7 @@ fn plan(f: &Fixture, store: &mut Store, id: &str, data: &[u8]) -> Option<Prepare
             None
         }
     };
-    assert_eq!(fs::read(f.journal()).unwrap(), before);
+    assert_eq!(journal_bytes(store), before);
     result
 }
 
@@ -40,9 +40,9 @@ fn native_media_prepare_exact_identity() {
     let encrypted = encrypted(&f, data);
     let ciphertext = encrypted.ciphertext().to_vec();
     let descriptor = encrypted.descriptor().private_event_json().to_vec();
-    let before = fs::read(f.journal()).unwrap();
+    let before = journal_bytes(&mut store);
     let result = store.prepare_encrypted(&op("original"), encrypted);
-    assert_eq!(fs::read(f.journal()).unwrap(), before);
+    assert_eq!(journal_bytes(&mut store), before);
     assert_sync(store.sync);
     match store.sync {
         SyncEvidence::FileAndDirectorySynced => {
@@ -125,13 +125,13 @@ fn native_media_prepare_capacity() {
             .stage(&op("filled"), f.plain(b"last record"))
             .map_err(|e| e.error())
             .unwrap();
-        let before = fs::read(f.journal()).unwrap();
+        let before = journal_bytes(&mut store);
         returned(
             store.stage_prepared(prepared).err().unwrap(),
             Error::Capacity,
             b"exact material",
         );
-        assert_eq!(fs::read(f.journal()).unwrap(), before);
+        assert_eq!(journal_bytes(&mut store), before);
     }
     assert_eq!(store.read(&op("plain")).unwrap().bytes(), b"generic read");
     // Negative-only qualification test; never create positive OS evidence.
@@ -153,25 +153,25 @@ fn native_media_prepare_owner_identity() {
     let mut store = f.create(Limits::default());
     let mut second = other.create(Limits::default());
     if let Some(prepared) = plan(&f, &mut store, "original", b"same namespace") {
-        let before = fs::read(other.journal()).unwrap();
+        let before = journal_bytes(&mut second);
         returned(
             second.stage_prepared(prepared).err().unwrap(),
             Error::Identity,
             b"same namespace",
         );
-        assert_eq!(fs::read(other.journal()).unwrap(), before);
+        assert_eq!(journal_bytes(&mut second), before);
         assert_eq!(store.committed_records(), 0);
     }
     if let Some(prepared) = plan(&f, &mut store, "retained", b"old owner") {
         drop(store);
         let mut reopened = f.reopen(Limits::default()).unwrap();
-        let before = fs::read(f.journal()).unwrap();
+        let before = journal_bytes(&mut reopened);
         returned(
             reopened.stage_prepared(prepared).err().unwrap(),
             Error::Identity,
             b"old owner",
         );
-        assert_eq!(fs::read(f.journal()).unwrap(), before);
+        assert_eq!(journal_bytes(&mut reopened), before);
         assert_eq!(reopened.committed_records(), 0);
     }
 }
@@ -192,13 +192,13 @@ fn native_media_prepare_failure_custody() {
             .err()
             .unwrap();
         assert_eq!(failure.custody(), FailureCustody::RetainedByStore);
-        let before = fs::read(f.journal()).unwrap();
+        let before = journal_bytes(&mut store);
         returned(
             store.stage_prepared(prepared).err().unwrap(),
             Error::OutcomeUnknown,
             b"before pending write",
         );
-        assert_eq!(fs::read(f.journal()).unwrap(), before);
+        assert_eq!(journal_bytes(&mut store), before);
         assert!(store.pending.is_some());
         assert_eq!(store.recovery(), Recovery::WriteOutcomeUnknown);
     }

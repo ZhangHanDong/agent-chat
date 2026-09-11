@@ -22,7 +22,7 @@ fn native_media_restore_exact_ciphertext() {
         .stage(&op("original"), Media::Encrypted(encrypted))
         .map_err(|failure| failure.error())
         .unwrap();
-    let journal = fs::read(f.journal()).unwrap();
+    let journal = journal_bytes(&mut store);
     drop(store);
     fs::write(f.root.path().join("work/input.bin"), b"source replaced").unwrap();
     let mut store = f.reopen(Limits::default()).unwrap();
@@ -54,6 +54,7 @@ fn native_media_restore_exact_ciphertext() {
             // Actual platform refusal, not a qualified restoration round trip.
             assert!(matches!(restored, Err(Error::Durability)));
             assert_eq!(store.read(&op("original")).unwrap().bytes(), ciphertext);
+            drop(store);
         }
     }
     assert_eq!(fs::read(f.journal()).unwrap(), journal);
@@ -77,7 +78,7 @@ fn native_media_restore_identity_refusal() {
         .stage(&op("checked"), Media::Checked(checked))
         .map_err(|failure| failure.error())
         .unwrap();
-    let before = fs::read(f.journal()).unwrap();
+    let before = journal_bytes(&mut store);
     assert!(matches!(
         store.restore_encrypted(&op("missing"), original.digest()),
         Err(Error::NotFound)
@@ -109,7 +110,7 @@ fn native_media_restore_identity_refusal() {
         reopened.read(&op("original")).unwrap().receipt().digest(),
         original.digest()
     );
-    assert_eq!(fs::read(f.journal()).unwrap(), before);
+    assert_eq!(journal_bytes(&mut reopened), before);
 }
 
 #[test]
@@ -184,7 +185,7 @@ fn native_media_restore_corruption_and_pending() {
             store.restore_encrypted(&op("original"), original.digest()),
             Err(Error::OutcomeUnknown)
         ));
-        let journal = fs::read(f.journal()).unwrap();
+        let journal = journal_bytes(&mut store);
         drop(store);
         let mut reopened = f.reopen(Limits::default()).unwrap();
         let complete = matches!(boundary, Checkpoint::CommitWritten | Checkpoint::Synced);
@@ -211,13 +212,13 @@ fn native_media_restore_corruption_and_pending() {
             original.digest()
         );
         assert_eq!(reopened.committed_records(), if complete { 2 } else { 1 });
-        assert_eq!(fs::read(f.journal()).unwrap(), journal);
+        assert_eq!(journal_bytes(&mut reopened), journal);
     }
     let f = Fixture::new();
     let mut store = f.create(Limits::default());
     let original = stage_encrypted(&f, &mut store, "original", b"committed encrypted content");
     let offset = store.entries["original"].offset + frame::INTENT as u64;
-    let mut journal = fs::read(f.journal()).unwrap();
+    let mut journal = journal_bytes(&mut store);
     journal[offset as usize] ^= 1;
     store.file.seek(SeekFrom::Start(offset)).unwrap();
     store

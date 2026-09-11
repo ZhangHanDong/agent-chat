@@ -4600,3 +4600,36 @@ failed/skipped/uncertain/pending review. Final native warnings-denied Clippy,
 rustfmt and diff checks pass after the reviewed reopen-sync evidence handling.
 External media-preparation-* logs retain exact results. Windows GNU compile and
 actual platform runtime checks remain the root integration step.
+
+## 2026-09-10 — Windows media fixture lock ownership (ADR081)
+
+Native34553424733 at25c01ee failed Windows:461 printed passes plus5 failures
+across84 original suite summaries. Linux470 and macOS469 printed passes are
+green (each platform count includes one proxy child); Node34553424721 passes.
+Three new restoration cases fail on fs::read with actual Windows error33 because
+a separately opened handle cannot read the exclusively locked journal. Two
+existing Matrix transport fixtures time out waiting for their script and obscure
+the original Collector outcome. Actual new receive cases passed on Windows.
+
+A bounded test-only helper now reads the live journal through its original
+Store file handle and restores the cursor. ADR077 and unpushed ADR079 byte checks
+use this owner; independent path reads occur only after owner closure. Exact byte,
+corruption, namespace, capacity, returned-material and recovery assertions stay
+intact. Production file locks, sharing modes and storage behavior are unchanged.
+All16 local media-store tests plus native and Windows GNU warnings-denied Clippy
+pass. Actual Windows closure requires the fresh integrated run.
+
+The original Palpo suite in that run passed13/13, while a later serial diagnostic
+failed1/13 at custody Store shutdown before reopen. Its OutcomeUnknown cause is
+unproven and separate from these media fixtures. ADR080 improves Matrix fixture
+early-error visibility; ADR082 adds bounded custody shutdown phase observation.
+Their diagnostics must preserve original verdicts and waits. No production
+readiness or whole migration completion follows from this fixture repair.
+
+ADR081 strict lifecycle passes8/8 across7 explicit changed paths, zero failed,
+skipped, uncertain or pending review. Formatting and diff checks pass; original
+Windows runtime failures remain open until the next actual Windows CI.
+ADR079 also passed root integration16 tests, native/Windows GNU Clippy and
+strict5/5 across9 paths before this fixture correction. Independent preparation
+review found no production blocker; byte-level Windows fixture portability was
+revealed by the subsequent actual OS run.

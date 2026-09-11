@@ -5,7 +5,7 @@ use hagency_files::{RelativeFile, Workspace};
 use hagency_media::Codec;
 use std::{
     fs,
-    io::{Seek, SeekFrom, Write},
+    io::{Read, Seek, SeekFrom, Write},
 };
 
 struct Fixture {
@@ -63,6 +63,21 @@ fn assert_sync(evidence: SyncEvidence) {
         evidence,
         SyncEvidence::FileAndDirectorySynced | SyncEvidence::FileSyncedDirectoryUnconfirmed
     ));
+}
+
+// Windows locks also reject a second handle opened by the same process. Inspect
+// the actual owner, keep its lock and restore the cursor for the next operation.
+fn journal_bytes(store: &mut Store) -> Vec<u8> {
+    let cursor = store.file.stream_position().unwrap();
+    store.file.seek(SeekFrom::Start(0)).unwrap();
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut store.file)
+        .take(store.limits.file_bytes + 1)
+        .read_to_end(&mut bytes)
+        .unwrap();
+    store.file.seek(SeekFrom::Start(cursor)).unwrap();
+    assert!(bytes.len() as u64 <= store.limits.file_bytes);
+    bytes
 }
 
 #[test]

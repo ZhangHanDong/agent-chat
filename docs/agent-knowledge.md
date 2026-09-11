@@ -2088,3 +2088,12 @@ cover plans and returned reads per Store but do not reserve journal space.
 Before IO failures return original Media; possible writes retain Store custody.
 Storage identity accessors provide no runtime or upload authority. A missing or
 newly discovered record never permits replacing keys or replaying a possible POST.
+
+
+Windows mandatory file locks reject a separately opened fs::read handle even in
+the same process. In media-store fixtures inspect live bytes through the original
+Store.file, keep the lock, and restore its cursor. Only read by path after every
+journal owner closes. Do not unlock or weaken production sharing to make tests
+pass. Original CI25c01ee failed these three new restoration fixtures; separate
+Matrix script timeouts and diagnostic-only Palpo shutdown require independent
+evidence and must not be reported fixed by this test-handle correction.
