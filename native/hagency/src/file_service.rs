@@ -252,6 +252,13 @@ impl Registry {
             Err(FileError::Unknown)
         }
     }
+    fn mark_unknown(&self) {
+        if let Ok(jobs) = self.jobs.lock() {
+            for job in jobs.values() {
+                job.mark_unknown();
+            }
+        }
+    }
     fn empty(&self) -> bool {
         self.jobs.lock().is_ok_and(|jobs| jobs.is_empty())
     }

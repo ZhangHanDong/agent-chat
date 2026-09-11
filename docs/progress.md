@@ -5618,3 +5618,32 @@ proved encrypted delivery. Fresh SDK identity/trust/session enrollment is the
 accepted ADR102 prerequisite in a separate worktree; actual executable group/DM
 recipient decryption and fresh-process first Delivered remain required. This is
 an implementation checkpoint, not M0–M9 closure or a production cutover.
+
+
+### ADR101 independent owner review — task unwind and cancellation follow-up
+
+The independent Bootstrap/FileService owner review found two reproducible
+projection defects in checkpoint 745597b: an actual panicked source job kept its
+queued/live state, and an actual Delivered domain row with retained cancellation
+history was projected as OutcomeUnknown. Each exact regression failed against
+the original production files before the fixes; the original failures and one
+initial fixture missing-mut compile error remain preserved in external logs.
+
+The worker now keeps the original bounded task-ID-to-Job association through
+join, fences that exact original on panic, retains its slot and private custody,
+and refuses close as Unknown. An isolated actual child proves unchanged
+preparation, no source capture or HTTP, replay/status agreement, retained journal
+lock and two Unknown closes; reaped child death is not called settlement. The
+projection regression performs real writer reservation, upload/publication
+transitions, cancellation and first historical Delivered settlement using the
+existing trusted adapter correlation-data boundary. It checks public Delivered
+without an error while internal cancellation history remains unchanged. This
+fixture creates no SDK or media proof and is not encrypted delivery qualification.
+
+Validation in the edited tree: all 14 application library tests passed with zero
+failed or ignored, including all 11 FileService tests; native hagency all-target
+Clippy with warnings denied passed. The complete HTTP, MCP and task-client
+targets passed all 14 tests with zero failed or ignored. The changes remain inside the existing 38-path
+ADR101 boundary. Full ADR101 executable/restart acceptance and Windows positive
+durability are not claimed by this follow-up; the separate ADR102 integration
+retains those gates.

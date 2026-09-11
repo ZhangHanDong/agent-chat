@@ -98,7 +98,13 @@ impl FileView {
     }
     pub(super) fn from_receipt(receipt: FileDeliveryReceipt, locally_running: bool) -> Self {
         let status = match receipt.status {
-            FileDeliveryStatus::Delivered if receipt.error_code.is_none() => FileStatus::Delivered,
+            // Exact historical acceptance outranks a retained cancellation
+            // request. The public receipt omits that internal failure history.
+            FileDeliveryStatus::Delivered
+                if receipt.event == FileEventState::Delivered && receipt.event_id.is_some() =>
+            {
+                FileStatus::Delivered
+            }
             FileDeliveryStatus::Failed if receipt.error_code.is_some() => FileStatus::Failed,
             FileDeliveryStatus::Queued if locally_running && receipt.error_code.is_none() => {
                 FileStatus::Queued

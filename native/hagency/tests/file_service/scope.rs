@@ -173,3 +173,154 @@ fn native_file_service_protocol_missing_failure_stays_unknown() {
         FileStatus::OutcomeUnknown
     );
 }
+
+/// The domain's trusted adapter observations are correlation DATA in this
+/// projection test, as in hagency-store/tests/file_delivery.rs. This creates no
+/// SDK proof or qualified source/media receipt and makes no network delivery claim.
+#[tokio::test]
+async fn native_file_service_protocol_delivered_after_cancellation() {
+    let mut h = Harness::new(128).await;
+    let qualified = h.initialize().await;
+    let handle = h.owner.handle();
+    let request = input("settled_after_cancel");
+    let mut admission =
+        h.f.store
+            .reserve_file_delivery(h.cap.clone(), request.request().unwrap())
+            .await
+            .unwrap();
+    let stage = StageCommitment {
+        namespace_digest: "3".repeat(64),
+        operation_id: admission.upload.identity.id().into(),
+        receipt_digest: "4".repeat(64),
+        len: 12,
+    };
+    h.f.store
+        .bind_file_delivery_stage(
+            h.cap.clone(),
+            admission.identity.clone(),
+            Arc::new(admission.upload.preparation.take().unwrap()),
+            CapturedFile {
+                size: 12,
+                sha256: "2".repeat(64),
+            },
+            stage.clone(),
+        )
+        .await
+        .unwrap();
+    h.f.store
+        .observe_upload_staged(
+            admission.upload.identity.clone(),
+            stage.clone(),
+            UploadStageObservation::FileAndDirectorySynced,
+        )
+        .await
+        .unwrap();
+    let upload =
+        h.f.store
+            .claim_upload(h.cap.clone(), admission.upload.identity.clone(), 30_000)
+            .await
+            .unwrap()
+            .unwrap();
+    let sent_upload =
+        h.f.store
+            .begin_upload(h.cap.clone(), upload.clone())
+            .await
+            .unwrap();
+    h.f.store
+        .record_upload_acceptance(
+            admission.upload.identity.clone(),
+            upload.fence(),
+            stage,
+            UploadAcceptance {
+                receipt_id: "private_upload".into(),
+                receipt_digest: "5".repeat(64),
+            },
+        )
+        .await
+        .unwrap();
+    drop(sent_upload);
+    let claim =
+        h.f.store
+            .claim_file_publication(h.cap.clone(), admission.identity.clone(), 30_000)
+            .await
+            .unwrap()
+            .unwrap();
+    let send =
+        h.f.store
+            .begin_file_publication(h.cap.clone(), claim)
+            .await
+            .unwrap();
+    let locator = send.locator().clone();
+    let accepted = FileDeliveryAcceptance {
+        transaction_id: locator.transaction_id.clone(),
+        content_digest: locator.content_digest.clone(),
+        event_id: "$accepted_after_cancel".into(),
+        receipt_id: "private_event".into(),
+        receipt_digest: "6".repeat(64),
+    };
+    let cancelled =
+        h.f.store
+            .cancel_file_delivery(admission.identity.clone(), FileDeliveryFailure::Cancelled)
+            .await
+            .unwrap();
+    assert!(cancelled.cancel_requested);
+    assert_eq!(cancelled.status, FileDeliveryStatus::OutcomeUnknown);
+    assert_eq!(cancelled.event, FileEventState::WritePossible);
+    assert_eq!(
+        handle
+            .inspect(h.cap.clone(), admission.identity.id().into())
+            .await
+            .unwrap()
+            .status,
+        FileStatus::OutcomeUnknown
+    );
+    drop(send);
+    let settlement =
+        h.f.store
+            .restore_file_delivery_settlement(locator)
+            .await
+            .unwrap()
+            .unwrap();
+    let delivered =
+        h.f.store
+            .record_file_delivery_settlement(Arc::new(settlement), accepted)
+            .await
+            .unwrap();
+    assert_eq!(delivered.status, FileDeliveryStatus::Delivered);
+    assert_eq!(delivered.event, FileEventState::Delivered);
+    assert!(delivered.cancel_requested);
+    assert_eq!(delivered.error_code, Some(FileDeliveryFailure::Cancelled));
+    assert!(
+        !delivered.replayed,
+        "actual first historical domain settlement"
+    );
+    let view = handle
+        .inspect(h.cap.clone(), admission.identity.id().into())
+        .await
+        .unwrap();
+    assert_eq!(view.status, FileStatus::Delivered);
+    assert_eq!(view.error_code, None);
+    view.validate().unwrap();
+    if qualified {
+        let replay = handle
+            .submit(h.cap.clone(), request)
+            .unwrap()
+            .wait()
+            .await
+            .unwrap();
+        assert_eq!(replay.delivery_id, view.delivery_id);
+        assert_eq!(replay.status, FileStatus::Delivered);
+        assert_eq!(replay.error_code, None);
+        h.empty().await;
+    }
+    let retained =
+        h.f.store
+            .inspect_file_delivery(h.cap.clone(), admission.identity.id().into())
+            .await
+            .unwrap();
+    assert!(retained.cancel_requested);
+    assert_eq!(retained.error_code, Some(FileDeliveryFailure::Cancelled));
+    assert_eq!(h.count(), 1);
+    h.fake.no_request().await;
+    h.close().await;
+}

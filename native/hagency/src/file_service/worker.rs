@@ -4,6 +4,7 @@ use hagency_media::{Codec, Limits};
 use hagency_media_store::{Recovery, Store, SyncEvidence};
 use std::{
     cell::RefCell,
+    collections::BTreeMap,
     rc::Rc,
     sync::{Arc, atomic::Ordering},
 };
@@ -40,6 +41,8 @@ async fn serve(
     let codec = Codec::new(Limits::new(setup.limit, 2).expect("validated fixed codec bound"));
     let gate = Rc::new(Semaphore::new(1));
     let mut tasks = tokio::task::JoinSet::new();
+    // The same two registry slots bound these task-to-original associations.
+    let mut task_jobs = BTreeMap::new();
     let mut initialized = None;
     let mut panic_seen = false;
     let mut close_reply = None;
@@ -62,7 +65,9 @@ async fn serve(
                     // Registry slots already bound this set. No extra jobs or subscribers.
                     let (shared,registry,media,codec,gate)=(shared.clone(),registry.clone(),media.clone(),codec.clone(),gate.clone());
                     let limit=setup.limit;
-                    tasks.spawn_local(async move {pipeline::job(pipeline::Context{shared,registry,media,codec,gate,limit},job.clone(),reply).await;job});
+                    let original=job.clone();
+                    let task=tasks.spawn_local(async move {pipeline::job(pipeline::Context{shared,registry,media,codec,gate,limit},job.clone(),reply).await;job});
+                    task_jobs.insert(task.id(),original);
                 },
                 Some(Command::Close(reply))=>{
                     registry.closed.store(true,Ordering::Release);registry.cancel.cancel();
@@ -75,11 +80,21 @@ async fn serve(
                     std::future::pending::<()>().await;
                 },
             },
-            result=tasks.join_next(),if !tasks.is_empty()=>{
+            result=tasks.join_next_with_id(),if !tasks.is_empty()=>{
                 match result {
-                    Some(Ok(job)) if job.info.lock().is_ok_and(|i|i.releasable)=>{let _=registry.remove(&job);},
-                    Some(Ok(_))=>{},
-                    Some(Err(_))=>{panic_seen=true;registry.ready.store(false,Ordering::Release);},
+                    Some(Ok((id,job)))=>{
+                        if task_jobs.remove(&id).is_some_and(|original|Arc::ptr_eq(&original,&job)) {
+                            if job.info.lock().is_ok_and(|i|i.releasable)&&registry.remove(&job).is_err(){
+                                panic_seen=true;registry.ready.store(false,Ordering::Release);job.mark_unknown();
+                            }
+                        }else{
+                            panic_seen=true;registry.ready.store(false,Ordering::Release);registry.mark_unknown();
+                        }
+                    },
+                    Some(Err(error))=>{
+                        if let Some(original)=task_jobs.remove(&error.id()) {original.mark_unknown();}else{registry.mark_unknown();}
+                        panic_seen=true;registry.ready.store(false,Ordering::Release);
+                    },
                     None=>{},
                 }
             }

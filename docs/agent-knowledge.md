@@ -2427,3 +2427,20 @@ through another empty-owner close. Windows directory-sync refusal remains
 negative qualification. Fresh encrypted native executable acceptance depends on
 ADR102 actual anchored cross-signing enrollment and signed recipient sessions;
 library crypto fixtures and compile-only MCP peers do not prove that workflow.
+
+
+### File service task unwind and final acceptance projection
+
+A failed Tokio task must be associated with its original retained file job by the
+actual task ID, even when no Job value returns. After unwind its cached queued
+receipt and historical local-running projection must become OutcomeUnknown;
+keep its slot, preparation, source/media objects and journal lock until physical
+custody is acknowledged. A task association inconsistency fences the bounded
+owner conservatively. Neither a panic nor a repeated close grants safe release.
+
+A domain Delivered event with its original event ID takes precedence over an
+earlier cancellation request. The scoped public receipt reports Delivered with
+no error code; the domain retains cancel_requested and its cancellation history.
+A missing failure code or contradictory pending event still projects Unknown.
+This projection creates no SDK proof and cannot turn upload acceptance into a
+file event or canonical Done.

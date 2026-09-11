@@ -15,6 +15,7 @@ use std::{
 pub(super) struct Hooks {
     source: Mutex<Option<Arc<SourceGate>>>,
     pub close_mode: AtomicU8,
+    source_unwind: AtomicBool,
 }
 impl Hooks {
     pub fn block_source(&self) {
@@ -32,6 +33,10 @@ impl Hooks {
                 "fixture did not release actual blocked file worker"
             );
         }
+        assert!(
+            !self.source_unwind.swap(false, Ordering::AcqRel),
+            "fixture original file job unwind before capture"
+        );
     }
 }
 pub(super) struct SourceGate {
@@ -630,5 +635,185 @@ async fn native_file_service_admission_network_wait_process() {
     println!("{MARKER}");
     // Deliberately retain exact source/SDK/media/process wrappers until the
     // enclosing test child exits. No fabricated release or status is written.
+    std::mem::forget(h);
+}
+
+/// A real task panic must retire its live projection without discarding the
+/// original preparation or converting physical owner loss into a close ACK.
+#[tokio::test]
+async fn native_file_service_shutdown_original_job_unwind() {
+    const CHILD: &str = "HAGENCY_FILE_SERVICE_UNWIND_CHILD";
+    const MARKER: &str =
+        "file-service child: original task unwound; replay and inspect unknown; custody retained";
+    const REFUSED: &str =
+        "file-service child: Windows staging unavailable; no unwind admission qualified";
+    if std::env::var(CHILD).ok().as_deref() != Some("isolated_fixture_v1") {
+        use tokio::io::AsyncReadExt;
+        let temporary = tempfile::tempdir().unwrap();
+        let mut child = tokio::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "file_service::admission_tests::native_file_service_shutdown_original_job_unwind",
+                "--nocapture",
+            ])
+            .env(CHILD, "isolated_fixture_v1")
+            .env("TMPDIR", temporary.path())
+            .env("TMP", temporary.path())
+            .env("TEMP", temporary.path())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let read = async move {
+            let mut output = Vec::new();
+            stdout.take(8193).read_to_end(&mut output).await.unwrap();
+            output
+        };
+        let observed = tokio::time::timeout(Duration::from_secs(25), async {
+            tokio::join!(child.wait(), read)
+        })
+        .await;
+        let (status, output) = match observed {
+            Ok(value) => value,
+            Err(_) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                panic!("isolated file unwind custody fixture did not finish");
+            }
+        };
+        assert!(
+            status.unwrap().success(),
+            "isolated original-unknown fixture failed"
+        );
+        assert!(output.len() <= 8192, "bounded child output exceeded");
+        let output = std::str::from_utf8(&output).unwrap();
+        if cfg!(windows) && output.contains(REFUSED) {
+            assert!(!output.contains(MARKER));
+            eprintln!("{REFUSED}");
+        } else {
+            assert!(
+                output.contains(MARKER),
+                "actual task unwind custody evidence absent"
+            );
+        }
+        // Reaped process death releases OS objects; it does not upgrade its
+        // unknown domain/journal facts or prove that the POST was unsent.
+        return;
+    }
+
+    let mut h = Harness::new(128).await;
+    if !h.initialize().await {
+        h.fake.no_request().await;
+        h.close().await;
+        println!("{REFUSED}");
+        return;
+    }
+    std::fs::write(h.f.root.path().join("work/missing.bin"), b"never captured").unwrap();
+    let handle = h.owner.handle();
+    let gate = h.gate();
+    handle
+        .registry
+        .tests
+        .source_unwind
+        .store(true, Ordering::Release);
+    let queued = handle
+        .submit(h.cap.clone(), input("unwind_original"))
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert_eq!(queued.status, FileStatus::Queued);
+    gate.entered().await;
+    let original = handle
+        .registry
+        .jobs
+        .lock()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .clone();
+    assert!(original.info.lock().unwrap().live);
+    gate.release();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while handle.registry.ready.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    {
+        let info = original.info.lock().unwrap();
+        assert!(!info.live, "the original task has actually unwound");
+        assert!(!info.releasable, "unwind is not a custody release");
+    }
+    {
+        let custody = original.original.lock().await;
+        assert!(custody.preparation.is_some());
+        assert!(custody.admission.is_some());
+        assert!(custody.snapshot.is_none());
+    }
+    let replay = handle
+        .submit(h.cap.clone(), input("unwind_original"))
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert_eq!(replay.delivery_id, queued.delivery_id);
+    assert_eq!(replay.status, FileStatus::OutcomeUnknown);
+    assert_eq!(replay.error_code.as_deref(), Some("outcome_unknown"));
+    assert!(replay.replayed);
+    let inspected = handle
+        .inspect(h.cap.clone(), queued.delivery_id.clone())
+        .await
+        .unwrap();
+    assert_eq!(inspected.status, FileStatus::OutcomeUnknown);
+    assert_eq!(inspected.error_code, replay.error_code);
+    let receipt =
+        h.f.store
+            .inspect_file_delivery(h.cap.clone(), queued.delivery_id)
+            .await
+            .unwrap();
+    assert!(receipt.captured.is_none());
+    assert_eq!(
+        receipt.stage,
+        hagency_core::uploads::UploadStageState::Unbound
+    );
+    assert!(matches!(
+        handle.submit(h.cap.clone(), input("new_after_unwind")),
+        Err(FileError::Unavailable)
+    ));
+    assert_eq!(h.count(), 1);
+    assert_eq!(handle.registry.jobs.lock().unwrap().len(), 1);
+    assert!(Arc::ptr_eq(
+        handle
+            .registry
+            .jobs
+            .lock()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap(),
+        &original
+    ));
+    assert_eq!(h.owner.close().await, Err(FileError::Unknown));
+    assert_eq!(h.owner.close().await, Err(FileError::Unknown));
+    assert!(h.owner.pending_close.is_none());
+    assert_eq!(h.owner.close_result, Some(Err(FileError::Unknown)));
+    assert!(!h.owner.thread.as_ref().unwrap().is_finished());
+    assert!(matches!(
+        recovery::open(&Setup {
+            directory: h.f.root.path().join("file_state/media"),
+            namespace: "file_service_custody".into(),
+            limit: 128,
+        }),
+        Err(FileError::Unknown)
+    ));
+    h.fake.no_request().await;
+    println!("{MARKER}");
+    // Only the enclosing, reaped process ends physical custody. No test setter
+    // releases the original job, lock, preparation or execution Report.
     std::mem::forget(h);
 }
