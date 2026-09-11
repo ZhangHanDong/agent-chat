@@ -276,6 +276,19 @@ flags remain false even where the offline development workflow succeeds.
 
 ## Consequences
 
+Original executable fixture failures must retain their exact fixed variant,
+current wait phase, last fixed HTTP route category and bounded request count.
+Each launched service child has its own finite observation shared only with its
+fixture. Before panic cleanup kills/reaps that original PID, record its actual
+try_wait result and bounded fixed stderr classification from a retained read
+handle acquired before that original child is spawned. Path replacement cannot
+substitute another child output. Diagnostic writes are fallible and ignored on
+output failure so the original panic and cleanup remain intact. Never print stderr text,
+paths, credentials, room IDs or request payloads. Observation preserves original
+wait budgets, errors and cleanup and does not infer service exit from missing HTTP.
+The original Linux 85427cb failures remain failed and unexplained by local passes.
+
+
 Positive: one original bootstrap and Matrix owner can support a real scoped file tool.
 Negative: unknown jobs consume finite capacity and can prevent clean shutdown.
 

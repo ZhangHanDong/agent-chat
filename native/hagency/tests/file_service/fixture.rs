@@ -10,21 +10,81 @@ use hagency_store::{DomainRepository, EffectOutcome, private};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
+    cell::Cell,
     collections::BTreeSet,
     fs,
+    io::{Read, Seek},
     net::SocketAddr,
     path::PathBuf,
     process::{Child, Command, Stdio},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    rc::Rc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub const DATA: &[u8] = b"original native file bytes\0\xff\x80\n";
+const STARTUP_WATCHDOG: Duration = Duration::from_secs(15);
 
-pub struct Running(Option<Child>);
+#[derive(Clone, Copy, Debug)]
+struct Observation {
+    variant: &'static str,
+    phase: &'static str,
+    last_http: &'static str,
+    requests: u16,
+    status: &'static str,
+    started: Instant,
+}
+impl Observation {
+    fn new(variant: &'static str) -> Self {
+        Self {
+            variant,
+            phase: "launch",
+            last_http: "none",
+            requests: 0,
+            status: "unobserved",
+            started: Instant::now(),
+        }
+    }
+}
+
+pub struct Running {
+    child: Option<Child>,
+    observation: Rc<Cell<Observation>>,
+    // Independent read offset, opened before this original child is spawned.
+    // A later fixture rename/relaunch cannot substitute another child's output.
+    stderr: fs::File,
+}
 impl Running {
+    fn snapshot(&mut self) -> Value {
+        let observation = self.observation.get();
+        let child = match self.child.as_mut().map(Child::try_wait) {
+            Some(Ok(Some(status))) => {
+                json!({"state":"exited","success":status.success(),"code":status.code()})
+            }
+            Some(Ok(None)) => json!({"state":"running"}),
+            Some(Err(_)) => json!({"state":"inspection_failed"}),
+            None => json!({"state":"reaped"}),
+        };
+        let mut bytes = Vec::new();
+        let stderr = match self
+            .stderr
+            .rewind()
+            .and_then(|()| (&mut self.stderr).take(8193).read_to_end(&mut bytes))
+        {
+            Ok(_) => stderr_category(&bytes),
+            Err(_) => "read_failed",
+        };
+        // The original output is never interpolated. Categories, bounded counts,
+        // OS exit facts and fixture-owned static labels are the entire report.
+        json!({"variant":observation.variant,"phase":observation.phase,
+            "last_http":observation.last_http,"requests":observation.requests,
+            "status":observation.status,"elapsed_ms":observation.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            "child":child,"stderr":stderr,"stderr_bytes":bytes.len().min(8192),"stderr_truncated":bytes.len()>8192,
+            "service_ready_logged":bytes.windows(b"native service ready; production Agent execution remains unavailable".len())
+                .any(|value|value==b"native service ready; production Agent execution remains unavailable")})
+    }
     /// Check only the original service PID. This is not process-tree cleanup.
     pub fn stop_and_reap(mut self) {
-        let child = self.0.as_mut().unwrap();
+        let child = self.child.as_mut().unwrap();
         if child
             .try_wait()
             .expect("inspect original native child")
@@ -33,19 +93,43 @@ impl Running {
             child.kill().expect("terminate original native child");
         }
         child.wait().expect("reap original native child");
-        self.0 = None;
+        self.child = None;
     }
 }
 impl Drop for Running {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            use std::io::Write;
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "native file original process: {}",
+                self.snapshot()
+            );
+        }
         // Best-effort panic cleanup; successful tests use checked stop_and_reap.
-        if let Some(child) = &mut self.0 {
+        if let Some(child) = &mut self.child {
             let _ = child.kill();
             let _ = child.wait();
         }
     }
 }
+fn stderr_category(bytes: &[u8]) -> &'static str {
+    if bytes.is_empty() {
+        return "empty";
+    }
+    for line in bytes.split(|byte| *byte == b'\n') {
+        match line.strip_suffix(b"\r").unwrap_or(line) {
+            b"Error: Config" => return "config",
+            b"Error: Startup" => return "startup",
+            b"Error: Server" => return "server",
+            b"Error: Worker" => return "worker",
+            _ => {}
+        }
+    }
+    "other"
+}
 pub struct Fixture {
+    observation: Rc<Cell<Observation>>,
     pub root: tempfile::TempDir,
     pub state_dir: PathBuf,
     pub work: PathBuf,
@@ -64,9 +148,46 @@ fn now() -> u64 {
         .as_millis() as u64
 }
 impl Fixture {
+    pub(super) fn phase(&self, phase: &'static str) {
+        let mut observation = self.observation.get();
+        observation.phase = phase;
+        self.observation.set(observation);
+    }
+    pub(super) async fn next(&mut self, phase: &'static str) -> common::Request {
+        self.phase(phase);
+        let request = self.fake.next_phase(Some(phase)).await;
+        let mut observation = self.observation.get();
+        observation.requests = observation.requests.saturating_add(1);
+        observation.last_http = match (request.method.as_str(), request.target.as_str()) {
+            ("GET", "/_matrix/client/v3/account/whoami") => "whoami",
+            ("GET", "/_matrix/client/versions") => "versions",
+            ("GET", value) if value.starts_with("/_matrix/client/v3/sync?") => "sync",
+            ("GET", value)
+                if value.starts_with("/_matrix/client/v3/rooms/") && value.ends_with("/state") =>
+            {
+                "room_state"
+            }
+            ("POST", "/_matrix/client/v3/keys/query") => "keys_query",
+            ("POST", "/_matrix/client/v3/keys/upload") => "keys_upload",
+            ("POST", "/_matrix/client/v3/keys/device_signing/upload") => "device_signing",
+            ("POST", "/_matrix/client/v3/keys/signatures/upload") => "signatures",
+            ("POST", "/_matrix/client/v3/keys/claim") => "keys_claim",
+            ("POST", "/_matrix/media/v3/upload") => "media_upload",
+            ("PUT", value) if value.starts_with("/_matrix/client/v3/sendToDevice/") => "to_device",
+            ("PUT", value)
+                if value.starts_with("/_matrix/client/v3/rooms/") && value.contains("/send/") =>
+            {
+                "room_event"
+            }
+            _ => "other",
+        };
+        self.observation.set(observation);
+        request
+    }
     /// An actual new native task client inherits the original disposable
     /// caller's context. This grants no new capability or current authority.
     pub(super) async fn historical_file(&self, delivery_id: &str) -> Value {
+        self.phase("historical.mcp");
         let bytes = private::read_secret(&self.work.join("file-mcp.context")).unwrap();
         assert!(bytes.len() <= 8192);
         let inherited: std::collections::BTreeMap<String, String> =
@@ -151,7 +272,7 @@ impl Fixture {
                 return serde_json::from_slice(&bytes).unwrap();
             }
             if let Ok(request) =
-                tokio::time::timeout(Duration::from_millis(50), self.fake.next()).await
+                tokio::time::timeout(Duration::from_millis(50), self.next("delivery.http")).await
             {
                 requests += 1;
                 assert!(requests <= 96, "unbounded native protocol loop");
@@ -183,6 +304,7 @@ impl Fixture {
     }
 
     pub(super) async fn respond(&mut self, request: common::Request) {
+        self.phase("response.apply");
         assert_eq!(
             request.headers.get("authorization"),
             Some(&format!("Bearer {}", common::TOKEN))
@@ -281,9 +403,16 @@ impl Fixture {
     pub(super) async fn pause_write(&mut self, event: bool) -> common::Request {
         let until = tokio::time::Instant::now() + Duration::from_secs(20);
         for _ in 0..96 {
-            let request = tokio::time::timeout_at(until, self.fake.next())
-                .await
-                .expect("actual native write was not reached");
+            let request = tokio::time::timeout_at(
+                until,
+                self.next(if event {
+                    "uncertainty.event"
+                } else {
+                    "uncertainty.upload"
+                }),
+            )
+            .await
+            .expect("actual native write was not reached");
             let selected = if event {
                 request.method == "PUT"
                     && request.target.starts_with("/_matrix/client/v3/rooms/")
@@ -438,6 +567,7 @@ impl Fixture {
         drop(reserve);
         private::write_new(&work.join("sample.bin"), DATA).unwrap();
         Self {
+            observation: Rc::new(Cell::new(Observation::new("unlaunched"))),
             peer,
             room: room.into(),
             ciphertext: None,
@@ -465,14 +595,23 @@ impl Fixture {
             .stderr(Stdio::null());
         command
     }
-    pub fn launch(&self, enabled: bool) -> Running {
-        let file = private::open(&self.root.path().join("native.stderr"), true).unwrap();
-        Running(Some(
-            self.command(enabled)
-                .stderr(Stdio::from(file))
-                .spawn()
-                .unwrap(),
-        ))
+    pub fn launch(&mut self, enabled: bool, variant: &'static str) -> Running {
+        // A restarted child gets a distinct observation; it cannot change the
+        // original child's retained evidence even if their fixture is shared.
+        self.observation = Rc::new(Cell::new(Observation::new(variant)));
+        let stderr = self.root.path().join("native.stderr");
+        let file = private::open(&stderr, true).unwrap();
+        let stderr = fs::File::open(&stderr).unwrap();
+        Running {
+            child: Some(
+                self.command(enabled)
+                    .stderr(Stdio::from(file))
+                    .spawn()
+                    .unwrap(),
+            ),
+            observation: self.observation.clone(),
+            stderr,
+        }
     }
     pub(super) fn sql(&self) -> rusqlite::Connection {
         rusqlite::Connection::open(self.state_dir.join("domain.sqlite3")).unwrap()
@@ -492,7 +631,7 @@ impl Fixture {
             .unwrap()
     }
     pub async fn capabilities(&self) -> Value {
-        let until = tokio::time::Instant::now() + Duration::from_secs(15);
+        let until = tokio::time::Instant::now() + STARTUP_WATCHDOG;
         loop {
             if let Ok(mut stream) = tokio::net::TcpStream::connect(self.address).await {
                 let token = String::from_utf8(
@@ -507,26 +646,37 @@ impl Fixture {
                     .unwrap();
                 let response = String::from_utf8(bytes).unwrap();
                 if response.starts_with("HTTP/1.1 200") {
-                    return serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1)
-                        .unwrap();
+                    let value: Value =
+                        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+                    let mut observation = self.observation.get();
+                    observation.status = match value["development_execution"]["state"].as_str() {
+                        Some("disabled") => "disabled",
+                        Some("configured") => "configured",
+                        Some("refreshing") => "refreshing",
+                        Some("enrolling") => "enrolling",
+                        Some("claiming") => "claiming",
+                        Some("registering") => "registering",
+                        Some("running") => "running",
+                        Some("completed") => "completed",
+                        Some("unavailable") => "unavailable",
+                        Some("outcome_unknown") => "outcome_unknown",
+                        Some("no_work") => "no_work",
+                        Some("closed") => "closed",
+                        _ => "other",
+                    };
+                    self.observation.set(observation);
+                    return value;
                 }
             }
             assert!(
                 tokio::time::Instant::now() < until,
-                "native bootstrap did not serve capabilities: {}",
-                {
-                    use std::io::Read;
-                    let mut bytes = Vec::new();
-                    if let Ok(file) = fs::File::open(self.root.path().join("native.stderr")) {
-                        file.take(8192).read_to_end(&mut bytes).unwrap();
-                    }
-                    String::from_utf8_lossy(&bytes).into_owned()
-                }
+                "native bootstrap did not serve capabilities; original child evidence follows on panic cleanup"
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
     pub async fn wait_result(&self) -> Value {
+        self.phase("driver.result");
         let until = tokio::time::Instant::now() + Duration::from_secs(20);
         loop {
             let status = self.capabilities().await["development_execution"].clone();
@@ -543,4 +693,74 @@ impl Fixture {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
+}
+
+#[tokio::test]
+async fn native_file_service_original_observation() {
+    let mut f = Fixture::new(false).await;
+    let mut child = f.launch(true, "observation.live");
+    let request = f.next("observation.whoami").await;
+    assert_eq!(request.target, "/_matrix/client/v3/account/whoami");
+    // Holding the real response keeps the original service running. Merely
+    // waiting for another request must not fabricate a process exit.
+    let live = child.snapshot();
+    assert_eq!(live["child"]["state"], "running");
+    assert_eq!(live["variant"], "observation.live");
+    assert_eq!(live["phase"], "observation.whoami");
+    assert_eq!(live["last_http"], "whoami");
+    assert_eq!(live["requests"], 1);
+    assert!(serde_json::to_vec(&live).unwrap().len() <= 1024);
+    let original = child.observation.clone();
+    child.stop_and_reap();
+    drop(request);
+
+    fs::rename(
+        f.root.path().join("native.stderr"),
+        f.root.path().join("native-observation-first.stderr"),
+    )
+    .unwrap();
+    // This is a real startup refusal, not an injected process/status result.
+    fs::write(f.state_dir.join("development-driver.json"), b"{}").unwrap();
+    let mut child = f.launch(true, "observation.refused");
+    assert!(!Rc::ptr_eq(&original, &child.observation));
+    f.phase("observation.startup");
+    // Reuse the existing fixture startup watchdog; no original deadline changes.
+    tokio::time::timeout(STARTUP_WATCHDOG, async {
+        while child.child.as_mut().unwrap().try_wait().unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("actual invalid-configuration child must exit");
+    let exited = child.snapshot();
+    assert_eq!(exited["child"]["state"], "exited");
+    assert_eq!(exited["child"]["success"], false);
+    assert_eq!(exited["stderr"], "config");
+    assert_eq!(exited["requests"], 0);
+    assert_eq!(exited["last_http"], "none");
+    fs::rename(
+        f.root.path().join("native.stderr"),
+        f.root.path().join("native-observation-refused.stderr"),
+    )
+    .unwrap();
+    private::write_new(&f.root.path().join("native.stderr"), b"Error: Startup\n").unwrap();
+    assert_eq!(child.snapshot()["stderr"], "config");
+    assert_eq!(original.get().variant, "observation.live");
+    assert_eq!(original.get().phase, "observation.whoami");
+    let rendered = serde_json::to_string(&exited).unwrap();
+    assert!(rendered.len() <= 1024);
+    for private in [common::TOKEN, f.state_dir.to_str().unwrap(), &f.room] {
+        assert!(!rendered.contains(private));
+    }
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _original_child = child;
+        panic!("fixture original failure retained");
+    }))
+    .unwrap_err();
+    assert_eq!(
+        panic.downcast_ref::<&'static str>(),
+        Some(&"fixture original failure retained")
+    );
+    f.fake.no_request().await;
+    f.fake.close().await;
 }

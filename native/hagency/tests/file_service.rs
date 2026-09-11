@@ -9,8 +9,15 @@ use serde_json::json;
 async fn native_file_service_executable() {
     for direct in [false, true] {
         let mut f = Fixture::new(direct).await;
-        let child = f.launch(true);
-        let first = f.fake.next().await;
+        let child = f.launch(
+            true,
+            if direct {
+                "executable.dm"
+            } else {
+                "executable.group"
+            },
+        );
+        let first = f.next("executable.initial_whoami").await;
         assert_eq!(first.target, "/_matrix/client/v3/account/whoami");
         assert_eq!(f.state(), "queued");
         assert_eq!(f.attempts(), 0);
@@ -72,7 +79,14 @@ async fn native_file_service_executable() {
 async fn native_file_service_uncertainty() {
     for event in [false, true] {
         let mut f = Fixture::new(true).await;
-        let child = f.launch(true);
+        let child = f.launch(
+            true,
+            if event {
+                "uncertainty.event"
+            } else {
+                "uncertainty.upload"
+            },
+        );
         let held = f.pause_write(event).await;
         assert_eq!(f.delivered_count(), 0);
         assert_eq!(f.attempts(), 1);
@@ -162,11 +176,13 @@ async fn native_file_service_uncertainty() {
     // The configured DM is invalidated through its actual initial Matrix state,
     // before any claim or source handoff. No DB availability/capability setter.
     let mut f = Fixture::new(true).await;
-    let child = f.launch(true);
+    let child = f.launch(true, "uncertainty.negative_room");
     let until = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
     let mut observed = false;
     for _ in 0..16 {
-        let request = tokio::time::timeout_at(until, f.fake.next()).await.unwrap();
+        let request = tokio::time::timeout_at(until, f.next("uncertainty.negative_room"))
+            .await
+            .unwrap();
         assert_eq!(
             request.method, "GET",
             "negative room must precede key or file writes"

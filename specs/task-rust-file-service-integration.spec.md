@@ -91,7 +91,7 @@ current or historical authority checks.
 
 ## Acceptance Criteria
 
-<!-- lint-ack: bdd-rule-grouping — Eight independently bounded integration scenarios retain one explicit application slice. -->
+<!-- lint-ack: bdd-rule-grouping — Independent integration and original-process observation scenarios retain one explicit application slice. -->
 
 Scenario: Actual native bootstrap and first MCP file call deliver to the original encrypted conversation
   Level: integration
@@ -183,17 +183,39 @@ Scenario: MCP and default service boundaries remain explicit and bounded
   And the existing helper context request IDs frame limits and deadlines remain unchanged
   And default serve remains passive with production capability flags false
 
+Scenario: Original executable failures retain bounded child evidence
+  Level: integration
+  Test Double: actual native children with valid and refused private configuration
+  Targets: native/hagency/tests/file_service/fixture.rs
+  Test: native_file_service_original_observation
+  Given the original executable fixture and its own child process
+  When an HTTP wait or assertion fails before cleanup or the child actually exits
+  Then fixed variant phase request-count and child-state evidence survives before original panic cleanup
+  And only bounded fixed stderr categories are printed without payload credentials identifiers or changed deadlines
+  And observation cannot report an exit before the actual original child exits
+  And stderr follows the original retained read handle across path replacement and output failure cannot replace the original panic
+
 ## Decisions
 
 Before implementation parse and lint this proposed contract and review the exact
 interface manifest. Change to accepted ADR and active task only when that review
-permits code. Run all eight real selectors with complete cross-crate prerequisites,
+permits code. Run all nine real selectors with complete cross-crate prerequisites,
 then affected hagency MCP bootstrap HTTP and task-client tests. Run warnings-denied
 Clippy on all affected hagency execution and runtime targets and native plus Windows GNU checks; cross
 compilation is not actual Windows qualification. Strict lifecycle uses --code .
 and every changed path, including ./Cargo.lock if changed. Record pass fail skip
 uncertain and platform refusal branches separately. Do not publish unimplemented
 selectors or infer a positive network pass from an early durability refusal.
+
+Original Linux CI85427cb failed the executable and uncertainty scenarios inside
+an unlabelled Fake.next wait. The original branch and child status remain unknown;
+a later local three-test pass does not explain those failures. The authorized
+follow-up changes only the three executable fixture files, this decision/task and
+append-only coordination docs. It preserves actual deadlines, results and cleanup
+while capturing bounded fixed evidence from the same original child before panic
+cleanup. The new refusal-observation test reuses the existing fifteen-second
+fixture startup watchdog; no original deadline changes. No production path or
+Matrix test helper is changed.
 
 ## Out of Scope
 

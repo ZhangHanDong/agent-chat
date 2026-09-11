@@ -78,11 +78,13 @@ async fn native_file_service_restart() {
          WHEN NEW.event_state='delivered'
          BEGIN SELECT RAISE(ABORT, 'fixture first domain settlement refused'); END;",
     ).unwrap();
-    let child = f.launch(true);
+    let child = f.launch(true, "restart.original");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut requests = 0;
     loop {
-        if let Ok(request) = tokio::time::timeout(Duration::from_millis(50), f.fake.next()).await {
+        if let Ok(request) =
+            tokio::time::timeout(Duration::from_millis(50), f.next("restart.original.http")).await
+        {
             requests += 1;
             assert!(requests <= 96);
             f.respond(request).await;
@@ -137,11 +139,13 @@ async fn native_file_service_restart() {
         f.root.path().join("native-first.stderr"),
     )
     .unwrap();
-    let child = f.launch(true);
+    let child = f.launch(true, "restart.reopened");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut requests = 0;
     loop {
-        if let Ok(request) = tokio::time::timeout(Duration::from_millis(50), f.fake.next()).await {
+        if let Ok(request) =
+            tokio::time::timeout(Duration::from_millis(50), f.next("restart.reopened.http")).await
+        {
             requests += 1;
             assert!(requests <= 24);
             assert_eq!(

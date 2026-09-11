@@ -4269,7 +4269,7 @@ Independent review corrected reattachment testing after source sequence advancem
 and required the retained normalization rejection. The integrated locked workspace passes441 unique tests plus one proxy child
 (442 printed),83 suite summaries and zero failures/ignored. All301 Rust selectors
 resolve. Full workspace warnings-denied Clippy, Windows GNU affected Clippy,
-formatting and whitespace checks pass. Strict agent-spec1.4 lifecycle passes10/10, covering all nine bound scenarios
+formatting and whitespace checks pass. Strict agent-spec1.4 lifecycle passes 10/10, covering all nine bound scenarios
 and all20 explicit changed paths, with zero failed/skipped/uncertain/pending-review
 verdicts. The fixed metadata/no-authority lint suggestions do not alter those results. No live provider or runtime state
 was opened, and no deployment or service cutover is enabled.
@@ -5863,3 +5863,39 @@ Positive Windows staging remains unqualified by these checks. The upstream
 WAL-reset issue is an open separate dependency assessment with verified original
 package/source hashes; this slice enables only the pinned empty trace feature
 and leaves Cargo.lock and all dependency versions unchanged.
+
+
+### 2026-09-11 — Original Linux 85427cb file fixture diagnostics
+
+The original Linux job 103200776066 in run 34579897607 failed
+native_file_service_executable and native_file_service_uncertainty at the shared
+10.9-second SDK-plus-HTTP fixture wait; native_file_service_restart passed.
+The original target result is 1 passed / 2 failed / 0 ignored in 45.87 seconds.
+No variant, wait callsite or original child status was printed, and panic cleanup
+removed private child stderr with its temporary directory. These failures remain
+failed and their cause is unproven. An unchanged isolated macOS run passed all
+three tests in 7.77 seconds and does not replace that Linux result.
+
+The bounded follow-up adds static variant/wait/last-route labels, saturating
+request counts, elapsed time and safe prior status categories to the same
+original child. Before panic cleanup terminates/reaps that PID, it reports actual
+try_wait state and only fixed bounded stderr categories from its original retained
+read handle, with fallible output that cannot replace a panic. The new refusal
+observation uses the existing fifteen-second startup watchdog. It never prints raw
+stderr or protocol/private values and leaves production source, the shared Fake
+helper, all original waits and process cleanup unchanged. A separate actual-child
+regression holds a real TLS whoami response, then observes a distinct real Config
+refusal and verifies that cleanup preserves the original panic. No backend fix,
+retry, deadline change or scheduling change is claimed.
+
+
+Final local file_service validation passes 4/4 in 8.18 seconds, including all
+three original selectors and the actual-child observation regression. Strict
+ADR101 lifecycle passes 10/10: nine scenarios with 15 actual passing test matches
+plus the exact seven-path boundary, with zero failed/pending/skipped/uncertain.
+All-target hagency native Clippy passes 37.70s and Windows GNU Clippy passes 36.47s
+with warnings denied. Formatting and diff checks pass; Cargo files are unchanged.
+Windows GNU compilation is not platform qualification. The original Linux
+failures, unchanged local diagnostic pass and final observation checks are kept
+as separate external logs under linux-85427cb-file-observation-*; exact original
+source/log hashes are in linux-85427cb-file-service-original-evidence.json.
