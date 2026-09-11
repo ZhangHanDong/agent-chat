@@ -22,6 +22,7 @@ encryption without reconstructing upload authority or wiring a network workflow.
 - Keep failed acceptance bytes in the poisoned owner until explicit close and preserve committed evidence through validated reopen.
 - Return only bounded phase and receipt commitments from inspection and never reconstruct a live permit on replay or restart.
 - Restore an opaque historical reference only by a bounded exact id after protected record validation with borrowed original fence stage and route metadata for future domain settlement.
+- Execute deliberate process-wide memory exhaustion in an exact-selector child process so concurrent upload and file-publication scenarios retain independent capacity; child failure or timeout must fail the parent scenario.
 
 ### Must Not
 - Do not introduce a process-global response map automatic unknown retry HTTP service coordinator runtime tool media adapter or production activation.
@@ -31,6 +32,7 @@ encryption without reconstructing upload authority or wiring a network workflow.
 ## Boundaries
 
 ### Allowed Changes
+- native/hagency-matrix/Cargo.toml
 - native/hagency-matrix/src/sdk.rs
 - native/hagency-matrix/src/upload_custody.rs
 - native/hagency-matrix/src/sdk/upload_custody.rs
@@ -86,7 +88,7 @@ Scenario: Bootstrap and encrypted history fail closed
 Scenario: Reserved response and copy capacity remain finite
   Test: native_matrix_upload_custody_capacity
   Level: integration
-  Test Double: actual SDK commits and held shared memory permits
+  Test Double: actual SDK commits and held shared memory permits in an isolated exact-selector process
   Given64 retained records independently growing intake and exhausted shared body custody
   When new admission or response copying is attempted
   Then new work is refused before body copying and existing exact receipt inspection remains available across owner reopen

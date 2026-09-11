@@ -76,6 +76,13 @@ metadata-flush proof, hardware power-loss proof or complete upload delivery.
 
 One durable reservation supplies one ephemeral permit; historical inspection supplies settlement evidence only. A coordinator still must associate the actual response and revalidate current authority before HTTP.
 
+The capacity regression fixture deliberately holds all64 process-wide response
+permits. It runs through the exact original test selector in a separate process,
+with a finite parent deadline and mandatory successful child verdict. Its former
+module-local serial lock did not cover concurrent staged-upload and file-publication
+tests, so their otherwise valid acceptance could receive Capacity during this
+injection. Production limits and refusal behavior remain unchanged.
+
 ## Alternatives Considered
 
 Turning a Possible summary or restored reference into a new POST grant would repeat unknown effects. Treating any valid response as belonging to this upload would omit the original operation association.

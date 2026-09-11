@@ -678,6 +678,32 @@ async fn native_matrix_upload_custody_corruption() {
 
 #[tokio::test]
 async fn native_matrix_upload_custody_capacity() {
+    const CHILD: &str = "HAGENCY_UPLOAD_CAPACITY_FIXTURE";
+    if std::env::var_os(CHILD).as_deref() != Some(std::ffi::OsStr::new("isolated")) {
+        // This scenario intentionally occupies every process-wide response slot.
+        // A module-local serial lock cannot protect file publication or staged
+        // uploads in other modules from that fault injection.
+        let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "sdk::upload_fixture::native_matrix_upload_custody_capacity",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(CHILD, "isolated")
+            .kill_on_drop(true);
+        let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
+            .await
+            .expect("isolated capacity scenario deadline")
+            .expect("isolated capacity scenario process");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed; 0 failed; 0 ignored"),
+            "isolated capacity scenario did not pass: {stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let _serial = serial().lock().await;
     let mut domain = Domain::new();
     let mut fake = common::Fake::start(true).await;

@@ -6355,3 +6355,32 @@ review found the original three races fixed and no material defect in the final
 refresh delta; that review did not rerun tests. Neither local browser evidence nor
 the new CI job claims unexecuted platform qualification. M7 and the overall
 migration remain open.
+
+
+### 2026-09-11 — Integrated verification and upload fixture isolation
+
+At b856b47, full workspace/all-feature Clippy and binding inventory passed.
+Original full Cargo run recorded633 independent passes plus1 nested pass and
+3 failures. Two browser failures referenced a nonexistent Playwright cache binary;
+explicit installed Chrome153.0.8010.36 reran both actual selectors successfully.
+The third was historical file upload acceptance returning Capacity. Its exact
+original binary passed a single-selector diagnostic; source tracing found the
+capacity fixture intentionally consuming all64 process-wide permits under a
+module-local lock. Its injected exhaustion now runs in a bounded exact-selector
+child and fails on missing/failed child verdict or timeout. Production unchanged.
+
+The first focused compile failed because tokio process was not an explicit Matrix
+dev feature; that failure is retained. After adding only the development feature,
+the whole Matrix library passed115/115,0 ignored. Logs and source/verdict metadata
+are under the migration cache as upload-capacity-isolation-*,
+console-correct-browser-diagnostic.*, and
+file-publication-historical-original-artifact-diagnostic.*.
+Original Node verify:ci passed; full Vitest4292 passed/1 failed/1 skipped.
+The failing framework-acp-probe file passed3/3 when run separately, so its
+original full-run cause remains unresolved. Hosted b856b47 macOS, browser and
+Node jobs passed; Linux receive failures expose a separate O_PATH directory-sync
+defect, and Windows original CI is still running. No full migration pass/cutover.
+
+Capacity-isolation final qualification: strict lifecycle7/7 (boundary + six
+actual scenario selectors),0 failed/skip/uncertain; package all-target warnings-denied
+Clippy passed. All115 Matrix library tests passed before the focused lifecycle.

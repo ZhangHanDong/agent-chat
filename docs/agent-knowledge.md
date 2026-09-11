@@ -2812,3 +2812,19 @@ DELETE awaits. An explicit new ticket waits for the original logout. Same-select
 refresh keeps observations visible with a busy indicator; transport failure marks
 them stale. Different selections, invalid/retired authority and missing records
 clear the observations. No authority or observation state is persisted by scripts.
+
+
+### 2026-09-11 — Isolate SDK upload capacity fault injection
+
+The SDK upload acceptance semaphore is process-wide (64 queued/uncommitted
+response copies). The capacity fixture previously held all permits behind only
+a module-local mutex, so parallel file-publication acceptance could fail Capacity.
+The exact capacity selector now executes in a bounded child process and requires
+an actual one-test successful verdict. The tokio process feature is explicit in
+Matrix dev-dependencies; production admission and capacity remain unchanged.
+The integrated original b856b47 failure and same-artifact historical-only passing
+diagnostic are preserved separately; the corrected full Matrix library passed
+115 tests without skips. Browser-path correction also passed both actual browser
+selectors, without changing source/assets. Original full Vitest was4292 pass,
+1 failure (framework ACP version null),1 skip; its focused3-test diagnostic
+passed but does not explain or replace the original failure.
