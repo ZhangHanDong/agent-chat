@@ -1,3 +1,5 @@
+#[path = "inbox.rs"]
+mod inbox;
 use super::{Failure, Shared, StatusHandle, config::Prepared, workspace::WorkspaceAccess};
 use hagency_execution::{Operation, Report};
 use hagency_matrix::{CancellationToken, Collector};
@@ -51,6 +53,7 @@ impl Driver {
                         workspace: &workspace,
                         files: files.as_ref(),
                         enrollment: prepared.enrollment,
+                        receive_inbox: prepared.receive_inbox,
                         cancel: &signal,
                         status: &status,
                         #[cfg(test)]
@@ -166,6 +169,7 @@ struct Attempt<'a> {
     workspace: &'a WorkspaceAccess,
     files: Option<&'a crate::file_service::FileHandle>,
     enrollment: bool,
+    receive_inbox: Option<hagency_core::received_files::ReceiveInboxPlan>,
     cancel: &'a CancellationToken,
     status: &'a StatusHandle,
     #[cfg(test)]
@@ -181,6 +185,7 @@ async fn run(input: Attempt<'_>) -> Result<Option<Box<Report>>, Failure> {
         workspace,
         files,
         enrollment,
+        receive_inbox,
         cancel,
         status,
         #[cfg(test)]
@@ -218,6 +223,12 @@ async fn run(input: Attempt<'_>) -> Result<Option<Box<Report>>, Failure> {
                     Failure::Startup
                 }
             })?;
+    }
+    if let Some(plan) = receive_inbox
+        && !inbox::prepare(domain, collector, plan, cancel, status).await?
+    {
+        status.phase("no_work");
+        return Ok(None);
     }
     if let Some(files) = files {
         files.initialize().await.map_err(|e| {
@@ -413,6 +424,7 @@ mod tests {
             ),
             files: None,
             enrollment: false,
+            receive_inbox: None,
             claim: OwnedClaimProfile::new(
                 transport,
                 vec![

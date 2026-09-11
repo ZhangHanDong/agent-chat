@@ -52,6 +52,8 @@ and all required platform qualification results.
 - Require complete hash-verified bytes readback and acknowledged file and directory sync for Ready.
 - Retain unknown write jobs source objects destinations and quota across caller loss timeout unwind and unsuccessful close.
 - Revalidate current original authority and rehash the held original destination before Ready replay returns a path.
+- Release checked bytes and live write-job quota after Ready while keeping bounded original Ready file owners and readonly scope for replay under a fresh read-only response deadline.
+- Prepare and retain the one-shot workspace receive owner before effects and keep its created file through error or unwind.
 - Preserve negative observations retirement and historical facts without granting a new download write or path disclosure.
 - Bound this development profile to two live jobs thirty-two permanent records eight per workspace and 128 MiB reserved output with at most four MiB per file.
 - Distinguish actual OS qualification known refusal missing tests and unknown outcomes from passing executable file receipt.
@@ -69,6 +71,22 @@ and all required platform qualification results.
 ## Boundaries
 
 ### Allowed Changes
+- native/hagency-matrix/src/media_download.rs
+- native/hagency-matrix/src/lib.rs
+- specs/task-rust-receive-file-prerequisites.spec.md
+- specs/task-rust-received-file-identity.spec.md
+- specs/task-rust-received-scope.spec.md
+- native/hagency-store/tests/common/mod.rs
+- native/hagency-store/tests/approvals.rs
+- native/hagency-store/tests/replies.rs
+- native/hagency-store/tests/conversations.rs
+- native/hagency-store/tests/usage.rs
+- native/hagency-store/tests/file_delivery.rs
+- native/hagency-store/tests/file_uploads.rs
+- native/hagency-store/tests/owned_completion.rs
+- native/hagency-store/tests/verified_ingress/notice_custody.rs
+- native/hagency-store/tests/workflows/mod.rs
+- native/hagency-store/tests/workflows/custody.rs
 - native/hagency-core/src/attachments.rs
 - native/hagency-store/src/domain/attachments.rs
 - native/hagency-store/src/domain/messages.rs

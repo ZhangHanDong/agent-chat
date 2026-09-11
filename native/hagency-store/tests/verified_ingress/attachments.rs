@@ -308,7 +308,7 @@ fn native_attachment_schema_migration() {
     assert_eq!(
         sql.pragma_query_value(None, "user_version", |r| r.get::<_, u64>(0))
             .unwrap(),
-        20
+        21
     );
     for table in [
         "matrix_attachments",
@@ -325,4 +325,77 @@ fn native_attachment_schema_migration() {
     sql.execute_batch("ALTER TABLE dispatch_attachment_windows RENAME COLUMN projection_cutoff TO missing_cutoff;").unwrap();
     drop(sql);
     assert!(matches!(DomainRepository::open(&path), Err(Error::Schema)));
+}
+
+#[test]
+fn native_receive_visible_context() {
+    let mut f = Fixture::new(true);
+    for i in 0..20 {
+        f.db.admit_matrix_attachment(&file(&f, "a", &format!("page_{i}"), 1004 + i), 1030 + i)
+            .unwrap();
+    }
+    let items = f.db.inbox("a", 0, 100, None).unwrap();
+    // Real selected trigger is last; prior attachments are visible context.
+    f.db.enqueue_inbox_dispatch(
+        &read_dispatch("page"),
+        &[items.last().unwrap().message.sequence],
+    )
+    .unwrap();
+    let cap =
+        f.db.claim_dispatch("reader", 1100, 60_000, 120_000, 8)
+            .unwrap()
+            .unwrap();
+    f.db.start_dispatch(&cap, 1101).unwrap();
+    let first = f.db.visible_attachments(&cap, 0, 16, 1102).unwrap();
+    assert_eq!(first.items.len(), 16);
+    assert!(first.next.is_some());
+    let second =
+        f.db.visible_attachments(&cap, first.next.unwrap(), 16, 1103)
+            .unwrap();
+    assert_eq!(second.items.len(), 4);
+    assert!(second.next.is_none());
+    assert_eq!(second.items.last().unwrap().event_id, "$page_19");
+    for item in first.items.iter().chain(&second.items) {
+        let t =
+            f.db.authorize_attachment(&cap, &item.event_id, 1103)
+                .unwrap();
+        assert_eq!(t.source_sequence(), item.sequence);
+        assert_eq!(t.metadata(), &item.metadata);
+    }
+    f.db.admit_matrix_attachment(&file(&f, "a", "after_page", 1103), 1104)
+        .unwrap();
+    assert_eq!(
+        f.db.visible_attachments(&cap, first.next.unwrap(), 16, 1105)
+            .unwrap(),
+        second
+    );
+    let mut wrong = cap.clone();
+    wrong.secret = "f".repeat(64);
+    assert!(f.db.visible_attachments(&wrong, 0, 16, 1106).is_err());
+    for limit in [0, 17, usize::MAX] {
+        assert!(f.db.visible_attachments(&cap, 0, limit, 1106).is_err());
+    }
+    let encoded = serde_json::to_string(&first).unwrap();
+    for key in [
+        "manifest",
+        "sdk_identity",
+        "content_digest",
+        "path",
+        "capability",
+    ] {
+        assert!(!encoded.contains(key));
+    }
+    // This fixture raises only the stored privacy floor to test both read
+    // predicates. It is not transport observation or crypto proof.
+    let sql = f.sql();
+    sql.execute(
+        "UPDATE matrix_session_routes SET ingress_since=1020 WHERE session_id='a'",
+        [],
+    )
+    .unwrap();
+    let page = f.db.visible_attachments(&cap, 0, 16, 1107).unwrap();
+    assert_eq!(page.items.len(), 4);
+    assert!(f.db.authorize_attachment(&cap, "$page_0", 1107).is_err());
+    f.db.revoke("retire", &f.agents[0]).unwrap();
+    assert!(f.db.visible_attachments(&cap, 0, 16, 1108).is_err());
 }

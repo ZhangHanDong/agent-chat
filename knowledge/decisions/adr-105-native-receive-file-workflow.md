@@ -32,8 +32,9 @@ receives the immutable selected inbox as informational prompt data, including
 event IDs, but has no attachment discovery tool for other visible background or
 follow-up files. A sink-only fixture would not close either gap.
 
-Root accepted the prerequisite design and exact20-source-path contract after
-review. This authorizes only atomic intake selection, current attachment discovery
+Root accepted the prerequisite design with20 source paths and five coordination
+paths after review, then approved eleven test-only schema fixture paths. The
+active prerequisite boundary is36 paths. This authorizes only atomic intake selection, current attachment discovery
 and schema021 cache facts under task-rust-receive-file-prerequisites.spec.md.
 The full workflow proposal is retained under docs/design so unimplemented selectors
 do not enter root-spec binding coverage. Sink, application, MCP and incoming
@@ -57,8 +58,12 @@ run one real Collector::intake with that already-current session. Select the old
 unassigned wake-bearing input and a bounded preceding context from actual canonical
 session inputs, then use the existing enqueue_inbox_dispatch transaction to freeze
 the original selected input and attachment cutoffs. Preserve the trigger even when
-older context exceeds the 100-event/64-KiB dispatch bound; do not replace an
-oversized trigger with a later one. No wake means no new dispatch. Unmentioned
+older context exceeds the 100-event/64-KiB dispatch bound, including JSON escaping;
+do not replace an
+oversized trigger with a later one. Before admission, recheck every selected
+message against the original verified ingress and current privacy floor. The
+replay branch also refuses original input whose current scope has retired.
+No wake means no new dispatch. Unmentioned
 group attachments alone therefore do not start a runtime.
 
 Perform plan validation, original-ID lookup, input selection and inbox admission
@@ -160,6 +165,18 @@ the actual original destination result, acknowledged file and directory sync,
 readback/hash checks and current authorization. Lost domain Ready ACK is inspected
 against the exact original record and held destination, not blindly retried.
 
+After acknowledged Ready, release the checked plaintext/result permits and live
+write-job slot. A separate bounded Ready owner retains the actual file plus an
+opaque read-only ReceivedScope containing the same captured writer, capability and
+ticket. There are at most32 such owners/eight per workspace, within the permanent
+record quota. The separately contracted ReceivedScope consumes the checked result
+to release its plaintext and permits while retaining the same writer, cap and
+ticket. It cannot accept a replacement writer or create download/write authority.
+Replay uses a fresh bounded read-only response deadline, not the old
+write-job deadline. It revalidates current authority and the held original file;
+it cannot restart a download or write. Missing original Ready custody or a retired
+binding refuses even when historical metadata says Ready.
+
 Before writing, a known failure can be recorded without a path. During caller loss
 the already-admitted owner continues only within the original deadline. A missing
 owner, worker unwind, write error or expired deadline after write admission stays
@@ -183,6 +200,13 @@ Root's actual retained directory, not an ambient pathname or an exported root.
 hagency-files remains the source snapshot crate; Matrix/media do not become its
 dependencies. The sink accepts checked byte/hash data from trusted host code but
 does not claim those values authenticate a sender.
+
+Before any effect, prepare a non-Clone WorkspaceReceive owner from the original
+StartedWorkspace, ReceiveWrite and facts, and store it in the retained application
+job. Its borrowed one-shot materialize operation stores the actual newly created
+file in that owner before writing. Error or worker unwind leaves the same owner
+and partial file retained; a consuming Result must not destroy the only custody.
+Repeated materialize cannot rearm. Validation and readback use this same owner.
 
 Use relative create_new for the generated single component, NoFollow and bounded
 nonblocking file-type inspection. Retain the actual created regular file and root;

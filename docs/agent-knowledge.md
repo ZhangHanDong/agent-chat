@@ -2541,3 +2541,29 @@ runtime outcome is an expected fault observation, never a delivery receipt.
   request and an actual configuration-refused native child prove live/exit
   distinction and unchanged original panic. Original Linux 85427cb failures
   remain unexplained; the unchanged local three-test pass is separate evidence.
+
+### 2026-09-11 — Native receive-file prerequisite custody
+
+ADR105 adds an opt-in one-attempt inbox plan. Selection checks its original
+configured dispatch ID before reading new inputs and shares the existing enqueue
+body in one Immediate writer transaction. It preserves verified ingress, the
+current privacy floor, the trigger and the original frozen attachment windows;
+large escaped input cannot substitute a later trigger. The host claim can narrow
+to this exact dispatch while retaining every existing eligibility predicate.
+
+Schema021 reserves immutable received-file correlation facts under the original
+capability, ticket, Started scope and exclusive workspace. The unique non-Clone
+ReceiveWrite is issued only by the first committed WritePossible transition.
+Lost replies or reopen never recreate it. Current reserve/write/Ready calls sample
+time after writer and SQLite waits. Historical safe inspection returns no path
+or current authority; Ready cannot be overwritten by negative observations.
+Permanent limits are32 records/eight per logical workspace/128 MiB reserved, with
+no cleanup in this bounded development profile. These are trusted-host facts,
+not SDK or physical-file proof; no upload/event/task completion is inferred.
+
+The separate received-file identity and ReceivedScope prerequisites retain actual
+file identity and original read-only authority for the future sink. A successful
+Ready owner must release plaintext/result permits and live write-job slots, then
+use a fresh bounded read-only deadline for replay. No receive sink, receive MCP
+route or incoming executable acceptance is implemented by this checkpoint. The
+full fourteen-scenario proposal stays under docs/design until those gates exist.

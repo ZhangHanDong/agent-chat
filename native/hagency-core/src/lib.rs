@@ -31,3 +31,5 @@ pub mod completions;
 pub mod uploads;
 
 pub mod file_delivery;
+
+pub mod received_files;

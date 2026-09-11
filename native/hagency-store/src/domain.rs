@@ -33,6 +33,7 @@ pub use owned_dispatch::{
 };
 pub(crate) mod file_delivery;
 mod peers;
+pub(crate) mod received_files;
 mod replies;
 mod task_intents;
 pub(crate) mod uploads;
@@ -334,7 +335,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 20,
+                version: 21,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -358,9 +359,11 @@ impl DomainRepository {
                     (18, include_str!("migrations/018-attachment-visibility.sql")),
                     (19, include_str!("migrations/019-file-uploads.sql")),
                     (20, include_str!("migrations/020-file-deliveries.sql")),
+                    (21, include_str!("migrations/021-received-files.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT id,capability_digest,event_id,workspace_id,binding,binding_digest,byte_limit,facts,state,failure FROM received_files LIMIT 0",
                     "SELECT id,upload_id,dispatch_id,call_id,request,request_hash,captured,event_state,claim_fence,claim_hash,claim_until,transaction_id,publication,cancel_requested,failure,acceptance,created_at,updated_at FROM file_deliveries LIMIT 0",
                     "SELECT id,dispatch_id,call_id,request_digest,capability_digest,scope_fingerprint,route,preparation_hash,stage,stage_state,upload_state,claim_fence,claim_hash,claim_until,cancel_requested,outcome_unknown,acceptance,created_at,updated_at FROM file_uploads LIMIT 0",
                     "SELECT a.digest,a.content_digest,a.metadata,a.sdk_identity,a.manifest_id,v.projection_sequence,w.source_cutoff,w.projection_cutoff FROM matrix_attachments a CROSS JOIN session_attachment_visibility v CROSS JOIN dispatch_attachment_windows w LIMIT 0",
@@ -406,6 +409,7 @@ impl DomainRepository {
         notice_custody::reconcile(&tx, graphs::now_ms()?, true)?;
         execution::recover_all(&tx)?;
         approvals::recover(&tx)?;
+        tx.execute("UPDATE received_files SET state='outcome_unknown',failure='outcome_unknown' WHERE state IN ('reserved','write_possible')", [])?;
         tx.commit()?;
         Ok(Self {
             db: database.connection,

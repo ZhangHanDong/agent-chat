@@ -70,3 +70,8 @@ pub use domain::file_delivery::{
     FileDeliveryAdmission, FileDeliveryIdentity, FileDeliverySettlement, FilePublicationClaim,
     FilePublicationSend,
 };
+
+// Original local cache association; none of these values is SDK/file proof.
+pub use domain::received_files::{
+    ReceiveAdmission, ReceiveIdentity, ReceiveReservation, ReceiveWrite,
+};

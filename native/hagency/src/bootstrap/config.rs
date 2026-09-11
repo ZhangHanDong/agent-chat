@@ -21,6 +21,8 @@ struct Config {
     profile: String,
     #[serde(default)]
     send_file: bool,
+    #[serde(default)]
+    receive_inbox: Option<hagency_core::received_files::ReceiveInboxPlan>,
     executable: PathBuf,
     executable_sha256: String,
     #[serde(deserialize_with = "workspace_map")]
@@ -69,6 +71,7 @@ pub(super) struct Prepared {
     pub matrix: Option<HostConfig>,
     pub files: Option<crate::file_service::Setup>,
     pub enrollment: bool,
+    pub receive_inbox: Option<hagency_core::received_files::ReceiveInboxPlan>,
     pub claim: OwnedClaimProfile,
     pub limits: Limits,
     #[cfg(test)]
@@ -191,12 +194,21 @@ impl Prepared {
                 privacy: room.privacy,
             });
         }
-        let claim = OwnedClaimProfile::new(
+        let mut claim = OwnedClaimProfile::new(
             transport.clone(),
             claim_rooms,
             config.workspaces.keys().cloned().collect(),
         )
         .map_err(|_| Failure::Config)?;
+        if let Some(plan) = &config.receive_inbox {
+            plan.validate().map_err(|_| Failure::Config)?;
+            if !config.workspaces.contains_key(&plan.workspace_id) {
+                return Err(Failure::Config);
+            }
+            claim = claim
+                .restrict_dispatch(plan.dispatch_id.clone())
+                .map_err(|_| Failure::Config)?;
+        }
         let mut host = Host::new(
             own.clone(),
             config.executable,
@@ -279,6 +291,7 @@ impl Prepared {
             matrix: Some(matrix),
             files,
             enrollment,
+            receive_inbox: config.receive_inbox,
             claim,
             limits,
             #[cfg(test)]

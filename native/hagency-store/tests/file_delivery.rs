@@ -920,8 +920,10 @@ fn native_file_delivery_schema_migration() {
     drop(f.db);
     let path = root.path().join("state/domain.sqlite3");
     let sql = rusqlite::Connection::open(&path).unwrap();
-    sql.execute_batch("DROP TABLE file_deliveries; PRAGMA user_version=19;")
-        .unwrap();
+    sql.execute_batch(
+        "DROP TABLE received_files; DROP TABLE file_deliveries; PRAGMA user_version=19;",
+    )
+    .unwrap();
     drop(sql);
     let db = DomainRepository::open(&root.path().join("state")).unwrap();
     assert_eq!(db.inspect_upload(&a.upload.identity).unwrap(), original);
@@ -929,7 +931,7 @@ fn native_file_delivery_schema_migration() {
     assert_eq!(
         sql.pragma_query_value(None, "user_version", |r| r.get::<_, u64>(0))
             .unwrap(),
-        20
+        21
     );
     assert_eq!(count(&sql, "file_deliveries"), 0);
     drop(db);

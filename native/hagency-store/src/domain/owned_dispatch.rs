@@ -83,6 +83,23 @@ impl OwnedClaimProfile {
         }
         Ok(Self(encoded))
     }
+    /// Narrow the host profile without granting a new eligibility exception.
+    pub fn restrict_dispatch(self, id: String) -> Result<Self, Error> {
+        hagency_core::project::identifier(&id, 128)?;
+        let mut value: serde_json::Value = serde_json::from_str(&self.0)?;
+        if value
+            .get("dispatch_id")
+            .is_some_and(|old| old.as_str() != Some(id.as_str()))
+        {
+            return Err(Error::Conflict);
+        }
+        value["dispatch_id"] = id.into();
+        let encoded = serde_json::to_string(&value)?;
+        if encoded.len() > 16 * 1024 {
+            return Err(Error::Capacity);
+        }
+        Ok(Self(encoded))
+    }
     pub(crate) fn encoded(&self) -> &str {
         &self.0
     }

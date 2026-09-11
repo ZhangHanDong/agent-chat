@@ -243,6 +243,12 @@ mod clock_tests {
     }
 
     fn owned_fixture(root: &std::path::Path) -> (DomainRepository, RunnerCapability) {
+        owned_fixture_with_attachment(root, false)
+    }
+    fn owned_fixture_with_attachment(
+        root: &std::path::Path,
+        attachment: bool,
+    ) -> (DomainRepository, RunnerCapability) {
         let mut db = DomainRepository::open(&root.join("state")).unwrap();
         db.register(&registration()).unwrap();
         let pool = resource("pool", "seat", 100);
@@ -283,7 +289,7 @@ mod clock_tests {
                     "@owner:example.test".into(),
                 ]),
                 invite_only: true,
-                encrypted: false,
+                encrypted: attachment,
             },
             now(),
         )
@@ -301,7 +307,7 @@ mod clock_tests {
         db.register_workspace("work").unwrap();
         db.create_canonical_task("task", "session", "Receipt loss", now())
             .unwrap();
-        db.enqueue_dispatch(&DispatchInput {
+        let input = DispatchInput {
             id: "dispatch".into(),
             session_id: "session".into(),
             task_id: Some("task".into()),
@@ -310,8 +316,40 @@ mod clock_tests {
                 exclusive: true,
             }],
             payload: json!({"instruction":"offline"}),
-        })
-        .unwrap();
+        };
+        if attachment {
+            use hagency_core::{attachments::*, ingress::MatrixEventObservation};
+            let event = MatrixAttachmentObservation {
+                event: MatrixEventObservation {
+                    scope: db.matrix_ingress_scope("session").unwrap(),
+                    event: InboundMessage {
+                        server_name: "example.test".into(),
+                        room_id: "!project:example.test".into(),
+                        event_id: "$receive".into(),
+                        sender_mxid: "@owner:example.test".into(),
+                        thread_root: None,
+                        body: "untrusted file".into(),
+                        kind: "m.file".into(),
+                        origin_ts: now(),
+                    },
+                    mentions: std::collections::BTreeSet::from(["@worker:example.test".into()]),
+                    encrypted: true,
+                },
+                metadata: AttachmentMetadata {
+                    filename: "input.bin".into(),
+                    mime_type: None,
+                    declared_size: Some(3),
+                },
+                sdk_identity: "1".repeat(64),
+                manifest_id: "2".repeat(64),
+                content_digest: "3".repeat(64),
+            };
+            let receipt = db.admit_matrix_attachment(&event, now()).unwrap();
+            db.enqueue_inbox_dispatch(&input, &[receipt.sequence])
+                .unwrap();
+        } else {
+            db.enqueue_dispatch(&input).unwrap();
+        }
         let cap = db
             .claim_dispatch("host", now(), 60_000, 60_000, 1)
             .unwrap()
@@ -824,6 +862,91 @@ mod clock_tests {
             assert_eq!(task, if started { "in_progress" } else { "created" });
             store.shutdown().await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn native_receive_original_clock() {
+        use hagency_core::received_files::*;
+        let root = tempfile::tempdir().unwrap();
+        let (mut db, cap) = owned_fixture_with_attachment(root.path(), true);
+        let scope = db.owned_dispatch_scope(&cap, now()).unwrap();
+        db.start_owned_dispatch(&cap, scope.fingerprint(), now())
+            .unwrap();
+        let admitted = db
+            .reserve_received_file(&cap, "$receive", 1024, now())
+            .unwrap();
+        let reservation = admitted.reservation.unwrap();
+        let inspect = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        inspect.busy_timeout(Duration::ZERO).unwrap();
+        // The exact transaction wrapper used by receive commands samples its
+        // clock only while it holds the original SQLite IMMEDIATE write lock.
+        db.upload_transaction(
+            || {
+                let error = inspect.execute_batch("BEGIN IMMEDIATE").unwrap_err();
+                assert_eq!(
+                    error.sqlite_error_code(),
+                    Some(rusqlite::ErrorCode::DatabaseBusy)
+                );
+                Ok(now())
+            },
+            |tx, n| crate::domain::received_files::reserve(tx, &cap, "$receive", 1024, n),
+        )
+        .unwrap();
+        let store = DomainStore::start(db, 16).unwrap();
+        let (entered, ready) = oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let blocking = store.clone();
+        let held = tokio::spawn(async move {
+            blocking
+                .call(1, move |_| {
+                    let _ = entered.send(());
+                    gate.recv_timeout(Duration::from_secs(4))
+                        .map_err(|_| Error::Unavailable)?;
+                    Ok(())
+                })
+                .await
+        });
+        ready.await.unwrap();
+        let mut request = Box::pin(store.start_received_file_write(
+            cap.clone(),
+            reservation,
+            ReceivedFileFacts {
+                size: 3,
+                sha256: hagency_core::project::hash(b"abc"),
+            },
+        ));
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(request.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(store.tx.capacity(), 15);
+        let queued_at = now();
+        let watchdog = tokio::time::Instant::now() + Duration::from_secs(1);
+        while now() == queued_at {
+            assert!(tokio::time::Instant::now() < watchdog);
+            tokio::task::yield_now().await;
+        }
+        // Only shorten current authority while the original command is queued;
+        // do not create a capability or otherwise mutate current proof.
+        inspect
+            .execute(
+                "UPDATE runner_dispatches SET lease_until=?1 WHERE id='dispatch'",
+                [now()],
+            )
+            .unwrap();
+        release.send(()).unwrap();
+        held.await.unwrap().unwrap();
+        assert!(matches!(request.await, Err(Error::RunnerAuthority)));
+        assert_eq!(
+            store
+                .inspect_received_file(cap, admitted.identity.id().into())
+                .await
+                .unwrap()
+                .state,
+            ReceivedFileState::Reserved
+        );
+        store.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -2565,3 +2688,113 @@ mod file_delivery_methods {
 #[cfg(test)]
 #[path = "../tests/file_delivery/worker.rs"]
 mod file_delivery_tests;
+
+// Incoming local cache facts stay separate from upload and publication custody.
+mod received_file_commands {
+    use super::*;
+    use crate::domain::received_files as received;
+    use hagency_core::received_files::*;
+    impl DomainStore {
+        pub async fn select_receive_inbox(
+            &self,
+            plan: ReceiveInboxPlan,
+        ) -> Result<ReceiveInboxSelection, Error> {
+            plan.validate()?;
+            self.call(weight(&plan)?, move |db| db.select_receive_inbox(&plan))
+                .await
+        }
+        pub async fn visible_attachments(
+            &self,
+            cap: RunnerCapability,
+            after: u64,
+            limit: usize,
+        ) -> Result<hagency_core::attachments::AttachmentPage, Error> {
+            crate::domain::file_delivery::cap_input(&cap)?;
+            self.call(weight(&(&cap, after, limit))?, move |db| {
+                db.visible_attachments_clock(&cap, after, limit, writer_time)
+            })
+            .await
+        }
+        pub async fn reserve_received_file(
+            &self,
+            cap: RunnerCapability,
+            event_id: String,
+            limit: usize,
+        ) -> Result<crate::ReceiveAdmission, Error> {
+            crate::domain::file_delivery::cap_input(&cap)?;
+            hagency_core::replies::matrix_event(&event_id)?;
+            receive_limit(limit)?;
+            self.call(weight(&(&cap, &event_id, limit))?, move |db| {
+                db.upload_transaction(writer_time, |tx, n| {
+                    received::reserve(tx, &cap, &event_id, limit, n)
+                })
+            })
+            .await
+        }
+        pub async fn start_received_file_write(
+            &self,
+            cap: RunnerCapability,
+            reservation: crate::ReceiveReservation,
+            facts: ReceivedFileFacts,
+        ) -> Result<crate::ReceiveWrite, Error> {
+            crate::domain::file_delivery::cap_input(&cap)?;
+            facts.validate(reservation.limit())?;
+            self.call(
+                weight(&(&cap, reservation.queue_value(), &facts))?,
+                move |db| {
+                    db.upload_transaction(writer_time, |tx, n| {
+                        received::begin(tx, &cap, &reservation, &facts, n)
+                    })
+                },
+            )
+            .await
+        }
+        pub async fn record_received_file_ready(
+            &self,
+            cap: RunnerCapability,
+            original: crate::ReceiveIdentity,
+            facts: ReceivedFileFacts,
+        ) -> Result<ReceivedFileObservation, Error> {
+            crate::domain::file_delivery::cap_input(&cap)?;
+            facts.validate(MAX_RECEIVED_FILE_BYTES)?;
+            self.call(
+                weight(&(&cap, original.queue_value(), &facts))?,
+                move |db| {
+                    db.upload_transaction(writer_time, |tx, n| {
+                        received::ready(tx, &cap, &original, &facts, n)
+                    })
+                },
+            )
+            .await
+        }
+        pub async fn record_received_file_negative(
+            &self,
+            cap: RunnerCapability,
+            original: crate::ReceiveIdentity,
+            failure: ReceiveFailure,
+        ) -> Result<ReceivedFileObservation, Error> {
+            crate::domain::file_delivery::cap_input(&cap)?;
+            self.call(
+                weight(&(&cap, original.queue_value(), failure))?,
+                move |db| {
+                    db.upload_transaction(writer_time, |tx, _| {
+                        received::negative(tx, &cap, &original, failure)
+                    })
+                },
+            )
+            .await
+        }
+        pub async fn inspect_received_file(
+            &self,
+            cap: RunnerCapability,
+            id: String,
+        ) -> Result<ReceivedFileObservation, Error> {
+            crate::domain::file_delivery::cap_input(&cap)?;
+            hagency_core::project::identifier(&id, 128)?;
+            self.call(weight(&(&cap, &id))?, move |db| {
+                db.inspect_received_file(&cap, &id)
+            })
+            .await
+        }
+    }
+}

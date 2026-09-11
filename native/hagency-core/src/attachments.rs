@@ -70,3 +70,18 @@ impl MatrixAttachmentObservation {
         Ok(())
     }
 }
+
+/// A current read projection. Metadata and cursor do not grant attachment access.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AttachmentSummary {
+    pub event_id: String,
+    pub sequence: u64,
+    pub metadata: AttachmentMetadata,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AttachmentPage {
+    pub items: Vec<AttachmentSummary>,
+    pub next: Option<u64>,
+}

@@ -14,8 +14,12 @@ MCP receive and executable end-to-end behavior remain incomplete separate gates.
 
 ## Decisions
 
+Root approved eleven test-only schema reconstruction/version paths. Preserve all
+historical input versions and old-data refusal checks; remove only received_files
+when constructing a database older than021. The active boundary is36 exact paths.
+
 Follow [ADR105](../knowledge/decisions/adr-105-native-receive-file-workflow.md).
-The unimplemented whole-workflow proposal lives in docs/design. Only the six
+The unimplemented whole-workflow proposal lives in docs/design. Only the seven
 actual prerequisite selectors below enter root binding coverage. Rebase the clean
 design checkpoint onto eb06c35 before source edits and preserve ADR102 bootstrap.
 Run focused tests meaningful queue/transaction and lost-reply cases affected
@@ -48,6 +52,17 @@ lifecycle with the exact actual changed-path union and preserve all failures.
 ## Boundaries
 
 ### Allowed Changes
+- native/hagency-store/tests/common/mod.rs
+- native/hagency-store/tests/approvals.rs
+- native/hagency-store/tests/replies.rs
+- native/hagency-store/tests/conversations.rs
+- native/hagency-store/tests/usage.rs
+- native/hagency-store/tests/file_delivery.rs
+- native/hagency-store/tests/file_uploads.rs
+- native/hagency-store/tests/owned_completion.rs
+- native/hagency-store/tests/verified_ingress/notice_custody.rs
+- native/hagency-store/tests/workflows/mod.rs
+- native/hagency-store/tests/workflows/custody.rs
 - native/hagency-core/src/attachments.rs
 - native/hagency-store/src/domain/attachments.rs
 - native/hagency-store/src/domain/messages.rs
@@ -83,12 +98,14 @@ lifecycle with the exact actual changed-path union and preserve all failures.
 Scenario: One original inbox selection survives replay and competing input
   Level: integration
   Test Double: real canonical writer and actual original transaction
-  Targets: native/hagency/src/bootstrap/inbox.rs
+  Targets: native/hagency-store/src/domain/messages.rs
   Test: native_receive_inbox_selection
   Given an existing canonical task session and workspace with background input followed by a wake trigger
   When the configured host selects admits and replays the same dispatch while later input appears
   Then one transaction preserves the trigger and frozen original input without resampling
   And no wake makes no dispatch and changed plan duplicate ownership or stale route refuses
+  And forged copied input fails original provenance and stale privacy input cannot replay
+  And escaped payload bounds retain the wake trigger or refuse without committing any input
 
 Scenario: Attachment discovery matches current frozen authorization
   Level: integration
@@ -108,7 +125,16 @@ Scenario: Cache admission binds the complete original content
   Given a current original attachment and current Started execution
   When reservations and captured facts replay or change metadata association size or hash
   Then only exact original facts replay and coherent changed facts conflict
-  And a blocked writer samples time after waiting and expired authority cannot grant a write
+
+Scenario: Current receive authority samples time after the original writer wait
+  Level: integration
+  Test Double: real bounded writer original transaction and expired lease
+  Targets: native/hagency-store/src/domain_worker.rs
+  Test: native_receive_original_clock
+  Given an actual original reservation and a blocked finite writer queue
+  When a write request waits until its original lease expires
+  Then the current clock is sampled after both writer and SQLite waits and no write is granted
+  And the original reservation remains unchanged with acknowledged writer shutdown
 
 Scenario: Lost write replies cannot reissue local write authority
   Level: integration

@@ -32,6 +32,20 @@ pub struct AttachmentTicket {
     metadata: AttachmentMetadata,
 }
 impl AttachmentTicket {
+    pub(crate) fn queue_value(&self) -> serde_json::Value {
+        json!([
+            self.capability_digest,
+            self.route_digest,
+            self.source_scope,
+            self.source_sequence,
+            self.projection_sequence,
+            self.event_id,
+            self.sdk_identity,
+            self.manifest_id,
+            self.content_digest,
+            self.metadata
+        ])
+    }
     pub fn source_scope(&self) -> &MatrixIngressScope {
         &self.source_scope
     }
@@ -183,7 +197,7 @@ pub(super) fn freeze_inputs(
     tx.execute("UPDATE dispatch_attachment_windows SET source_cutoff=?3,projection_cutoff=COALESCE((SELECT MAX(projection_sequence) FROM session_attachment_visibility WHERE session_id=?2),0) WHERE dispatch_id=?1 AND session_id=?2 AND source_cutoff=0 AND projection_cutoff=0",params![dispatch,session,source_cutoff])?;
     Ok(())
 }
-fn ticket(
+pub(super) fn ticket(
     db: &Connection,
     cap: &RunnerCapability,
     event_id: &str,
@@ -288,5 +302,69 @@ impl DomainRepository {
             return Err(Error::RunnerAuthority);
         }
         Ok(())
+    }
+}
+
+/// Every returned candidate passes the exact existing ticket validator.
+pub(super) fn visible(
+    db: &Connection,
+    cap: &RunnerCapability,
+    after: u64,
+    limit: usize,
+    now: u64,
+) -> Result<hagency_core::attachments::AttachmentPage, Error> {
+    use hagency_core::attachments::{AttachmentPage, AttachmentSummary};
+    hagency_core::tasks::clock(after)?;
+    if !(1..=16).contains(&limit) {
+        return Err(hagency_core::InvalidInput("attachment page must be 1..16").into());
+    }
+    let dispatch = execution::authorize(db, cap, now, &["started"])?;
+    if dispatch.report_task.is_some() {
+        return Err(Error::RunnerAuthority);
+    }
+    matrix_routes::route(db, &dispatch.session_id)?;
+    let ids: Vec<String> = db.prepare("SELECT json_extract(i.config,'$.event_id') FROM dispatch_attachment_windows w JOIN session_attachment_visibility v ON v.session_id=w.session_id AND v.message_sequence<=w.source_cutoff AND v.projection_sequence<=w.projection_cutoff JOIN session_inputs i ON i.session_id=v.session_id AND i.message_sequence=v.message_sequence WHERE w.dispatch_id=?1 AND v.message_sequence>?2 AND json_extract(i.config,'$.origin_ts')>=(SELECT ingress_since FROM matrix_session_routes WHERE session_id=w.session_id) ORDER BY v.message_sequence LIMIT ?3")?
+        .query_map(params![cap.dispatch_id, after, limit+1], |r| r.get(0))?.collect::<Result<_,_>>()?;
+    let mut items = Vec::new();
+    for id in ids {
+        let t = ticket(db, cap, &id, now)?;
+        items.push(AttachmentSummary {
+            event_id: id,
+            sequence: t.source_sequence,
+            metadata: t.metadata,
+        });
+    }
+    let next = if items.len() > limit {
+        items.truncate(limit);
+        items.last().map(|v| v.sequence)
+    } else {
+        None
+    };
+    let page = AttachmentPage { items, next };
+    if serde_json::to_vec(&page)?.len() > 16 * 1024 {
+        return Err(Error::Capacity);
+    }
+    Ok(page)
+}
+impl DomainRepository {
+    pub fn visible_attachments(
+        &self,
+        cap: &RunnerCapability,
+        after: u64,
+        limit: usize,
+        now: u64,
+    ) -> Result<hagency_core::attachments::AttachmentPage, Error> {
+        visible(&self.db, cap, after, limit, now)
+    }
+}
+impl DomainRepository {
+    pub(crate) fn visible_attachments_clock(
+        &mut self,
+        cap: &RunnerCapability,
+        after: u64,
+        limit: usize,
+        time: impl FnOnce() -> Result<u64, Error>,
+    ) -> Result<hagency_core::attachments::AttachmentPage, Error> {
+        self.upload_transaction(time, |tx, now| visible(tx, cap, after, limit, now))
     }
 }

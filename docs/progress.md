@@ -5920,3 +5920,30 @@ integrated source13d05bf. All493 Rust bindings resolve and rustfmt passes. The
 source has not received another full workspace test run since the earlier
 eb06c35 acceptance; new hosted CI is required. Neither diagnostic change asserts
 the underlying Linux or Windows timeout cause or activates a live service.
+
+### 2026-09-11 — Receive-file selection and cache domain prerequisite
+
+Implemented the accepted ADR105 prerequisite in an isolated tree rebased onto
+eb06c35. The36-path allowed boundary includes eleven explicitly approved schema
+fixture paths; their historical input versions and old-data refusal checks are
+preserved. Atomic inbox selection, current safe attachment discovery, exact host
+claim restriction and schema021 original cache facts are implemented. The sink,
+receive tools and full incoming executable acceptance remain incomplete.
+
+Final store all-target tests pass189/0/0, app library16/0/0 and actual bootstrap
+regressions5/0/0. Native all-target core/store/hagency Clippy passes with warnings
+denied. Earlier compile errors in the new mentions fixture and two Clippy findings
+are retained externally; a zero-match unqualified exact clock invocation is not
+counted as a pass. The actual qualified clock test and final full store run pass.
+Node catalog first failed on missing optional native crypto/Next dependencies in
+an old external dependency cache. With existing complete dependency links and
+cache disabled, actual Node543 and Rust487 bindings resolve with no missing test.
+These are catalogs, not claims that all workspace or Node suites executed.
+
+Knowledge lint still exits2 on precisely the unchanged157 baseline error records.
+The active contract now gives each of its seven actual tests a separate scenario;
+agent-spec otherwise retains only the last Test line in a scenario. Final strict
+lifecycle passes8/8: the34 actual changed paths fit the36 allowed paths, and each
+of the seven selectors ran exactly one passing test with zero failures or ignored
+cases. No skip uncertain or pending result is promoted. Formatting/diff checks
+pass. The full fourteen-scenario workflow still has no sink/MCP/executable verdict.

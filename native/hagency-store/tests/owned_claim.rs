@@ -438,3 +438,69 @@ fn native_owned_claim_profile_recovery_report_stays_queued() {
             .unwrap();
     assert_eq!(general.dispatch_id, "report");
 }
+
+#[test]
+fn native_receive_inbox_claim_restriction() {
+    let mut f = Fixture::new();
+    f.queue("first", "work");
+    f.queue("selected", "work");
+    let absent = f
+        .profile("DEVICE_1", RoomPrivacy::Group {})
+        .restrict_dispatch("absent".into())
+        .unwrap();
+    assert!(
+        f.db.claim_owned_dispatch_for_host(&absent, "host", 2000, 60_000, 60_000, 1)
+            .unwrap()
+            .is_none()
+    );
+    let wrong = f
+        .profile("OTHER", RoomPrivacy::Group {})
+        .restrict_dispatch("selected".into())
+        .unwrap();
+    assert!(
+        f.db.claim_owned_dispatch_for_host(&wrong, "host", 2000, 60_000, 60_000, 1)
+            .unwrap()
+            .is_none()
+    );
+    let selected = f
+        .profile("DEVICE_1", RoomPrivacy::Group {})
+        .restrict_dispatch("selected".into())
+        .unwrap();
+    let cap =
+        f.db.claim_owned_dispatch_for_host(&selected, "host", 2000, 60_000, 60_000, 1)
+            .unwrap()
+            .unwrap();
+    assert_eq!(cap.dispatch_id, "selected");
+    assert!(
+        f.db.claim_owned_dispatch_for_host(&selected, "other", 2001, 60_000, 60_000, 2)
+            .unwrap()
+            .is_none()
+    );
+    let mut normal = Fixture::new();
+    normal.queue("first", "work");
+    normal.queue("selected", "work");
+    let profile = normal.profile("DEVICE_1", RoomPrivacy::Group {});
+    assert_eq!(
+        normal
+            .db
+            .claim_owned_dispatch_for_host(&profile, "host", 2000, 60_000, 60_000, 1)
+            .unwrap()
+            .unwrap()
+            .dispatch_id,
+        "first"
+    );
+    assert!(
+        normal
+            .profile("DEVICE_1", RoomPrivacy::Group {})
+            .restrict_dispatch("bad/selector".into())
+            .is_err()
+    );
+    assert!(
+        normal
+            .profile("DEVICE_1", RoomPrivacy::Group {})
+            .restrict_dispatch("first".into())
+            .unwrap()
+            .restrict_dispatch("changed".into())
+            .is_err()
+    );
+}
