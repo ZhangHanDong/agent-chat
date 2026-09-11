@@ -2186,3 +2186,10 @@ must still fail independent current validation. RestoredEncrypted namespace_dige
 is borrowed storage metadata only; no raw constructor or source/send grant is
 added. The actual consuming owner must compare namespace, operation, receipt,
 kind, byte length and qualified sync before accepting staged bytes.
+
+ADR087's backend change also requires ADR035's reviewed source inventory refresh.
+Full-suite verification caught the omission: two backend hash records and395
+line/end_line offsets changed, with every offset moving up one line. Regenerate
+only after confirming classifications/counts/gates are unchanged; the SSE installer
+assertion moves from7938 to7937. Initial full Node results and later corrected
+runs must remain distinct, including any unrelated subprocess timeout evidence.

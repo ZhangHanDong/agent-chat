@@ -117,7 +117,7 @@ export const GET = handler; export const POST = handler;`]]));
     expect(actual.console_proxy.allowlist).toHaveLength(61);
     const sse = actual.http_registrations.find(item => item.source === 'lib/backend/sse-adapter.js');
     expect(sse.paths).toEqual(['/api/stream']);
-    expect(sse.installed_at[0]).toMatchObject({ source: 'backend-v2.js', line: 7938 });
+    expect(sse.installed_at[0]).toMatchObject({ source: 'backend-v2.js', line: 7937 });
     expect(actual.entries.find(item => item.path === 'scripts/hagency-stable-autodeploy.sh').role).toBe('install');
     expect(actual.entries.find(item => item.path === 'scripts/audit-deps.sh').role).toBe('operator-and-build');
     expect(actual.entries.every(item => item.migration.native_status === 'parity-unverified')).toBe(true);

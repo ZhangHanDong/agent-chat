@@ -15,7 +15,8 @@ between the failed claim and the subsequent future-wake lookup.
 ### Must
 - Use the exact eligibility cutoff sampled by the actual claim transaction for its next-wake lookup.
 - Preserve existing claim eligibility, capability, lease, input and started-work fencing.
-- Keep standalone claim and next-wake APIs compatible and generate checked-in router output through the normal TypeScript build.
+- Keep standalone claim and next-wake APIs compatible and generate checked-in router files through the normal TypeScript build.
+- Keep source inventory hashes and offsets synchronized with the reviewed backend change without changing classifications, counts or parity gates.
 - Exclude already-due blocked rows from immediate wake scheduling.
 - Preserve the original recovery integration assertions, retry policy and thirty-second timeout; print only fixed-stage and bounded numeric/state evidence on failure.
 - Keep the confirmed controlled clock race distinct from the unknown cause of original CI34556196694 at7cf0dc0.
@@ -39,6 +40,8 @@ between the failed claim and the subsequent future-wake lookup.
 - router/dist/store.d.ts
 - tests/router-core.test.js
 - tests/router-launch-recovery.test.js
+- native/fixtures/legacy-inventory.json
+- tests/native-migration-inventory.test.js
 - specs/task-node-launch-retry-wakeup.spec.md
 - knowledge/decisions/adr-087-node-launch-retry-wakeup.md
 - docs/agent-knowledge.md
@@ -70,6 +73,13 @@ Scenario: Actual wrapper launch recovery preserves inputs and shutdown fencing
   Given an actual guardian launching an absent fixture executable
   When the backend records two unstarted failures and reconstructs a persisted retry wake
   Then both failures preserve the same input and stopping the pump prevents a third launch
+
+Scenario: The reviewed backend change preserves source inventory truth
+  Test: native_inventory_reproduces_current_sources
+  Given the reviewed backend source hash and exact registration offsets
+  When the source inventory is regenerated without executing runtime code
+  Then the committed inventory matches all source hashes and offsets
+  And classifications, counts and parity gates remain unchanged
 
 ## Out of Scope
 

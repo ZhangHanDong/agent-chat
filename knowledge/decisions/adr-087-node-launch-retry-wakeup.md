@@ -37,3 +37,13 @@ thirty-second timeout; only fixed-stage and bounded row evidence is added on
 failure. Node scenarios run through exact Vitest selectors. Agent-spec parsing,
 lint and explicit parsed boundary checks are separate evidence; its Cargo-only
 lifecycle cannot prove Node tests and is not reported as passing.
+
+The first complete local suite at5e7e31f caught an omitted ADR035 inventory
+refresh. Read-only reconstruction found exactly397 changed leaves: the same
+backend-v2.js hash in its source and helper records, and395 line/end_line offsets
+each moving up one line. Classifications, counts, paths, methods and parity gates
+were unchanged. Extend this contract to regenerate the reviewed inventory and
+update the exact SSE installer assertion from7938 to7937. Preserve that original
+suite's five failures separately: the inventory mismatch, one framework version
+probe timeout and three fake Codex initialize timeouts. The unrelated subprocess
+timeout causes are not established by the inventory correction.

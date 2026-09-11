@@ -4964,3 +4964,34 @@ workspace root passes5/5 across all8 changed paths, zero failed/skipped/uncertai
 or pending-review. All-target Clippy for both affected crates passes with
 warnings denied; rustfmt/diff checks pass. Hosted Windows execution remains
 separate; no cross-compilation or new durability claim is made here.
+
+### ADR087 — complete local verification and reviewed inventory correction
+
+The first required verify:ci at5e7e31f failed two remote-autodeploy fixture setup
+commands: initial local `git push -u origin stable` and `git commit -m initial
+stable`. Kernel totals506passed/2failed; static checks and542Node bindings passed.
+Two live-runtime gates skipped on absent HAGENCY_RUNTIME_DIR. The fixture has a
+15000ms command budget, but the reporter retained no error code/signal/stderr;
+its afterEach removed temporary roots. Local identity is explicitly configured,
+origins are unique temporary bare repositories, and read-only config inspection
+found no signing/hooks override. The exact subprocess cause remains unknown.
+
+The separate first complete test:ci failed5 tests with4286passes and1platform
+skip. The launch-recovery fixture and all8autodeploy tests passed in that run.
+Failures were the source inventory mismatch, framework-acp-probe's fake Claude
+version probe timeout, and3fake Codex initialize timeouts before MCP approval
+scenarios. Those timing causes are not established; no timeout or assertion was
+changed, and no repeat success replaces these original failures. Logs/JSON use
+node-retry-verify-ci and node-retry-full-test prefixes in the external cache.
+
+The inventory omission is confirmed and corrected under the extended12-path
+ADR087 contract, parsed/linted before regeneration (97% with wording advisories).
+Read-only actual-vs-reviewed comparison found397 changed leaves: backend hash in
+2records plus395 source offsets all minus one. Regenerated through the existing
+inventory writer and moved the exact SSE assertion7938→7937. All classifications,
+counts, routes, methods and parity gates remain unchanged. Inventory check and
+7focused tests pass: the5exact ADR087 scenarios plus2inventory negative-regression
+tests;64nonselected tests are excluded, not scenario passes. ESLint/diff checks
+and explicit parsed scope comparison pass. The post-correction complete suite
+runs separately; original failed verification remains retained. No live runtime,
+service, credential, merge, push or production timeout changed.
