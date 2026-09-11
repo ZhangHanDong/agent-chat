@@ -5,17 +5,21 @@ This is coordination, not canonical runtime task state. There is no provisioned
 in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
 Current integration priorities (2026-09-10): schema17 usage observations (ADR063),
-operator aggregate reads (ADR067), authenticated private approval intake (ADR064),
-terminal per-event refusals (ADR065) and private media staging (ADR066) are now
-integrated. The prior c0afefc CI passed Linux/macOS and Node, and its original
-Windows run passed the Matrix-to-owned-completion workflow. Windows had one
-approval-cancellation fixture failure; the corrected phase synchronization is
-integrated and awaits a fresh actual Windows run. The combined workspace passes
-416 unique tests, 272 bound selectors, warnings-denied Clippy and formatting.
-Keep canonical Done, process cleanup, owner decision, runtime application and
-actual message acceptance separate. Runtime approval application, media transfer,
-browser/service wiring, provisioning and release parity remain open. No milestone
-or the overall migration is complete by this checkpoint.
+operator aggregate reads (ADR067), private approval intake (ADR064), terminal
+per-event refusals (ADR065), private media staging (ADR066), bounded encrypted
+media downloads (ADR068) and exact runtime usage observations (ADR069) are integrated.
+At pushed3b5db90, macOS and Node CI passed. Linux found a media directory fsync
+failure: the retained cap-std O_PATH handle is not syncable. The root fix derives
+and verifies a readable descriptor through that same retained directory. Actual
+Linux rerun is required. Windows's full suite also failed eight Matrix outgoing cases; approval8/8 and
+media7/7 passed. The new bounded diagnostic exercises the actual failed selectors. Do not replace either original failure
+with local checks or later diagnostic success. Combined local verification passes427 unique
+tests, 287 bound selectors, warnings-denied Clippy and formatting.
+
+Keep canonical Done, cleanup, owner decision, runtime application and message
+acceptance separate. Approval application proof, file event admission/uploads,
+usage ledger attachment, browser/service wiring, provisioning and release parity
+remain open. No milestone or overall migration is complete by this checkpoint.
 
 1. M0/M1 first checkpoint: native Salvo process, protected fresh state, custody,
    recovery, bounded work, shared protocol vectors and offline encrypted SDK proof.

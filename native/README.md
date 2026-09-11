@@ -41,8 +41,9 @@ encryption and fully checked decryption using the pinned Matrix SDK. The new
 hagency-media-store retains bounded bytes and original encryption descriptors
 through interrupted writes/restart under private directory/file handles. Missing
 or incomplete storage remains explicit; Windows unconfirmed directory sync is
-distinct from durable admission. Uploads/downloads and native file tools remain
-to implement. Schema17 also stores host-attributed token observations and exposes
+distinct from durable admission. A host-only encrypted downloader now uses authenticated HTTPS to the configured
+homeserver, consumes complete bounded ciphertext and verifies it before returning
+checked plaintext. Event provenance, uploads and native file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence.
 Service Agent execution and actual Matrix delivery remain disabled.
 The sections below record the successive checkpoints.
@@ -488,7 +489,9 @@ receipts without pruning/recounting old identities. Finite capacity refusal is
 explicit. [Operator aggregate reads](../knowledge/decisions/adr-067-native-usage-read-api.md)
 preserve nulls and historical lower-bound labels and expose no transcript/source,
 task, private room or workspace records. Secure transcript capture, provider
-measurement, quota enforcement and the browser console are still separate work.
+measurement, quota enforcement and the browser console are still separate work. ADR069 now retains optional upstream
+usage counters from the exact native driver source and sequence, with explicit
+missing/invalid/future evidence. It does not yet bind them to the usage ledger.
 
 [Native progress policy](../knowledge/decisions/adr-052-native-progress-policy.md)
 binds bounded event receipts and throttled redacted summaries to one immutable

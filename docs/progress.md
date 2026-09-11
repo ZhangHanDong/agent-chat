@@ -4201,3 +4201,20 @@ original result. A new failure-only five-minute step runs native_matrix_outgoing
 serially with the SAME workspace/all-target feature selection. The normal full
 suite stays fatal, production deadlines/assertions remain unchanged, and existing
 transport diagnostics remain. Original and split logs are retained externally.
+
+
+## 2026-09-10 — Integrated download and usage checkpoint
+
+At5b83591 the locked all-target workspace passes427 unique tests plus one
+proxy-environment child (428printed),82 suite summaries and zero failures/ignored.
+All287 Rust selectors resolve; full warnings-denied Clippy, formatting and
+whitespace checks pass. Integrated ADR068 lifecycle passes7/7 across11paths.
+Independent ADR069 review found no blocker and confirmed historical source
+validity is not current execution authority. Runtime/progress attachment remains
+separate from ledger attribution. The later diagnostic-only CI change parses as
+YAML and its scoped lifecycle passes3/3 across four paths.
+
+NativeCI at3b5db90 remains failed on Linux and Windows; macOS and Node passed.
+The Linux directory handle correction and new Windows outgoing diagnostics are
+ready for fresh actual CI. No safe migration/cutover claim follows from local
+success. Evidence remains in the external combined-download-usage logs.
