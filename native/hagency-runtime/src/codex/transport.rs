@@ -1,5 +1,7 @@
 //! Host-owned stream driver. Closing streams is not evidence of child cleanup.
 mod buffers;
+mod control;
+pub(super) use control::{Controlled, PreparedFrame};
 
 use super::{
     Connection, Error as ProtocolError, Event, MAX_REQUEST_MS, Phase, RequestId, TurnScope,

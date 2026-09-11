@@ -110,6 +110,17 @@ impl Default for Connection {
 }
 
 impl Connection {
+    pub(super) fn approval_admitted_ms(&self, id: &RequestId) -> Option<u64> {
+        self.server_pending
+            .get(id)?
+            .deadline
+            .checked_sub(MAX_REQUEST_MS)
+    }
+    pub(super) fn has_prepared_approval(&self, id: &RequestId) -> bool {
+        self.server_pending
+            .get(id)
+            .is_some_and(|pending| pending.responded)
+    }
     pub(super) fn partial_frame_bytes(&self) -> usize {
         self.decoder.buffered_bytes()
     }

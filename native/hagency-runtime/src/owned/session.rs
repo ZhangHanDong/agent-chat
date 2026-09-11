@@ -120,6 +120,56 @@ impl OwnedSession {
         self.cleanup
     }
 
+    /// Runtime opt-in only; durable owner grants and finite launch admission
+    /// remain the execution host's responsibility.
+    pub fn enable_approval_control(
+        &mut self,
+        policy: session::ApprovalControlPolicy,
+    ) -> Result<(), session::Error> {
+        let operation = Operation::new(self)?;
+        let result = operation.runner.session.enable_approval_control(policy);
+        operation.finish(result)
+    }
+    pub fn approval_deadline(
+        &self,
+        id: &crate::codex::RequestId,
+    ) -> Result<tokio::time::Instant, session::Error> {
+        self.session.approval_deadline(id)
+    }
+    pub fn prepare_approval(
+        &mut self,
+        response: crate::codex::approval::ApprovalResponse,
+    ) -> Result<session::PreparedApproval, session::Error> {
+        let operation = Operation::new(self)?;
+        let result = operation.runner.session.prepare_approval(response);
+        operation.finish(result)
+    }
+    /// Borrow the existing pinned control future without transferring this
+    /// session or its original process owner. A started future drop still stops.
+    pub async fn next_observed_or_control<F: std::future::Future + ?Sized>(
+        &mut self,
+        control: std::pin::Pin<&mut F>,
+    ) -> Result<session::ControlUpdate<F::Output>, session::Error> {
+        let operation = Operation::new(self)?;
+        let result = operation
+            .runner
+            .session
+            .next_observed_or_control(control)
+            .await;
+        operation.finish(result)
+    }
+    pub async fn send_prepared_approval(
+        &mut self,
+        prepared: &mut session::PreparedApproval,
+    ) -> Result<session::PreparedUpdate, session::Error> {
+        let operation = Operation::new(self)?;
+        let result = operation
+            .runner
+            .session
+            .send_prepared_approval(prepared)
+            .await;
+        operation.finish(result)
+    }
     pub async fn initialize(&mut self) -> Result<(), session::Error> {
         let operation = Operation::new(self)?;
         let result = operation.runner.session.initialize().await;

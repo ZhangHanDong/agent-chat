@@ -61,3 +61,16 @@ Capture begins only after acknowledged source binding and consumes exact ordered
 ## Alternatives Considered
 
 Launching before source-binding acknowledgement or restoring a source into a new process would lose attribution. Detached per-event retries and unbounded receipt caches would split the operation's finite custody.
+
+## Cooperative control preserves usage provenance
+
+The runtime-only approval control pump exposes the same ordered `(Update,
+Observation)` values as ordinary session reads. Private control output is a
+separate enum variant without a fabricated observation or sequence increment.
+Updates returned while an original prepared response waits for its first byte
+also advance the same opaque sequence exactly once. The runtime retains partial
+frames and buffered suffixes across successful control returns. The host remains
+responsible for handing every observation to the original usage capture before
+continuing; neither an in-flight approval-grant future nor a new callback permits
+skipping a usage receipt. This slice changes no ledger, usage retry, attribution,
+execution operation or native application proof.

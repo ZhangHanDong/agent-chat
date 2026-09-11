@@ -422,3 +422,54 @@ async fn native_windows_owned_runner_job_refuses_breakaway() {
     );
     assert!(!root.path().join("escape.pulse").exists());
 }
+
+#[tokio::test]
+async fn native_owned_control_drop_stops_original_process() {
+    use hagency_runtime::codex::session::ApprovalControlPolicy;
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("control-drop");
+    let mut runner = spawn(root.path(), "usage-gate", &marker);
+    let original = runner.id();
+    runner.initialize().await.unwrap();
+    runner.start_thread().await.unwrap();
+    runner
+        .start_turn("offline control custody".into())
+        .await
+        .unwrap();
+    runner
+        .enable_approval_control(ApprovalControlPolicy {
+            owner_wait_ms: 2000,
+            response_reserve_ms: 500,
+        })
+        .unwrap();
+    let until = tokio::time::Instant::now() + Duration::from_secs(2);
+    while !marker.with_extension("usage-ready").is_file() {
+        assert!(
+            tokio::time::Instant::now() < until,
+            "original child gate missing"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let mut control = Box::pin(std::future::pending::<()>());
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(30),
+            runner.next_observed_or_control(control.as_mut())
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(runner.id(), original);
+    cleanup(&runner);
+    assert!(matches!(
+        runner.protocol_outcome(),
+        Some(Outcome::Unknown { .. })
+    ));
+    assert!(!marker.with_extension("usage-release").exists());
+    assert!(
+        runner
+            .next_observed_or_control(control.as_mut())
+            .await
+            .is_err()
+    );
+}

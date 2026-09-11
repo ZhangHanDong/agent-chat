@@ -128,3 +128,41 @@ One driver retains ordered stream operations and explicit uncertainty. Its duple
 ## Alternatives Considered
 
 Detached reader tasks or replaying a cancelled write would split stream ownership and make uncertain input appear safe to resend. This adapter therefore remains separate from the guardian launcher.
+
+## Cooperative host control and original prepared frames
+
+The bounded runtime control-pump contract adds a private leaf-IO operation. It
+borrows a caller-owned pinned future and selects that future alongside single
+cancel-safe stdout/stderr reads while the original Driver operation guard remains
+alive. A successful Control return retains all partial bytes, decoder state,
+queues, stderr and connection identity. It does not drop a public read, synthesize
+an event, or spawn another reader. Dropping the new started public operation still
+poisons the original transport. The host consumes a completed control output once;
+the API never polls that completed future again on its own.
+
+Preparation synchronously reserves the original callback and encodes its exact
+once/decline frame. The original non-cloneable frame remains retained before any
+host response-begin await. Reservation is not domain authority or an observation
+of bytes sent. Before the first physical byte, the sole writer drains buffered
+and ready stdout, including completing any existing partial frame under its
+original deadline. Each resulting event is returned to the session/host before
+continuing. The same original byte vector may move into the writer and back only
+at offset zero; it is never reconstructed or re-encoded. The first send invocation
+starts one fixed write deadline, including time spent handling returned updates.
+A new callback or slow host recheck can exhaust that bound; neither allows a
+fresh write clock or a replacement frame. After any byte is accepted the original
+frame must finish/flush or fail with its retained unconfirmed-byte evidence.
+
+Callback owner and response deadlines are derived from the connection's original
+monotonic callback admission, with at most 16 retained session callbacks. Policy
+requires a nonzero owner wait, a response reserve at least the existing transport
+write timeout, and a total no greater than the existing 20-minute ceiling. Both
+initial opt-in and each callback admission must fit the ORIGINAL connection
+lifetime. It is not extended. The earliest original pending owner bound governs
+silent parked maintenance. Preparation must happen before that callback's owner
+bound and permits only its fixed response deadline for admission and writing;
+unprepared siblings still expire at their original owner bounds. Partial-frame
+and protocol deadlines can expire first.
+A normal event wait persists across Control returns and ends only upon an actual
+typed read result. Prepared-send buffer drains do not reset that read clock.
+No host execution budget, write timeout, partial-frame or request policy changes.

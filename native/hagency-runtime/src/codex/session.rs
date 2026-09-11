@@ -4,7 +4,9 @@ mod observation;
 mod state;
 mod task_mcp;
 mod usage;
-pub use driver::SessionDriver;
+pub use driver::{
+    ApprovalControlPolicy, ControlUpdate, PreparedApproval, PreparedUpdate, SessionDriver,
+};
 pub use observation::{
     Observation, ObservationKind, ObservationSource, ToolEvidence, ToolKind, ToolResult, TurnResult,
 };

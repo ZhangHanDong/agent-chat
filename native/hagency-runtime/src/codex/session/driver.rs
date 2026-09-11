@@ -1,3 +1,7 @@
+#[path = "control.rs"]
+mod control;
+pub use control::{ApprovalControlPolicy, ControlUpdate, PreparedApproval, PreparedUpdate};
+
 use super::state::{State, scope};
 use super::{
     Error, InterruptDisposition, MAX_DEFERRED, MAX_DEFERRED_BYTES, MAX_TEXT_BYTES, Outcome, Phase,
@@ -24,6 +28,7 @@ pub struct SessionDriver<R, W, E> {
     deferred: VecDeque<Event>,
     deferred_bytes: usize,
     approvals_enabled: bool,
+    control: control::ControlState,
     observation_live: Arc<AtomicBool>,
     observation_sequence: u64,
     observation_kind: super::ObservationKind,
@@ -51,6 +56,7 @@ impl<R, W, E> SessionDriver<R, W, E> {
             deferred: VecDeque::new(),
             deferred_bytes: 0,
             approvals_enabled: false,
+            control: control::ControlState::default(),
             observation_live: Arc::new(AtomicBool::new(true)),
             observation_sequence: 0,
             observation_kind: super::ObservationKind::Ignored,
@@ -388,7 +394,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
         &mut self,
         response: crate::codex::approval::ApprovalResponse,
     ) -> Result<(), Error> {
-        if self.phase() != Phase::Running || !self.approvals_enabled {
+        if self.phase() != Phase::Running || !self.approvals_enabled || self.control.enabled() {
             return Err(Error::State);
         }
         if self.thread_id() != Some(response.request.thread_id())
@@ -419,14 +425,10 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
             finished: false,
         };
         let mut result = operation.session.update_inner().await;
-        if result.is_ok() {
-            // Every successful read advances, including default API reads. A
-            // progress attachment can detect updates consumed around it.
-            if let Some(next) = operation.session.observation_sequence.checked_add(1) {
-                operation.session.observation_sequence = next;
-            } else {
-                result = Err(Error::Capacity);
-            }
+        if result.is_ok()
+            && let Err(error) = operation.session.advance_observation()
+        {
+            result = Err(error);
         }
         operation.finish(result)
     }
@@ -445,6 +447,9 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
             Some(event) => event,
             None => self.receive().await?,
         };
+        self.accept_update(event).await
+    }
+    async fn accept_update(&mut self, event: Event) -> Result<Update, Error> {
         let event = match event {
             Event::ServerRequest {
                 id,
@@ -460,6 +465,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
                 // Patch and permission requests can precede item/started in
                 // Codex 0.153.4. Bind their exact callback item without inventing
                 // an active timeline item or host session identity.
+                self.control.admit(&self.wire, request.id())?;
                 self.observation_kind = super::ObservationKind::Ignored;
                 return Ok(Update::Approval(request));
             }
@@ -477,6 +483,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> SessionD
             let id =
                 serde_json::from_value(params.get("requestId").ok_or(Error::Malformed)?.clone())
                     .map_err(|_| Error::Malformed)?;
+            self.control.resolve(&id);
             update = Update::ApprovalResolved { id };
         }
         if self.phase() == Phase::Ended {

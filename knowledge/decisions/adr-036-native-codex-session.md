@@ -165,3 +165,40 @@ Typed settings and finite lifecycle state constrain the disposable transport. A 
 ## Alternatives Considered
 
 Warm reuse, automatic resume or reconnect would require additional identity and replay contracts. Accepting textual completion or unsupported server requests would bypass the documented typed one-turn boundary.
+
+## Optional finite approval control mechanics
+
+The runtime-only M6 control API adds `enable_approval_control`, synchronous
+`prepare_approval`, `next_observed_or_control(Pin<&mut F>)` and
+`send_prepared_approval(&mut PreparedApproval)`. The generic control future belongs
+to the host and may hold a separate admission batch of unique durable grants.
+The session, pending-callback map and prepared frames remain separate retained
+fields, so a new callback or usage update can be handled without cancelling the
+future borrowing that batch. No store type or database operation enters runtime.
+
+Every successful typed result uses the same update validation, opaque source and
+contiguous observation sequence as ordinary reads. A control result mints no
+observation. Prepared-send update returns also mint the next original observation;
+the host must deliver it before any further response admission. The prepared
+object has no Clone/Deserialize/reconstruction API and binds the exact live driver
+instance as well as callback ID. Numeric and string IDs remain distinct. Callback
+reservation blocks repeated preparation. Observed resolution makes an unsent
+response unusable; a foreign driver cannot use it even with identical textual IDs.
+
+Runtime opt-in and frame preparation grant no write authority. The host must
+first obtain durable router authorization, retain the original frame before
+awaiting response-begin, receive its positive acknowledgment, and compare the
+exact current grant/connection/request scope. If a returned update reparks the
+attempt, the host must process it and recheck the ORIGINAL admitted grant before
+continuing that original unsent frame. A lost acknowledgment never authorizes
+sending or rearming begin. Runtime `WriteAccepted` is only the complete write and
+flush receipt; `serverRequest/resolved` remains independent of native permission
+application. Domain transition semantics belong to the separate approval contract.
+
+`approval_deadline(id)` exposes the original owner-decision bound, and the original
+PreparedApproval exposes its immutable `response_deadline()`. Preparation must
+finish before owner expiry. A positive durable response-begin acknowledgment may
+arrive after owner expiry but before the fixed response bound; no caller-derived
+new timestamp is substituted. Unprepared callbacks never acquire this margin.
+The boxed opaque Observation in either update variant is the same receipt object,
+not a new provenance source or sequence. A host unwraps it once for usage capture.

@@ -147,3 +147,21 @@ Pipe transfer, cancellation and process-stop observations remain tied to existin
 ## Alternatives Considered
 
 A second launcher, inherited ambient environment or numeric-PID cleanup path would separate execution from its retained owner. Passing guardian control descriptors into work would expose process-custody authority.
+
+## Runtime-only cooperative approval opt-in
+
+OwnedSession now forwards the bounded runtime control-pump API without extracting
+or reconstructing SessionDriver or moving the retained process owner out of its
+original field. Synchronous preparation returns a unique original typed frame
+before the host can await durable response begin. Every new started async
+operation retains the same synchronous stop-on-drop guard. Terminal/error results
+still close the original session and stop through the exact original owner;
+control results alone neither stop nor assert completion.
+
+This is a runtime mechanism, not execution-host integration. The current native
+host's 30-second operation and 2-second response policies remain unchanged. A
+future host must explicitly admit a finite owner deadline plus its margins within
+the original launch and all current domain authority. No default request behavior,
+process privileges, platform containment or live-provider qualification changes.
+The offline owned regression cancels the new pump while the actual original child
+waits at its existing usage gate and checks its unchanged cleanup report.

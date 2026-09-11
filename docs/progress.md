@@ -6480,3 +6480,34 @@ is1500ms. Each independent mutation now retains its own fresh actual runtime,
 with the same fixed limits and unchanged assertions. The exact original failure
 is retained; this removes cross-case elapsed-time coupling without extending
 any runtime deadline. Final integrated qualification follows this fixture change.
+
+## Runtime cooperative approval control checkpoint
+
+Implemented the approved 18-file runtime-only control-pump contract from b856b47
+in an isolated tree. No domain, permissions coordinator, execution host, platform,
+Cargo or live-service changes were included. Parent review identified that a
+prepared callback must use its fixed response reserve while durable begin waits;
+Waiting/Prepared/Sent state now retains that distinction without granting the
+reserve to unprepared siblings. New deadline regressions exercise both cases.
+
+All five new session fixtures pass locally, including partial-input custody with
+one-byte duplex stdout, a retained pinned grant-batch future, exact opaque usage
+order, new callbacks/resolution before first byte, one-shot/foreign/capacity
+refusal, accepted-byte cancellation and original finite read/frame/write clocks.
+An earlier broad runtime pass covered 55 tests including the actual guardian-owned
+child stop fixture; final-source runtime/strict results are recorded below when
+available. Clippy passes after boxing the returned observation and using a fixed
+array for the one-grant fixture. Adding two large retained sessions to one async
+deadline test initially overflowed that fixture's stack; splitting its independent
+response-reserve cases into a separate test retained all assertions without
+changing any stack limit or production deadline. Original local failure output
+is retained in the external migration cache.
+
+Final runtime source passes 56/56 package tests and Clippy with warnings denied.
+Strict lifecycle passes 6/6 bounded checks, with no fail/skip/uncertain/pending;
+its five selectors execute six actual regressions. The external full lifecycle
+JSON preserves its separate wider requirement-trace missing-scenario diagnostic.
+Windows GNU all-target compilation passes; Windows execution remains pending.
+The domain grant's independent expiry is not extended by runtime response reserve.
+Future host admission must align owner cutoff, original grant expiry and response
+margin before parking; this runtime-only checkpoint authorizes no transmission.

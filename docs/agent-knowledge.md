@@ -2895,3 +2895,27 @@ The sink now opens only '.' relative to that original directory with read access
 checks private handle and complete same-directory identity, and retains the sync
 handle before destination creation. Windows retains its existing directory-sync
 qualification path. This source correction still requires Linux runtime evidence.
+
+## Runtime-only owned approval control pump
+
+The b856b47-based bounded contract adds cooperative polling at cancel-safe leaf
+reads and retains the original OwnedSession/driver/partial input. A successful
+Control return emits no usage observation; real update returns keep one opaque
+source and contiguous sequence, including updates before a prepared response's
+first byte. A pinned domain-begin future must borrow a separately retained grant
+batch so new callback handling can mutate the original pending map independently.
+
+Each callback has fixed original owner and response bounds. Preparation before
+owner expiry moves only that callback into its response margin; unprepared
+siblings retain their owner limits. The original PreparedApproval owns its exact
+one-shot encoded frame and exposes response_deadline(), without Clone or restore.
+Every new callback/cancellation update precedes first-byte polling, and a host
+must recheck the same admitted grant before continuing an original unsent frame.
+The first send call fixes the write deadline even if it returns an update first.
+No control wake, buffer drain or recheck can restart it.
+
+Runtime opt-in supplies no database authority or native application proof. It
+changes no 30s/2s execution-host limits and performs no live integration. The new
+owned-child test uses the existing real usage gate and checks the original
+cleanup report after a dropped cooperative operation. Offline fixture success
+is not a platform-wide or live interactive approval qualification.
