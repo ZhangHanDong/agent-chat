@@ -5899,3 +5899,24 @@ Windows GNU compilation is not platform qualification. The original Linux
 failures, unchanged local diagnostic pass and final observation checks are kept
 as separate external logs under linux-85427cb-file-observation-*; exact original
 source/log hashes are in linux-85427cb-file-service-original-evidence.json.
+### 2026-09-11 — Preserve original platform failures and integrate diagnostics
+
+Original85427cb CI passes macOS593 independent tests, but fails Linux with592
+passes/two failures and Windows577 passes/twelve failures. Each platform prints
+one additional proxy child result; none ignores a test. Linux's two executable
+file fixtures lose their HTTP phase and child status on timeout. Windows includes
+unqualified file workflows and original connection-drop timeouts. Separate
+outgoing/transport diagnostic passes do not replace those original failures.
+Node CI passes4291 tests with one platform skip; its verifier passes508 checks.
+All raw logs, exact Cargo slices, line ranges and hashes are preserved externally
+under85427cb-original-ci-evidence.md and its manifests.
+
+Integrated ADR106's same-connection close observation passes strict13/13, each
+of twelve named selectors executing one passing test, plus its eight-path bound.
+Integrated native store/Matrix Clippy passes. The original-child diagnostic
+fixture now retains its actual stderr read handle and emits bounded static
+categories before panic cleanup; all four executable file tests pass on the
+integrated source13d05bf. All483 Rust bindings resolve and rustfmt passes. The
+source has not received another full workspace test run since the earlier
+eb06c35 acceptance; new hosted CI is required. Neither diagnostic change asserts
+the underlying Linux or Windows timeout cause or activates a live service.
