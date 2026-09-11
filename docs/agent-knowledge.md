@@ -2055,3 +2055,13 @@ remain separate from process cleanup, canonical Done, Matrix delivery and quotas
 The latter preserves one fixed rejected projection, not a fabricated zero record.
 Every runtime snapshot remains stream-incomplete. Existing opaque IDs permit
 alphanumeric/underscore/hyphen only: host sequence calls use runtime_v1_<n>.
+
+
+ADR077 RestoredEncrypted is distinct from the original codec Encrypted, whose
+source Snapshot cannot be reconstructed from a journal. Preserve the original
+operation plus original receipt digest outside storage; latest bytes cannot
+choose their own identity. Only clean recovery with acknowledged file and
+directory sync admits the typed result. Windows unconfirmed sync permits
+ordinary inspection only. Both read forms retain the same per-Store result
+permit. No restoration or missing record establishes that a previous upload
+was unsent; durable domain upload intent and WritePossible recovery remain open.

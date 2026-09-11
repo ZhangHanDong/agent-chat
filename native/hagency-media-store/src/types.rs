@@ -256,3 +256,28 @@ impl StagedMedia {
         &self.receipt
     }
 }
+
+/// Exact committed storage custody, never the original codec Encrypted/source
+/// Snapshot and never an upload retry authority. No constructor/Clone/serde.
+pub struct RestoredEncrypted {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) descriptor: Descriptor,
+    pub(crate) receipt: Receipt,
+    pub(crate) namespace: HostNamespace,
+    pub(crate) _permit: Permit,
+}
+impl RestoredEncrypted {
+    pub fn ciphertext(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn descriptor(&self) -> &Descriptor {
+        &self.descriptor
+    }
+    pub fn receipt(&self) -> &Receipt {
+        &self.receipt
+    }
+    /// A storage partition comparison only; not workspace or room authority.
+    pub fn matches_namespace(&self, namespace: &HostNamespace) -> bool {
+        self.namespace.0 == namespace.0
+    }
+}

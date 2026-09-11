@@ -12,6 +12,9 @@ independent projection cutoff excludes late copies. ADR074 retains authenticated
 encrypted file/image manifests in the SDK journal, with private host lookup and
 current ticket checks around asynchronous work. Actual downloads, cache paths,
 MCP file tools and durable upload recovery remain the next file-delivery steps.
+ADR077 now restores exact encrypted staging under original operation/receipt
+identity, clean journal recovery and qualified file/directory sync. This does
+not authorize replay of a possibly written upload.
 
 At integrated3a9616a, the locked full workspace passes458 unique tests plus one
 proxy child,84 suite summaries and no failed/ignored tests. All321 Rust spec

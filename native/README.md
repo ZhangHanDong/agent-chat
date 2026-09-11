@@ -41,7 +41,10 @@ encryption and fully checked decryption using the pinned Matrix SDK. The new
 hagency-media-store retains bounded bytes and original encryption descriptors
 through interrupted writes/restart under private directory/file handles. Missing
 or incomplete storage remains explicit; Windows unconfirmed directory sync is
-distinct from durable admission. A host-only encrypted downloader now uses authenticated HTTPS to the configured
+distinct from durable admission. Qualified clean recovery can now return distinct
+RestoredEncrypted custody for the original operation and receipt digest, retaining
+the exact ciphertext and descriptor. It neither reconstructs source handles nor
+authorizes an upload retry. A host-only encrypted downloader now uses authenticated HTTPS to the configured
 homeserver, consumes complete bounded ciphertext and verifies it before returning
 checked plaintext. A sibling encrypted uploader borrows original codec ciphertext,
 retains a finite attempt across cancellation, and accepts only complete bounded

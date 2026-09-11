@@ -4466,3 +4466,36 @@ or a cache path. Durable upload recovery, full file tools, approval application,
 physical provisioning/sandbox, complete room/history policy, console/service,
 quotas and release parity remain open. No M0-M9 milestone or migration completion
 is claimed.
+
+## 2026-09-10 — Exact encrypted staging restoration (ADR077)
+
+The private media Store now restores a distinct RestoredEncrypted from the
+original operation and receipt digest. It reuses the committed frame validation
+and finite result pool, moving original ciphertext, descriptor, receipt and
+namespace without encryption or a second payload copy. Clean recovery and
+FileAndDirectorySynced evidence are required. Wrong operation, digest, kind or
+namespace cannot replace the original data. Incomplete tails and observed
+corruption remain quarantined. Windows unconfirmed directory sync explicitly
+refuses this typed restoration while leaving ordinary inspection available.
+
+The actual SDK ciphertext survives close/reopen and source replacement unchanged;
+all12 media-store tests pass, including four new contract selectors covering
+exact recovery, identity refusal, shared held capacity and actual corrupt or
+interrupted journals. A negative-only sync-evidence fixture never manufactures a
+positive platform qualification. OS flush evidence does not prove hardware
+power-loss durability; handles and capacity remain host-local/per-Store.
+
+There is no restored upload entry point or automatic retry. The original domain
+operation, durable WritePossible before HTTP, accepted repository custody and
+unknown-write recovery are still required before safe upload restart handling.
+File tools, service cutover and migration parity remain open.
+
+Independent review found no blocker. Its suggested complete-frame interrupted
+write cases now also pass: same-owner unknown refuses restoration, and actual
+clean validated reopen can recover the earlier original receipt under real
+sync evidence. Final strict lifecycle passes5/5 across11 explicit changed paths,
+zero failed/skipped/uncertain/pending review. Native warnings-denied Clippy and
+format/diff checks pass after that addition. Windows GNU Clippy passed the
+production slice and initial four tests; actual Windows restoration evidence
+remains for integration CI. External media-restoration-* logs and the independent
+review preserve the exact qualification boundaries.

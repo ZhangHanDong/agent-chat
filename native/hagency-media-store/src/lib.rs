@@ -1,5 +1,6 @@
 //! Bounded private storage only: no runtime, dispatch, Matrix or sender authority.
 mod frame;
+mod restoration;
 mod types;
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt, OpenOptionsSyncExt};
 use cap_std::fs::{Dir, OpenOptions};
@@ -36,6 +37,8 @@ pub enum Error {
     Conflict,
     #[error("staged media was not found")]
     NotFound,
+    #[error("encrypted restoration requires qualified file and directory sync")]
+    Durability,
 }
 /// Owns actual directory/file capabilities. No public path or handle accessor.
 /// Blocking local IO has no hard kernel deadline and is not a service worker.
