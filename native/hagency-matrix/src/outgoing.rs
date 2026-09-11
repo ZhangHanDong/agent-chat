@@ -19,9 +19,10 @@ pub struct OutgoingSummary {
     pub state: OutgoingState,
     pub replayed: bool,
 }
-enum Source {
+pub(crate) enum Source {
     Final(ReplyClaim),
     Notice(Box<VerifiedNoticeClaim>),
+    File(Box<crate::upload::publication::FileSource>),
     Resume,
 }
 impl Collector {
@@ -83,9 +84,9 @@ impl Collector {
     }
 }
 impl Inner {
-    async fn outgoing(
+    pub(crate) async fn outgoing(
         &self,
-        source: Source,
+        mut source: Source,
         cancel: &CancellationToken,
     ) -> Result<OutgoingSummary, Error> {
         observe!(OwnerLock);
@@ -120,11 +121,7 @@ impl Inner {
                     state: OutgoingState::Uncertain,
                     replayed: true,
                 }),
-                None => Ok(OutgoingSummary {
-                    id: None,
-                    state: OutgoingState::Idle,
-                    replayed: false,
-                }),
+                None => self.resume_settled_file_publication(&view.receipts).await,
             };
         }
         if view.attempt.is_some() {
@@ -182,44 +179,71 @@ impl Inner {
                         claim.claim.notice.body.clone(),
                     )
                 }
+                Source::File(file) => {
+                    let l = &file.locator;
+                    self.domain
+                        .validate_file_publication(file.cap.clone(), file.claim.clone())
+                        .await?;
+                    (
+                        Kind::File,
+                        l.delivery_id.clone(),
+                        l.fence,
+                        l.content_digest.clone(),
+                        l.route.clone(),
+                        l.transaction_id.clone(),
+                        String::new(),
+                    )
+                }
                 Source::Resume => unreachable!(),
             };
         if view.receipts.len() >= state::MAX_RECEIPTS {
             return Err(Error::Capacity);
         }
         let joined = self.outgoing_preflight(&route, cancel).await?;
-        let mut content =
-            json!({"msgtype":if kind==Kind::Notice {"m.notice"}else{"m.text"},"body":body});
-        if let Some(root) = &route.thread_root {
-            content["m.relates_to"] = json!({"rel_type":"m.thread","event_id":root,"is_falling_back":true,"m.in_reply_to":{"event_id":root}});
-        }
-        let content = MatrixContent::new(content)
-            .and_then(|c| c.formatted())
-            .map_err(|_| Error::Capacity)?
-            .into_value();
-        let content_digest = state::hash(state::encode(&content, state::MAX_EVENT)?.as_bytes());
-        let draft = Attempt {
-            kind,
-            id: id.clone(),
-            fence,
-            domain_digest,
-            route,
-            transaction_id,
-            content,
-            content_digest,
-            identity: String::new(),
-            joined,
-            phase: Phase::BeforeBegin,
-            query_id: None,
-            query_body: None,
-            query_response: None,
-            keys_digest: None,
-            writes: vec![],
-            index: 0,
+        let draft = if let Source::File(file) = &mut source {
+            let mut start = file.start.take().ok_or(Error::Conflict)?;
+            start.joined = joined;
+            owner
+                .outgoing(Command::StartFile(Box::new(start)))
+                .await?
+                .attempt
+                .ok_or(Error::Storage)?
+        } else {
+            let mut content =
+                json!({"msgtype":if kind==Kind::Notice {"m.notice"}else{"m.text"},"body":body});
+            if let Some(root) = &route.thread_root {
+                content["m.relates_to"] = json!({"rel_type":"m.thread","event_id":root,"is_falling_back":true,"m.in_reply_to":{"event_id":root}});
+            }
+            let content = MatrixContent::new(content)
+                .and_then(|c| c.formatted())
+                .map_err(|_| Error::Capacity)?
+                .into_value();
+            let content_digest = state::hash(state::encode(&content, state::MAX_EVENT)?.as_bytes());
+            let draft = Attempt {
+                kind,
+                id: id.clone(),
+                fence,
+                domain_digest,
+                route,
+                transaction_id,
+                content,
+                content_digest,
+                identity: String::new(),
+                joined,
+                phase: Phase::BeforeBegin,
+                query_id: None,
+                query_body: None,
+                query_response: None,
+                keys_digest: None,
+                writes: vec![],
+                index: 0,
+                file: None,
+            };
+            owner
+                .outgoing(Command::Start(Box::new(draft.clone())))
+                .await?;
+            draft
         };
-        owner
-            .outgoing(Command::Start(Box::new(draft.clone())))
-            .await?;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -249,6 +273,11 @@ impl Inner {
                 {
                     return Err(Error::Conflict);
                 }
+            }
+            Source::File(file) => {
+                self.domain
+                    .validate_file_publication(file.cap.clone(), file.claim.clone())
+                    .await?;
             }
             Source::Resume => unreachable!(),
         }
@@ -413,6 +442,11 @@ impl Inner {
                     )
                     .await?
             }
+            Source::File(file) => {
+                self.domain
+                    .validate_file_publication(file.cap.clone(), file.claim.clone())
+                    .await?;
+            }
             Source::Resume => return Err(Error::OutcomeUnknown),
         }
         Ok(())
@@ -507,17 +541,52 @@ impl Inner {
                     .reconcile_verified_task_notice(attempt.id.clone(), attempt.fence, observation)
                     .await?;
             }
+            Kind::File => {
+                let binding = attempt.file.as_ref().ok_or(Error::Storage)?;
+                let settlement = self
+                    .domain
+                    .restore_file_delivery_settlement_for_content(
+                        binding.locator.clone(),
+                        binding.metadata().clone(),
+                        binding.captured().clone(),
+                    )
+                    .await?
+                    .ok_or(Error::OutcomeUnknown)?;
+                let receipt = attempt.receipt()?;
+                self.domain
+                    .record_file_delivery_settlement(
+                        std::sync::Arc::new(settlement),
+                        hagency_core::file_delivery::FileDeliveryAcceptance {
+                            transaction_id: attempt.transaction_id.clone(),
+                            content_digest: attempt.domain_digest.clone(),
+                            event_id: attempt.observation()?.event_id,
+                            receipt_id: format!("file_receipt_{}", receipt.attempt_digest),
+                            receipt_digest: receipt.attempt_digest,
+                        },
+                    )
+                    .await?;
+            }
         }
         #[cfg(test)]
         if fault == 2 {
             return Err(Error::OutcomeUnknown);
         }
         owner.outgoing(Command::Settle).await?;
-        Ok(OutgoingSummary {
-            id: Some(attempt.id),
+        let summary = OutgoingSummary {
+            id: Some(attempt.id.clone()),
             state: OutgoingState::Delivered,
             replayed,
-        })
+        };
+        if attempt.kind == Kind::File {
+            let binding = attempt.file.as_ref().ok_or(Error::Storage)?;
+            self.complete_file_publication(
+                &binding.locator,
+                binding.metadata(),
+                binding.captured(),
+                &summary,
+            )?;
+        }
+        Ok(summary)
     }
 }
 

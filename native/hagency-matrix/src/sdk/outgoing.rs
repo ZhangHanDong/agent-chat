@@ -16,7 +16,12 @@ impl Sdk {
         if self.outgoing_poisoned {
             return Err(Error::OutcomeUnknown);
         }
+        let command = match command {
+            Command::StartFile(start) => Command::Start(Box::new(self.start_file(*start)?)),
+            other => other,
+        };
         match command {
+            Command::StartFile(_) => unreachable!(),
             Command::Read => {}
             Command::Start(mut attempt) => {
                 if self.journal.outgoing.is_some() {
@@ -37,6 +42,11 @@ impl Sdk {
                     &self.identity,
                     machine.user_id().as_str(),
                     machine.device_id().as_str(),
+                )?;
+                super::file_publication::validate_attempt(
+                    &attempt,
+                    self.uploads.as_ref(),
+                    &self.upload_context,
                 )?;
                 drop(guard);
                 self.journal.outgoing = Some(*attempt);
@@ -178,6 +188,11 @@ impl Sdk {
     }
     async fn persist_outgoing(&mut self) -> Result<(), Error> {
         if let Some(attempt) = &self.journal.outgoing {
+            super::file_publication::validate_attempt(
+                attempt,
+                self.uploads.as_ref(),
+                &self.upload_context,
+            )?;
             let guard = self.client.olm_machine().await;
             let machine = guard.as_ref().ok_or(Error::Storage)?;
             if let Err(error) = attempt.validate(

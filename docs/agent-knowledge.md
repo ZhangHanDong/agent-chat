@@ -2357,3 +2357,26 @@ failed merely to discover this known runtime limitation.
   shutdown allocates no probe. Explicit observed field destruction preserves
   connection-before-lock release including unwind cleanup, adds no query or
   wait, and cannot turn a timed-out result into successful closure.
+
+### Native encrypted file publication custody (ADR098)
+
+A successful UploadOperation still owns the original staged media after its upload
+registry row is released. Publication admission must retain that same Job/permit
+before awaiting; a Job must not own Inner when Inner's registry owns that Job.
+Caller-owned handles and finite running tasks may own Inner separately. Only the
+private SDK combines retained descriptor and its exact protected accepted upload.
+Descriptor syntax plus a rebuilt content hash is insufficient: ADR100 rechecks the
+original frame receipt, and full original domain metadata/capture must match before
+historical Delivered. A stable upload/file ID or restored receipt never recreates
+preparation or current send authority. The complete encrypted event acknowledgement
+is distinct from upload acceptance and canonical task Done.
+
+- **Final SDK file settlement acknowledgement loss:** no active SDK attempt does
+  not mean no retained work. An actual private settled File receipt must match
+  original delivery/fence and replay the already-Delivered domain acceptance
+  using its exact digest before the same retained Arc is removed. Complete
+  recovery and this already-settled path both update the retained operation's
+  outcome. Unmatched jobs remain unknown and block close. Do not recapture,
+  reencrypt or resend as a cleanup mechanism. ADR098's strict19-path lifecycle
+  passes9/9; this does not implement the application file tools or qualify
+  positive Windows durability.

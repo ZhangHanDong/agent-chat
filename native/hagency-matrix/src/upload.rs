@@ -11,7 +11,9 @@ use hagency_core::{tasks::RunnerCapability, uploads::UploadReceipt};
 use std::{future::Future, sync::Arc};
 use tokio::time::Instant;
 mod operation;
+pub(crate) mod publication;
 mod state;
+pub use publication::{FilePublicationAdmissionFailure, FilePublicationOperation};
 pub(crate) use state::Registry;
 use state::{Job, State};
 pub use state::{StagedUpload, UploadAdmissionFailure};
@@ -192,6 +194,9 @@ async fn bounded<T>(
         result = future => { checkpoint(cancel, deadline)?; result }
     }
 }
+#[cfg(test)]
+#[path = "../tests/file_publication/mod.rs"]
+mod file_tests;
 #[cfg(test)]
 #[path = "../tests/staged_upload/mod.rs"]
 mod tests;

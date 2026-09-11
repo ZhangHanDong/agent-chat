@@ -5463,3 +5463,57 @@ approval compilation also caught a non-Clone HostConfig in the new fixture; the
 fixture now borrows its original configuration through retained Inner ownership.
 All initial and final validation logs remain external under adr099-*. No original
 CI verdict, deadline, retry, workflow or production configuration changed.
+
+### 2026-09-10 — Original encrypted file publication implementation
+
+ADR098 consumes the original accepted UploadOperation plus exact publication claim
+and nonclone send. Its finite registry retains the existing media Job/permit before
+any await; handles and the owned task hold the Collector separately. Review caught
+and removed a self-retaining Arc cycle. Actual private SDK upload history supplies
+MXC, and only the SDK composes descriptor-bearing m.file. The existing encrypted
+outgoing engine preserves current scope checks and original thread/private route.
+A separate complete event receipt precedes domain Delivered. Caller loss and exact
+historical recovery cannot repeat encryption or writes.
+
+Eight focused selectors passed after the ADR100 association checkpoint was wired.
+Real recipient SDKs decrypt original bytes, Chinese filenames, caption and relation
+in DM and thread cases. A separate process records first Delivered after actual SDK
+Complete and a failed first domain settlement without original capability/media or
+HTTP replay. Unrun/uncertain/cancelled external-owner teardown is checked alongside
+future-drop custody. Coherent metadata substitution initially reproduced an erroneous
+settlement; full original domain content and frame receipt checks now reject rebuilt
+filename/hash/key/receipt substitutions. That original failure and early fixture
+compile/setup failures are preserved in external adr098-* logs. A synthetic full
+SDK receipt catalog checks admission bounds only; it is not evidence of 64 actual
+network deliveries. Full Matrix tests, final Clippy, Windows compilation, exact
+lifecycle and independent review remain pending at this checkpoint. Actual FileService
+and MCP entry points, Windows positive durability and production execution are open.
+
+### 2026-09-10 — ADR098 encrypted publisher verification
+
+The final publisher uses ADR100's exact original frame and full domain-content
+association. Independent review found and closed the final SDK Settle-ACK gap:
+a real persisted settled receipt plus already-Delivered acceptance must replay
+exactly before the original retained job can be released. Unmatched jobs stay
+unknown and block close; both Complete and settled-receipt recovery update the
+same retained operation outcome. Negative state reconciliation preserves the
+original acknowledgement error and does not manufacture successful delivery.
+
+All123 Matrix tests pass with no failures or ignored cases after the production
+fix. Three subsequent test-only extensions each pass their original exact custody,
+historical and journal selectors, proving no-attempt/unmatched custody refusal,
+Complete recovery outcome update and valid-format settled-digest substitution
+refusal. The substituted fixture restores only its saved actual SDK receipt.
+Final native and Windows GNU all-target warnings-denied Clippy pass; formatting
+and whitespace checks pass. Final strict lifecycle passes all8 actual selectors
+plus the complete19-path boundary:9/9, with zero failed, skipped, uncertain or
+pending review. Four informational/advisory lint findings remain; quality is1.0.
+The knowledge gate still exits2 with exactly157 baseline Error records and no
+added or removed Error record. Original failing and final successful test logs,
+strict evidence and independent source reviews are preserved outside the repo.
+
+Actual local TLS and recipient SDK fixtures decrypt exact file bytes, metadata
+and direct/thread relations. Windows GNU compilation does not prove native
+Windows execution: unconfirmed directory sync remains an explicit no-upload
+refusal, not positive file delivery qualification. This scoped publisher contract
+is complete; FileService/MCP integration and the full migration remain unfinished.

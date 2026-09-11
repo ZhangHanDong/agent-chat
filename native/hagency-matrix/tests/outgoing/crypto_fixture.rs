@@ -127,13 +127,17 @@ impl Peer {
         assert_eq!(keys.len(), 1);
     }
     pub async fn decrypt(&self, value: Value) -> Value {
+        self.decrypt_in(value, room_id!("!project:example.test"))
+            .await
+    }
+    pub async fn decrypt_in(&self, value: Value, room: &ruma::RoomId) -> Value {
         assert_ne!(value["session_id"], self.old_session);
         let raw=Raw::from_json_string(json!({"type":"m.room.encrypted","sender":"@worker:example.test","event_id":"$sent","origin_server_ts":1,"content":value}).to_string()).unwrap();
         let plain = self
             .human
             .decrypt_room_event(
                 &raw,
-                room_id!("!project:example.test"),
+                room,
                 &DecryptionSettings {
                     sender_device_trust_requirement: TrustRequirement::CrossSigned,
                 },
@@ -153,6 +157,20 @@ pub(super) async fn corrupt(sdk: &mut Sdk, variant: u8) {
     assert!(a.phase == Phase::Complete);
     assert!(a.writes.len() >= 2);
     match variant {
+        10..=13 => super::file_publication::corrupt(a, variant),
+        14 => {
+            // Synthetic full retained catalog for admission bounds only. These
+            // rows are not evidence of 64 actual network deliveries.
+            let original = a.receipt().unwrap();
+            sdk.journal.outgoing_receipts = (0..crate::outgoing::state::MAX_RECEIPTS)
+                .map(|index| {
+                    let mut receipt = original.clone();
+                    receipt.id = format!("retained_{index}");
+                    receipt
+                })
+                .collect();
+            sdk.journal.outgoing = None;
+        }
         0 => a.writes[0].response = None,
         1 => a.index = 0,
         2 => a.writes[0].room = true,

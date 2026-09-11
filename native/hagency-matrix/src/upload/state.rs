@@ -108,6 +108,7 @@ pub(crate) struct Registry {
 pub(super) struct Entries {
     pub closed: bool,
     pub jobs: BTreeMap<String, Arc<Job>>,
+    pub publications: BTreeMap<String, Arc<super::publication::Job>>,
 }
 impl Registry {
     pub(crate) fn new() -> Self {
@@ -116,6 +117,7 @@ impl Registry {
             entries: std::sync::Mutex::new(Entries {
                 closed: false,
                 jobs: BTreeMap::new(),
+                publications: BTreeMap::new(),
             }),
             #[cfg(test)]
             gate: std::sync::atomic::AtomicU8::new(0),
@@ -127,7 +129,7 @@ impl Registry {
     }
     pub(crate) fn close(&self) -> Result<(), Error> {
         let mut entries = self.entries.lock().map_err(|_| Error::Storage)?;
-        if !entries.jobs.is_empty() {
+        if !entries.jobs.is_empty() || !entries.publications.is_empty() {
             return Err(Error::Busy);
         }
         entries.closed = true;

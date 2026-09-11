@@ -14,6 +14,7 @@ mod media_upload;
 mod outgoing;
 mod receive;
 mod upload;
+pub use upload::{FilePublicationAdmissionFailure, FilePublicationOperation};
 pub use upload::{StagedUpload, UploadAdmissionFailure, UploadOperation};
 mod sdk;
 mod wire;

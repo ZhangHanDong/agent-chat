@@ -4,7 +4,7 @@ use std::{
     sync::{OnceLock, atomic::Ordering},
     time::Duration,
 };
-mod fixture;
+pub(super) mod fixture;
 use fixture::*;
 fn serial() -> &'static tokio::sync::Mutex<()> {
     static SERIAL: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();

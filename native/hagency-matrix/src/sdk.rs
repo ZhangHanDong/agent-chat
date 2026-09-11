@@ -35,6 +35,7 @@ struct QueueObservation;
 
 mod approval_intake;
 mod attachments;
+pub(crate) mod file_publication;
 mod keys;
 mod outgoing;
 mod upload_custody;
@@ -99,6 +100,10 @@ enum Command {
     OutgoingCorruptFixture(u8, oneshot::Sender<()>),
     #[cfg(test)]
     OutgoingReplyFault(oneshot::Sender<()>),
+    #[cfg(test)]
+    OutgoingSettleReplyFault(oneshot::Sender<()>),
+    #[cfg(test)]
+    OutgoingSettledReceiptFixture(bool, oneshot::Sender<()>),
     Outgoing(
         crate::outgoing::state::Command,
         oneshot::Sender<Result<crate::outgoing::state::View, Error>>,
@@ -292,10 +297,40 @@ impl Owner {
                                 sdk.outgoing_reply_loss = true;
                                 let _ = reply.send(());
                             }
+                            #[cfg(test)]
+                            Command::OutgoingSettleReplyFault(reply) => {
+                                sdk.outgoing_settle_reply_loss = true;
+                                let _ = reply.send(());
+                            }
+                            #[cfg(test)]
+                            Command::OutgoingSettledReceiptFixture(corrupt, reply) => {
+                                assert!(sdk.journal.outgoing.is_none(), "fixture requires actual completed Settle");
+                                if corrupt {
+                                    assert!(sdk.settled_receipt_fixture.is_none());
+                                    let receipt = sdk.journal.outgoing_receipts.iter_mut().rev()
+                                        .find(|receipt| receipt.kind == crate::outgoing::state::Kind::File)
+                                        .expect("actual settled File receipt");
+                                    sdk.settled_receipt_fixture = Some(receipt.clone());
+                                    let replacement = if receipt.attempt_digest.starts_with('0') { "1" } else { "0" };
+                                    receipt.attempt_digest.replace_range(..1, replacement);
+                                } else {
+                                    // Only the exact receipt retained from the real SDK Settle
+                                    // can restore this fixture; callers supply no proof data.
+                                    let original = sdk.settled_receipt_fixture.take().expect("paired original receipt");
+                                    let receipt = sdk.journal.outgoing_receipts.iter_mut()
+                                        .find(|receipt| receipt.kind == original.kind && receipt.id == original.id && receipt.fence == original.fence)
+                                        .expect("original settled slot remains");
+                                    *receipt = original;
+                                }
+                                sdk.persist().await.unwrap();
+                                let _ = reply.send(());
+                            }
                             Command::Outgoing(command, reply) => {
                                 #[cfg(test)]
                                 let accept =
                                     matches!(&command, crate::outgoing::state::Command::Accept(..));
+                                #[cfg(test)]
+                                let settle = matches!(&command, crate::outgoing::state::Command::Settle);
                                 let result = sdk.outgoing(command).await;
                                 #[cfg(test)]
                                 observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
@@ -304,6 +339,11 @@ impl Owner {
                                     && result.is_ok()
                                     && std::mem::take(&mut sdk.outgoing_reply_loss)
                                 {
+                                    drop(reply);
+                                    continue;
+                                }
+                                #[cfg(test)]
+                                if settle && result.is_ok() && std::mem::take(&mut sdk.outgoing_settle_reply_loss) {
                                     drop(reply);
                                     continue;
                                 }
@@ -472,7 +512,7 @@ impl Owner {
                 use crate::outgoing::state::Command as Outgoing;
                 CommandTrace::current(match command {
                     Outgoing::Read => SdkCommand::OutgoingRead,
-                    Outgoing::Start(..) => SdkCommand::OutgoingStart,
+                    Outgoing::Start(..) | Outgoing::StartFile(..) => SdkCommand::OutgoingStart,
                     Outgoing::Begun => SdkCommand::OutgoingBegun,
                     Outgoing::Query => SdkCommand::OutgoingQuery,
                     Outgoing::Encrypt(..) => SdkCommand::OutgoingEncrypt,
@@ -839,6 +879,10 @@ struct Sdk {
     attachment_commit_fault: bool,
     #[cfg(test)]
     outgoing_reply_loss: bool,
+    #[cfg(test)]
+    outgoing_settle_reply_loss: bool,
+    #[cfg(test)]
+    settled_receipt_fixture: Option<crate::outgoing::state::Receipt>,
     client: BaseClient,
     root: PathBuf,
     journal: Journal,
@@ -966,6 +1010,7 @@ impl Sdk {
             }
             if let Some(attempt) = &journal.outgoing {
                 attempt.validate(&identity, &init.user, &init.device)?;
+                file_publication::validate_attempt(attempt, uploads.as_ref(), &upload_context)?;
             }
             let mut outgoing_ids = std::collections::BTreeSet::new();
             for receipt in &journal.outgoing_receipts {
@@ -1070,6 +1115,10 @@ impl Sdk {
                 attachment_commit_fault: false,
                 #[cfg(test)]
                 outgoing_reply_loss: false,
+                #[cfg(test)]
+                outgoing_settle_reply_loss: false,
+                #[cfg(test)]
+                settled_receipt_fixture: None,
                 client,
                 root: init.root.clone(),
                 journal,
@@ -1573,7 +1622,7 @@ impl Owner {
 
 #[cfg(test)]
 #[path = "../tests/outgoing/crypto_fixture.rs"]
-mod outgoing_fixture;
+pub(crate) mod outgoing_fixture;
 #[cfg(test)]
 impl Owner {
     pub(crate) async fn outgoing_fixture(&self, verified: bool) -> outgoing_fixture::Peer {
@@ -1597,6 +1646,20 @@ impl Owner {
         let (send, reply) = oneshot::channel();
         self.tx
             .try_send(Command::OutgoingReplyFault(send))
+            .unwrap_or_else(|_| panic!("fixture queue"));
+        reply.await.unwrap();
+    }
+    pub(crate) async fn outgoing_settle_reply_fault(&self) {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::OutgoingSettleReplyFault(send))
+            .unwrap_or_else(|_| panic!("fixture queue"));
+        reply.await.unwrap();
+    }
+    pub(crate) async fn outgoing_settled_receipt_fixture(&self, corrupt: bool) {
+        let (send, reply) = oneshot::channel();
+        self.tx
+            .try_send(Command::OutgoingSettledReceiptFixture(corrupt, send))
             .unwrap_or_else(|_| panic!("fixture queue"));
         reply.await.unwrap();
     }

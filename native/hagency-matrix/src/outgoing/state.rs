@@ -18,6 +18,7 @@ pub(crate) const MAX_ATTEMPT: usize = 1024 * 1024;
 pub(crate) enum Kind {
     Final,
     Notice,
+    File,
 }
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) enum Phase {
@@ -77,6 +78,8 @@ pub(crate) struct Attempt {
     pub keys_digest: Option<String>,
     pub writes: Vec<Write>,
     pub index: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<crate::sdk::file_publication::Binding>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Receipt {
@@ -117,11 +120,13 @@ impl Attempt {
             serde_json::json!({"rel_type":"m.thread","event_id":root,"is_falling_back":true,"m.in_reply_to":{"event_id":root}}));
         if self.content.get("m.relates_to") != expected_relation.as_ref()
             || self.content["msgtype"]
-                != if self.kind == Kind::Notice {
-                    "m.notice"
-                } else {
-                    "m.text"
+                != match self.kind {
+                    Kind::Notice => "m.notice",
+                    Kind::Final => "m.text",
+                    Kind::File => "m.file",
                 }
+            || (self.kind == Kind::File) != self.file.is_some()
+            || (self.kind == Kind::File && !self.route.encrypted)
         {
             return Err(Error::Storage);
         }
@@ -341,6 +346,7 @@ pub(crate) fn encode(value: &Value, max: usize) -> Result<String, Error> {
 pub(crate) enum Command {
     Read,
     Start(Box<Attempt>),
+    StartFile(Box<crate::sdk::file_publication::Start>),
     Begun,
     Query,
     Encrypt(Value),

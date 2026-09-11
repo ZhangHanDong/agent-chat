@@ -5,9 +5,9 @@ use hagency_media_store::{HostNamespace, OperationId, Store};
 use hagency_store::UploadIdentity;
 use serde_json::json;
 
-pub(super) const DATA: &[u8] = b"private original source, not an upload body";
-pub(super) const RAW: &[u8] = b" {\"content_uri\":\"mxc://remote.test/original\"} \n";
-pub(super) struct Fixture {
+pub(crate) const DATA: &[u8] = b"private original source, not an upload body";
+pub(crate) const RAW: &[u8] = b" {\"content_uri\":\"mxc://remote.test/original\"} \n";
+pub(crate) struct Fixture {
     pub base: common::Fixture,
     pub collector: Collector,
     pub fake: common::Fake,
@@ -23,13 +23,29 @@ fn now() -> u64 {
         .as_millis() as u64
 }
 impl Fixture {
+    pub(crate) fn into_file_teardown(self) -> (common::Fixture, Collector, common::Fake) {
+        let Self {
+            base,
+            collector,
+            fake,
+            ..
+        } = self;
+        (base, collector, fake)
+    }
     pub async fn new() -> Self {
+        Self::new_profile(true, false).await
+    }
+    pub async fn new_profile(direct: bool, thread: bool) -> Self {
         let base = common::Fixture::new();
         let mut fake = common::Fake::start(true).await;
-        let config = base
+        let mut config = base
             .config(&fake.endpoint)
             .with_root_pem(include_bytes!("../fixtures/ca.pem"))
             .unwrap();
+        if !direct {
+            config.rooms[0].privacy = hagency_core::replies::RoomPrivacy::Group {};
+            config.rooms[0].room_id = "!project:example.test".into();
+        }
         let collector = Collector::new(config, base.store.clone()).unwrap();
         let cancel = CancellationToken::new();
         let (result, ()) = common::scripted(
@@ -42,8 +58,13 @@ impl Fixture {
             .resolve_verified_matrix_session(SessionBinding {
                 id: "upload_session".into(),
                 engagement_id: base.identity.transport.engagement_id.clone(),
-                room_id: "!direct:example.test".into(),
-                thread_root: None,
+                room_id: if direct {
+                    "!direct:example.test"
+                } else {
+                    "!project:example.test"
+                }
+                .into(),
+                thread_root: thread.then(|| "$file-root".into()),
             })
             .await
             .unwrap();
@@ -222,6 +243,133 @@ impl Fixture {
             .unwrap();
         Some((input, admission.identity, ciphertext))
     }
+    pub async fn file_input(
+        &mut self,
+        id: &str,
+        caption: Option<&str>,
+    ) -> Option<(StagedUpload, hagency_store::FileDeliveryIdentity, Vec<u8>)> {
+        let file = self
+            .base
+            .store
+            .reserve_file_delivery(
+                self.cap.clone(),
+                hagency_core::file_delivery::FileDeliveryRequest {
+                    call_id: id.into(),
+                    request_digest: "1".repeat(64),
+                    filename: "结果.txt".into(),
+                    caption: caption.map(str::to_owned),
+                },
+            )
+            .await
+            .unwrap();
+        let admission = file.upload;
+        std::fs::write(self.base.root.path().join("work/source"), DATA).unwrap();
+        let snapshot = self
+            .workspace
+            .snapshot(&hagency_files::RelativeFile::new("source").unwrap())
+            .unwrap();
+        let codec = hagency_media::Codec::new(hagency_media::Limits::new(4096, 8).unwrap());
+        let encrypted = codec.encrypt(snapshot).unwrap();
+        let ciphertext = encrypted.ciphertext().to_vec();
+        let descriptor = encrypted.descriptor().private_event_json().to_vec();
+        let operation = OperationId::new(id).unwrap();
+        let prepared = match self.stage.prepare_encrypted(&operation, encrypted) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                #[cfg(not(windows))]
+                panic!("qualified local staging failed: {}", error.error());
+                #[cfg(windows)]
+                {
+                    assert_eq!(error.error(), hagency_media_store::Error::Durability);
+                    let Some(hagency_media_store::Media::Encrypted(original)) =
+                        error.into_unadmitted()
+                    else {
+                        panic!("original encryption lost");
+                    };
+                    assert_eq!(original.ciphertext(), ciphertext);
+                    assert_eq!(original.descriptor().private_event_json(), descriptor);
+                    assert_eq!(
+                        codec
+                            .decrypt(original.descriptor(), original.ciphertext())
+                            .unwrap()
+                            .bytes(),
+                        DATA
+                    );
+                    assert_eq!(
+                        self.base
+                            .store
+                            .inspect_upload(admission.identity)
+                            .await
+                            .unwrap()
+                            .upload,
+                        hagency_core::uploads::UploadState::Pending
+                    );
+                    eprintln!(
+                        "ADR089 qualification: FileSyncedDirectoryUnconfirmed; exact encrypted custody returned, POST unavailable"
+                    );
+                    self.fake.no_request().await;
+                    return None;
+                }
+            }
+        };
+        let stage = StageCommitment {
+            namespace_digest: hex(prepared.namespace().digest()),
+            operation_id: id.into(),
+            receipt_digest: hex(prepared.digest()),
+            len: prepared.len() as u64,
+        };
+        self.base
+            .store
+            .bind_file_delivery_stage(
+                self.cap.clone(),
+                file.identity.clone(),
+                Arc::new(admission.preparation.unwrap()),
+                hagency_core::file_delivery::CapturedFile {
+                    size: DATA.len() as u64,
+                    sha256: crate::outgoing::state::hash(DATA),
+                },
+                stage.clone(),
+            )
+            .await
+            .unwrap();
+        let receipt = self
+            .stage
+            .stage_prepared(prepared)
+            .map_err(|e| e.error())
+            .unwrap();
+        assert_eq!(hex(receipt.digest()), stage.receipt_digest);
+        self.base
+            .store
+            .observe_upload_staged(
+                admission.identity.clone(),
+                stage,
+                UploadStageObservation::FileAndDirectorySynced,
+            )
+            .await
+            .unwrap();
+        let restored = self
+            .stage
+            .restore_encrypted(&operation, receipt.digest())
+            .unwrap();
+        assert_eq!(restored.descriptor().private_event_json(), descriptor);
+        let claim = self
+            .base
+            .store
+            .claim_upload(self.cap.clone(), admission.identity.clone(), 60_000)
+            .await
+            .unwrap()
+            .unwrap();
+        let send = self
+            .base
+            .store
+            .begin_upload(self.cap.clone(), claim.clone())
+            .await
+            .unwrap();
+        let input = StagedUpload::new(self.cap.clone(), claim, send, restored)
+            .map_err(|e| e.error())
+            .unwrap();
+        Some((input, file.identity, ciphertext))
+    }
     pub fn admit(&self, input: StagedUpload) -> UploadOperation {
         self.collector
             .stage_upload(input)
@@ -263,7 +411,7 @@ impl Fixture {
 fn hex(bytes: &[u8; 32]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
-pub(super) async fn authenticate(fake: &mut common::Fake) {
+pub(crate) async fn authenticate(fake: &mut common::Fake) {
     let request = fake.next().await;
     assert_eq!(request.target, "/_matrix/client/v3/account/whoami");
     assert_eq!(
@@ -272,7 +420,7 @@ pub(super) async fn authenticate(fake: &mut common::Fake) {
     );
     request.json(200, common::who());
 }
-pub(super) async fn post(fake: &mut common::Fake, ciphertext: &[u8]) {
+pub(crate) async fn post(fake: &mut common::Fake, ciphertext: &[u8]) {
     authenticate(fake).await;
     let request = fake.next().await;
     assert_eq!(request.method, "POST");
@@ -290,7 +438,7 @@ pub(super) async fn post(fake: &mut common::Fake, ciphertext: &[u8]) {
 const CHILD: &str = "HAGENCY_STAGED_UPLOAD_SETTLEMENT_FIXTURE";
 /// Actual fresh process; no original capability, claim, Send, descriptor or
 /// response is passed. This tests host-known selector recovery, not discovery.
-pub(super) async fn child_settlement() -> bool {
+pub(crate) async fn child_settlement() -> bool {
     let Some(path) = std::env::var_os(CHILD) else {
         return false;
     };
