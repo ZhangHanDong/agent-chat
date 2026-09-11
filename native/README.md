@@ -61,9 +61,13 @@ bytes. Four held results remain bounded across SDK Owner reopen. Schema19 now
 retains exact upload reservations, staging commitments, fenced claims and
 nonrearmable possible writes. Lost replies never recreate preparation or send
 grants; historical acceptance remains separate from current task/route authority.
-Only opaque private receipt commitments enter the domain database. An actual
-upload owner, protected repository acceptance journal, cache paths and native
-file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
+Only opaque private receipt commitments enter the domain database. Actual checked
+upload response bodies now stay in finite attempt custody, and a separate
+encrypted SDK journal retains exact historical acceptance. Its one-use permits
+cannot survive owner replacement as execution grants. Exact protected-row
+settlement can recover after process exit without recreating a runner secret.
+The consuming staged upload owner, cache paths and native file tools remain to
+implement. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one

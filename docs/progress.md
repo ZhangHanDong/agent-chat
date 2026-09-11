@@ -4909,3 +4909,36 @@ wording advisories; Node's Cargo-only lifecycle cannot verify these scenarios,
 so no native lifecycle success is claimed. Parent integration and fresh hosted
 Node execution remain separate gates. No live services, credentials, original
 checkout, merge or push changed.
+
+
+## 2026-09-10 — Integrated upload history checkpoint
+
+Root97968d8 includes actual response custody43fcb8e, native progress fixture
+a22707f, protected SDK uploads b0553e8, full-process historical settlement9b9078f
+and Node claim/wake cutoff97968d8. Independent final source review found no
+blocker within these scoped primitives; the consuming transport remains separate.
+
+Complete locked native workspace passes496 independent tests plus one proxy child
+(497 printed),85 summaries, zero failed/ignored. This count includes the expected
+early-refusal panic selector. All377 Rust specification bindings resolve. Full
+all-target warnings-denied Clippy, rustfmt and diff checks pass. Root ADR084 strict
+lifecycle passes7/7 with all8 changed paths; ADR085 passes6/6 with all9. No failed,
+skipped, uncertain or pending-review scenario is counted as passing. External
+settlement-integrated-* and upload-*-integrated-* retain exact outputs.
+
+Latest remote7cf0dc0 native34556196644 failed Windows and macOS; Linux passed.
+Original85-summary suites are retained separately: Windows475 printed passes and
+6 failures, macOS483 and1, Linux485 and0, all zero ignored. Mandatory-lock media
+restoration and original Matrix transport integration now pass Windows. Four
+Matrix library failures are DomainStore shutdown, one is intake after its HTTP
+script, one is a missing scripted request; historical causes remain unknown.
+ADR088 adds original phase observations without timeout changes. ADR086 retains
+a real native-liveness/fresh-progress assertion for macOS, not a production fix.
+
+Original Node34556196694 has4287pass1fail1skip. The independently confirmed
+claim/wake race now passes its focused regressions. Full local validation exposed
+the backend source fingerprint/line-offset inventory drift and separate earlier
+Git/version/initialization timeouts. Inventory regeneration is in progress; the
+original timeout phases lack complete causality evidence and remain failures.
+No live services/models/accounts/credentials or original checkout were modified.
+Native file tools, full upload coordination and production migration remain open.

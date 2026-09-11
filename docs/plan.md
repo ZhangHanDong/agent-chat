@@ -10,30 +10,39 @@ possible writes and exact historical acceptance. ADR079 binds the actual encrypt
 material's stable identity before staging IO; ADR077 restores that original
 ciphertext under qualified sync evidence. ADR076 already receives checked bytes
 from verified retained manifests with current-authority revalidation. The actual
-upload owner, protected response journal, cache paths and native file tools remain.
-ADR083 response custody and ADR084 private SDK receipt storage are in separate
-implementation worktrees; they are not included in this checkpoint.
+upload owner, cache paths and native file tools remain. ADR083 now retains the
+actual complete checked upload response; ADR084 commits it in separate encrypted
+SDK custody with finite one-use admission and exact historical lookup. ADR085
+settles only the exact protected domain row after process loss without original
+runner secrets. The consuming staged upload owner is separate ADR089 work.
 
-At integrated8fce06e the locked full workspace passes483 unique tests plus one
-proxy child,85 suite summaries and no failed/ignored tests. All357 Rust spec
-selectors resolve. Full warnings-denied Clippy, rustfmt and diff checks pass.
+At integrated97968d8 the locked full workspace passes496 unique tests plus one
+proxy child (497 printed),85 suite summaries and no failed/ignored tests. Full
+warnings-denied Clippy, rustfmt and diff checks pass. All377 Rust selectors
+resolve. Integrated ADR084 lifecycle passes7/7 across8 changed paths; ADR085
+passes6/6 across9 paths, with zero failed/skipped/uncertain/pending-review.
 Integrated cross-crate ADR082 lifecycle passes5/5 across all6 changed paths,
 including the actual Palpo publication/restart test. ADR079 passes5/5 across9
 paths; ADR081 passes8/8 across7. ADR078 integrated lifecycle passes8/8 across all
 23 paths; its148 store regressions also pass. Independent
 ADR078/079 review found no concrete blocker within their declared primitive scopes.
 
-Latest pushed25c01ee native CI34553424733 failed Windows while Linux and macOS
-passed their original suites, Clippy and release builds; Node34553424721 passed.
-Original Windows461 printed passes plus5 failures are retained: three restoration
-fixtures opened a second handle against the mandatory file lock; ADR081 now reads
-through the original owner. Two Matrix fixtures obscured the Collector result with
-a later scripted-request timeout; ADR080 now exposes the original early error.
-The original Palpo suite passed13/13; a later serial diagnostic passed12/13 and
-failed1/13 at custody Store shutdown. ADR082 adds phase observation without changing
-waits or verdicts. Historical transport/shutdown causes remain unproven; fresh
-three-platform execution is required. Earlier all-greenff8be6b CI34551463344
-predates the new receive/restoration cases and does not replace this failed run.
+Latest pushed7cf0dc0 native CI34556196644 failed Windows and macOS; Linux passed.
+Original suites retain Windows475 printed passes plus6 failures, macOS483 plus1,
+and Linux485 plus0, each85 summaries and zero ignored. Windows media restoration
+and transport integration now pass. Four Matrix library failures occur at domain
+shutdown, one during bounded intake and one while a script awaits HTTP; their
+original causes remain unknown. ADR088 adds fixed original phase observations.
+ADR086's actual native liveness plus fresh-progress fixture addresses the macOS
+test's ambiguous80ms heartbeat sample; production process handling is unchanged.
+
+Node CI34556196694 has4287 passed,1 failed,1 skipped; its actual wrapper recovery
+timed out without an inner phase. ADR087 separately reproduces and fixes a real
+claim/wake clock race, with88 affected tests passing. Complete local Node checking
+exposed inventory fingerprints/line offsets requiring regeneration after the
+backend edit; that correction is in progress. Two verifier Git fixture setups
+also failed without command outcome detail. Neither a later pass nor an unrelated
+fix supplies those missing historical causes. Fresh hosted CI remains required.
 
 Keep canonical Done, cleanup, owner decision, runtime application, usage and
 message acceptance separate. Approval application proof, complete room/history
