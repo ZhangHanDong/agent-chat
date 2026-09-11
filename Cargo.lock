@@ -1144,6 +1144,7 @@ dependencies = [
  "hagency-files",
  "hagency-matrix-format",
  "hagency-media",
+ "hagency-media-store",
  "hagency-store",
  "http",
  "matrix-sdk-base",

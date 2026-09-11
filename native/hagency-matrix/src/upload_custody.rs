@@ -178,43 +178,15 @@ impl Identity {
 #[derive(Clone)]
 pub(crate) struct Reference(pub(super) Arc<Identity>);
 impl Reference {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private historical metadata awaits the upload settlement coordinator"
-        )
-    )]
     pub(crate) fn id(&self) -> &str {
         &self.0.upload_id
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private historical metadata awaits the upload settlement coordinator"
-        )
-    )]
     pub(crate) fn fence(&self) -> u64 {
         self.0.fence
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private historical metadata awaits the upload settlement coordinator"
-        )
-    )]
     pub(crate) fn stage(&self) -> &StageCommitment {
         &self.0.stage
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private historical metadata awaits the upload settlement coordinator"
-        )
-    )]
     pub(crate) fn route(&self) -> &ReplyRoute {
         &self.0.route
     }
@@ -237,23 +209,9 @@ pub(crate) struct Inspection {
     receipt: Option<hagency_core::uploads::UploadAcceptance>,
 }
 impl Inspection {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private historical summary awaits the upload settlement coordinator"
-        )
-    )]
     pub(crate) fn phase(&self) -> Phase {
         self.phase
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private historical summary awaits the upload settlement coordinator"
-        )
-    )]
     pub(crate) fn receipt(&self) -> Option<&hagency_core::uploads::UploadAcceptance> {
         self.receipt.as_ref()
     }

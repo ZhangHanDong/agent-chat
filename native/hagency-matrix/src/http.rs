@@ -51,7 +51,7 @@ pub(crate) struct Http {
 /// Exact complete body of a validated HTTP200 encrypted-upload response. Only
 /// the actual bounded transport constructs this value. It carries no room,
 /// dispatch, sender verification, persistence or current-execution authority.
-/// The original UploadAttempt owns its lifetime and finite result permit.
+/// The original UploadAttempt or staged upload owner retains its finite result slot.
 pub struct UploadResponse {
     body: Vec<u8>,
     body_sha256: [u8; 32],

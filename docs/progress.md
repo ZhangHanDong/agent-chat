@@ -5081,3 +5081,61 @@ test binaries, zero ignored. Native all-target Clippy with warnings denied,
 rustfmt and diff checks pass. Evidence and handoff are external under
 matrix-invalidation-custody-* and adr091-matrix-invalidation-custody-handoff.md.
 No hosted Windows run or original CI outcome was replaced by these local checks.
+
+## 2026-09-10 — Retained staged upload owner (ADR089)
+
+Created an isolated97968d8 worktree and parsed/linted the explicit16-path contract
+before implementation. Integrated only parent ADR090 input association APIs as
+01b824f. Original domain/media-store code remains parent-owned. Added one Matrix
+path dependency and its existing lock entry, with no third-party version changes.
+
+The owner now consumes actual qualified RestoredEncrypted plus the unique matched
+Send, repeats constructor association at admission, authenticates current whoami,
+records SDK Possible and checks current domain authority immediately before the
+single POST. Complete response custody precedes persistence; exact SDK historical
+receipts alone settle the domain. A bounded retained negative-identity completion
+survives dropped callers. No runtime endpoint, room event or live service changed.
+
+Initial source check exposed one local borrow conflict, and first test compilation
+exposed an incorrect SessionBinding import. The first runnable six-case suite
+passed3 and failed3 due to fixture generation/retired-close expectations; those
+original logs are preserved externally. Corrected next-generation invalidation
+and explicit revoked-close outcomes without changing production deadlines or
+those domain rules. Review closed failed-constructor roundtrip bypass, current-
+credential whoami requirement, unconditional task-not-Done assertion and abandoned
+negative fencing. Six focused cases now pass, including an actual fresh process
+with only persisted exact selector/config and private journals, malformed/truncated
+HTTP, cancellation, release races, capacity and SDK write-failure/revocation recovery.
+Latest focused log: staged-upload-tests-fourth.log (6 passed,3.75s). Complete
+Matrix regression, strict lifecycle, native and Windows GNU checks follow.
+Windows unconfirmed directory sync is an explicit refusal outcome with exact
+custody/no-POST assertions and fixed diagnostics, not a positive upload pass.
+
+Final local ADR089 evidence: complete locked Matrix suite passes110 tests
+(89 library,6 download,6 upload,9 transport; no failed/ignored), with the fresh
+process captured inside one library test rather than counted as another unique
+case. Native and Windows GNU all-target Clippy pass with warnings denied; fmt and
+diff checks pass. Strict lifecycle passed6 bound scenarios plus the complete
+16-path boundary (7/7), without skips or uncertainty. A final wording rerun makes
+platform refusal an explicit parsed And step rather than unparsed prose beginning
+with Or. All macOS cases exercised the positive qualified staging branches.
+Windows cross-compilation does not assert positive Windows execution; actual
+unconfirmed-sync branches qualify refusal only. Original failed evidence remains
+in staged-upload-check-first.log and staged-upload-tests-first/second.log.
+
+Final independent review additionally found caller-mutable RunnerCapability
+Strings could be retained before queue-weight rejection. Synchronous original
+identifier/secret bounds now run before both construction and admission; actual
+oversized-input/failure-roundtrip tests retain original ciphertext and refuse
+without network. Added deterministic cancellation after complete response capture.
+The stronger restart fixture aborts the first actual domain acceptance UPDATE
+after private SDK Accepted, then drops every original owner/capability and starts
+a fresh child. It commits first historical acceptance (replayed=false), followed
+by exact replay (true), without HTTP. Six focused tests pass again (3.70s);
+final affected suite/Clippy/lifecycle rerun follows these reviewed additions.
+
+Post-review final rerun passes all110 Matrix tests again (89+6+6+9, zero failures
+or ignored), and native/Windows GNU all-target warnings-denied Clippy pass.
+Only the declared16 Matrix/dependency/contract/coordination paths changed in this
+slice. Final exact strict lifecycle and fmt/diff checks are recorded immediately
+before the reviewable commit; parent retains integration and hosted CI ownership.

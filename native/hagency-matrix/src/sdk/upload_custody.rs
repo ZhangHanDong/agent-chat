@@ -189,23 +189,9 @@ impl Sdk {
     }
 }
 impl Owner {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private ADR084 entry awaits the consuming upload coordinator"
-        )
-    )]
     pub(crate) fn upload_reference(&self, send: &UploadSend) -> Result<Reference, Error> {
         self.upload_context.reference(send)
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private ADR084 entry awaits the consuming upload coordinator"
-        )
-    )]
     pub(crate) async fn reserve_upload(&self, send: UploadSend) -> Result<LivePermit, Error> {
         match self
             .upload_command(Command::Reserve(Box::new(send)))
@@ -215,26 +201,12 @@ impl Owner {
             _ => Err(Error::Storage),
         }
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private ADR084 entry awaits the consuming upload coordinator"
-        )
-    )]
     pub(crate) async fn possible_upload(&self, permit: LivePermit) -> Result<Inspection, Error> {
         match self.upload_command(Command::Possible(permit)).await? {
             Reply::Inspection(view) => Ok(view),
             _ => Err(Error::Storage),
         }
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private ADR084 entry awaits the consuming upload coordinator"
-        )
-    )]
     pub(crate) async fn inspect_upload(&self, reference: &Reference) -> Result<Inspection, Error> {
         match self
             .upload_command(Command::Inspect(reference.clone()))
@@ -244,13 +216,6 @@ impl Owner {
             _ => Err(Error::Storage),
         }
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private ADR084 entry awaits the consuming upload coordinator"
-        )
-    )]
     pub(crate) async fn accept_upload(
         &self,
         reference: &Reference,
@@ -275,13 +240,6 @@ impl Owner {
             _ => Err(Error::Storage),
         }
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Private exact historical lookup awaits the upload settlement coordinator"
-        )
-    )]
     pub(crate) async fn restore_upload_reference(&self, id: &str) -> Result<Reference, Error> {
         // A bounded exact selector is lookup data, never a source/send capability.
         if id.len() != 39

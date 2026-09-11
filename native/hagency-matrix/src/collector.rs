@@ -13,6 +13,7 @@ pub(crate) struct Inner {
     pub(crate) busy: Arc<Semaphore>,
     pub(crate) attachment_handles: Arc<Semaphore>,
     pub(crate) receiver: crate::receive::Receiver,
+    pub(crate) uploads: crate::upload::Registry,
     #[cfg(test)]
     pub(crate) handoff_fault: std::sync::atomic::AtomicU8,
     #[cfg(test)]
@@ -65,14 +66,15 @@ impl Collector {
         .await
         .map_err(|_| Error::OutcomeUnknown)?
     }
-    pub async fn close(self) -> Result<(), Error> {
+    pub async fn close(&self) -> Result<(), Error> {
         let _permit = self
             .inner
             .busy
             .clone()
             .try_acquire_owned()
             .map_err(|_| Error::Busy)?;
-        let inner = self.inner;
+        self.inner.uploads.close()?;
+        let inner = self.inner.clone();
         tokio::spawn(async move {
             let _permit = _permit;
             if let Some(state) = inner
@@ -110,6 +112,7 @@ impl Inner {
             busy: Arc::new(Semaphore::new(1)),
             attachment_handles: Arc::new(Semaphore::new(crate::attachments::MAX_HANDLES)),
             receiver: crate::receive::Receiver::new(),
+            uploads: crate::upload::Registry::new(),
             #[cfg(test)]
             handoff_fault: std::sync::atomic::AtomicU8::new(0),
             #[cfg(test)]

@@ -13,6 +13,8 @@ mod media_download;
 mod media_upload;
 mod outgoing;
 mod receive;
+mod upload;
+pub use upload::{StagedUpload, UploadAdmissionFailure, UploadOperation};
 mod sdk;
 mod wire;
 pub use collector::{Collector, ObservationSummary};

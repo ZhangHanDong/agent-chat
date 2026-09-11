@@ -11,6 +11,7 @@ hagency-core = { path = "../hagency-core" }
 hagency-store = { path = "../hagency-store" }
 hagency-matrix-format = { path = "../hagency-matrix-format" }
 hagency-media = { path = "../hagency-media" }
+hagency-media-store = { path = "../hagency-media-store" }
 sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
