@@ -8,7 +8,8 @@ tags: [active, rust, matrix, diagnostics]
 ## Intent
 
 Identify the original operation and fixed inner phase behind four Windows706172d
-and six Windowsfc57d6b failures while retaining the original result and operation ownership.
+and six Windowsfc57d6b failures, plus four Windows5a8f7f7 failures, while retaining
+the original result and operation ownership.
 
 ## Constraints
 
@@ -18,7 +19,8 @@ and six Windowsfc57d6b failures while retaining the original result and operatio
 - Preserve original primary errors separately from fencing errors and preserve every returned result.
 - Print only fixed operation variant and phase labels bounded batch or event indices and redacted Error variants.
 - Keep observation instrumentation and held-stage gates private to test builds.
-- Retain all ten original failing selectors and original CI verdicts as separate evidence.
+- Retain all ten original failing selectors and original CI verdicts as separate evidence; the four Windows5a8f7f7 failures repeat four of those selectors.
+- Retain the original SDK Start command and sequence on bounded inner phase observations through caller loss.
 
 ### Must Not
 - Do not change production or fixture deadlines CI parallelism retry behavior queue capacity or service activation.
@@ -50,7 +52,7 @@ Scenario: Crypto prime failures identify the original fixed variant and phase
   Test Double: actual encrypted SDK and local TLS fixture
   Test: native_matrix_intake_crypto_verified_human_dm_no_mention_and_spoof_refusal
   Given the original five crypto variants and bootstrap collector
-  When that original prime or intake operation fails
+  When that original prime intake or Collector close operation fails
   Then its fixed operation variant and last collector or SDK phase accompany the unchanged failure
 
 Scenario: Concurrent cancellation distinguishes prime from the actual intake
@@ -148,6 +150,14 @@ Scenario: Uncertain outgoing wire cleanup observes original domain shutdown
   Given substantive original assertions and Collector close have completed
   When the same original DomainStore shutdown fails
   Then its fixed shutdown label and existing shutdown phases retain the original error
+
+Scenario: Original intake subphases retain command custody after caller loss
+  Level: integration
+  Test Double: actual local TLS bootstrap encrypted SQLite journal and held original SDK command
+  Test: native_matrix_operation_observation_intake_subphases
+  Given the original intake command at actual persist and SDK apply boundaries
+  When its caller drops while another original read waits and a separate real SQLite trigger refuses a write
+  Then each bounded phase remains attached to its original command the completed batch survives reopen and the refusal keeps its original error without a false completion
 
 ## Out of Scope
 

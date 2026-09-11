@@ -5556,3 +5556,36 @@ review confirms pending timeout receipts and physical process quarantine are
 preserved. Final knowledge gating still exits2 with the exact157 baseline Error
 records and zero added/removed errors. These scoped follow-up results are separate
 from the full564-independent-test integration run above.
+
+### 2026-09-11 — preserve 5a8f7f7 originals and refine ADR094 observations
+
+Original hosted Windows Cargo at 5a8f7f7 failed four intake tests: 559 printed passes,
+558 unique passing labels and 4 failures. Two opens last observe StateStoreOpen;
+one attachment batch has prompt SDK Start pickup but no completion before the
+unchanged deadline; crypto-variant Collector close has no original close trace.
+Linux 568 printed/567 unique and macOS 567/566 passed. Node 4291 passed, 1 macOS-only
+skip in 293 files; its verifier separately ran 508 tests. Both Windows diagnostics
+passed different selectors and do not replace the original failure. Positive
+Windows staging remains unqualified. Original metadata, raw slices, all available
+artifact ZIPs and a 77-file hash manifest are preserved externally under
+5a8f7f7-original-ci-evidence.md.
+
+The isolated ADR094 follow-up retains the same 13 allowed paths and changes 8.
+Original SDK Start receives its existing command trace only in test builds;
+fixed inner phases retain that original sequence without a new task or attempt.
+The original five crypto variants now observe their same Collector close.
+A deterministic actual SDK/TLS fixture holds three persist/apply boundaries,
+drops callers, queues a distinct read and verifies the original batch after
+reopen; a real SQLite trigger refusal keeps OutcomeUnknown and no successful
+write completion. The new fixture's first compile failed because HostConfig is
+not Clone; it now borrows the original collector configuration. Original compiler
+output and the corrected successful one-test run are preserved. All four original
+intake selectors, three existing ownership selectors and the new subphase selector
+pass locally. All-target Matrix Clippy passes with warnings denied. Strict task
+lifecycle passes 15/15: 14 actual selectors each execute one passing test, plus the
+exact 8-path boundary; zero failed, skipped, uncertain or pending-review results.
+Knowledge gate still exits 2 with exactly 157 baseline Error records and no added
+or removed errors. The 13-path allowed list and all 13 earlier selectors are
+unchanged; one meaningful selector is added. These are scoped local observations,
+not a repair or cause finding for hosted Windows. No fixture or production
+deadline, concurrency, retry, result or authority changes.

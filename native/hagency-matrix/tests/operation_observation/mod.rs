@@ -184,3 +184,145 @@ async fn native_matrix_operation_observation_primary_fence() {
     assert_eq!(c.close().await, Err(Error::Domain));
     fake.close().await;
 }
+
+#[tokio::test]
+async fn native_matrix_operation_observation_intake_subphases() {
+    use hagency_core::tasks::SessionBinding;
+
+    for (variant, hold) in [
+        ("prepared persisted", Some(Phase::IntakePreparedPersisted)),
+        ("SDK apply", Some(Phase::IntakeSyncApply)),
+        ("derived persist", Some(Phase::IntakeDerivedPersist)),
+        ("write refused", None),
+    ] {
+        let f = common::Fixture::new();
+        let mut fake = common::Fake::start(true).await;
+        let config = f
+            .config(&fake.endpoint)
+            .with_root_pem(include_bytes!("../fixtures/ca.pem"))
+            .unwrap();
+        let c = Collector::new(config, f.store.clone()).unwrap();
+        let config = &c.inner.config;
+        let cancel = CancellationToken::new();
+        let (result, ()) =
+            common::scripted(c.collect(&cancel), common::success(&mut fake, "bootstrap")).await;
+        result.unwrap();
+        f.store
+            .resolve_verified_matrix_session(SessionBinding {
+                id: "root".into(),
+                engagement_id: f.identity.transport.engagement_id.clone(),
+                room_id: "!direct:example.test".into(),
+                thread_root: None,
+            })
+            .await
+            .unwrap();
+        let targets = vec![f.store.matrix_intake_route("root".into()).await.unwrap()];
+        let guard = c.inner.owner.lock().await;
+        let owner = guard.as_ref().unwrap();
+        let trace = Trace::new("original intake subphases", Some(variant), None);
+        let raw = common::sync("retained-intake");
+        if let Some(phase) = hold {
+            let mut held = trace.hold(phase);
+            let mut start = Box::pin(observed(
+                trace.clone(),
+                owner.intake_start(raw.clone(), targets),
+            ));
+            tokio::select! {
+                _ = held.reached() => {},
+                result = &mut start => panic!("original intake escaped held phase: {result:?}"),
+            }
+            trace.wait(Phase::Queued).await;
+            assert!(!trace.has(Phase::Returned));
+            drop(start);
+            let queued = Trace::new("separate original batch", None, None);
+            let mut read = Box::pin(observed(queued.clone(), owner.batch()));
+            tokio::select! {
+                _ = queued.wait(Phase::Queued) => {},
+                _ = &mut read => panic!("queued batch escaped held original intake"),
+            }
+            assert!(!queued.has(Phase::Started));
+            drop(read);
+            assert!(matches!(Owner::open(config).await, Err(Error::Busy)));
+            held.release();
+            trace.wait(Phase::Returned).await;
+            queued.wait(Phase::Returned).await;
+            assert!(!trace.has(Phase::CallerReturned));
+            assert!(!trace.has(Phase::OperationReturned));
+            let snapshot = trace.snapshot();
+            assert_eq!(snapshot.variant, Some(variant));
+            assert!(snapshot.sdk_failure.is_none());
+            let events = snapshot.events.iter().flatten().collect::<Vec<_>>();
+            assert!(
+                events
+                    .iter()
+                    .all(|event| event.command == Some(SdkCommand::Start)
+                        && event.sequence == 1
+                        && event.error.is_none())
+            );
+            let position = |phase| events.iter().position(|e| e.phase == phase).unwrap();
+            for (before, after) in [
+                (Phase::IntakePreparedPersist, Phase::IntakePreparedPersisted),
+                (Phase::IntakeApplyingPersist, Phase::IntakeApplyingPersisted),
+                (Phase::IntakeSyncApply, Phase::IntakeSyncApplied),
+                (Phase::IntakeDerivedPersist, Phase::IntakeDerivedPersisted),
+                (Phase::IntakeFinalFilesCheck, Phase::IntakeFinalFilesChecked),
+                (Phase::IntakeFinalFilesChecked, Phase::Returned),
+            ] {
+                assert!(position(before) < position(after));
+                assert!(events[position(before)].elapsed_us <= events[position(after)].elapsed_us);
+            }
+            let other = queued.snapshot();
+            let events = other.events.iter().flatten().collect::<Vec<_>>();
+            assert_eq!(events.len(), 3);
+            assert!(
+                events
+                    .iter()
+                    .all(|event| event.command == Some(SdkCommand::Batch)
+                        && event.sequence == 1
+                        && event.error.is_none())
+            );
+            assert!(!queued.has(Phase::IntakePreparedPersist));
+            let batch = owner.batch().await.unwrap().unwrap();
+            assert!(batch.phase == crate::event_batch::Phase::Derived);
+            assert_eq!(batch.raw, raw);
+            assert_eq!(batch.targets.len(), 1);
+        } else {
+            let sql = rusqlite::Connection::open(config.root.join(DATABASES[0])).unwrap();
+            sql.execute_batch("CREATE TRIGGER original_intake_abort BEFORE INSERT ON kv_blob BEGIN SELECT RAISE(ABORT,'original fixture write refusal'); END;").unwrap();
+            assert_eq!(
+                observed(trace.clone(), owner.intake_start(raw.clone(), targets)).await,
+                Err(Error::OutcomeUnknown)
+            );
+            assert!(trace.has(Phase::IntakePreparedPersist));
+            assert!(!trace.has(Phase::IntakePreparedPersisted));
+            assert!(!trace.has(Phase::IntakeApplyingPersist));
+            assert!(!trace.has(Phase::IntakeSyncApply));
+            let snapshot = trace.snapshot();
+            let failure = snapshot.sdk_failure.unwrap();
+            assert_eq!(failure.phase, Phase::Returned);
+            assert_eq!(failure.command, Some(SdkCommand::Start));
+            assert_eq!(failure.sequence, 1);
+            assert_eq!(failure.error, Some(Error::OutcomeUnknown));
+            sql.execute_batch("DROP TRIGGER original_intake_abort")
+                .unwrap();
+            drop(sql);
+        }
+        drop(guard);
+        c.close().await.unwrap();
+        let owner = Owner::open(config).await.unwrap();
+        let restored = owner.batch().await.unwrap();
+        if hold.is_some() {
+            let batch = restored.unwrap();
+            assert!(batch.phase == crate::event_batch::Phase::Derived);
+            assert_eq!(batch.raw, raw);
+            assert_eq!(batch.targets.len(), 1);
+        } else {
+            assert!(restored.is_none());
+            assert_eq!(owner.cursor().await.unwrap().as_deref(), Some("bootstrap"));
+        }
+        owner.close().await.unwrap();
+        common::shutdown_domain(&f.store, "original intake subphase fixture").await;
+        fake.no_request().await;
+        fake.close().await;
+    }
+}

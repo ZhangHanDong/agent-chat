@@ -24,6 +24,16 @@ or actual send. Their separate original full and first-suite logs are preserved
 as native-fc57d6b-windows-full.log and native-fc57d6b-windows-original-cargo.log.
 Later serial outgoing and transport diagnostics passed and do not fix this run.
 
+The original Windows run at 5a8f7f7 reports 559 printed passes and four intake
+failures. Two original SDK openings last observe StateStoreOpen before their
+unchanged ten-second ready-ACK deadline. The second attachment batch picks up
+SDK Start promptly but does not return before the same deadline; its HTTP script
+then expires while fencing remains pending. The crypto-variant fixture fails at
+original Collector close without an attached close trace. Original logs, exact
+slices, artifact hashes and failure snapshots are preserved externally in
+5a8f7f7-original-ci-evidence.md. The six earlier approval failures at 1da8f1b
+passed this later original run; this does not identify or repair their causes.
+
 ## Decision
 
 Add private test-only observation to the original work. A fixture opens one
@@ -52,6 +62,16 @@ the fixed snapshot. No payload, token, room, event ID, path or backend error tex
 enters the trace. Existing request scripts, deadlines, original error assertions,
 negative authority and cleanup semantics remain unchanged.
 
+For the 5a8f7f7 follow-up, wrap each original crypto-variant Collector close in
+its same fixed variant scope. Pass the already-retained SDK Start command trace
+into its inner implementation only in test builds. Fixed labels surround the
+actual file checks, batch construction, journal writes, SDK sync application,
+derivation and quarantine paths. Successful completion labels occur only after
+the original operation succeeds. The same command kind and sequence accompany
+each label even after its caller disappears; no new operation or trace is
+substituted. The existing finite ring and separately retained first errors stay
+unchanged. Missing labels remain unobserved, including after ring turnover.
+
 ## Consequences
 
 Deterministic tests hold actual SDK/SQLite work or owner lifecycle boundaries,
@@ -61,7 +81,12 @@ wrong-device collector response and unavailable domain writer prove primary
 Identity and failed fencing remain separate while the original result remains
 OutcomeUnknown. The held gates exist only in these tests. Native local checks
 and Windows compilation are separate from a future original hosted run; neither
-repairs the already failed 706172d or fc57d6b suite. No timing or production fix is claimed.
+repairs the already failed 706172d, fc57d6b, 1da8f1b or 5a8f7f7 suite. No timing
+or production fix is claimed. The additional deterministic regression holds
+actual intake persist/apply boundaries, drops the caller, queues a distinct
+read and verifies the original derived batch after reopening the SDK. A real
+SQLite trigger refusal preserves OutcomeUnknown and has no successful write
+completion label. Neither test establishes the hosted Windows backend cause.
 
 ## Alternatives Considered
 

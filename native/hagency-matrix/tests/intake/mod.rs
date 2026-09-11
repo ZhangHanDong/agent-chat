@@ -478,7 +478,9 @@ async fn native_matrix_intake_crypto_verified_human_dm_no_mention_and_spoof_refu
             assert_eq!(status(&c, &mut fake).await.stage, "idle");
             assert!(f.available().await);
         }
-        c.close().await.unwrap();
+        observed(Trace::new("crypto close", Some(variant), None), c.close())
+            .await
+            .unwrap();
         f.store.shutdown().await.unwrap();
         fake.close().await;
     }

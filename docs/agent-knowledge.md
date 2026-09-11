@@ -2398,3 +2398,13 @@ is distinct from upload acceptance and canonical task Done.
   change, four actual custody tests, independent review, native workspace Clippy
   and Windows GNU compilation. An acknowledgement timeout still is not actual
   Windows cleanup proof, and the separate157-error knowledge baseline remains.
+
+- **Original SDK intake subphases (ADR094 follow-up):** an SDK Start pickup is
+  only the outer command boundary. Keep its original command trace and sequence
+  through file checks, batch construction, each journal persist, SDK sync apply
+  and derivation/quarantine. A caller dropping cannot transfer those phases to
+  the next queued read. Successful phase completion follows the actual await;
+  errors and missing completion remain unchanged. The fixed 32-event ring and
+  separately retained first errors remain bounded. Original crypto-variant
+  Collector close needs its own fixed variant scope. The 5a8f7f7 Windows ready-ACK
+  and Start timeouts identify observed boundaries, not a proven backend cause.

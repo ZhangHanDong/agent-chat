@@ -409,7 +409,12 @@ impl Owner {
                                 let _ = reply.send(batch);
                             }
                             Command::IntakeStart(value, targets, reply) => {
-                                let result = sdk.intake_start(value, targets).await;
+                                let result = sdk.intake_start(
+                                    value,
+                                    targets,
+                                    #[cfg(test)]
+                                    &command_observation,
+                                ).await;
                                 #[cfg(test)]
                                 observation::command(&command_observation, ObservationPhase::Returned, result.as_ref().err().copied());
                                 let _ = reply.send(result);
@@ -1163,14 +1168,27 @@ impl Sdk {
             .map_err(|_| Error::OutcomeUnknown)?;
         Ok(())
     }
-    async fn intake_start(&mut self, value: Value, targets: Vec<ReplyRoute>) -> Result<(), Error> {
+    async fn intake_start(
+        &mut self,
+        value: Value,
+        targets: Vec<ReplyRoute>,
+        #[cfg(test)] trace: &Option<CommandTrace>,
+    ) -> Result<(), Error> {
+        macro_rules! phase {
+            ($phase:ident) => {
+                #[cfg(test)]
+                observation::command(trace, ObservationPhase::$phase, None);
+            };
+        }
         if self.approval {
             return Err(Error::Generation);
         }
         if self.journal.pending.is_some() || self.journal.intake.is_some() {
             return Err(Error::OutcomeUnknown);
         }
+        phase!(IntakeFilesCheck);
         files(&self.root)?;
+        phase!(IntakeFilesChecked);
         // Legacy filtered receipts did not retain source keys. They remain
         // inspectable, but cannot silently promise terminal source coverage.
         if self
@@ -1181,7 +1199,9 @@ impl Sdk {
         {
             return Err(Error::Unsupported);
         }
+        phase!(IntakeBatchBuild);
         let batch = Batch::new(value, targets, self.identity.clone())?;
+        phase!(IntakeBatchBuilt);
         if let Some((_, old)) = self
             .journal
             .receipts
@@ -1195,7 +1215,9 @@ impl Sdk {
             // transition. Persist cursor ownership before reporting success.
             if !self.journal.intake_enabled {
                 self.journal.intake_enabled = true;
+                phase!(IntakeReplayPersist);
                 self.persist().await?;
+                phase!(IntakeReplayPersisted);
             }
             return Ok(());
         }
@@ -1204,11 +1226,16 @@ impl Sdk {
         }
         self.journal.intake_enabled = true;
         self.journal.intake = Some(batch);
+        phase!(IntakePreparedPersist);
         self.persist().await?;
+        phase!(IntakePreparedPersisted);
         // Applying is durable before SDK mutation. Restart never pretends that
         // replaying an already-consumed next_batch would return lost timelines.
         self.journal.intake.as_mut().unwrap().phase = Phase::Applying;
+        phase!(IntakeApplyingPersist);
         self.persist().await?;
+        phase!(IntakeApplyingPersisted);
+        phase!(IntakeResponseDecode);
         use ruma::api::IncomingResponse;
         let raw = &self.journal.intake.as_ref().unwrap().raw;
         let response = ruma::api::client::sync::sync_events::v3::Response::try_from_http_response(
@@ -1217,15 +1244,19 @@ impl Sdk {
                 .map_err(|_| Error::Wire)?,
         )
         .map_err(|_| Error::Wire)?;
+        phase!(IntakeResponseDecoded);
+        phase!(IntakeSyncApply);
         let processed = self
             .client
             .receive_sync_response(response)
             .await
             .map_err(|_| Error::OutcomeUnknown)?;
+        phase!(IntakeSyncApplied);
         #[cfg(test)]
         if std::mem::take(&mut self.apply_fault) {
             return Err(Error::OutcomeUnknown);
         }
+        phase!(IntakeDerive);
         if let Err(error) = self
             .journal
             .intake
@@ -1233,25 +1264,34 @@ impl Sdk {
             .unwrap()
             .derive(processed, &self.journal.intake_receipts)
         {
+            phase!(IntakeEventQuarantine);
             self.intake_quarantine("unsupported SDK event or incomplete timeline".into())
                 .await?;
+            phase!(IntakeEventQuarantined);
             return Err(error);
         }
         if let Err(error) = self.retain_attachments() {
+            phase!(IntakeAttachmentQuarantine);
             self.intake_quarantine("attachment manifest capacity or identity refused".into())
                 .await?;
+            phase!(IntakeAttachmentQuarantined);
             return Err(error);
         }
+        phase!(IntakeDerived);
         #[cfg(test)]
         if std::mem::take(&mut self.attachment_commit_fault) {
             let db = rusqlite::Connection::open(self.root.join(DATABASES[0])).unwrap();
             db.execute_batch("CREATE TRIGGER attachment_commit_abort BEFORE INSERT ON kv_blob BEGIN SELECT RAISE(ABORT,'fixture attachment commit rollback'); END;").unwrap();
         }
+        phase!(IntakeDerivedPersist);
         if self.persist().await.is_err() {
             self.poison_attachments();
             return Err(Error::OutcomeUnknown);
         }
+        phase!(IntakeDerivedPersisted);
+        phase!(IntakeFinalFilesCheck);
         files(&self.root)?;
+        phase!(IntakeFinalFilesChecked);
         Ok(())
     }
     async fn intake_ack(
