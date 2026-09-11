@@ -127,3 +127,23 @@ fresh test-owned paths. Local macOS execution and Windows cross-compilation are
 not Windows runtime qualification; hosted CI must execute those platform cases.
 No Matrix upload/download, file tool, service toggle, schema migration, media
 outbox, sender authenticity, cleanup or power-loss claim is introduced here.
+
+
+### Linux retained-directory access correction
+
+NativeCI34543863628 at3b5db90 failed all seven media-store tests at initial
+Store::create with OutcomeUnknown; all other Linux test targets passed. Pinned
+cap-primitives4.0.3 rustix/fs/dir_utils.rs opens ambient directories with
+O_DIRECTORY|O_PATH on Linux. Cloning the retained directory preserves O_PATH,
+which cannot acknowledge fsync. The old result hid the specific OS error under
+its static OutcomeUnknown category; source identifies the defective handle path.
+
+Keep that retained capability, but on Linux obtain a second read-only descriptor
+by opening fixed relative dot through it before any journal creation. Compare
+device/inode against the still-held original and apply unchanged private checks.
+Only the readable descriptor is used for directory flush. No ambient pathname is
+resolved, no failed flush is accepted and no quarantine/permission is relaxed.
+A real directory-rename fixture checks retained identity and the original O_PATH
+EBADF before asserting corrected fsync and absence under the old path replacement.
+Actual Linux execution of that fixture is required; local macOS and compilation
+do not replace it. Windows FileSyncedDirectoryUnconfirmed remains unchanged.

@@ -4131,3 +4131,22 @@ passes5/5 across all12 explicit changed paths. Its first attempt recorded one
 uncertain scenario because a concurrently compiled media-test metadata import
 failed before that selector ran. That fixture compile error was corrected and
 the entire lifecycle rerun passed; the original uncertain result is retained.
+
+
+## 2026-09-10 — Linux media directory sync correction
+
+NativeCI34543863628 at3b5db90 passed macOS but failed all seven Linux media-store
+cases at Store::create with OutcomeUnknown. All other original Linux targets
+passed. Source tracing found cap-std's retained ambient directory is O_PATH on
+Linux; duplicating it cannot make fsync valid. The fix opens fixed relative dot
+under that retained directory, checks the same device/inode and unchanged private
+permissions, then retains that readable descriptor for directory sync. Actual
+flush failure still quarantines; no ambient path or permission fallback is added.
+
+All eight media tests and warnings-denied Clippy pass locally; strict lifecycle
+passes3/3 across six paths. The added metadata comparison initially mixed cap-std
+and std extension traits and failed compilation; using the cloned std handle
+corrected it without weakening the identity assertion. Its real Linux branch
+asserts O_PATH EBADF before corrected sync and remains for actual CI. A stopped
+local Docker daemon supplies no Linux execution evidence. Windows directory
+sync uncertainty and existing macOS behavior are unchanged.

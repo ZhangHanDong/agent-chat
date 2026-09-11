@@ -64,6 +64,42 @@ fn assert_sync(evidence: SyncEvidence) {
 }
 
 #[test]
+fn native_media_stage_directory_sync_handle() {
+    let f = Fixture::new();
+    let directory = f.directory();
+    #[cfg(target_os = "linux")]
+    {
+        let original = directory.try_clone().unwrap().into_std_file();
+        // Actual pinned cap-std O_PATH handle; Linux fsync reports EBADF.
+        assert_eq!(original.sync_all().unwrap_err().raw_os_error(), Some(9));
+    }
+    #[cfg(unix)]
+    {
+        fs::rename(f.root.path().join("stage"), f.root.path().join("retained")).unwrap();
+        private::directory(&f.root.path().join("stage")).unwrap();
+    }
+    let store = Store::create(directory, namespace(), Limits::default()).unwrap();
+    assert_sync(store.sync);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let retained = store
+            ._directory
+            .try_clone()
+            .unwrap()
+            .into_std_file()
+            .metadata()
+            .unwrap();
+        let synced = store.directory_file.metadata().unwrap();
+        assert_eq!(retained.dev(), synced.dev());
+        assert_eq!(retained.ino(), synced.ino());
+        store.directory_file.sync_all().unwrap();
+        assert!(f.root.path().join("retained/media.journal").is_file());
+        assert!(!f.journal().exists());
+    }
+}
+
+#[test]
 fn native_media_stage_roundtrip() {
     let f = Fixture::new();
     let data = b"immutable private bytes\0\xff";

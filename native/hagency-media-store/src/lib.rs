@@ -75,6 +75,22 @@ impl Store {
             return Err(Error::Private);
         }
         private::check_handle(&directory_file).map_err(|_| Error::Private)?;
+        #[cfg(target_os = "linux")]
+        let directory_file = {
+            use std::os::unix::fs::MetadataExt;
+            // cap-std directory capabilities use O_PATH on Linux. Duplicating
+            // that descriptor cannot make fsync work. Open only the retained
+            // directory itself for reading, never its former ambient pathname.
+            let readable = directory.open(".").map_err(|_| Error::Io)?.into_std();
+            let original = directory_file.metadata().map_err(|_| Error::Io)?;
+            let actual = readable.metadata().map_err(|_| Error::Io)?;
+            if !actual.is_dir() || original.dev() != actual.dev() || original.ino() != actual.ino()
+            {
+                return Err(Error::Private);
+            }
+            private::check_handle(&readable).map_err(|_| Error::Private)?;
+            readable
+        };
         let mut options = OpenOptions::new();
         options
             .read(true)

@@ -1980,3 +1980,10 @@ normalized categories and total/last are not additive. Missing cache-write remai
 unknown even though the pinned upstream deserializer defaults it to zero. The
 existing exact driver source and sequence precede projection; missing metrics do
 not bypass thread/turn validation. Preserve diagnostics before any ADR063 mapping.
+
+
+Linux cap-std ambient Dir handles are O_PATH: metadata succeeds, fsync does not.
+Never infer syncability from a cloned capability. Media staging now obtains fixed
+relative dot with read access, verifies same device/inode and private permissions,
+and retains both handles. This preserves renamed-directory custody. NativeCI at
+3b5db90 remains failed until the corrected Linux runtime assertions actually pass.
