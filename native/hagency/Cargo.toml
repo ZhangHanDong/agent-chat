@@ -17,6 +17,7 @@ hagency-store = { path = "../hagency-store" }
 hagency-platform = { path = "../hagency-platform" }
 hagency-execution = { path = "../hagency-execution" }
 hagency-matrix = { path = "../hagency-matrix" }
+hagency-palpo = { path = "../hagency-palpo" }
 hagency-runtime = { path = "../hagency-runtime" }
 hagency-files = { path = "../hagency-files" }
 hagency-media = { path = "../hagency-media" }

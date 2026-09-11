@@ -1,6 +1,7 @@
 //! Explicit one-attempt development startup; no production scheduler or file tool.
 mod config;
 mod driver;
+pub(crate) mod palpo;
 pub(crate) mod workspace;
 use hagency_matrix::{CancellationToken, Collector};
 use hagency_store::{DomainRepository, DomainStore, Repository, Store, private};
@@ -368,12 +369,21 @@ impl Shared {
         })
     }
 }
+#[derive(Default)]
+pub struct Options {
+    pub development_driver: bool,
+    pub palpo_transport: bool,
+}
+
 pub struct Bootstrap {
     store: Store,
     domain: DomainStore,
     app: crate::App,
     listen: SocketAddr,
     prepared: Option<config::Prepared>,
+    palpo_prepared: Option<palpo::Prepared>,
+    palpo: Option<palpo::Owner>,
+    palpo_status: palpo::StatusHandle,
     driver: Option<driver::Driver>,
     shared: Option<Shared>,
     files: Option<crate::file_service::FileOwner>,
@@ -393,6 +403,26 @@ impl Bootstrap {
         queue_capacity: usize,
         development: bool,
     ) -> Result<Self, Failure> {
+        Self::open_with_options(
+            state,
+            listen,
+            queue_capacity,
+            Options {
+                development_driver: development,
+                palpo_transport: false,
+            },
+        )
+    }
+
+    /// Independent fixed private startup profiles. Existing registration is a
+    /// Palpo prerequisite; startup does not register or rotate domain authority.
+    pub fn open_with_options(
+        state: &Path,
+        listen: SocketAddr,
+        queue_capacity: usize,
+        options: Options,
+    ) -> Result<Self, Failure> {
+        let development = options.development_driver;
         tracing::trace!(target: "hagency_startup_observation", "native startup boundary: bootstrap_entered");
         if !listen.ip().is_loopback() || listen.port() == 0 {
             return Err(Failure::Config);
@@ -407,6 +437,12 @@ impl Bootstrap {
         } else {
             None
         };
+        let palpo_prepared = if options.palpo_transport {
+            Some(palpo::Prepared::load(&state)?)
+        } else {
+            None
+        };
+        let palpo_status = palpo::StatusHandle::new(options.palpo_transport);
         tracing::trace!(target: "hagency_startup_observation", "native startup boundary: custody_entered");
         let store = Store::start(
             Repository::open(&state).map_err(|_| Failure::Startup)?,
@@ -444,7 +480,8 @@ impl Bootstrap {
         let mut app = crate::App::new(store.clone(), &token, listen)
             .map_err(|_| Failure::Startup)?
             .with_domain(domain.clone())
-            .with_development(status.clone());
+            .with_development(status.clone())
+            .with_palpo(palpo_status.clone());
         if let Some(files) = &files {
             app = app.with_files(files.handle());
         }
@@ -458,6 +495,9 @@ impl Bootstrap {
             app,
             listen,
             prepared,
+            palpo_prepared,
+            palpo: None,
+            palpo_status,
             driver: None,
             shared,
             files,
@@ -494,6 +534,9 @@ impl Bootstrap {
         if let Some(driver) = &self.driver {
             driver.cancel();
         }
+        if let Some(palpo) = &self.palpo {
+            palpo.cancel();
+        }
         if let Some(shared) = &self.shared {
             shared.workspace.retire();
         }
@@ -508,6 +551,9 @@ impl Bootstrap {
         }
         if let Some(driver) = &mut self.driver {
             driver.close().await?;
+        }
+        if let Some(palpo) = &mut self.palpo {
+            palpo.close().await?;
         }
         if let Some(shared) = &self.shared {
             if let Some(result) = self.collector_closed {
@@ -566,6 +612,14 @@ impl Bootstrap {
         // or helper can try to connect; no fixture-only readiness setter.
         tokio::select! { biased; result=&mut serving=>{result.map_err(|_|Failure::Server)?;return Err(Failure::Server);}, _=tokio::task::yield_now()=>{} }
         tracing::trace!(target: "hagency_startup_observation", "native startup boundary: driver_entered");
+        if let Some(prepared) = self.palpo_prepared.take() {
+            self.palpo = Some(palpo::Owner::start(
+                prepared,
+                self.store.clone(),
+                self.domain.clone(),
+                self.palpo_status.clone(),
+            ));
+        }
         if let Some(prepared) = self.prepared.take() {
             self.driver = Some(driver::Driver::start(
                 prepared,

@@ -53,6 +53,39 @@ can claim automatic remote publication.
 
 ## Consequences
 
+### Executable ownership amendment
+
+Native serve now has an independent --palpo-transport profile. Its fixed private
+palpo-transport.json is at most 16 KiB and contains a canonical HTTPS endpoint,
+explicit machine generation and full expected Registration. The token is the
+separate private palpo.machine_token (16..4096 graphic bytes); an optional
+palpo.ca.pem is at most 16 KiB. Unknown/duplicate fields and invalid/private-file
+inputs refuse. The original values are loaded once, never hot-reloaded.
+
+The host validates Registration and derives canonical::digest of its complete
+serialized value. It derives side identity from that registration's server name
+and uses one fixed native-palpo-v2 binding in the same state. Existing exact domain
+registration is a prerequisite checked before outbound activation. Startup never
+calls register or changes a generation to gain attachment. A changed registration
+cannot adopt original outbound custody: domain registration could otherwise fence
+work first and then fail attachment. Registration onboarding/migration is separate.
+
+The same service-owned Adapter::run_with_resources retains existing limits and
+pending publication custody. Its fresh original-domain check still occurs after
+custody waits immediately before HTTP admission. Already admitted HTTP bytes can
+finish during later registration rotation and cannot be recalled; this service
+wiring supplies no distributed transaction or execution authority. The fixed
+operator palpo_publication status describes worker custody only. Running is not
+a catalog ACK, Matrix connectivity or completed Matrix/work consumption.
+
+Actual local executable HTTPS tests traverse init/serve with private configuration,
+real local resource/role HTTP edits, catalog withdrawal and immutable retry through
+acknowledgment loss. The Bootstrap cancellation test uses the original adapter
+and writers without platform-gated assertions; each platform still requires actual
+execution evidence. Separate Unix SIGTERM execution is identified as such.
+A gated worker regression separately models delayed join completion and
+panic, not HTTPS acceptance. Live Palpo and production state remain untouched.
+
 Resource configuration, role choices and publication remain distinct from native
 execution authority. Existing immutable outbound uncertainty and retry behavior
 are reused. Actual local HTTPS tests qualify changing catalogs, lost acknowledgments,

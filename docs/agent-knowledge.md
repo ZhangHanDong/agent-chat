@@ -3026,3 +3026,15 @@ native-file-owned-observation context for exact original provenance and limits.
   Actual Palpo c7c400e retains at most200 resources per role; exceeding this
   refuses instead of silently truncating. The executable still needs separate
   configuration and lifetime wiring before remote publication is user-visible.
+
+### Native Palpo service ownership
+
+The independent --palpo-transport startup flag loads one fixed private HTTPS
+profile without requiring the development runner or Matrix SDK identity. It
+derives the exact complete canonical registration fingerprint and verifies the
+existing original domain registration before activating outbound custody. Startup
+does not register or rotate identity. Keep its original adapter task and join
+through cancellation/close timeout; settle that worker before closing either
+Bootstrap writer. The library still checks registration after custody waits and
+before HTTP admission; already admitted bytes cannot be recalled during rotation.
+Worker running status is neither catalog acceptance nor a completed consumer.

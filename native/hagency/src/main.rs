@@ -56,6 +56,9 @@ enum Command {
         /// Execute one configured development attempt after authenticated Matrix refresh.
         #[arg(long)]
         development_driver: bool,
+        /// Run configured Palpo v2 custody lanes and native resource publication.
+        #[arg(long)]
+        palpo_transport: bool,
         /// Private validated static build of the retained native usage console.
         #[arg(long)]
         console_assets: Option<PathBuf>,
@@ -122,17 +125,21 @@ async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             listen,
             queue_capacity,
             development_driver,
+            palpo_transport,
             console_assets,
         } => {
             let console = console_assets
                 .as_deref()
                 .map(hagency::console::Console::load)
                 .transpose()?;
-            let mut bootstrap = hagency::bootstrap::Bootstrap::open(
+            let mut bootstrap = hagency::bootstrap::Bootstrap::open_with_options(
                 &state_dir,
                 listen,
                 queue_capacity,
-                development_driver,
+                hagency::bootstrap::Options {
+                    development_driver,
+                    palpo_transport,
+                },
             )?;
             if let Some(console) = console {
                 bootstrap = bootstrap.with_console(console);

@@ -1062,6 +1062,7 @@ dependencies = [
  "hagency-media",
  "hagency-media-store",
  "hagency-metering",
+ "hagency-palpo",
  "hagency-platform",
  "hagency-runtime",
  "hagency-store",

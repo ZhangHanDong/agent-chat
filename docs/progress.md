@@ -6724,3 +6724,30 @@ without widening the allowed file. Final Clippy with warnings denied and fmt
 pass. Original Clippy's six unused shared fixture-helper warnings were resolved
 by a test-module-only annotation; no production lint rule changed. The independent
 review's pre-send rotation and pre-freeze cancellation findings are closed.
+
+### Native Palpo service wiring (2026-09-11)
+
+The parent approved the exact 15-path service proposal and its existing-registration
+prerequisite. The isolated tree starts at eb80500; bac727f catalog source integrated
+as 508220c with both append-only documentation sections retained. The task contract
+parsed/linted at 100% before implementation. Only the service layer is changed:
+fixed private config, independent CLI flag, original Bootstrap store clones,
+one retained adapter task, fixed operator status and non-consuming joined close.
+The first executable run had one passed cancellation test and three fixture setup
+failures from redundant stderr precreation before create-new open. The next run
+passed cancellation/configuration refusal and rejected two fixture resource HTTP
+edits because their serialized Resource included the forbidden derived roles
+cache. Both original outputs are retained; the fixtures now use the existing
+provider input shape and create stderr only once. No validation or deadline was
+weakened. Actual hosted/consumer/live qualification is separate.
+
+Final local macOS qualification passed 32 distinct tests: four actual executable/
+HTTPS integration tests, 23 application library tests and five original Bootstrap
+tests. The strengthened cancellation test holds the original publication and both
+poll requests while checking joined service close and preserved unknown custody.
+Final strict lifecycle passed all five checks with six actual selector executions;
+95/95/94/94 empty Cargo target results are excluded from those counts. Selector
+reruns overlap the 32 tests and are not additional distinct tests. Warnings-denied
+Clippy, formatting and diff checks passed. All-target Windows cross-compilation
+passed; this is compile evidence only, with actual Windows service execution still
+pending CI. Both earlier fixture failure logs remain separate from final evidence.

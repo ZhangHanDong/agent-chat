@@ -27,6 +27,7 @@ pub struct App {
     authority: String,
     requests: Arc<Semaphore>,
     development: Option<bootstrap::StatusHandle>,
+    palpo: Option<bootstrap::palpo::StatusHandle>,
     files: Option<file_service::FileHandle>,
     receives: Option<receive_service::ReceiveHandle>,
     console: Option<console::Console>,
@@ -51,6 +52,7 @@ impl App {
             authority: address.to_string(),
             requests: Arc::new(Semaphore::new(8)),
             development: None,
+            palpo: None,
             files: None,
             receives: None,
             console: None,
@@ -69,6 +71,11 @@ impl App {
 
     pub(crate) fn with_development(mut self, status: bootstrap::StatusHandle) -> Self {
         self.development = Some(status);
+        self
+    }
+
+    pub(crate) fn with_palpo(mut self, status: bootstrap::palpo::StatusHandle) -> Self {
+        self.palpo = Some(status);
         self
     }
 
@@ -118,6 +125,12 @@ async fn capabilities(depot: &mut Depot, res: &mut Response) {
         && let Some(status) = &app.development
     {
         value["development_execution"] =
+            serde_json::to_value(status.get()).expect("fixed status serializes");
+    }
+    if let Ok(app) = depot.get_typed::<App>()
+        && let Some(status) = &app.palpo
+    {
+        value["palpo_publication"] =
             serde_json::to_value(status.get()).expect("fixed status serializes");
     }
     res.render(Json(value));

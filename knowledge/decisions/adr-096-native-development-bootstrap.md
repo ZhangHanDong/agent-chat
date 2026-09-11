@@ -30,9 +30,30 @@ an unsupported ancestor replacement.
 
 ## Decision
 
+### Independent Palpo service profile
+
+The approved ADR109 service partition adds a separate --palpo-transport opt-in.
+Without either startup flag the service stays passive. Palpo configuration does
+not require a development runner, executable digest, Matrix SDK token or workspaces.
+Bootstrap validates each selected fixed private profile before constructing its
+original Store and DomainStore. The additive open_with_options API preserves
+open's existing development-only behavior for current callers.
+
+After binding and polling the real server, Bootstrap synchronously retains one
+original Palpo worker join before its next await. That task verifies the existing
+canonical registration, attaches to the original custody Store and awaits the
+adapter's joined loops. Close cancels all original owners before awaits and joins
+this worker before closing either writer. The existing two-second close observation
+bound retains an unfinished join; cancellation of the close caller does not discard
+it. A consumed result is retained rather than awaited twice. Fatal adapter status,
+peer publication acknowledgment and known task completion remain distinct. A failed
+worker join is explicit Unknown. Abrupt owner abandonment requests cancellation;
+it is never a successful close acknowledgment.
+
 Add a shared non-test Bootstrap used by the real hagency serve command. An explicit
 --development-driver flag selects the fixed private development-driver.json beneath
-the fresh state directory. Without that flag the existing service remains passive.
+the fresh state directory. Without that flag owned development execution remains
+disabled; the independent Palpo profile above can still run when explicitly selected.
 The closed configuration is at most 16 KiB, rejects duplicate/unknown fields, and
 describes exactly one attempt per service start. No automatic claim/retry loop or
 continuous scheduler is introduced. Canonical Done follow-ups and recovery reports

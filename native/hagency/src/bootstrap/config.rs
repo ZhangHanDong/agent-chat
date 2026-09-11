@@ -80,7 +80,7 @@ pub(super) struct Prepared {
     #[cfg(test)]
     pub discard_claim_reply: bool,
 }
-fn read(path: &Path, limit: usize) -> Result<Vec<u8>, Failure> {
+pub(super) fn read(path: &Path, limit: usize) -> Result<Vec<u8>, Failure> {
     let file = private::open(path, false).map_err(|_| Failure::Config)?;
     let length = usize::try_from(file.metadata().map_err(|_| Failure::Config)?.len())
         .map_err(|_| Failure::Config)?;
