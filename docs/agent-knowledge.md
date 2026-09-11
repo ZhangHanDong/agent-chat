@@ -2670,3 +2670,31 @@ response fields, exact event, ordering, metadata, digest and generated path.
 Task-only Done and actual dispatch completion differ: the former retains original
 final-reply bookkeeping; the latter retires the runner credential. Attachment
 visibility and retained workspace checks remain in the original service.
+
+
+### 2026-09-11 — Bounded SHA256 development profile
+
+The original 22c4993 Linux job failed four FileService tests while their original
+children remained inside configured-executable hashing, with zero HTTP requests.
+A version-specific development-profile override compiles only sha2 0.10.9 at
+opt-level 3; the caller, full file reads, integrity checks, refusal behavior,
+watchdogs, parallelism and release profile remain unchanged. The actual Cargo
+library hashes the same preserved local 2,876,408-byte probe in 6/6/6ms versus
+108/109/111ms with the original unoptimized library, with the same independently
+checked SHA256. This does not establish the original hosted artifact size or
+qualify a hosted rerun.
+
+Validation in the isolated 1cb60d7 worktree: media integration 5/5; actual retained
+child observation 1/1; formatting and whitespace checks pass. Strict lifecycle
+passes 6/6 (boundary plus five scenarios): the configuration filter actually runs
+two tests, and each other filter runs one. The first lifecycle failed only its
+root Cargo.toml boundary syntax; its five behavioral scenarios passed, and the
+corrected explicit `./Cargo.toml` boundary passes in the final lifecycle.
+
+The first whole bootstrap target remains 3 passed / 2 failed. The executable and
+custody-shutdown selectors reported post-start protocol `unknown` instead of
+`completed`. Their fixture removed its temporary receipts on panic, so that
+run's underlying protocol cause is unobserved. Later lifecycle selector success
+and the independently passing main-worktree bootstrap run do not replace those
+original failures or establish host contention. Original hosted and local logs,
+measurements, lifecycle output and hashes remain in the external migration cache.

@@ -23,6 +23,10 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = "warn"
 
+# Keep complete executable integrity checks practical in unoptimized test builds.
+[profile.dev.package."sha2@0.10.9"]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 strip = true
