@@ -5,7 +5,7 @@ import DataStatus from '@/components/DataStatus';
 import { makeDerive } from '@/lib/derive';
 import { fetchLive, CONTRACT_SLICES } from '@/lib/api';
 import * as fixture from '@/lib/mock-data';
-import { NATIVE_MODE, exchangeAccess, fetchNative, fetchResources, resourceView, publishResource, logoutNative, selection } from '@/lib/native-api';
+import { NATIVE_MODE, exchangeAccess, fetchNative, fetchResources, resourceView, publishResource, configurationView, configurationSelection, fetchConfiguration, configureResource, logoutNative, selection } from '@/lib/native-api';
 
 /*
  * One data context for the console, with provenance attached.
@@ -107,7 +107,7 @@ export function useData() {
 export const DataProvider = NATIVE_MODE ? NativeDataProvider : LegacyDataProvider;
 
 function NativeDataProvider({ children }) {
-  const initial = { nativeConsole: true, resourceConsole: false, phase: 'loading', refreshing: false, requestKey: null, engagements: [], resources: [], roles: [], permissions: { publishResource: false }, selected: null, report: null, budget: null, next_after: null, error: null };
+  const initial = { nativeConsole: true, resourceConsole: false, configurationConsole: false, editor: null, editing: false, phase: 'loading', refreshing: false, requestKey: null, engagements: [], resources: [], roles: [], permissions: { publishResource: false, configureResource: false }, selected: null, report: null, budget: null, next_after: null, error: null };
   const [state, setState] = useState(initial);
   const [logoutStatus, setLogoutStatus] = useState(null);
   const [action, setAction] = useState(null);
@@ -125,16 +125,18 @@ function NativeDataProvider({ children }) {
     inFlight.current += 1;
     let requestKey = null;
     try {
-      const resources = resourceView(window.location);
-      const requested = selection(window.location, resources ? 'resource_id' : 'engagement_id');
-      requestKey = JSON.stringify([resources, requested, after]);
+      const entry = configurationView(window.location) ? configurationSelection(window.location) : null;
+      const resources = entry !== null || resourceView(window.location);
+      const requested = entry ? entry.id : selection(window.location, resources ? 'resource_id' : 'engagement_id');
+      requestKey = JSON.stringify([entry?.mode ?? resources, requested, after]);
       setState((s) => s.requestKey === requestKey && ['ready', 'stale'].includes(s.phase)
         ? { ...s, refreshing: true, error: null }
         : { ...initial });
-      const value = await (resources ? fetchResources(requested, after) : fetchNative(requested, after));
+      const value = await (entry ? fetchConfiguration(entry, after) : resources ? fetchResources(requested, after) : fetchNative(requested, after));
       if (mine !== generation.current || !admitted.current) return;
       cursor.current = after;
       setState({ ...initial, ...value, phase: 'ready', requestKey });
+      return value;
     } catch (error) {
       if (mine !== generation.current) return;
       if (error.message === 'console_access_required') admitted.current = false;
@@ -169,6 +171,10 @@ function NativeDataProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const choose = (value) => {
+    if (configurationView(window.location)) {
+      window.history.pushState(window.history.state, '', `/console/resources/new/?source_resource_id=${encodeURIComponent(value)}`);
+      void load(''); return;
+    }
     const resources = resourceView(window.location);
     window.history.pushState(window.history.state, '', `/console/${resources ? 'resources/?resource_id' : 'usage/?engagement_id'}=${encodeURIComponent(value)}`);
     void load();
@@ -206,7 +212,25 @@ function NativeDataProvider({ children }) {
       if (error.message === 'console_access_required') { admitted.current = false; generation.current += 1; setState({ ...initial, phase: 'access', error: error.message }); }
     } finally { mutation.current = false; }
   };
-  return <DataContext.Provider value={{ ...state, action, publish, logoutStatus, choose, refresh: () => load(), nextPage: () => load(state.next_after), firstPage: () => load(''), logout }}>{children}</DataContext.Provider>;
+  const configure = async (resource, changes) => {
+    if (!admitted.current || mutation.current) return;
+    mutation.current = true;
+    const epoch = admissionEpoch.current;
+    const identity = { id: resource.id, label: `${resource.framework} · ${resource.model}`, configuration: true };
+    setAction({ ...identity, kind: 'pending' });
+    try {
+      const result = await configureResource(resource, !state.editing, changes);
+      if (epoch !== admissionEpoch.current) return;
+      setAction({ ...identity, kind: 'saved', result });
+      await load();
+    } catch (error) {
+      if (epoch !== admissionEpoch.current) return;
+      const kind = error.message === 'resource_revision_conflict' ? 'conflict' : error.message === 'busy' ? 'busy' : ['outcome_unknown', 'native_unavailable', 'invalid_native_response'].includes(error.message) ? 'unknown' : 'refused';
+      setAction({ ...identity, kind, error: error.message });
+      if (error.message === 'console_access_required') { admitted.current = false; generation.current += 1; setState({ ...initial, phase: 'access', error: error.message }); }
+    } finally { mutation.current = false; }
+  };
+  return <DataContext.Provider value={{ ...state, action, publish, configure, logoutStatus, choose, refresh: () => load(), nextPage: () => load(state.next_after), firstPage: () => load(''), logout }}>{children}</DataContext.Provider>;
 }
 
 function LegacyDataProvider({ children }) {

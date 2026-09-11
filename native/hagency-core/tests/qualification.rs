@@ -58,3 +58,46 @@ fn qualification_matches_javascript() {
         );
     }
 }
+
+#[test]
+fn native_resource_configuration_choices() {
+    use hagency_core::qualification::{self, ModelProfile};
+    for framework in ["codex", "claude", "unknown"] {
+        for provider in [None, Some("openai"), Some("wrong-provider")] {
+            let profile = ModelProfile {
+                framework: framework.into(),
+                provider: provider.map(str::to_owned),
+                ..ModelProfile::default()
+            };
+            let choices = qualification::configuration_choices(&profile).unwrap();
+            assert!(choices.len() <= 256);
+            let mut unique = std::collections::BTreeSet::new();
+            for c in &choices {
+                assert!(unique.insert((&c.model, &c.reasoning)));
+                let candidate = ModelProfile {
+                    model: c.model.clone(),
+                    reasoning: c.reasoning.clone(),
+                    ..profile.clone()
+                };
+                assert_eq!(qualification::model(&candidate).0, Some(c.tier));
+                assert_eq!(
+                    c.roles,
+                    qualification::roles()
+                        .filter(|r| qualification::qualifies(&candidate, r, None))
+                        .collect::<Vec<_>>()
+                );
+            }
+            if framework == "unknown" {
+                assert!(choices.is_empty());
+            }
+            if framework == "codex" && provider.is_none() {
+                assert!(
+                    choices
+                        .iter()
+                        .any(|c| c.model == "gpt-5.6-sol"
+                            && c.reasoning.as_deref() == Some("medium"))
+                );
+            }
+        }
+    }
+}

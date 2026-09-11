@@ -2,6 +2,7 @@
 mod assets;
 mod authority;
 pub mod client;
+mod resource_configuration;
 mod resources;
 mod usage;
 use crate::{App, refusal};
@@ -22,6 +23,8 @@ pub enum Error {
     Unauthorized,
     #[error("resource publication management scope is required")]
     Forbidden,
+    #[error("resource configuration management scope is required")]
+    ConfigurationForbidden,
     #[error("native console capacity is exhausted")]
     Busy,
     #[error("native console is unavailable")]
@@ -56,7 +59,8 @@ pub(crate) fn router() -> Router {
             Router::with_path("api")
                 .hoop(authenticate)
                 .push(usage::router())
-                .push(resources::router()),
+                .push(resources::router())
+                .push(resource_configuration::router()),
         )
         .push(Router::with_path("{**asset}").get(asset))
 }
@@ -64,6 +68,7 @@ pub(crate) fn operator_router() -> Router {
     Router::new()
         .push(Router::with_path("console/access").post(issue))
         .push(Router::with_path("console/resource-publication-access").post(issue_publication))
+        .push(Router::with_path("console/resource-configuration-access").post(issue_configuration))
 }
 fn console(depot: &Depot) -> Result<&Console, Error> {
     depot
@@ -80,6 +85,10 @@ fn failed(res: &mut Response, error: Error) {
         Error::Invalid => (StatusCode::BAD_REQUEST, "invalid_console_request"),
         Error::Unauthorized => (StatusCode::UNAUTHORIZED, "console_access_required"),
         Error::Forbidden => (StatusCode::FORBIDDEN, "resource_publication_scope_required"),
+        Error::ConfigurationForbidden => (
+            StatusCode::FORBIDDEN,
+            "resource_configuration_scope_required",
+        ),
         Error::Busy => (StatusCode::TOO_MANY_REQUESTS, "console_busy"),
     };
     refusal(res, status, code);
@@ -210,13 +219,23 @@ async fn body(req: &mut Request, maximum: usize) -> Result<Vec<u8>, Error> {
 }
 #[handler]
 async fn issue(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    issue_scope(req, depot, res, false).await;
+    issue_scope(req, depot, res, false, false).await;
 }
 #[handler]
 async fn issue_publication(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    issue_scope(req, depot, res, true).await;
+    issue_scope(req, depot, res, true, false).await;
 }
-async fn issue_scope(req: &mut Request, depot: &Depot, res: &mut Response, publication: bool) {
+#[handler]
+async fn issue_configuration(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    issue_scope(req, depot, res, false, true).await;
+}
+async fn issue_scope(
+    req: &mut Request,
+    depot: &Depot,
+    res: &mut Response,
+    publication: bool,
+    configuration: bool,
+) {
     let result = async {
         let c = console(depot)?;
         let _permit =
@@ -227,7 +246,9 @@ async fn issue_scope(req: &mut Request, depot: &Depot, res: &mut Response, publi
         if req.uri().query().is_some() || !body(req, 1).await?.is_empty() {
             return Err(Error::Invalid);
         }
-        let value = if publication {
+        let value = if configuration {
+            c.0.authority.issue_configuration()?
+        } else if publication {
             c.0.authority.issue_publication()?
         } else {
             c.0.authority.issue()?
@@ -311,7 +332,10 @@ async fn asset(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let path = req.uri().path();
     // Only document navigation may start outside this origin. Assets never grant data authority.
     let resource_document = matches!(path, "/console/resources" | "/console/resources/");
-    let document = resource_document || matches!(path, "/console/usage" | "/console/usage/");
+    let editor_document = matches!(path, "/console/resources/new" | "/console/resources/new/");
+    let document = editor_document
+        || resource_document
+        || matches!(path, "/console/usage" | "/console/usage/");
     if !document
         && req
             .headers()
@@ -323,7 +347,9 @@ async fn asset(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     }
     if (!document && req.uri().query().is_some())
         || (document
-            && if resource_document {
+            && if editor_document {
+                resource_configuration::selection_query(req).is_err()
+            } else if resource_document {
                 resources::selection_query(req).is_err()
             } else {
                 usage::selection_query(req).is_err()

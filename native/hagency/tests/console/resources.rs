@@ -147,7 +147,7 @@ async fn native_console_resource_observations() {
         "seatId",
         "private_resource_account",
         "authHome",
-        "config",
+        "\"config\"",
     ] {
         assert!(!text.contains(private));
     }

@@ -14,15 +14,19 @@ struct Issued {
     expires_in: u64,
 }
 pub async fn access(state: &Path, address: SocketAddr) -> Result<String, Error> {
-    scoped_access(state, address, false).await
+    scoped_access(state, address, false, false).await
 }
 pub async fn publication_access(state: &Path, address: SocketAddr) -> Result<String, Error> {
-    scoped_access(state, address, true).await
+    scoped_access(state, address, true, false).await
+}
+pub async fn configuration_access(state: &Path, address: SocketAddr) -> Result<String, Error> {
+    scoped_access(state, address, false, true).await
 }
 async fn scoped_access(
     state: &Path,
     address: SocketAddr,
     publication: bool,
+    configuration: bool,
 ) -> Result<String, Error> {
     if !address.ip().is_loopback()
         || address.port() == 0
@@ -38,12 +42,17 @@ async fn scoped_access(
     }
     tokio::time::timeout(
         Duration::from_secs(5),
-        exchange(address, token, publication),
+        exchange(address, token, publication, configuration),
     )
     .await
     .map_err(|_| Error::Unavailable)?
 }
-async fn exchange(address: SocketAddr, token: &str, publication: bool) -> Result<String, Error> {
+async fn exchange(
+    address: SocketAddr,
+    token: &str,
+    publication: bool,
+    configuration: bool,
+) -> Result<String, Error> {
     let stream = TcpStream::connect(address)
         .await
         .map_err(|_| Error::Unavailable)?;
@@ -58,7 +67,9 @@ async fn exchange(address: SocketAddr, token: &str, publication: bool) -> Result
     authorization.set_sensitive(true);
     let request = Request::builder()
         .method("POST")
-        .uri(if publication {
+        .uri(if configuration {
+            "/api/native/v1/console/resource-configuration-access"
+        } else if publication {
             "/api/native/v1/console/resource-publication-access"
         } else {
             "/api/native/v1/console/access"
@@ -106,7 +117,11 @@ async fn exchange(address: SocketAddr, token: &str, publication: bool) -> Result
         }
         Ok(format!(
             "http://{address}/console/{}/#access={}",
-            if publication { "resources" } else { "usage" },
+            if publication || configuration {
+                "resources"
+            } else {
+                "usage"
+            },
             issued.ticket
         ))
     };

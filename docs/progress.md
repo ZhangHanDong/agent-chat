@@ -6877,3 +6877,74 @@ actual Windows execution. Final artifacts, exact commands, source hashes and the
 failure/custody handoff live in the external cache under `owned-approval-*`.
 This completes only the accepted host coordinator partition. Full encrypted
 private-owner/MCP service qualification and complete M6 remain separate gates.
+
+
+### 2026-09-11 — ADR111 additional configuration implementation
+
+Parent approved the 34-path proposal from d85369d and then the exact 35th path
+native/hagency/tests/console/resources.rs for its accidental `config` substring
+privacy assertion. The contract was parsed/linted before source edits and again
+before that amendment. An initial unsupported Execution heading was refused and
+corrected to Decisions; original refusal text is retained externally.
+
+The original wizard now uses actual native model choices and exact source account
+association for additional configurations and profile/ceiling edits. Unsupported
+fields remain absent. Separate configuration authority cannot publish existing
+rows or call operator APIs. Original session/SQLite gate clocks and configuration
+CAS guard each command; unknown creation has no automatic retry. Native first
+resource enrollment, credential management and complete M7 remain unimplemented.
+
+Original failures are preserved in external configuration logs: an early inner-doc
+ordering compile error, initial handler argument/name errors, an extra fixture
+argument, the tagged-unit unknown-field regression, and the original privacy
+substring assertion. Only that assertion was narrowed to the exact JSON key;
+all private account/preset/credential sentinels remain. Actual Chromium artifact1
+and artifact2 passed the new flow; the artifact2 numeric input was still unthemed
+because the existing CSS only styles text/untyped inputs and selects. The native
+input now uses that text selector with numeric inputMode and strict digit/JSON-safe
+validation; final computed-style and screenshot evidence follows with final checks.
+
+The task-local external wrapper configuration-tools/run has SHA256 `8126237db18e83ee16536dad061cae78f2166fbb285987f4358b4b8bb85309f8`.
+It forces the allocated prepared-stage-target and records actual argv. Explicit
+HAGENCY_CONFIGURATION_FEATURE_LIFECYCLE=1 dispatches the choices selector to
+hagency-core, remaining native_resource_configuration selectors to hagency-store,
+and console selectors to hagency with native-console-browser. This is adapted
+agent-spec lifecycle, not unmodified stock execution. Separate fmt/Clippy/JS and
+actual browser/executable results plus final lifecycle counts follow below.
+
+The exact 36th path, mockup/scripts/native-console-resources-browser.mjs, was
+approved and parsed/linted before editing. The original full console run was
+11/13: both resource browser scripts installed a mutation-response listener after
+awaiting Busy logout UI, which could miss the original response after the pinned
+100 ms SQLite busy timeout. Each listener now precedes its triggering click;
+all original Busy/unknown assertions and timeouts remain unchanged. The original
+failure is configuration-console-final.log; corrected configuration-console-final-2.log
+passes all 13 actual console tests, including retained usage/resources and the new
+configuration browser plus native executable/restart. Authority tests pass 4/4.
+
+Final core qualification passes 2/2, the affected store domain/qualification/
+publication/configuration tests pass 6/6, and original configuration clock/caller
+loss checks pass 1/1. Retained configuration/resources/usage/refresh JS tests pass
+23/23, with the separately named resource-first console selector passing 1/1.
+The first JS command's nonexistent dashboard-resource-first path supplied no
+evidence; the actual tests/resource-first-console.test.js selector ran separately.
+Feature-enabled all-target Clippy for core/store/hagency and rustfmt checks pass.
+
+Final artifact4 has 139 files, 6,105,242 total bytes and largest file 239,884 bytes.
+Chromium verifies the native token input has the same dark background as its
+themed select and rejects unsafe/exponent token input. Parent visual inspection
+accepted configuration-screenshots-4/console-configuration-en.png and the Chinese
+counterpart. The full passing rerun also captured those views in
+configuration-screenshots-5. Earlier white-input screenshots remain before evidence.
+
+Strict adapted lifecycle passes 8/8: exact 36-path boundary plus seven selectors.
+Each selector's captured stdout contains exactly one passing test and no failed or
+ignored tests; no fail/skip/uncertain/pending verdict is accepted. Original JSON
+and inspected counts are configuration-lifecycle-final.json and
+configuration-lifecycle-counts.json in the external cache. Parent's read-only
+writer/authority review found no concrete defect in this source checkpoint.
+
+The final all-feature workspace inventory completed with no missing bound selector;
+it compiles/lists only and is not additional execution evidence. Original output is
+configuration-selector-inventory.log. This isolated slice changes no dependency or
+schema and makes no live configuration, provider, login or production cutover change.

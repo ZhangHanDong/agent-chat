@@ -1,6 +1,8 @@
 #[path = "console/browser.rs"]
 #[cfg(feature = "native-console-browser")]
 mod browser;
+#[path = "console/configuration.rs"]
+mod configuration;
 #[path = "console/fixture.rs"]
 mod fixture;
 #[path = "console/resources.rs"]

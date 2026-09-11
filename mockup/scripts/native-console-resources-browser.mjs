@@ -82,12 +82,12 @@ try {
     // A real held SQLite transaction leaves the original command pending. Logout
     // must refuse Busy without claiming revocation, and offer a visible retry.
     await fixture('HOLD_STORE');
+    const finished = page.waitForResponse(publication(created));
     await row(created).getByRole('button').click();
     await page.locator('[data-resource-action="pending"]').waitFor();
     await page.getByRole('button', { name: 'End access', exact: true }).click();
     await page.locator('[data-logout-state="busy"]').waitFor();
     assert.match(await page.locator('main').innerText(), /Access has not been ended/);
-    const finished = page.waitForResponse(publication(created));
     await fixture('RELEASE_STORE'); await finished;
     await page.getByRole('button', { name: 'Retry ending access', exact: true }).click();
     await page.locator('[data-logout-state="ended"]').waitFor();

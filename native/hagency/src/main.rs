@@ -42,8 +42,11 @@ enum Command {
         #[arg(long, default_value = "127.0.0.1:13300")]
         listen: SocketAddr,
         /// Grant only finite native resource catalog publication management.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "manage_resource_configuration")]
         manage_resource_publication: bool,
+        /// Grant finite additional resource configuration creation and editing.
+        #[arg(long)]
+        manage_resource_configuration: bool,
     },
     /// Run the isolated native API. Does not load .env or any existing Hagency state.
     Serve {
@@ -171,10 +174,13 @@ async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             state_dir,
             listen,
             manage_resource_publication,
+            manage_resource_configuration,
         } => {
             println!(
                 "{}",
-                if manage_resource_publication {
+                if manage_resource_configuration {
+                    hagency::console::client::configuration_access(&state_dir, listen).await?
+                } else if manage_resource_publication {
                     hagency::console::client::publication_access(&state_dir, listen).await?
                 } else {
                     hagency::console::client::access(&state_dir, listen).await?

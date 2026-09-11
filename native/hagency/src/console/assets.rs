@@ -78,7 +78,10 @@ fn snapshot(dir: &Dir, path: &str, limit: usize) -> Result<Snapshot, Error> {
     .map_err(|_| Error::Assets)
 }
 fn mime(path: &str) -> Option<&'static str> {
-    if matches!(path, "usage/index.html" | "resources/index.html") {
+    if matches!(
+        path,
+        "usage/index.html" | "resources/index.html" | "resources/new/index.html"
+    ) {
         return Some("text/html; charset=utf-8");
     }
     if !path.starts_with("_next/static/")
@@ -127,6 +130,8 @@ impl Assets {
             }
             let key = if entry.path == "usage/index.html" {
                 "/console/usage/".into()
+            } else if entry.path == "resources/new/index.html" {
+                "/console/resources/new/".into()
             } else if entry.path == "resources/index.html" {
                 "/console/resources/".into()
             } else {
@@ -152,6 +157,8 @@ impl Assets {
     pub(super) fn get(&self, path: &str) -> Option<&Asset> {
         self.values.get(if path == "/console/usage" {
             "/console/usage/"
+        } else if path == "/console/resources/new" {
+            "/console/resources/new/"
         } else if path == "/console/resources" {
             "/console/resources/"
         } else {

@@ -183,3 +183,7 @@ pub fn assert_private(value: &Value) {
         );
     }
 }
+
+pub fn configuration_resource() -> hagency_core::project::Resource {
+    native_resource("private_configuration_browser_source")
+}

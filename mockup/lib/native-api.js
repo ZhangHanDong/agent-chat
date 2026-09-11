@@ -53,15 +53,15 @@ async function request(path, options = {}) {
     const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
     if (!response.ok) {
       if (value?.code === 'console_busy' && response.status === 429) throw new Error('busy');
-      const known = { busy: 503, outcome_unknown: 504, resource_revision_conflict: 409, resource_publication_scope_required: 403 };
+      const known = { busy: 503, outcome_unknown: 504, resource_revision_conflict: 409, resource_publication_scope_required: 403, resource_configuration_scope_required: 403, resource_in_use: 409, invalid_resource_command: 400 };
       if (known[value?.code] === response.status) throw new Error(value.code);
       throw new Error(response.status === 401 ? 'console_access_required' : (response.status === 404 ? 'not_found' : 'native_unavailable'));
     }
     return value;
   } catch (error) {
-    if (['console_access_required', 'not_found', 'invalid_native_response', 'invalid_selection', 'busy', 'outcome_unknown', 'resource_revision_conflict', 'resource_publication_scope_required'].includes(error.message)) throw error;
+    if (['console_access_required', 'not_found', 'invalid_native_response', 'invalid_selection', 'busy', 'outcome_unknown', 'resource_revision_conflict', 'resource_publication_scope_required', 'resource_configuration_scope_required', 'resource_in_use', 'invalid_resource_command'].includes(error.message)) throw error;
     if (options.method === 'DELETE') throw new Error('logout_unknown');
-    if (options.method === 'POST' && path.endsWith('/publication')) throw new Error('outcome_unknown');
+    if (['POST', 'PATCH'].includes(options.method) && path.startsWith('/api/resources')) throw new Error('outcome_unknown');
     throw new Error('native_unavailable');
   } finally { clearTimeout(timer); }
 }
@@ -95,12 +95,13 @@ const text = (v, max) => typeof v === 'string' && v.length <= max;
 const optionalText = (v, max) => v === null || text(v, max);
 const periodFields = (v) => !Object.hasOwn(v, 'period') || v.period === null || text(v.period, 64 * 1024);
 const ceiling = (v) => v === null || (v && Object.keys(v).every((k) => ['tokens', 'period'].includes(k)) && (v.tokens === null || number(v.tokens)) && periodFields(v));
+const validResource = (r) => !(!object(r, ['id', 'framework', 'model', 'provider', 'reasoning', 'ceiling', 'published', 'roles', 'revision'])
+      || !id(r.id) || !text(r.framework, 64) || !text(r.model, 256) || !optionalText(r.provider, 128) || !optionalText(r.reasoning, 128)
+      || !ceiling(r.ceiling) || typeof r.published !== 'boolean' || !Array.isArray(r.roles) || r.roles.length > 64 || !r.roles.every((v) => text(v, 64)) || !revision(r.revision));
 export function validateResources(value) {
   if (!object(value, ['resources', 'roles', 'next_after', 'permissions']) || !Array.isArray(value.resources) || value.resources.length > 16
-    || !(value.next_after === null || id(value.next_after)) || !object(value.permissions, ['publishResource']) || typeof value.permissions.publishResource !== 'boolean'
-    || value.resources.some((r) => !object(r, ['id', 'framework', 'model', 'provider', 'reasoning', 'ceiling', 'published', 'roles', 'revision'])
-      || !id(r.id) || !text(r.framework, 64) || !text(r.model, 256) || !optionalText(r.provider, 128) || !optionalText(r.reasoning, 128)
-      || !ceiling(r.ceiling) || typeof r.published !== 'boolean' || !Array.isArray(r.roles) || r.roles.length > 64 || !r.roles.every((v) => text(v, 64)) || !revision(r.revision))
+    || !(value.next_after === null || id(value.next_after)) || !object(value.permissions, ['publishResource', 'configureResource']) || typeof value.permissions.publishResource !== 'boolean' || typeof value.permissions.configureResource !== 'boolean'
+    || value.resources.some((r) => !validResource(r))
     || !Array.isArray(value.roles) || value.roles.length !== 6 || value.roles.some((r) => !object(r, ['role', 'explicitPublication', 'available', 'crossFamily', 'defaultTier'])
       || !text(r.role, 64) || !(r.explicitPublication === null || typeof r.explicitPublication === 'boolean') || typeof r.available !== 'boolean' || typeof r.crossFamily !== 'boolean'
       || !(r.defaultTier === null || ['lightweight', 'medium', 'strong'].includes(r.defaultTier)))) throw new Error('invalid_native_response');
@@ -124,5 +125,32 @@ export async function fetchResources(selected, after = '') {
 export async function publishResource(resource, published) {
   const value = await request(`/api/resources/${resource.id}/publication`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: resource.revision, published }) });
   if (!object(value, ['resourceId', 'published', 'revision']) || value.resourceId !== resource.id || value.published !== published || !revision(value.revision)) throw new Error('outcome_unknown');
+  return value;
+}
+
+export function configurationView(location) { return /^\/console\/resources\/new\/?$/.test(location.pathname); }
+export function configurationSelection(location) {
+  const query = new URLSearchParams(location.search);
+  const edit = query.has('resource_id');
+  return { mode: edit ? 'edit' : 'create', id: selection(location, edit ? 'resource_id' : 'source_resource_id') };
+}
+export function validateConfiguration(value, selected) {
+  if (!object(value, ['resource', 'choices', 'modelTier', 'modelRoles']) || value.resource?.id !== selected
+    || !Array.isArray(value.choices) || value.choices.length > 256
+    || value.choices.some((c) => !object(c, ['model', 'reasoning', 'tier', 'roles']) || !text(c.model, 256) || !optionalText(c.reasoning, 128) || !['lightweight', 'medium', 'strong'].includes(c.tier) || !Array.isArray(c.roles) || c.roles.length > 6 || !c.roles.every((r) => text(r, 64)))
+    || !(value.modelTier === null || ['lightweight', 'medium', 'strong'].includes(value.modelTier)) || !Array.isArray(value.modelRoles) || value.modelRoles.length > 6 || !value.modelRoles.every((r) => text(r, 64))) throw new Error('invalid_native_response');
+  if (!validResource(value.resource)) throw new Error('invalid_native_response');
+  return value;
+}
+export async function fetchConfiguration(entry, after = '') {
+  const value = await fetchResources(entry.id, after);
+  const editor = value.selected === null ? null : validateConfiguration(await request(`/api/resources/${value.selected}/configuration`), value.selected);
+  return { ...value, editor, configurationConsole: true, editing: entry.mode === 'edit' };
+}
+export async function configureResource(resource, create, changes) {
+  const payload = { expectedRevision: resource.revision, ...changes };
+  if (create) payload.sourceResourceId = resource.id;
+  const value = await request(create ? '/api/resources' : `/api/resources/${resource.id}/configuration`, { method: create ? 'POST' : 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  if (!object(value, ['resourceId', 'revision', 'published']) || !/^resource_[a-f0-9]{24}$/.test(value.resourceId) || !revision(value.revision) || typeof value.published !== 'boolean' || (!create && value.resourceId !== resource.id) || (create && (!value.published || value.resourceId === resource.id))) throw new Error('outcome_unknown');
   return value;
 }

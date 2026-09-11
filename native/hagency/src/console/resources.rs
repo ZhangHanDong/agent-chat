@@ -9,7 +9,11 @@ use std::time::{Duration, Instant};
 
 pub(super) fn router() -> Router {
     Router::new()
-        .push(Router::with_path("resources").get(configurations))
+        .push(
+            Router::with_path("resources")
+                .get(configurations)
+                .post(super::resource_configuration::create),
+        )
         .push(Router::with_path("resources/{id}/budget").get(budget))
         .push(Router::with_path("resources/{id}/publication").post(publication))
 }
@@ -22,7 +26,7 @@ pub(super) fn selection_query(req: &Request) -> Result<(), Error> {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ResourceRow {
+pub(super) struct ResourceRow {
     id: String,
     framework: String,
     model: String,
@@ -33,6 +37,23 @@ struct ResourceRow {
     roles: Vec<String>,
     revision: String,
 }
+impl ResourceRow {
+    pub(super) fn from_resource(
+        resource: hagency_core::project::Resource,
+    ) -> Result<Self, hagency_store::Error> {
+        Ok(Self {
+            id: resource.id(),
+            revision: resource_publication_revision(&resource)?,
+            roles: resource.eligible_roles(),
+            framework: resource.framework,
+            model: resource.model,
+            provider: resource.provider,
+            reasoning: resource.reasoning,
+            ceiling: resource.ceiling,
+            published: resource.published,
+        })
+    }
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct RoleRow {
@@ -42,7 +63,7 @@ struct RoleRow {
     cross_family: bool,
     default_tier: Option<Tier>,
 }
-fn bounded(res: &mut Response, value: &impl Serialize) {
+pub(super) fn bounded(res: &mut Response, value: &impl Serialize) {
     struct Bytes(Vec<u8>);
     impl std::io::Write for Bytes {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -65,10 +86,11 @@ fn bounded(res: &mut Response, value: &impl Serialize) {
         refusal(res, StatusCode::SERVICE_UNAVAILABLE, "native_unavailable");
     }
 }
-fn failure(res: &mut Response, error: hagency_store::Error) {
+pub(super) fn failure(res: &mut Response, error: hagency_store::Error) {
     let (status, code) = match error {
         hagency_store::Error::Invalid(_) => (StatusCode::BAD_REQUEST, "invalid_resource_command"),
         hagency_store::Error::NotFound => (StatusCode::NOT_FOUND, "not_found"),
+        hagency_store::Error::State => (StatusCode::CONFLICT, "resource_in_use"),
         hagency_store::Error::Conflict => (StatusCode::CONFLICT, "resource_revision_conflict"),
         hagency_store::Error::LocalAuthority => {
             (StatusCode::UNAUTHORIZED, "console_access_required")
@@ -144,10 +166,24 @@ async fn configurations(req: &mut Request, depot: &mut Depot, res: &mut Response
                         .map_err(|_| Error::Unauthorized)?,
                 )
             });
+            let configure = console(depot).and_then(|c| {
+                c.0.authority.can_configure(
+                    depot
+                        .get_typed::<Session>()
+                        .map_err(|_| Error::Unauthorized)?,
+                )
+            });
+            let configure = match configure {
+                Ok(v) => v,
+                Err(error) => {
+                    failed(res, error);
+                    return;
+                }
+            };
             match permission {
                 Ok(publish_resource) => bounded(
                     res,
-                    &serde_json::json!({"resources":resources,"roles":roles,"next_after":next_after,"permissions":{"publishResource":publish_resource}}),
+                    &serde_json::json!({"resources":resources,"roles":roles,"next_after":next_after,"permissions":{"publishResource":publish_resource,"configureResource":configure}}),
                 ),
                 Err(error) => failed(res, error),
             }
@@ -155,7 +191,7 @@ async fn configurations(req: &mut Request, depot: &mut Depot, res: &mut Response
         Err(error) => failure(res, error),
     }
 }
-fn resource_id(req: &Request) -> Result<String, Error> {
+pub(super) fn resource_id(req: &Request) -> Result<String, Error> {
     let id = req.param::<String>("id").ok_or(Error::Invalid)?;
     identifier(&id, 128).map_err(|_| Error::Invalid)?;
     Ok(id)

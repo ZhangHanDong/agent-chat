@@ -2419,6 +2419,20 @@ impl DomainStore {
             .await
     }
     /// Host-only concrete publication command; never part of RunnerCommand.
+    pub async fn resource_configuration(
+        &self,
+        id: String,
+    ) -> Result<hagency_core::project::Resource, Error> {
+        self.call(256, move |db| db.resource_configuration(&id))
+            .await
+    }
+    pub async fn configure_resource(
+        &self,
+        command: crate::ResourceConfigurationCommand,
+    ) -> Result<crate::ResourceConfigurationResult, Error> {
+        self.call(command.weight(), move |db| db.configure_resource(command))
+            .await
+    }
     pub async fn publish_resource(
         &self,
         command: crate::ResourcePublicationCommand,

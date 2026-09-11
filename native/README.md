@@ -6,7 +6,7 @@ run in the existing JS/TS implementation. Native capability responses distinguis
 development resource/task APIs from unavailable Agent execution, connected Palpo/
 Matrix transport and production API parity.
 
-The current developer checkpoint includes domain schema 21: scoped tasks,
+The current developer checkpoint includes domain schema 22: scoped tasks,
 internal groups, durable graphs, verified-input task activation, owner approvals
 and notice/final-reply send custody, with exact negative Matrix transport fencing. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
@@ -671,9 +671,59 @@ session expiry and retirement are checked after SQLite waits and around commit.
 Read-only sessions cannot construct commands. No internal account/preset identity,
 full resource configuration, credential or auth-home enters browser DTOs.
 
-Full creation/editing, names, rate caps, execution policy, host discovery, Agent
+First-resource enrollment, names, rate caps, execution policy, host discovery, Agent
 routes, account membership/authentication and remote publication remain separate
 migration slices. ADR108 is the first native resource management step, not full M7
 parity. The mandatory browser lane above includes both resource selectors; it
 exercises actual publication in both languages and a native executable with an
 empty runtime PATH. It does not use live configuration or a deployed Node server.
+
+
+### Additional resource configurations in the retained wizard (ADR111)
+
+`hagency console-access --state-dir <state> --listen <loopback-address>
+--manage-resource-configuration` issues a separate finite configuration link.
+This flag and `--manage-resource-publication` are mutually exclusive. The default
+link remains read-only. A configuration grant cannot change existing catalog
+inclusion, edit accounts or use the closed operator API.
+
+The original four-step resource wizard is served at `/console/resources/new/`.
+`?source_resource_id=<public-resource-id>` creates another configuration from the
+source's actual private account association; `?resource_id=<public-resource-id>`
+edits the selected configuration. Dynamic IDs require no asset rebuild. An empty
+installation has no source and explicitly refuses first-resource enrollment.
+Model/reasoning choices come from the same embedded native qualification policy.
+These choices are configuration facts, not authentication or runtime readiness.
+
+Native writes accept only model/reasoning selection and explicit ceiling
+`preserve`, `clear` or `monthly` operations. Preserve keeps exact null and missing
+period semantics. Framework/provider/private account identity stay on the writer.
+Creation generates a fresh private preset identity once and inserts a new resource;
+its local publication flag defaults to true in that commit. Editing retains the
+original IDs and withdrawal choice. Reserved/active profile changes refuse; ceiling
+changes preserve all commitments and account declarations. No provider quota,
+consumption, approval, runtime launch or remote publication is established by save.
+
+Every command owns the original finite session gate and two-second deadline.
+The original writer checks the actual configuration revision after SQLite waiting,
+then changes only the selected fields. It never holds the global session map across
+IO. Each grant holds one mutation-scope variant. Busy logout has an explicit retry;
+possible commits and lost create responses stay unknown without automatic retry.
+An unknown create has no durable deduplication journal: a later list is current
+state, not proof of that command. Browser drafts are memory-only, retain their old
+revision during same-selection refresh and clear when identity/access changes.
+
+Friendly names, daily rate caps, execution policy, endpoints/keys/extra arguments,
+credential roots and account enrollment are absent from native form inputs. They
+need canonical managed-profile persistence and actual native consumers. First
+resource enrollment specifically needs a separately contracted host-only versioned
+account binding derived from normalized host, actual credential namespace and key
+scope, consumed by the actual runtime. The existing Seat ledger or a browser model
+selection cannot supply that missing binding. Complete M7 and production cutover
+remain open.
+
+New HTTP surfaces are bounded same-origin `/console/api/resources/{id}/configuration`
+GET/PATCH and `/console/api/resources` POST. The browser sends a public source/target
+ID, expected revision and closed change unions; no authority object, private preset
+ID or seat ID is accepted. Input is 2 KiB, output 64 KiB and model choices at most
+256; existing finite resource/page/asset limits remain unchanged.

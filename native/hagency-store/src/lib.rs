@@ -1,4 +1,8 @@
 //! A single SQLite owner on a dedicated bounded worker; no IO in async handlers.
+pub use domain::resource_configuration::{
+    CeilingChange, ProfileChange, ResourceConfigurationAccess, ResourceConfigurationCommand,
+    ResourceConfigurationResult,
+};
 mod database;
 mod domain;
 mod domain_worker;

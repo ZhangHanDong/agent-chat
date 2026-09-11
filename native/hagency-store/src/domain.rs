@@ -38,6 +38,7 @@ pub(crate) mod file_delivery;
 mod peers;
 pub(crate) mod received_files;
 mod replies;
+pub(crate) mod resource_configuration;
 pub(crate) mod resource_publication;
 mod task_intents;
 pub(crate) mod uploads;
@@ -471,34 +472,11 @@ impl DomainRepository {
         resource: &Resource,
         publication: Option<bool>,
     ) -> Result<CatalogResource, Error> {
-        resource.validate()?;
-        let mut resource = resource.clone();
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        bounded_row(&tx, "resources", "id", &resource.id(), 2048)?;
-        let previous = match read_resource(&tx, &resource.id()) {
-            Ok(old) => Some(old),
-            Err(Error::NotFound) => None,
-            Err(error) => return Err(error),
-        };
-        resource.published = publication
-            .or_else(|| previous.as_ref().map(|r| r.published))
-            .unwrap_or(true);
-        if let Some(old) = previous
-            && (old.seat_id != resource.seat_id
-                || old.framework != resource.framework
-                || old.model != resource.model
-                || old.provider != resource.provider
-                || old.reasoning != resource.reasoning)
-        {
-            let count:i64=tx.query_row("SELECT COUNT(*) FROM engagements WHERE resource_id=?1 AND state IN ('reserved','active')",[resource.id()],|r|r.get(0))?;
-            if count != 0 {
-                return Err(Error::State);
-            }
-        }
-        resource.roles = resource.eligible_roles();
-        tx.execute("INSERT INTO resources(id,preset_id,config) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET config=excluded.config",params![resource.id(),resource.preset_id,serialize(&resource)?])?;
+        let resource = prepare_resource_write(&tx, resource, publication, false)?;
+        write_resource_configuration(&tx, &resource, false)?;
         tx.commit()?;
         Ok(resource.catalog())
     }
@@ -548,6 +526,9 @@ impl DomainRepository {
             }
         }
         Ok(output)
+    }
+    pub fn resource_configuration(&self, id: &str) -> Result<Resource, Error> {
+        read_resource(&self.db, id)
     }
     pub fn resource_configurations(
         &self,
@@ -914,3 +895,56 @@ pub use approvals::responses::{
 };
 
 pub use approvals::owned::{OwnedApprovalScope, OwnedApprovalStatus};
+
+/// Validation shared by operator edits and concrete console commands inside their
+/// original transaction. No write occurs until the caller rechecks its authority.
+fn prepare_resource_write(
+    tx: &Transaction<'_>,
+    resource: &Resource,
+    publication: Option<bool>,
+    create_only: bool,
+) -> Result<Resource, Error> {
+    resource.validate()?;
+    let mut resource = resource.clone();
+    bounded_row(tx, "resources", "id", &resource.id(), 2048)?;
+    let previous = match read_resource(tx, &resource.id()) {
+        Ok(old) => Some(old),
+        Err(Error::NotFound) => None,
+        Err(error) => return Err(error),
+    };
+    if create_only && previous.is_some() {
+        return Err(Error::Conflict);
+    }
+    resource.published = publication
+        .or_else(|| previous.as_ref().map(|r| r.published))
+        .unwrap_or(true);
+    if let Some(old) = previous
+        && (old.seat_id != resource.seat_id
+            || old.framework != resource.framework
+            || old.model != resource.model
+            || old.provider != resource.provider
+            || old.reasoning != resource.reasoning)
+    {
+        let count:i64=tx.query_row("SELECT COUNT(*) FROM engagements WHERE resource_id=?1 AND state IN ('reserved','active')",[resource.id()],|r|r.get(0))?;
+        if count != 0 {
+            return Err(Error::State);
+        }
+    }
+    resource.roles = resource.eligible_roles();
+    Ok(resource)
+}
+fn write_resource_configuration(
+    tx: &Transaction<'_>,
+    resource: &Resource,
+    create_only: bool,
+) -> Result<(), Error> {
+    if create_only {
+        tx.execute(
+            "INSERT INTO resources(id,preset_id,config) VALUES(?1,?2,?3)",
+            params![resource.id(), resource.preset_id, serialize(resource)?],
+        )?;
+    } else {
+        tx.execute("INSERT INTO resources(id,preset_id,config) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET config=excluded.config", params![resource.id(),resource.preset_id,serialize(resource)?])?;
+    }
+    Ok(())
+}

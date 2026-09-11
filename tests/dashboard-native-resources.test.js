@@ -3,7 +3,7 @@ import { renderDashboard } from './helpers/dashboard-render.js';
 import { validateResources, validateBudget, selection, resourceView, publishResource, logoutNative } from '../mockup/lib/native-api.js';
 const resource = { id: 'new_resource', framework: 'codex', model: 'gpt-5.6-sol', provider: null, reasoning: 'medium', ceiling: null, published: true, roles: [], revision: 'a'.repeat(64) };
 const roles = ['Architect','Builder','Reviewer','Tester','Writer','Researcher'].map((role) => ({ role, explicitPublication: null, available: false, crossFamily: false, defaultTier: 'medium' }));
-const rows = { resources: [resource], roles, next_after: null, permissions: { publishResource: false } };
+const rows = { resources: [resource], roles, next_after: null, permissions: { publishResource: false, configureResource: false } };
 const budget = { scope: 'resource', pool: { ceiling: null, period: null, committed: 0, remaining: null }, seat: { quota: null, period: null, committed: 0, remaining: null, status: 'undeclared' }, reserved: 0, remainingTokens: null };
 describe('native resource publication controls', () => {
   test('closed native resource and budget observations retain missing values', () => {

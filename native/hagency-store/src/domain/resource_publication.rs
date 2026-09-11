@@ -20,8 +20,8 @@ impl ResourcePublicationRetirement {
         self.0.store(true, Ordering::Release);
     }
 }
-struct Access {
-    revoked: Mutex<bool>,
+pub(super) struct Access {
+    pub(super) revoked: Mutex<bool>,
     pending: AtomicUsize,
     expires: Instant,
     retirement: ResourcePublicationRetirement,
@@ -78,7 +78,7 @@ impl ResourcePublicationAccess {
         Ok(())
     }
 }
-fn lock_error<T>(error: TryLockError<T>) -> Error {
+pub(super) fn lock_error<T>(error: TryLockError<T>) -> Error {
     match error {
         TryLockError::WouldBlock => Error::Busy,
         TryLockError::Poisoned(_) => Error::Unavailable,
@@ -88,7 +88,12 @@ impl Access {
     fn check(&self, revoked: bool, deadline: Instant) -> Result<(), Error> {
         self.check_at(revoked, deadline, Instant::now())
     }
-    fn check_at(&self, revoked: bool, deadline: Instant, now: Instant) -> Result<(), Error> {
+    pub(super) fn check_at(
+        &self,
+        revoked: bool,
+        deadline: Instant,
+        now: Instant,
+    ) -> Result<(), Error> {
         if revoked || self.retirement.0.load(Ordering::Acquire) || now >= self.expires {
             return Err(Error::LocalAuthority);
         }
@@ -100,11 +105,11 @@ impl Access {
 }
 /// One non-cloneable command from one exact original session. Not deserializable.
 pub struct ResourcePublicationCommand {
-    access: Arc<Access>,
-    resource: String,
-    revision: String,
+    pub(super) access: Arc<Access>,
+    pub(super) resource: String,
+    pub(super) revision: String,
     published: bool,
-    deadline: Instant,
+    pub(super) deadline: Instant,
 }
 impl Drop for ResourcePublicationCommand {
     fn drop(&mut self) {

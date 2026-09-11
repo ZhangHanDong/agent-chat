@@ -86,6 +86,60 @@ static POLICY: LazyLock<Policy> = LazyLock::new(|| {
         .expect("validated embedded role policy")
 });
 
+/// A selectable model/reasoning pair from the original embedded policy.
+/// These roles describe model qualification, never live role or runtime readiness.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationChoice {
+    pub model: String,
+    pub reasoning: Option<String>,
+    pub tier: Tier,
+    pub roles: Vec<String>,
+}
+pub fn configuration_choices(
+    profile: &ModelProfile,
+) -> Result<Vec<ConfigurationChoice>, InvalidInput> {
+    if !matches!(profile.framework.as_str(), "claude" | "codex") {
+        return Ok(Vec::new());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut choices = Vec::new();
+    for tier in &POLICY.tiers {
+        for entry in POLICY.tier_accepts.get(tier).into_iter().flatten() {
+            if entry.framework != profile.framework {
+                continue;
+            }
+            let candidate = ModelProfile {
+                framework: profile.framework.clone(),
+                provider: profile.provider.clone(),
+                model: entry.model.clone(),
+                reasoning: entry.reasoning.clone(),
+            };
+            if !entry.matches(&candidate)
+                || !seen.insert((candidate.model.clone(), candidate.reasoning.clone()))
+            {
+                continue;
+            }
+            if choices.len() == 256 {
+                return Err(InvalidInput("configuration choices exceed capacity"));
+            }
+            let Some(tier) = model(&candidate).0 else {
+                continue;
+            };
+            choices.push(ConfigurationChoice {
+                roles: roles()
+                    .filter(|role| qualifies(&candidate, role, None))
+                    .map(str::to_owned)
+                    .collect(),
+                model: candidate.model,
+                reasoning: candidate.reasoning,
+                tier,
+            });
+        }
+    }
+    Ok(choices)
+}
+
 pub fn model(profile: &ModelProfile) -> (Option<Tier>, Option<&'static str>) {
     if profile.model.is_empty() {
         return (None, None);
