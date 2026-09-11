@@ -74,9 +74,15 @@ mod shutdown_tests {
         assert_eq!(snapshot.drop_finished_us, None);
         assert_eq!(snapshot.acknowledgement_started_us, None);
         if phase == Phase::ConnectionDropStarted {
+            assert_eq!(snapshot.sqlite_close_entered_us, None);
+            assert_eq!(snapshot.connection_drop_finished_us, None);
+            assert_eq!(snapshot.ownership_drop_started_us, None);
+        } else if phase == Phase::SqliteCloseEntered {
+            assert!(snapshot.sqlite_close_entered_us.is_some());
             assert_eq!(snapshot.connection_drop_finished_us, None);
             assert_eq!(snapshot.ownership_drop_started_us, None);
         } else {
+            assert!(snapshot.sqlite_close_entered_us.is_some());
             assert!(snapshot.connection_drop_finished_us.is_some());
             assert!(snapshot.ownership_drop_started_us.is_some());
         }
@@ -92,6 +98,7 @@ mod shutdown_tests {
             later.worker_picked_up_us,
             later.drop_started_us,
             later.connection_drop_started_us,
+            later.sqlite_close_entered_us,
             later.connection_drop_finished_us,
             later.ownership_drop_started_us,
             later.ownership_drop_finished_us,
@@ -113,6 +120,11 @@ mod shutdown_tests {
     #[tokio::test]
     async fn native_domain_shutdown_ownership_drop() {
         held_field_drop(Phase::OwnershipDropStarted).await;
+    }
+
+    #[tokio::test]
+    async fn native_domain_shutdown_sqlite_close_entry() {
+        held_field_drop(Phase::SqliteCloseEntered).await;
     }
 
     async fn closed(store: &DomainStore) {
@@ -149,6 +161,7 @@ mod shutdown_tests {
         assert!(snapshot.caller_finished_us.is_some());
         assert_eq!(snapshot.worker_picked_up_us, None);
         assert_eq!(snapshot.drop_started_us, None);
+        assert_eq!(snapshot.sqlite_close_entered_us, None);
         assert!(matches!(DomainRepository::open(&state), Err(Error::Locked)));
         resume.send(()).unwrap();
         // Observe cleanup of the ORIGINAL queued job, never retry shutdown to

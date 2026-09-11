@@ -51,14 +51,16 @@ pub struct DomainRepository {
     _ownership: File,
 }
 impl DomainRepository {
-    pub(super) fn drop_observed(self, probe: &crate::shutdown::Probe) {
-        use crate::shutdown::Phase;
+    pub(super) fn drop_observed(self, probe: &std::sync::Arc<crate::shutdown::Probe>) {
+        use crate::shutdown::{Phase, SqliteCloseScope};
         // Match the declared field drop order. Ownership is still a local
         // guard, so unwinding from connection destruction also releases it.
         let Self { db, _ownership } = self;
+        let close_scope = SqliteCloseScope::install(&db, probe);
         probe.mark(Phase::ConnectionDropStarted);
         drop(db);
         probe.mark(Phase::ConnectionDropFinished);
+        drop(close_scope);
         probe.mark(Phase::OwnershipDropStarted);
         drop(_ownership);
         probe.mark(Phase::OwnershipDropFinished);

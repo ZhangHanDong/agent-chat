@@ -1,6 +1,13 @@
 //! Fixed-size, host-local observations of one shutdown attempt. Never authority.
+use rusqlite::trace::{TraceEvent, TraceEventCodes};
 use std::{
-    sync::atomic::{AtomicU16, AtomicU64, Ordering},
+    cell::RefCell,
+    marker::PhantomData,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicU16, AtomicU64, Ordering},
+    },
     time::Instant,
 };
 
@@ -31,6 +38,8 @@ pub struct ShutdownSnapshot {
     pub drop_finished_us: Option<u64>,
     /// Domain repository fields only; absent for custody-store shutdown.
     pub connection_drop_started_us: Option<u64>,
+    /// SQLite's CLOSE callback ran; it does not prove successful close or release.
+    pub sqlite_close_entered_us: Option<u64>,
     pub connection_drop_finished_us: Option<u64>,
     pub ownership_drop_started_us: Option<u64>,
     pub ownership_drop_finished_us: Option<u64>,
@@ -53,11 +62,12 @@ pub(crate) enum Phase {
     ConnectionDropFinished,
     OwnershipDropStarted,
     OwnershipDropFinished,
+    SqliteCloseEntered,
 }
 
 pub(crate) struct Probe {
     started: Instant,
-    timestamps: [AtomicU64; 12],
+    timestamps: [AtomicU64; 13],
     completed: AtomicU16,
     #[cfg(test)]
     pause: std::sync::Mutex<Option<TestPause>>,
@@ -99,6 +109,7 @@ impl Probe {
             drop_started_us: at(Phase::DropStarted),
             drop_finished_us: at(Phase::DropFinished),
             connection_drop_started_us: at(Phase::ConnectionDropStarted),
+            sqlite_close_entered_us: at(Phase::SqliteCloseEntered),
             connection_drop_finished_us: at(Phase::ConnectionDropFinished),
             ownership_drop_started_us: at(Phase::OwnershipDropStarted),
             ownership_drop_finished_us: at(Phase::OwnershipDropFinished),
@@ -106,6 +117,68 @@ impl Probe {
             acknowledgement_sent_us: at(Phase::AcknowledgementSent),
             caller_finished_us: at(Phase::CallerFinished),
         }
+    }
+}
+
+thread_local! {
+    // One scoped association on the thread performing the original drop.
+    static SQLITE_CLOSE_PROBE: RefCell<Option<Arc<Probe>>> = const { RefCell::new(None) };
+}
+
+pub(crate) struct SqliteCloseScope {
+    probe: Arc<Probe>,
+    // The slot belongs to this thread; the guard must be neither Send nor Sync.
+    _thread: PhantomData<Rc<()>>,
+}
+
+impl SqliteCloseScope {
+    pub(crate) fn install(connection: &rusqlite::Connection, probe: &Arc<Probe>) -> Option<Self> {
+        SQLITE_CLOSE_PROBE
+            .try_with(|slot| {
+                let mut current = slot.try_borrow_mut().ok()?;
+                if current.is_some() {
+                    return None;
+                }
+                *current = Some(probe.clone());
+                Some(())
+            })
+            .ok()??;
+        let scope = Self {
+            probe: probe.clone(),
+            _thread: PhantomData,
+        };
+        // No statement, row, profile or global logger is registered. The safe
+        // callback ignores the connection reference, including its filename.
+        connection.trace_v2(TraceEventCodes::SQLITE_TRACE_CLOSE, Some(sqlite_close));
+        Some(scope)
+    }
+}
+
+impl Drop for SqliteCloseScope {
+    fn drop(&mut self) {
+        let _ = SQLITE_CLOSE_PROBE.try_with(|slot| {
+            if let Ok(mut current) = slot.try_borrow_mut()
+                && current
+                    .as_ref()
+                    .is_some_and(|probe| Arc::ptr_eq(probe, &self.probe))
+            {
+                current.take();
+            }
+        });
+    }
+}
+
+fn sqlite_close(event: TraceEvent<'_>) {
+    if !matches!(event, TraceEvent::Close(_)) {
+        return;
+    }
+    let probe = SQLITE_CLOSE_PROBE
+        .try_with(|slot| slot.try_borrow().ok().and_then(|current| current.clone()))
+        .ok()
+        .flatten();
+    // Release the slot borrow before publishing or entering a test-only pause.
+    if let Some(probe) = probe {
+        probe.mark(Phase::SqliteCloseEntered);
     }
 }
 
@@ -164,6 +237,115 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    #[tokio::test]
+    async fn native_domain_shutdown_sqlite_close_association() {
+        let root = tempfile::tempdir().unwrap();
+        let held = crate::DomainRepository::open(&root.path().join("held")).unwrap();
+        let other = crate::DomainRepository::open(&root.path().join("other")).unwrap();
+        let normal = crate::DomainRepository::open(&root.path().join("normal")).unwrap();
+        let subsequent = crate::DomainRepository::open(&root.path().join("subsequent")).unwrap();
+        let (original, reached, resume) = Probe::paused(Phase::SqliteCloseEntered);
+        let first = {
+            let original = original.clone();
+            std::thread::spawn(move || held.drop_observed(&original))
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(2), reached)
+            .await
+            .unwrap()
+            .unwrap();
+        let before = original.snapshot(ShutdownOutcome::ReplyTimedOut);
+        assert!(before.sqlite_close_entered_us.is_some());
+        assert_eq!(before.connection_drop_finished_us, None);
+        assert!(matches!(
+            crate::DomainRepository::open(&root.path().join("held")),
+            Err(crate::Error::Locked)
+        ));
+
+        let second_probe = Arc::new(Probe::new());
+        let (finished, completion) = tokio::sync::oneshot::channel();
+        let second = {
+            let probe = second_probe.clone();
+            std::thread::spawn(move || {
+                other.drop_observed(&probe);
+                SQLITE_CLOSE_PROBE.with(|slot| assert!(slot.borrow().is_none()));
+                let snapshot = probe.snapshot(ShutdownOutcome::Complete);
+                assert!(snapshot.sqlite_close_entered_us.is_some());
+                assert!(snapshot.ownership_drop_finished_us.is_some());
+                drop(normal);
+                assert_eq!(probe.snapshot(ShutdownOutcome::Complete), snapshot);
+                let next = Arc::new(Probe::new());
+                subsequent.drop_observed(&next);
+                assert!(
+                    next.snapshot(ShutdownOutcome::Complete)
+                        .sqlite_close_entered_us
+                        .is_some()
+                );
+                assert_eq!(probe.snapshot(ShutdownOutcome::Complete), snapshot);
+                SQLITE_CLOSE_PROBE.with(|slot| assert!(slot.borrow().is_none()));
+                finished.send(()).unwrap();
+            })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(2), completion)
+            .await
+            .unwrap()
+            .unwrap();
+        second.join().unwrap();
+        // The distinct closes completed without releasing the held original.
+        assert_eq!(original.snapshot(ShutdownOutcome::ReplyTimedOut), before);
+        resume.send(()).unwrap();
+        first.join().unwrap();
+        crate::DomainRepository::open(&root.path().join("held")).unwrap();
+
+        // These are real SQLite callbacks, including deliberately unavailable
+        // observation slots. No marker is manually published by the fixture.
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        let probe = Arc::new(Probe::new());
+        let scope = SqliteCloseScope::install(&connection, &probe).unwrap();
+        let nested = rusqlite::Connection::open_in_memory().unwrap();
+        let nested_probe = Arc::new(Probe::new());
+        assert!(SqliteCloseScope::install(&nested, &nested_probe).is_none());
+        drop(nested);
+        assert_eq!(
+            probe
+                .snapshot(ShutdownOutcome::Complete)
+                .sqlite_close_entered_us,
+            None
+        );
+        assert_eq!(
+            nested_probe
+                .snapshot(ShutdownOutcome::Complete)
+                .sqlite_close_entered_us,
+            None
+        );
+        SQLITE_CLOSE_PROBE.with(|slot| {
+            let _borrow = slot.borrow_mut();
+            drop(connection);
+        });
+        assert_eq!(
+            probe
+                .snapshot(ShutdownOutcome::Complete)
+                .sqlite_close_entered_us,
+            None
+        );
+        drop(scope);
+        SQLITE_CLOSE_PROBE.with(|slot| assert!(slot.borrow().is_none()));
+
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let connection = rusqlite::Connection::open_in_memory().unwrap();
+            let _scope = SqliteCloseScope::install(&connection, &probe).unwrap();
+            panic!("fixture original close scope unwind");
+        }));
+        assert!(unwind.is_err());
+        assert_eq!(
+            probe
+                .snapshot(ShutdownOutcome::Complete)
+                .sqlite_close_entered_us,
+            None
+        );
+        SQLITE_CLOSE_PROBE.with(|slot| assert!(slot.borrow().is_none()));
+        assert_eq!(Arc::strong_count(&probe), 1);
+    }
+
     #[test]
     fn native_domain_shutdown_snapshot() {
         let probe = Arc::new(Probe::new());
@@ -195,6 +377,7 @@ mod tests {
         let snapshot = probe.snapshot(ShutdownOutcome::ReplyTimedOut);
         assert!(snapshot.drop_finished_us.is_some());
         assert_eq!(snapshot.connection_drop_started_us, None);
+        assert_eq!(snapshot.sqlite_close_entered_us, None);
         assert_eq!(snapshot.connection_drop_finished_us, None);
         assert_eq!(snapshot.ownership_drop_started_us, None);
         assert_eq!(snapshot.ownership_drop_finished_us, None);
@@ -226,8 +409,7 @@ mod tests {
                 .enqueue_started_us,
             Some(0)
         );
-        // The four additional optional field timestamps add exactly64 bytes
-        // to the previous finite144-byte cap; no variable-size data is stored.
-        assert!(std::mem::size_of::<ShutdownSnapshot>() <= 208);
+        // One additional Option<u64> adds16 bytes to ADR099's208-byte cap.
+        assert!(std::mem::size_of::<ShutdownSnapshot>() <= 224);
     }
 }

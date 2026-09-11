@@ -5834,3 +5834,32 @@ config-home qualification, full room/history/console parity, quotas/retention,
 measured budgets and deployment cutover remain open. No live service or account
 was changed. Exact command results, failure logs and SHA256 manifests are kept
 in the external migration evidence cache.
+
+## ADR106 original SQLite close observation — 2026-09-11
+
+Added a safe per-connection CLOSE-only observation to the original observed
+DomainRepository drop. A thread-confined guard holds only the original Probe,
+releases its thread-local association on return or unwind, and publishes one
+fixed entry timestamp without reading connection data. No raw FFI, SQL logger,
+query, checkpoint, wait, retry, ownership change or deadline change was added.
+Unobserved shutdown remains free of hook registration and Probe allocation.
+The new Option<u64> increases the snapshot ceiling from 208 to 224 bytes.
+
+Seven store shutdown tests pass 7/0/0, including an actual held SQLite callback
+through the original caller timeout, retained private lock and separate reopen.
+The association test uses actual concurrent and sequential repository closes,
+nested/unavailable slots and unwind; it does not manually publish the new marker.
+Strict lifecycle passes 13/13 checks: twelve actual bound tests, each with one
+executed passing test, plus the complete eight-path boundary. This includes the
+five original fed7557 approval failure selectors with unchanged assertions.
+Native and Windows GNU all-target store/Matrix Clippy pass with warnings denied.
+All evidence is retained externally in adr106-strict.log, its structured run
+records, adr106-store-shutdown.log and both adr106 Clippy logs.
+
+The original Windows suite remains failed and its backend cause unproven. The
+new phase distinguishes SQLite close entry only; it does not identify Windows
+VFS mutex waiting, file I/O or scheduling, nor diagnose SDK initialization.
+Positive Windows staging remains unqualified by these checks. The upstream
+WAL-reset issue is an open separate dependency assessment with verified original
+package/source hashes; this slice enables only the pinned empty trace feature
+and leaves Cargo.lock and all dependency versions unchanged.
