@@ -49,6 +49,9 @@ remain. A later packet read cannot reconstruct a lost send. Approval-purpose
 SDK enrollment, protected encrypted delivery custody and executable wiring
 remain required. Current native forty-hex request IDs differ from the retained
 client's thirty-two-hex parser; this work does not claim Robrix interoperability.
+ADR115 explicitly aligns the finite peer-schema profiles and records the receiver
+upgrade, field-size and scoped-action requirements. It does not replace the
+separate actual client, encrypted delivery and executable integration gates.
 
 ## Alternatives Considered
 

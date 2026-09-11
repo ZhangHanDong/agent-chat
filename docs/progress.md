@@ -6999,3 +6999,20 @@ schema and makes no live configuration, provider, login or production cutover ch
   expiry test is unchanged. The console-browser job failed once on a Playwright
   wait for the transient Busy logout state in the resource-configuration flow;
   it passed at 1baa80d and is not caused by these changes.
+
+
+ADR115 implements the explicit finite retained32/native40 approval v1 schema
+amendment in a clean1baa80d worktree. The original Rust writer exported five actual
+cards (POSIX, Windows drive, UNC, unknown scope and long preview); fixture bytes
+are captured in tests/fixtures/native-approval-wire.json. Export mode is tooling,
+not qualification. The normal full approvals target then passed29/29, including
+exact corpus comparison. Real retained JS producer/schema tests plus original
+bridge approval tests passed19/19 in two files. Store all-target Clippy and fmt
+passed. Original logs and commands are wire-interop-*-original.log and
+wire-interop-original-verdicts.json in the external migration cache.
+
+The schema preserves legacy body/description/preview limits and keeps native
+48KiB encoded packet capacity distinct from schema character limits. Request-only
+typed RPC metadata does not enter verdicts. The retained JS backend remains
+32-only because it owns no native requests; Robrix parser/click and verified native
+intake/transport remain separate gates. Stock strict agent-spec1.4 lifecycle completed nonpassing: two passes (exact11-path boundary and actual Rust corpus) and two Node-selector skips. No skipped or zero-test target counts as pass; actual Vitest19/19 remains separate evidence. The raw output includes the CLI error trailer and is preserved in wire-interop-lifecycle-original.json; wire-interop-lifecycle-exit.json records exit1. This is the documented Cargo-only lifecycle limitation, not a completed client integration gate.

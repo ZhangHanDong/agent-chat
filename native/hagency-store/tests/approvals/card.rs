@@ -3,6 +3,84 @@ use hagency_store::DomainStore;
 use std::{sync::Arc, time::Duration};
 
 #[test]
+fn native_approval_wire_corpus() {
+    let mut cards = Vec::new();
+    for (name, workspace, reusable, rpc, padding) in [
+        ("posix", "/work/a", true, ApprovalRpcId::Number(0), 0),
+        (
+            "drive",
+            r"C:\work\Agent 中文",
+            true,
+            ApprovalRpcId::Number(hagency_core::JSON_SAFE_MAX),
+            0,
+        ),
+        (
+            "unc",
+            r"\\server\share\work",
+            true,
+            ApprovalRpcId::String("001".into()),
+            0,
+        ),
+        (
+            "unknown",
+            "/work/a",
+            false,
+            ApprovalRpcId::String("opaque".into()),
+            0,
+        ),
+        (
+            "long_preview",
+            "/work/a",
+            false,
+            ApprovalRpcId::Number(7),
+            9000,
+        ),
+    ] {
+        let mut f = Fixture::new(true);
+        f.contexts[0].id = format!("corpus_{name}");
+        f.contexts[0].workspace = workspace.into();
+        f.contexts[0].windows_paths = matches!(name, "drive" | "unc");
+        f.db.bind_approval_context(&f.caps[0], &f.contexts[0], 1009)
+            .unwrap();
+        let mut input = f.input(0, 1);
+        input.upstream_id = rpc;
+        if !reusable {
+            input.method = "unknown/requestApproval".into();
+        }
+        if padding > 0 {
+            input.params["opaque"] = json!("x".repeat(padding));
+        }
+        let request =
+            f.db.request_owner_approval(&f.caps[0], &input, 1010)
+                .unwrap();
+        let card =
+            f.db.private_approval_card(&request.id, 11000, 1011)
+                .unwrap();
+        assert_eq!(card.target().reusable_scope, reusable);
+        assert!(serde_json::to_vec(card.content()).unwrap().len() <= 48 * 1024);
+        if reusable {
+            assert_eq!(
+                card.content()["com.agentchat.approval"]["reusable_scope"]["workspace"],
+                workspace
+            );
+        }
+        cards.push(json!({"name":name,"content":card.content()}));
+    }
+    let corpus = json!({"version":1,"producer":"native_approval_wire_corpus","cards":cards});
+    // Explicit fixture-export mode is a developer tool, not normal qualification.
+    // The normal selector compares every byte-bearing field against real output.
+    if std::env::var("HAGENCY_TEST_EXPORT_APPROVAL_WIRE").as_deref() == Ok("1") {
+        println!("HAGENCY_APPROVAL_WIRE_CORPUS={corpus}");
+    } else {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/native-approval-wire.json");
+        let expected: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(corpus, expected);
+    }
+}
+
+#[test]
 fn native_private_approval_card_content() {
     let mut f = Fixture::new(true);
     for (index, reusable) in [true, false].into_iter().enumerate() {
