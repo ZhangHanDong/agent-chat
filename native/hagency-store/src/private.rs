@@ -1,3 +1,9 @@
+#[cfg(windows)]
+#[allow(unsafe_code)] // Audited retained-object synchronous Windows IO boundary.
+mod windows_directory;
+#[cfg(windows)]
+pub use windows_directory::WindowsDirectorySync;
+
 use crate::Error;
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};

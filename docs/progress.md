@@ -5802,3 +5802,34 @@ The same final source passes native and Windows GNU all-target Matrix Clippy wit
 warnings denied. The first native Clippy failed on a now-unused CryptoStore trait
 import in the existing-identity fixture; only that obsolete import was removed.
 The initial warning/failure log remains separate from both final successful checks.
+
+
+### ADR104 retained Windows directory sync — local implementation checkpoint
+
+ADR103's original sixth Windows run34578962296 atdfcad753 passed the same-object
+local NTFS candidate and independent-process original encrypted restoration.
+Its five earlier failures remain failed originals. This slice now derives that
+fresh synchronous directory owner inside default media Store opening, through
+the existing audited private-storage boundary. It preserves original directory
+checks, unsupported directory-unconfirmed inspection and exact preparation and
+restoration commitments. A read-only duplicate cannot substitute for the actual
+directory acknowledgement. Media-store production remains unsafe-forbid.
+
+The native query owns a fixed Box containing the actual File and both initialized
+outputs. Unexpected pending waits for that exact private object. A failed wait or
+still-pending completion permanently retains this one allocation and handle on
+the parked original worker, with no allocation, formatting, callback, application
+exit, unwind or repeat admission. The controlled Windows pre-call gate tests
+caller-loss ownership; it is not a claim that native pending was reproduced.
+
+Focused local checks: media library18/18 plus classifier1/1 and store private1/1;
+both crates' native and Windows GNU all-target warnings-denied Clippy pass. The
+first Windows cross-check caught a test-only unwrap requiring secret-custody Debug;
+that assertion now uses a fixed panic message, without adding Debug. Its original
+failed compiler log remains external. Strict lifecycle passes all five scenarios plus the explicit seventeen-path
+boundary, with no fail/skip/uncertain result. Actual default-Store Windows
+qualification is still pending:
+the required example now gives Store the original ordinary Dir, and a separate
+child must restore the exact earlier bytes/descriptor/commitments. Neither local
+checks nor ADR103's candidate-injection success supplies this new platform gate.
+No upload, FileService, Matrix, task Done or production cutover is claimed.

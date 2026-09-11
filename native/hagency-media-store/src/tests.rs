@@ -96,7 +96,8 @@ fn native_media_stage_directory_sync_handle() {
         fs::rename(f.root.path().join("stage"), f.root.path().join("retained")).unwrap();
         private::directory(&f.root.path().join("stage")).unwrap();
     }
-    let store = Store::create(directory, namespace(), Limits::default()).unwrap();
+    #[allow(unused_mut)]
+    let mut store = Store::create(directory, namespace(), Limits::default()).unwrap();
     assert_sync(store.sync);
     #[cfg(unix)]
     {
@@ -114,6 +115,31 @@ fn native_media_stage_directory_sync_handle() {
         store.directory_file.sync_all().unwrap();
         assert!(f.root.path().join("retained/media.journal").is_file());
         assert!(!f.journal().exists());
+    }
+    #[cfg(windows)]
+    {
+        // Removing the sealed owner is test-only negative evidence. A matching
+        // original directory or successful journal flush must not replace it.
+        store.windows_directory.take();
+        assert_eq!(
+            store.sync_storage().unwrap(),
+            SyncEvidence::FileSyncedDirectoryUnconfirmed
+        );
+        let encrypted = codec()
+            .encrypt(f.snapshot(b"unconfirmed original"))
+            .unwrap();
+        let receipt = store
+            .stage(&op("unconfirmed"), Media::Encrypted(encrypted))
+            .unwrap_or_else(|_| panic!("actual unconfirmed staging must retain its receipt"));
+        assert_eq!(
+            receipt.sync_evidence(),
+            SyncEvidence::FileSyncedDirectoryUnconfirmed
+        );
+        assert!(matches!(
+            store.restore_encrypted(&op("unconfirmed"), receipt.digest()),
+            Err(Error::Durability)
+        ));
+        assert!(store.read(&op("unconfirmed")).is_ok());
     }
 }
 

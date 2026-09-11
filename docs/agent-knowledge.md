@@ -2497,3 +2497,16 @@ runtime outcome is an expected fault observation, never a delivery receipt.
   files. This joins close-generated jobs only. Preserve safe branch/error details
   in a failed reopen assertion; a later passing run cannot explain a hidden
   original error or prove that a separately found lifetime gap caused it.
+
+
+- **Retained Windows media sync:** cap-primitives4.0.3 fixed-dot lookup goes
+  through MaybeOwnedFile::into_file → open_unchecked → CreateFileAtW and a fresh
+  rooted NtCreateFile object; it does not use ReOpenFile or an ambient path. Fixed
+  non-overlapped options supply SYNCHRONIZE and FILE_SYNCHRONOUS_IO_NONALERT. Only
+  exact full identity/private local mounted NTFS evidence plus real file and
+  directory ACKs can qualify default media storage. Unsupported remains
+  inspectable and unconfirmed. The exceptional pending/wait failure retains one
+  fixed allocation and actual handle on a parked worker; an outer timeout cannot
+  release them or imply bounded OS completion. Probe success and default-Store
+  success are distinct gates, and only actual native Windows execution proves
+  the latter. No runtime or upload readiness follows from cross-compilation.

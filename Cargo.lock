@@ -1316,6 +1316,8 @@ dependencies = [
 name = "hagency-store"
 version = "0.1.0"
 dependencies = [
+ "cap-fs-ext",
+ "cap-std",
  "getrandom 0.3.4",
  "hagency-core",
  "hagency-metering",
