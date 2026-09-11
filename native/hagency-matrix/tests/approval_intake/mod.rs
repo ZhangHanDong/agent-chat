@@ -1,4 +1,5 @@
 use super::*;
+use crate::collector::observation::{Phase, Trace, observed};
 use crate::{HostIdentity, HostRoom, collector::fixtures as common};
 use hagency_core::{replies::*, tasks::*};
 use serde_json::{Value, json};
@@ -59,6 +60,16 @@ async fn preflight(fake: &mut common::Fake) {
     r.json(200, state());
 }
 async fn ready() -> (
+    common::Fixture,
+    common::Fake,
+    ApprovalCollector,
+    RunnerCapability,
+) {
+    ready_variant(None).await
+}
+async fn ready_variant(
+    variant: Option<&'static str>,
+) -> (
     common::Fixture,
     common::Fake,
     ApprovalCollector,
@@ -137,13 +148,26 @@ async fn ready() -> (
     )
     .unwrap();
     let cancel = CancellationToken::new();
-    let (r, ()) = common::scripted(c.observe(&cancel), async {
-        preflight(&mut fake).await;
-    })
+    let (r, ()) = common::scripted(
+        observed(
+            Trace::new("approval authenticated bootstrap", variant, None),
+            c.observe(&cancel),
+        ),
+        async {
+            preflight(&mut fake).await;
+        },
+    )
     .await;
     r.unwrap();
     // Private test-only provisioning follows the actual authenticated bootstrap.
-    *c.inner.owner.lock().await = Some(Owner::open(&c.inner.config).await.unwrap());
+    *c.inner.owner.lock().await = Some(
+        observed(
+            Trace::new("approval fixture sdk open", variant, None),
+            Owner::open(&c.inner.config),
+        )
+        .await
+        .unwrap(),
+    );
     f.store
         .bind_approval_context(
             cap.clone(),
@@ -270,8 +294,79 @@ fn plan(t: &ApprovalIntakeTarget) -> HostApprovalPlan {
     HostApprovalPlan::new(vec![t.request_id.clone()]).unwrap()
 }
 async fn shutdown(f: common::Fixture, fake: common::Fake, c: ApprovalCollector) {
-    c.close().await.unwrap();
+    observed(
+        Trace::new("approval collector cleanup", None, None),
+        c.close(),
+    )
+    .await
+    .unwrap();
     common::shutdown_domain(&f.store, "approval fixture cleanup").await;
+    fake.close().await;
+}
+#[tokio::test]
+async fn native_matrix_approval_observation_owner_lifecycle() {
+    let (f, fake, c, _) = ready().await;
+    let inner = c.inner.clone();
+    let config = &inner.config;
+    observed(
+        Trace::new("approval lifecycle initial sdk close", None, None),
+        async { c.inner.owner.lock().await.take().unwrap().close().await },
+    )
+    .await
+    .unwrap();
+
+    let opening = Trace::new("approval held sdk open", None, None);
+    let mut held = opening.hold(Phase::Prepared);
+    let mut open = Box::pin(observed(opening.clone(), Owner::open(config)));
+    tokio::select! {
+        _ = held.reached() => {},
+        _ = &mut open => panic!("approval open escaped its original held boundary"),
+    }
+    assert!(opening.has(Phase::PrepareStarted));
+    assert!(!opening.has(Phase::SdkOpenStarted));
+    assert!(matches!(Owner::open(config).await, Err(Error::Busy)));
+    held.release();
+    *c.inner.owner.lock().await = Some(open.await.unwrap());
+    assert!(opening.has(Phase::OpenCallerReturned));
+    assert!(opening.has(Phase::SdkOpenReturned));
+
+    let closing = Trace::new("approval held collector close", None, None);
+    let mut held = closing.hold(Phase::RuntimeDropStarted);
+    let mut close = Box::pin(observed(closing.clone(), c.close()));
+    tokio::select! {
+        _ = held.reached() => {},
+        result = &mut close => panic!("approval close escaped its original held boundary: {result:?}"),
+    }
+    assert!(closing.has(Phase::Queued));
+    assert!(closing.has(Phase::Started));
+    assert!(closing.has(Phase::CloseStoresReturned));
+    assert!(!closing.has(Phase::LockDropped));
+    assert!(matches!(Owner::open(config).await, Err(Error::Busy)));
+    // The fixture caller disappears; the original spawned close and its SDK
+    // command retain this same trace and private lock until actual completion.
+    drop(close);
+    held.release();
+    closing.wait(Phase::OwnerReturned).await;
+    assert!(closing.has(Phase::RuntimeDropped));
+    assert!(closing.has(Phase::LockDropped));
+    assert!(closing.has(Phase::CloseAcknowledgement));
+    assert!(closing.has(Phase::CallerReturned));
+    assert!(!closing.has(Phase::OperationReturned));
+    assert_eq!(closing.snapshot().callsite, "approval held collector close");
+    assert!(closing.snapshot().sdk_failure.is_none());
+    let reopened = observed(
+        Trace::new("approval lifecycle sdk reopen", None, None),
+        Owner::open_existing(config),
+    )
+    .await
+    .unwrap();
+    observed(
+        Trace::new("approval lifecycle reopened sdk close", None, None),
+        reopened.close(),
+    )
+    .await
+    .unwrap();
+    common::shutdown_domain(&f.store, "approval lifecycle cleanup").await;
     fake.close().await;
 }
 #[tokio::test]
@@ -746,7 +841,18 @@ async fn native_matrix_approval_bounds_receipt_and_source_capacity_refuse_withou
 #[tokio::test]
 async fn native_matrix_approval_bounds_corrupt_encrypted_journal_cannot_resume_authority() {
     for variant in 0..9 {
-        let (f, mut fake, c, cap) = ready().await;
+        let label = [
+            "corruption0",
+            "corruption1",
+            "corruption2",
+            "corruption3",
+            "corruption4",
+            "corruption5",
+            "corruption6",
+            "corruption7",
+            "corruption8",
+        ][variant as usize];
+        let (f, mut fake, c, cap) = ready_variant(Some(label)).await;
         let target = request(&f, &cap, 1).await;
         let (query, sync) = packet(&c, vec![verdict(&target, "approve_once")]).await;
         c.inner
@@ -767,15 +873,12 @@ async fn native_matrix_approval_bounds_corrupt_encrypted_journal_cannot_resume_a
             .unwrap()
             .corrupt_approval(variant)
             .await;
-        c.inner
-            .owner
-            .lock()
-            .await
-            .take()
-            .unwrap()
-            .close()
-            .await
-            .unwrap();
+        observed(
+            Trace::new("approval corrupted sdk close", Some(label), None),
+            async { c.inner.owner.lock().await.take().unwrap().close().await },
+        )
+        .await
+        .unwrap();
         assert!(
             matches!(c.custody_status().await, Err(Error::Storage)),
             "variant {variant}"
@@ -879,7 +982,13 @@ async fn native_matrix_approval_scope_unverified_owner_cannot_supply_crypto_auth
 #[tokio::test]
 async fn native_matrix_approval_bounds_sync_framing_and_body_limits_do_not_advance_crypto_cursor() {
     for variant in 0..4 {
-        let (f, mut fake, c, _) = ready().await;
+        let label = [
+            "duplicate next batch",
+            "trailing document",
+            "oversized body",
+            "excess events",
+        ][variant];
+        let (f, mut fake, c, _) = ready_variant(Some(label)).await;
         let (query, mut base) = packet(&c, vec![]).await;
         let cancel = CancellationToken::new();
         let bytes = match variant {

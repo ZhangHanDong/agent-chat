@@ -29,6 +29,11 @@ pub struct ShutdownSnapshot {
     pub worker_picked_up_us: Option<u64>,
     pub drop_started_us: Option<u64>,
     pub drop_finished_us: Option<u64>,
+    /// Domain repository fields only; absent for custody-store shutdown.
+    pub connection_drop_started_us: Option<u64>,
+    pub connection_drop_finished_us: Option<u64>,
+    pub ownership_drop_started_us: Option<u64>,
+    pub ownership_drop_finished_us: Option<u64>,
     pub acknowledgement_started_us: Option<u64>,
     pub acknowledgement_sent_us: Option<u64>,
     pub caller_finished_us: Option<u64>,
@@ -44,11 +49,15 @@ pub(crate) enum Phase {
     AcknowledgementStarted,
     AcknowledgementSent,
     CallerFinished,
+    ConnectionDropStarted,
+    ConnectionDropFinished,
+    OwnershipDropStarted,
+    OwnershipDropFinished,
 }
 
 pub(crate) struct Probe {
     started: Instant,
-    timestamps: [AtomicU64; 8],
+    timestamps: [AtomicU64; 12],
     completed: AtomicU16,
     #[cfg(test)]
     pause: std::sync::Mutex<Option<TestPause>>,
@@ -89,6 +98,10 @@ impl Probe {
             worker_picked_up_us: at(Phase::WorkerPickedUp),
             drop_started_us: at(Phase::DropStarted),
             drop_finished_us: at(Phase::DropFinished),
+            connection_drop_started_us: at(Phase::ConnectionDropStarted),
+            connection_drop_finished_us: at(Phase::ConnectionDropFinished),
+            ownership_drop_started_us: at(Phase::OwnershipDropStarted),
+            ownership_drop_finished_us: at(Phase::OwnershipDropFinished),
             acknowledgement_started_us: at(Phase::AcknowledgementStarted),
             acknowledgement_sent_us: at(Phase::AcknowledgementSent),
             caller_finished_us: at(Phase::CallerFinished),
@@ -181,6 +194,10 @@ mod tests {
         worker.join().unwrap();
         let snapshot = probe.snapshot(ShutdownOutcome::ReplyTimedOut);
         assert!(snapshot.drop_finished_us.is_some());
+        assert_eq!(snapshot.connection_drop_started_us, None);
+        assert_eq!(snapshot.connection_drop_finished_us, None);
+        assert_eq!(snapshot.ownership_drop_started_us, None);
+        assert_eq!(snapshot.ownership_drop_finished_us, None);
         // Caller enqueue observation can arrive after ALL these worker phases;
         // publishing it must not regress the independently observed worker.
         probe.mark(Phase::EnqueueObserved);
@@ -209,6 +226,8 @@ mod tests {
                 .enqueue_started_us,
             Some(0)
         );
-        assert!(std::mem::size_of::<ShutdownSnapshot>() <= 144);
+        // The four additional optional field timestamps add exactly64 bytes
+        // to the previous finite144-byte cap; no variable-size data is stored.
+        assert!(std::mem::size_of::<ShutdownSnapshot>() <= 208);
     }
 }

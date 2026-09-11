@@ -50,6 +50,20 @@ pub struct DomainRepository {
     db: Connection,
     _ownership: File,
 }
+impl DomainRepository {
+    pub(super) fn drop_observed(self, probe: &crate::shutdown::Probe) {
+        use crate::shutdown::Phase;
+        // Match the declared field drop order. Ownership is still a local
+        // guard, so unwinding from connection destruction also releases it.
+        let Self { db, _ownership } = self;
+        probe.mark(Phase::ConnectionDropStarted);
+        drop(db);
+        probe.mark(Phase::ConnectionDropFinished);
+        probe.mark(Phase::OwnershipDropStarted);
+        drop(_ownership);
+        probe.mark(Phase::OwnershipDropFinished);
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EffectState {

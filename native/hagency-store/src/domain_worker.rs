@@ -51,6 +51,70 @@ enum Job {
 mod shutdown_tests {
     use super::*;
 
+    async fn held_field_drop(phase: Phase) {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let store = DomainStore::start(DomainRepository::open(&state).unwrap(), 1).unwrap();
+        let (probe, reached, resume) = Probe::paused(phase);
+        let attempt = {
+            let store = store.clone();
+            let probe = probe.clone();
+            tokio::spawn(async move { store.shutdown_tracked(Some(probe)).await })
+        };
+        tokio::time::timeout(Duration::from_secs(2), reached)
+            .await
+            .unwrap()
+            .unwrap();
+        let (result, outcome) = attempt.await.unwrap();
+        assert!(matches!(result, Err(Error::OutcomeUnknown)));
+        assert_eq!(outcome, ShutdownOutcome::ReplyTimedOut);
+        let snapshot = probe.snapshot(outcome);
+        assert!(snapshot.connection_drop_started_us.is_some());
+        assert_eq!(snapshot.ownership_drop_finished_us, None);
+        assert_eq!(snapshot.drop_finished_us, None);
+        assert_eq!(snapshot.acknowledgement_started_us, None);
+        if phase == Phase::ConnectionDropStarted {
+            assert_eq!(snapshot.connection_drop_finished_us, None);
+            assert_eq!(snapshot.ownership_drop_started_us, None);
+        } else {
+            assert!(snapshot.connection_drop_finished_us.is_some());
+            assert!(snapshot.ownership_drop_started_us.is_some());
+        }
+        // The actual original ownership file remains locked even after the
+        // connection has dropped. This is not inferred from a phase alone.
+        assert!(matches!(DomainRepository::open(&state), Err(Error::Locked)));
+        resume.send(()).unwrap();
+        closed(&store).await;
+        let reopened = DomainRepository::open(&state).unwrap();
+        drop(reopened);
+        let later = probe.snapshot(outcome);
+        let ordered = [
+            later.worker_picked_up_us,
+            later.drop_started_us,
+            later.connection_drop_started_us,
+            later.connection_drop_finished_us,
+            later.ownership_drop_started_us,
+            later.ownership_drop_finished_us,
+            later.drop_finished_us,
+            later.acknowledgement_started_us,
+        ]
+        .map(Option::unwrap);
+        assert!(ordered.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!(later.acknowledgement_sent_us, None);
+        assert_eq!(snapshot.ownership_drop_finished_us, None);
+        assert_eq!(snapshot.outcome, ShutdownOutcome::ReplyTimedOut);
+    }
+
+    #[tokio::test]
+    async fn native_domain_shutdown_connection_drop() {
+        held_field_drop(Phase::ConnectionDropStarted).await;
+    }
+
+    #[tokio::test]
+    async fn native_domain_shutdown_ownership_drop() {
+        held_field_drop(Phase::OwnershipDropStarted).await;
+    }
+
     async fn closed(store: &DomainStore) {
         tokio::time::timeout(Duration::from_secs(2), store.tx.closed())
             .await
@@ -1738,7 +1802,11 @@ impl DomainStore {
                         Job::Shutdown { reply, probe } => {
                             mark(&probe, Phase::WorkerPickedUp);
                             mark(&probe, Phase::DropStarted);
-                            drop(repository);
+                            if let Some(probe) = &probe {
+                                repository.drop_observed(probe);
+                            } else {
+                                drop(repository);
+                            }
                             mark(&probe, Phase::DropFinished);
                             mark(&probe, Phase::AcknowledgementStarted);
                             if reply.send(()).is_ok() {

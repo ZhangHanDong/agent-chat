@@ -5427,3 +5427,39 @@ final store run; it is not a claim of one later 246-test invocation. Final nativ
 and Windows GNU Clippy again pass all affected targets. The final stable-source strict lifecycle again passes all seven scenarios plus
 the 27-path boundary (8/8), with zero skipped, uncertain or pending-review results;
 original checkpoint output is retained separately. No actual Windows bootstrap run has been claimed locally.
+
+
+### 2026-09-10 — Original approval and repository cleanup observation (ADR099)
+
+Preserved original 1da8f1b native/Node job logs, exact Cargo slices and hashes
+externally before subsequent work. Windows remains failed: six approval-library
+errors, four direct fixture SDK opens, one direct SDK close and one domain
+shutdown. The original shutdown snapshot shows prompt worker pickup followed by
+an unfinished repository-drop interval at the unchanged reply timeout; no
+backend cause is established. Automatic outgoing and transport diagnostics
+remain separate evidence.
+
+In the isolated ADR099 worktree, parsed/linted the nine-path contract before
+source edits. Added existing finite traces to original approval bootstrap and
+cleanup; the same original spawned observe/close tasks retain their traces.
+The optional domain shutdown probe now distinguishes connection destruction
+from ownership-file release while normal shutdown keeps its original unobserved
+drop path and allocates no probe. New held-owner tests use actual SDK and domain
+writer resources, not fabricated phase rings. Validation is recorded below.
+
+Final ADR099 validation: all 17 approval tests passed, including the six original
+selectors and the held actual-owner regression. Strict cross-crate lifecycle
+passed 13/13 scenarios: 12 explicit tests and the exact nine-path boundary, with
+zero failed, skipped, uncertain or pending-review results. Final warnings-denied
+Clippy passed for hagency-store/hagency-matrix all targets on native macOS and
+Windows GNU; formatting and whitespace checks passed. These compile/check results
+are not hosted Windows runtime qualification.
+
+The initial store run preserved four passing actual-worker tests and one failed
+existing snapshot-size assertion. The approved four optional timestamps required
+an explicit 64-byte increase to its finite cap, from 144 to 208 bytes; the final
+strict run includes that original snapshot publication/bound test. The initial
+approval compilation also caught a non-Clone HostConfig in the new fixture; the
+fixture now borrows its original configuration through retained Inner ownership.
+All initial and final validation logs remain external under adr099-*. No original
+CI verdict, deadline, retry, workflow or production configuration changed.

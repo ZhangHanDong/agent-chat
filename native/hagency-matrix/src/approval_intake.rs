@@ -1,7 +1,7 @@
 use crate::{
     CancellationToken, Error, HostConfig,
     approval_batch::{Batch, Command, Outcome, Phase, Room, Target},
-    collector::Inner,
+    collector::{Inner, observe},
     sdk::Owner,
 };
 use hagency_core::{approvals::*, project::identifier, replies::RoomPrivacy};
@@ -107,11 +107,20 @@ impl ApprovalCollector {
         let inner = self.inner.clone();
         let engagements = self.engagements.clone();
         let cancel = cancel.clone();
+        #[cfg(test)]
+        let observation = crate::collector::observation::current();
         tokio::spawn(async move {
             let _permit = permit;
-            let rooms = inner.approval_rooms(&engagements).await?;
-            inner.refresh_approval_rooms(&rooms, &cancel).await?;
-            Ok(())
+            let work = async {
+                observe!(RoomPrior);
+                let rooms = inner.approval_rooms(&engagements).await?;
+                observe!(Whoami);
+                inner.refresh_approval_rooms(&rooms, &cancel).await?;
+                Ok(())
+            };
+            #[cfg(test)]
+            let work = crate::collector::observation::owned(observation, work);
+            work.await
         })
         .await
         .map_err(|_| Error::OutcomeUnknown)?
@@ -205,22 +214,35 @@ impl ApprovalCollector {
             .clone()
             .try_acquire_owned()
             .map_err(|_| Error::Busy)?;
+        #[cfg(test)]
+        let observation = crate::collector::observation::current();
         tokio::spawn(async move {
             let _permit = permit;
-            let fence = async {
-                let rooms = self.inner.approval_rooms(&self.engagements).await?;
-                self.inner.fence_approval_candidates(&rooms).await
-            }
-            .await;
-            // Even retired domain authority must not skip actual SDK shutdown.
-            let shutdown = if let Some(owner) = self.inner.owner.lock().await.take() {
-                owner.close().await
-            } else {
+            let work = async {
+                let fence = async {
+                    observe!(RoomPrior);
+                    let rooms = self.inner.approval_rooms(&self.engagements).await?;
+                    observe!(Fence);
+                    self.inner.fence_approval_candidates(&rooms).await
+                }
+                .await;
+                #[cfg(test)]
+                crate::collector::observation::fence(fence.as_ref().err().copied());
+                // Even retired domain authority must not skip actual SDK shutdown.
+                observe!(CloseOwnerLock);
+                let shutdown = if let Some(owner) = self.inner.owner.lock().await.take() {
+                    observe!(CloseSdk);
+                    owner.close().await
+                } else {
+                    Ok(())
+                };
+                shutdown?;
+                fence?;
                 Ok(())
             };
-            shutdown?;
-            fence?;
-            Ok(())
+            #[cfg(test)]
+            let work = crate::collector::observation::owned(observation, work);
+            work.await
         })
         .await
         .map_err(|_| Error::OutcomeUnknown)?
