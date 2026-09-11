@@ -2451,3 +2451,16 @@ file event or canonical Done.
   prove negative-before-release and positive-after-release behavior using a real
   owned child. The fed7557 historical60ms failure provides no scheduler trace;
   local repair tests must not be substituted for its original failed verdict.
+
+
+- **Historical executable file reads:** a fresh fixture client must reuse the
+  actual original inherited task context, captured privately from that disposable
+  child. A reconstructed capability or a SQL projection alone does not prove
+  task-client access. Keep failed/unknown operation receipts separate from normal
+  helper completion. WritePossible can be reported as OutcomeUnknown even while
+  a live original operation awaits its ACK; that observation cannot justify an
+  automatic retry or an unconditional early end of positive fixture polling.
+- **Shared Bootstrap shutdown regression preservation:** the original consumed
+  close-result test follows the owner into Bootstrap, and the closed-receiver
+  test stays in Driver. Model-only closure tests remain protocol evidence; actual
+  connection/process destruction requires separately observed teardown.

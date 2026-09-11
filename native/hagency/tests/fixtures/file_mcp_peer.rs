@@ -168,6 +168,27 @@ fn helper(params: &Value) -> io::Result<()> {
     if admission["isError"] != false {
         return Err(invalid());
     }
+    // Preserve only this disposable child's actually inherited context for a
+    // fresh historical-read fixture. No authority is created or printed, and
+    // the file is private and removed with the isolated test workspace.
+    let _original = hagency::task_client::Context::from_env().map_err(|_| invalid())?;
+    let inherited = ENV
+        .into_iter()
+        .map(|key| {
+            std::env::var(key)
+                .map(|value| (key, value))
+                .map_err(|_| invalid())
+        })
+        .collect::<io::Result<std::collections::BTreeMap<_, _>>>()?;
+    let inherited = serde_json::to_vec(&inherited)?;
+    if inherited.len() > 8192 {
+        return Err(invalid());
+    }
+    hagency_store::private::write_new(
+        &std::env::current_dir()?.join("file-mcp.context"),
+        &inherited,
+    )
+    .map_err(|_| invalid())?;
     let id = admission["structuredContent"]["delivery_id"]
         .as_str()
         .ok_or_else(invalid)?

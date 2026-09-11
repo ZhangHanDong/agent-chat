@@ -5670,3 +5670,34 @@ Final strict lifecycle passes3/3 (both actual scenarios and exact five-path
 boundary), with zero failed skipped uncertain or pending review. Root's source
 review found no blocker. This local validation is distinct from the original
 failed hosted run; integration and a new hosted run remain parent-owned.
+
+
+### 2026-09-11 — FileService integration preserves earlier shutdown regressions
+
+Integrated the reviewed ADR101 service checkpoint and its two independently
+reproduced status fixes. The main branch's consuming-close and dropped-oneshot
+regression selectors are preserved at their new ownership boundary: the former
+now drives actual Bootstrap::close using an explicitly modeled consumed SDK-close
+result, while the latter still exercises the actual Driver receiver. This is
+protocol-state evidence, not an assertion of real SDK shutdown. The first local
+combined library run was15pass/1fail because the relocated fixture's test URL
+missed its required canonical slash; the corrected exact selector passed1/0/0.
+All-target hagency Clippy with warnings denied passed. Original logs are retained.
+
+The fixed offline file peer now stores only its own validated inherited fixture
+context in a bounded private file for an independent historical MCP read. No
+production Context serializer or capability setter is added, and the values are
+never printed. The actual historical read will be exercised with the combined
+ADR102 executable fixture; compilation alone does not establish that acceptance.
+A considered stop-on-Unknown polling change was discarded before compilation:
+WritePossible can yield transient Unknown while an original live send awaits ACK.
+The peer's polling and all production/fixture deadlines remain unchanged.
+
+Original hosted fed7557 CI is now fully preserved: Linux568independent passes;
+macOS566passes/1pulse-observation failure; Windows558passes/5approval failures.
+Three Windows failures were original2s domain shutdowns inside SQLite Connection
+drop, two were original10s SDK opens. Logs identify those boundaries, not their
+underlying OS/SQLite cause. Both later Windows diagnostic steps passed separate
+selectors. Node passed4291/0fail/1platformskip in293files; its verifier separately
+passed508checks. Available Linux/Node artifact ZIPs match GitHub SHA256.
+The PR records original failed results separately from diagnostics and fixes.

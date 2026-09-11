@@ -54,7 +54,7 @@ mod custody_tests {
             let mut owner =
                 Bootstrap::open(&state, "127.0.0.1:13300".parse().unwrap(), 16, false).unwrap();
             owner.shared = Some(
-                Shared::new(fixture.config("https://127.0.0.1:1"), owner.domain.clone()).unwrap(),
+                Shared::new(fixture.config("https://127.0.0.1:1/"), owner.domain.clone()).unwrap(),
             );
             let original = Arc::new(Mutex::new(Some(())));
             let calls = Arc::new(AtomicUsize::new(0));
