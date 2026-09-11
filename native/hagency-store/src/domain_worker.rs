@@ -70,6 +70,27 @@ mod shutdown_tests {
         assert_eq!(outcome, ShutdownOutcome::ReplyTimedOut);
         let snapshot = probe.snapshot(outcome);
         assert!(snapshot.connection_drop_started_us.is_some());
+        #[cfg(windows)]
+        {
+            let caller = Probe::new();
+            caller.observe_domain_writer();
+            let crate::NativeWriterObservation::Measured {
+                process_id: caller_pid,
+                thread_id: caller_tid,
+                ..
+            } = caller.snapshot(outcome).native_writer
+            else {
+                panic!("actual Windows caller query unavailable");
+            };
+            assert!(matches!(snapshot.native_writer,
+                crate::NativeWriterObservation::Measured { process_id, thread_id, .. }
+                    if process_id == caller_pid && thread_id != caller_tid));
+        }
+        #[cfg(not(windows))]
+        assert_eq!(
+            snapshot.native_writer,
+            crate::NativeWriterObservation::Unsupported
+        );
         assert_eq!(snapshot.ownership_drop_finished_us, None);
         assert_eq!(snapshot.drop_finished_us, None);
         assert_eq!(snapshot.acknowledgement_started_us, None);
@@ -94,6 +115,7 @@ mod shutdown_tests {
         let reopened = DomainRepository::open(&state).unwrap();
         drop(reopened);
         let later = probe.snapshot(outcome);
+        assert_eq!(later.native_writer, snapshot.native_writer);
         let ordered = [
             later.worker_picked_up_us,
             later.drop_started_us,
@@ -162,6 +184,10 @@ mod shutdown_tests {
         assert_eq!(snapshot.worker_picked_up_us, None);
         assert_eq!(snapshot.drop_started_us, None);
         assert_eq!(snapshot.sqlite_close_entered_us, None);
+        assert_eq!(
+            snapshot.native_writer,
+            crate::NativeWriterObservation::Unobserved
+        );
         assert!(matches!(DomainRepository::open(&state), Err(Error::Locked)));
         resume.send(()).unwrap();
         // Observe cleanup of the ORIGINAL queued job, never retry shutdown to
@@ -186,6 +212,10 @@ mod shutdown_tests {
         assert_eq!(snapshot.enqueue_observed_us, None);
         assert_eq!(snapshot.worker_picked_up_us, None);
         drop(rx);
+        assert_eq!(
+            snapshot.native_writer,
+            crate::NativeWriterObservation::Unobserved
+        );
     }
 
     #[tokio::test]

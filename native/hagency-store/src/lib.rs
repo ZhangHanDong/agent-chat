@@ -18,7 +18,9 @@ mod repository;
 mod shutdown;
 mod worker;
 pub use repository::Repository;
-pub use shutdown::{ShutdownOutcome, ShutdownSnapshot};
+pub use shutdown::{
+    NativeWriterObservation, NativeWriterUnavailable, ShutdownOutcome, ShutdownSnapshot,
+};
 pub use worker::Store;
 
 #[derive(Debug, thiserror::Error)]

@@ -92,3 +92,50 @@ Explicitly closing or checkpointing the database would change cleanup policy.
 Changing timeouts or serializing tests would alter the incident without tracing
 its cause. Adding further SDK internal traces is deferred until separately
 justified; this slice adds only the smallest meaningful connection boundary.
+
+## Accepted extension: native original writer accounting
+
+Original 22c4993 Windows Cargo records four same-connection CLOSE entries within
+68 microseconds but no connection-drop completion by the unchanged two-second
+reply deadline. The pinned source places CLOSE after cache flush, rusqlite's
+interrupt mutex and SQLite's connection mutex. Later pager/WAL/VFS work remains
+unobserved. A global SHM cleanup mutex and native IO/retry paths are source-derived
+possibilities only. No blocked operation or production repair is established.
+
+An already-observed domain drop may now retain one real Windows thread handle
+duplicated from its actual current writer with THREAD_QUERY_LIMITED_INFORMATION
+only. It is non-inheritable, is owned by that same finite Probe, and is never
+reopened by numeric thread ID. A baseline GetThreadTimes reading is taken
+immediately before ConnectionDropStarted. Its interval begins at this observed
+domain-drop entry, not necessarily at the later SQLITE_TRACE_CLOSE marker.
+
+The existing snapshot path performs at most one further native time query and
+freezes either its checked CPU deltas and native PID/TID or an explicit unavailable
+stage. Later snapshots cannot retry a failed query or charge later work on that
+thread to the original measurement. This fixed Copy value has unobserved and
+unsupported states as well. The owned handle persists through the query, including
+writer exit, and closes through RAII with its Probe. It retains no repository,
+job, sender or callback association and forms no ownership cycle.
+
+The in-memory snapshot ceiling becomes 256 bytes, replacing only the previous
+224-byte numeric bound. Its complete Debug projection must fit 2048 bytes for
+maximum-width scalar values and every state label. No handle value, thread-object
+name, filesystem path, SQL, payload or native error string is exposed. Native
+CPU deltas cannot distinguish IO, mutex wait, sleep or descheduling and carry no
+completion, retry or authority meaning. Original caller timestamps and verdicts
+are frozen before the normal observed-shutdown snapshot; query availability does
+not influence either.
+
+The crate's deny-unsafe-code policy remains the default. A single isolated
+shutdown/native_writer/windows.rs boundary permits only audited Win32 native
+handle duplication and CPU queries (plus actual test fixtures). Existing
+windows-sys features suffice; no dependency, SQLite hook/configuration, process
+privilege, thread suspension, new worker, retry or deadline is added. Ordinary
+unobserved shutdown does not capture or query a native writer. Generic custody
+snapshots leave the domain writer unobserved. Non-Windows domain drops report
+unsupported; compilation cannot substitute for native Windows execution.
+
+Acceptance keeps original held-close, ownership, queue and fixed-snapshot tests,
+and adds actual cross-thread Windows handle lifetime and unavailable-query
+coverage. Earlier original failures remain failures. Actual hosted Windows
+measurements are still required and cannot alone name the blocked backend call.

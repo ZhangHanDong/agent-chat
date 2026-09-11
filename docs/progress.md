@@ -6417,3 +6417,42 @@ uncertain or pending-review results. One advisory file-output lint warning remai
 Final source hashes, exact commands/CWD, all original failures and verification
 outputs are retained in the external approval-clock evidence cache. This
 establishes no new native runtime application or full M6 parity claim.
+
+
+### 2026-09-11 — Exact original domain writer CPU observation
+
+The bounded ADR106 extension binds a query-only Windows thread handle to the
+actual domain writer immediately before ConnectionDropStarted. GetThreadTimes
+baseline and the first snapshot's checked CPU deltas cover that domain-drop
+interval, not only post-SQLite-CLOSE work. Native PID/TID identify the writer,
+not the caller shown in panic output. A first measurement or unavailable result
+is frozen so later snapshots cannot retry or attribute subsequent thread work.
+The handle is non-inheritable and closes with its original Probe through RAII;
+there is no numeric-TID reopen, privilege change or thread suspension.
+
+Original caller deadlines/results, close order, ownership release, queue and ACK
+semantics are unchanged. The observation cannot identify a VFS call or establish
+IO, mutex, sleep or descheduling as the original cause. No SQLite policy, VFS
+shim, global tracing, payload/path projection or production repair is introduced.
+The new field reports unobserved, unsupported, unavailable(stage), or measured
+fixed scalars only. Actual maximum in-memory snapshot is 248 bytes under the
+256-byte ceiling, and maximum-width complete Debug output is 863 bytes under
+2048, including all native states and maximum timestamp/ID/delta widths.
+
+Local store source was rebuilt in the explicitly assigned target. The initial
+short --exact selector matched zero tests and is retained but not counted; the
+correct full selector runs 1/1. All eight actual domain observation tests pass,
+including the original paused-close timeout/lock assertions, callback association,
+connection/ownership order, queue and snapshot bounds. The new non-Windows body
+proves unsupported reporting only. Windows all-target compilation and Clippy
+with warnings denied pass; native Windows execution remains required. Original
+22c4993 failures and the source-derived SQLite candidate remain historical
+uncertainty, not a fixed or supported backend verdict.
+
+Strict lifecycle completes with 6/6 passing results: the exact 11-file boundary
+and five selectors, each running one actual passing test. No failure, skipped,
+uncertain or pending-review result remains in that local report. Its test-name
+coverage does not distinguish cfg bodies: native Windows accounting assertions
+remain unexecuted locally even though their selector has an unsupported-host
+implementation. Source review found no additional material defect; no source was
+changed after successful validation, only this final evidence prose.

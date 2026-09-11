@@ -5,11 +5,13 @@ use std::{
     marker::PhantomData,
     rc::Rc,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicU16, AtomicU64, Ordering},
     },
     time::Instant,
 };
+mod native_writer;
+pub use native_writer::{NativeWriterObservation, NativeWriterUnavailable};
 
 /// The original caller verdict, with the wait stage distinguished for diagnosis.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,6 +48,9 @@ pub struct ShutdownSnapshot {
     pub acknowledgement_started_us: Option<u64>,
     pub acknowledgement_sent_us: Option<u64>,
     pub caller_finished_us: Option<u64>,
+    /// CPU interval starts before domain Connection drop, not at SQLite CLOSE.
+    /// Frozen by the first snapshot; never identifies the waiting backend call.
+    pub native_writer: NativeWriterObservation,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -69,6 +74,7 @@ pub(crate) struct Probe {
     started: Instant,
     timestamps: [AtomicU64; 13],
     completed: AtomicU16,
+    native_writer: OnceLock<native_writer::Writer>,
     #[cfg(test)]
     pause: std::sync::Mutex<Option<TestPause>>,
 }
@@ -79,9 +85,17 @@ impl Probe {
             started: Instant::now(),
             timestamps: std::array::from_fn(|_| AtomicU64::new(0)),
             completed: AtomicU16::new(0),
+            native_writer: OnceLock::new(),
             #[cfg(test)]
             pause: std::sync::Mutex::new(None),
         }
+    }
+
+    pub(crate) fn observe_domain_writer(&self) {
+        // Only the original domain writer calls this before its Connection drop.
+        // A failed capture is retained too; later snapshots cannot retry it.
+        self.native_writer
+            .get_or_init(native_writer::Writer::capture);
     }
 
     // Each phase has exactly one publisher per attempt. Publish its timestamp
@@ -116,6 +130,10 @@ impl Probe {
             acknowledgement_started_us: at(Phase::AcknowledgementStarted),
             acknowledgement_sent_us: at(Phase::AcknowledgementSent),
             caller_finished_us: at(Phase::CallerFinished),
+            native_writer: self.native_writer.get().map_or(
+                NativeWriterObservation::Unobserved,
+                native_writer::Writer::snapshot,
+            ),
         }
     }
 }
@@ -381,6 +399,7 @@ mod tests {
         assert_eq!(snapshot.connection_drop_finished_us, None);
         assert_eq!(snapshot.ownership_drop_started_us, None);
         assert_eq!(snapshot.ownership_drop_finished_us, None);
+        assert_eq!(snapshot.native_writer, NativeWriterObservation::Unobserved);
         // Caller enqueue observation can arrive after ALL these worker phases;
         // publishing it must not regress the independently observed worker.
         probe.mark(Phase::EnqueueObserved);
@@ -409,7 +428,37 @@ mod tests {
                 .enqueue_started_us,
             Some(0)
         );
-        // One additional Option<u64> adds16 bytes to ADR099's208-byte cap.
-        assert!(std::mem::size_of::<ShutdownSnapshot>() <= 224);
+        // The native enum adds at most 32 bytes to ADR106's224-byte cap.
+        // Check the whole Debug projection too: labels and scalar widths are
+        // fixed, and maximum values must not evade its independent text bound.
+        for timestamp in &other.timestamps {
+            timestamp.store(u64::MAX, Ordering::Relaxed);
+        }
+        other.completed.store(u16::MAX, Ordering::Release);
+        let mut maximum = other.snapshot(ShutdownOutcome::EnqueueTimedOut);
+        let mut maximum_debug_bytes = 0;
+        for native in [
+            NativeWriterObservation::Unobserved,
+            NativeWriterObservation::Unsupported,
+            NativeWriterObservation::Unavailable(NativeWriterUnavailable::DuplicateHandle),
+            NativeWriterObservation::Unavailable(NativeWriterUnavailable::BaselineQuery),
+            NativeWriterObservation::Unavailable(NativeWriterUnavailable::SnapshotQuery),
+            NativeWriterObservation::Unavailable(NativeWriterUnavailable::CounterRegression),
+            NativeWriterObservation::Measured {
+                process_id: u32::MAX,
+                thread_id: u32::MAX,
+                kernel_cpu_us: u64::MAX,
+                user_cpu_us: u64::MAX,
+            },
+        ] {
+            maximum.native_writer = native;
+            assert!(std::mem::size_of_val(&maximum) <= 256);
+            maximum_debug_bytes = maximum_debug_bytes.max(format!("{maximum:?}").len());
+        }
+        assert!(maximum_debug_bytes <= 2048);
+        eprintln!(
+            "native shutdown snapshot bounds: memory_bytes={} maximum_debug_bytes={maximum_debug_bytes}",
+            std::mem::size_of::<ShutdownSnapshot>()
+        );
     }
 }

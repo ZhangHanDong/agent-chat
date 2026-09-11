@@ -58,6 +58,7 @@ impl DomainRepository {
         // guard, so unwinding from connection destruction also releases it.
         let Self { db, _ownership } = self;
         let close_scope = SqliteCloseScope::install(&db, probe);
+        probe.observe_domain_writer();
         probe.mark(Phase::ConnectionDropStarted);
         drop(db);
         probe.mark(Phase::ConnectionDropFinished);
