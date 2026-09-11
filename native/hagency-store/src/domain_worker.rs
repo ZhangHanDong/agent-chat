@@ -2328,6 +2328,24 @@ impl DomainStore {
         })
         .await
     }
+    pub async fn check_publication_registration(
+        &self,
+        identity: crate::outbound::RegistrationIdentity,
+    ) -> Result<(), Error> {
+        self.call(weight(&identity)?, move |db| {
+            db.check_publication_registration(&identity)
+        })
+        .await
+    }
+    pub async fn published_catalog(
+        &self,
+        identity: crate::outbound::RegistrationIdentity,
+    ) -> Result<crate::PublishedCatalog, Error> {
+        self.call(weight(&identity)?, move |db| {
+            db.published_catalog(&identity)
+        })
+        .await
+    }
     pub async fn edit_resource(
         &self,
         resource: Resource,

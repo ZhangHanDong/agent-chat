@@ -8,6 +8,8 @@ use serde_json::Value;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+#[path = "catalog.rs"]
+mod catalog;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -23,6 +25,7 @@ pub enum Step {
 /// publication lane; no hidden reverse listener or spawned polling tasks.
 pub struct Adapter {
     store: Store,
+    registration: hagency_store::outbound::RegistrationIdentity,
     scope: TransportScope,
     http: Http,
     limits: Limits,
@@ -33,6 +36,7 @@ pub struct Adapter {
 impl Adapter {
     pub async fn attach(config: HostConfig, store: Store) -> Result<Self, Error> {
         let http = Http::new(&config)?;
+        let registration = config.activation.registration.clone();
         let Reply::Scope(scope) = store
             .outbound(Command::Activate(config.activation), now()?)
             .await?
@@ -41,6 +45,7 @@ impl Adapter {
         };
         Ok(Self {
             store,
+            registration,
             scope,
             http,
             limits: config.limits,
@@ -180,6 +185,13 @@ impl Adapter {
         self.publish(cancel).await
     }
     async fn publish(&self, cancel: &CancellationToken) -> Result<Step, Error> {
+        self.publish_checked(None, cancel).await
+    }
+    async fn publish_checked(
+        &self,
+        domain: Option<&hagency_store::DomainStore>,
+        cancel: &CancellationToken,
+    ) -> Result<Step, Error> {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -194,6 +206,14 @@ impl Adapter {
         };
         self.command(Command::BeginPublication(ticket.clone()))
             .await?;
+        if let Some(domain) = domain {
+            // Custody writes may wait behind unrelated work. Recheck after
+            // those waits, immediately before admitting this HTTP request.
+            // Bytes in an already admitted request cannot be recalled.
+            domain
+                .check_publication_registration(self.registration.clone())
+                .await?;
+        }
         let value = self
             .http
             .request("updates", None, Some(ticket.wire_body().into()), cancel)
@@ -213,6 +233,24 @@ impl Adapter {
     /// Three joined loops; cancellation waits for already received custody/known
     /// receipts to commit. Fatal failure cancels siblings cooperatively first.
     pub async fn run(&self, cancel: &CancellationToken) -> Result<(), Error> {
+        self.run_source(None, cancel).await
+    }
+
+    /// Publish current canonical resources alongside the original inbound lanes.
+    /// This host-only opt-in is not a Matrix readiness or execution permission.
+    pub async fn run_with_resources(
+        &self,
+        domain: &hagency_store::DomainStore,
+        cancel: &CancellationToken,
+    ) -> Result<(), Error> {
+        self.run_source(Some(domain), cancel).await
+    }
+
+    async fn run_source(
+        &self,
+        domain: Option<&hagency_store::DomainStore>,
+        cancel: &CancellationToken,
+    ) -> Result<(), Error> {
         let child = cancel.child_token();
         let wrap = |result: Result<(), Error>| {
             if result.is_err() {
@@ -223,7 +261,7 @@ impl Adapter {
         let (matrix, work, publication) = tokio::join!(
             async { wrap(self.lane_loop(Lane::Matrix, &child).await) },
             async { wrap(self.lane_loop(Lane::Work, &child).await) },
-            async { wrap(self.publication_loop(&child).await) },
+            async { wrap(self.publication_loop(domain, &child).await) },
         );
         for result in [matrix, work, publication] {
             if let Err(error) = result
@@ -249,29 +287,37 @@ impl Adapter {
             pause(cancel, wait).await?;
         }
     }
-    async fn publication_loop(&self, cancel: &CancellationToken) -> Result<(), Error> {
+    async fn publication_loop(
+        &self,
+        domain: Option<&hagency_store::DomainStore>,
+        cancel: &CancellationToken,
+    ) -> Result<(), Error> {
         let mut delay = self.limits.retry_min;
         loop {
             // A heartbeat is transport liveness only. No probe, status freshness
             // or authenticated Matrix connection proof is invented here.
-            let result = async {
-                let _guard = self.publication.try_lock().map_err(|_| Error::Busy)?;
-                let Reply::Publication(pending) = self
-                    .command(Command::PendingPublication(self.scope()))
-                    .await?
-                else {
-                    return Err(Error::Custody);
-                };
-                if pending.is_none() {
-                    self.command(Command::FreezePublication {
-                        scope: self.scope(),
-                        body: serde_json::json!({"heartbeat":true}),
-                    })
-                    .await?;
+            let result = if let Some(domain) = domain {
+                self.publish_resources_once(domain, cancel).await
+            } else {
+                async {
+                    let _guard = self.publication.try_lock().map_err(|_| Error::Busy)?;
+                    let Reply::Publication(pending) = self
+                        .command(Command::PendingPublication(self.scope()))
+                        .await?
+                    else {
+                        return Err(Error::Custody);
+                    };
+                    if pending.is_none() {
+                        self.command(Command::FreezePublication {
+                            scope: self.scope(),
+                            body: serde_json::json!({"heartbeat":true}),
+                        })
+                        .await?;
+                    }
+                    self.publish(cancel).await
                 }
-                self.publish(cancel).await
-            }
-            .await;
+                .await
+            };
             let wait = match result {
                 Ok(_) => {
                     delay = self.limits.retry_min;

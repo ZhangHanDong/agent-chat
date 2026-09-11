@@ -1,5 +1,7 @@
 //! Bounded outbound Palpo transport. Host-only configuration and custody do not
 //! grant domain approval or prove authenticated Matrix event provenance.
+//! `Adapter::run_with_resources` also publishes current canonical resource data;
+//! the executable must explicitly own and configure that loop before activation.
 mod adapter;
 mod config;
 mod http;

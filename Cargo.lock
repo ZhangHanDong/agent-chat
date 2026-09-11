@@ -1241,6 +1241,7 @@ dependencies = [
  "hagency-core",
  "hagency-store",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

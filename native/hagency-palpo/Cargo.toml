@@ -19,6 +19,7 @@ time = { version = "=0.3.55", default-features = false, features = ["parsing", "
 
 [dev-dependencies]
 tempfile.workspace = true
+rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled"] }
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
 
 [lints]
