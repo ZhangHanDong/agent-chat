@@ -5371,3 +5371,12 @@ queue and check Busy budget return, all42 store library tests passed. The comple
 frame oracle, original staging records and platform refusal semantics are preserved.
 Final Clippy, binding and strict lifecycle evidence follows in external adr100-*
 artifacts; actual SDK recipient, service and MCP acceptance remain separate work.
+
+Final native and Windows GNU all-target warnings-denied Clippy pass. Strict lifecycle
+passes all four exact selectors, each with one actual passing test, plus the complete
+13-path boundary result:5/5, zero failed, skipped, uncertain or pending review. All432
+Rust bindings resolve with no missing selector; this catalog is not a full workspace
+test run. Knowledge lint still exits2 with the exact157 baseline error records and
+no ADR100 additions. The final documentation delta changes no production or test
+source. These results close the scoped association contract, without claiming actual
+Windows execution/durability or completion of the dependent publisher/service slice.
