@@ -2883,3 +2883,15 @@ coverage does not distinguish cfg bodies: native Windows accounting assertions
 remain unexecuted locally even though their selector has an unsupported-host
 implementation. Source review found no additional material defect; no source was
 changed after successful validation, only this final evidence prose.
+
+
+### 2026-09-11 — Linux received-file directory sync
+
+Pinned cap-primitives4.0.3 opens ambient directories with O_PATH on Linux.
+The original Root retains that descriptor; a duplicate remains O_PATH and fsync
+cannot use it. The b856b47 Linux CI reported Io after actual file writes in four
+workspace cases, plus unknown in three actual incoming workflows after GET=1.
+The sink now opens only '.' relative to that original directory with read access,
+checks private handle and complete same-directory identity, and retains the sync
+handle before destination creation. Windows retains its existing directory-sync
+qualification path. This source correction still requires Linux runtime evidence.

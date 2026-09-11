@@ -6456,3 +6456,17 @@ coverage does not distinguish cfg bodies: native Windows accounting assertions
 remain unexecuted locally even though their selector has an unsupported-host
 implementation. Source review found no additional material defect; no source was
 changed after successful validation, only this final evidence prose.
+
+
+### 2026-09-11 — Correct Linux received-file directory sync descriptor
+
+Read-only review of b856b47 Linux originals traced all four successful-path
+workspace sink failures to sync_all on the Root's cap-std O_PATH descriptor.
+Pinned cap-primitives dir_utils.rs selects O_PATH on Linux but not macOS.
+The actual original CI exposed Io, not raw errno; it remains failed evidence.
+The candidate retains a readable '.' handle opened relative to the original
+root, checks privacy and same_directory, then syncs that retained handle.
+No ambient destination reopening, ignored sync error, or Windows change.
+Existing bound sink scenarios cover actual materialization, one-shot refusal,
+retirement, mutation and read-only deadlines. Format/diff and independent
+source review pass; integrated native and actual Linux qualification are pending.

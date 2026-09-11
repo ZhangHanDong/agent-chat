@@ -46,6 +46,8 @@ pub struct WorkspaceReceive {
     complete: bool,
     directory: Option<Dir>,
     file: Option<File>,
+    #[cfg(unix)]
+    directory_sync: Option<File>,
     #[cfg(windows)]
     directory_sync: Option<private::WindowsDirectorySync>,
 }
@@ -95,6 +97,8 @@ impl StartedWorkspace {
             complete: false,
             directory: None,
             file: None,
+            #[cfg(unix)]
+            directory_sync: None,
             #[cfg(windows)]
             directory_sync: None,
         })
@@ -189,6 +193,32 @@ impl WorkspaceReceive {
                 .try_clone()
                 .map_err(|_| WorkspaceReceiveError::Io)?,
         ));
+        #[cfg(unix)]
+        {
+            use cap_fs_ext::OpenOptionsMaybeDirExt;
+            // cap-std retains O_PATH directory descriptors on Linux. Duplicating
+            // one preserves lookup authority but does not make fsync legal.
+            // Open only "." relative to that original object with read access,
+            // and retain the identity-checked sync handle before creating a file.
+            let mut options = OpenOptions::new();
+            options
+                .read(true)
+                .follow(FollowSymlinks::No)
+                .maybe_dir(true)
+                .nonblock(true);
+            let sync = self
+                .directory()?
+                .open_with(".", &options)
+                .map_err(|_| WorkspaceReceiveError::Io)?
+                .into_std();
+            private::check_handle(&sync).map_err(|_| WorkspaceReceiveError::Object)?;
+            if !hagency_platform::same_directory(&self.binding.root.file, &sync)
+                .map_err(|_| WorkspaceReceiveError::Object)?
+            {
+                return Err(WorkspaceReceiveError::Object);
+            }
+            self.directory_sync = Some(sync);
+        }
         #[cfg(windows)]
         {
             self.directory_sync = Some(
@@ -246,9 +276,9 @@ impl WorkspaceReceive {
             .map_err(|_| WorkspaceReceiveError::Io)?;
         self.local(self.deadline)?;
         #[cfg(unix)]
-        self.binding
-            .root
-            .file
+        self.directory_sync
+            .as_ref()
+            .ok_or(WorkspaceReceiveError::Io)?
             .sync_all()
             .map_err(|_| WorkspaceReceiveError::Io)?;
         #[cfg(windows)]

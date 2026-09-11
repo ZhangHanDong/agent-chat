@@ -20,6 +20,7 @@ service queues and executable receive integration are separately owned gates.
 - Use generated .hagency-received-32hex.bin from the receive identity and relative create_new NoFollow nonblocking regular-file checks private current-owner permissions and one link.
 - Check original current writer and workspace before and after effects with local retirement checks around bounded write and read chunks.
 - Retain and compare the actual original file with its current relative entry using full platform identity then bound actual readback length and SHA256 and require file and directory sync acknowledgements.
+- On Unix retain a readable directory handle opened relative to the original root and verify complete directory identity before any file creation; never try to sync a Linux O_PATH descriptor or substitute an ambient reopen.
 - Revalidate a completed file read-only using a fresh bounded deadline without renewing write authority or touching its bytes.
 - Run real temporary file mutation authority expiry and retained-owner tests and preserve all failures skips uncertain and unsupported platform results.
 
