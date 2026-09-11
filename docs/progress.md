@@ -4686,3 +4686,34 @@ paths, with zero failed, skipped, uncertain or pending-review verdicts. External
 matrix-fixture-errors-* logs retain these results. Original Windows CI failure and
 independent Palpo shutdown OutcomeUnknown remain failed evidence. Actual Windows
 execution is still required; this change does not establish its historical cause.
+
+
+## 2026-09-10 — ADR082 custody shutdown phase observation
+
+The25c01ee original Palpo target passed13/13; its later serial diagnostic failed
+12/13 at the first Store::shutdown before publication reopen. This uses the custody
+worker, not DomainStore. Read-only audit could not determine whether its unchanged
+wait expired before pickup, during repository release or around acknowledgement.
+Original evidence remains external in windows-25c01ee-original.log and the Palpo
+shutdown review; no production cause is inferred from this uninstrumented result.
+
+In a clean72e73cb worktree, parsed/linted the six-path ADR082 contract first. Added
+optional per-job reuse of the existing fixed Probe in custody Store. Ordinary
+shutdown remains unobserved; original waits, Result, Drop-before-ACK and ownership
+ordering stay unchanged. One Palpo fixture failure now prints a static label and
+phase snapshot while still failing. Deterministic actual worker gates distinguish
+queue, Drop and ACK boundaries without arbitrary sleeps or successful retries.
+
+Focused native store/Palpo tests and Clippy are being recorded externally under
+custody-shutdown-*. Complete strict cross-crate lifecycle is explicitly pending
+parent integration; a partial crate lifecycle cannot prove the Palpo selector.
+No workspace-wide build, live network, service setting or credential changed.
+
+Final focused results: new phase tests3/3, existing worker tests3/3, outbound
+custody regressions10/10, and the exact Palpo publication/restart test1/1 pass
+(17 distinct tests). One preliminary invocation used a nonexistent outbound
+integration target; the retained invocation error was corrected to its actual
+library test module. Native and Windows GNU all-target store/Palpo Clippy pass
+with warnings denied. Parse/lint, rustfmt and diff checks pass. Complete strict
+cross-crate lifecycle remains pending parent integration by explicit coordination;
+no partial lifecycle or historical Windows timeout is reported as passing.

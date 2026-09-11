@@ -617,7 +617,10 @@ async fn native_outbound_http_publication_frozen_restart_and_rotation() {
         adapter.freeze_update(json!({"heartbeat":true})).await,
         Err(Error::Conflict)
     );
-    store.shutdown().await.unwrap();
+    let (result, snapshot) = store.shutdown_observed().await;
+    if let Err(error) = result {
+        panic!("publication-before-reopen shutdown failed: {error:?}; {snapshot:?}");
+    }
     drop(adapter);
     drop(store);
     let store = open(&dir);

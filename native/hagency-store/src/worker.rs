@@ -1,4 +1,7 @@
-use crate::{Error, Repository};
+use crate::{
+    Error, Repository, ShutdownOutcome, ShutdownSnapshot,
+    shutdown::{Phase, Probe, mark},
+};
 use hagency_core::custody::{Delivery, Receipt};
 use std::{
     sync::Arc,
@@ -28,7 +31,10 @@ enum Job {
         entered: oneshot::Sender<()>,
         release: std::sync::mpsc::Receiver<()>,
     },
-    Shutdown(oneshot::Sender<()>),
+    Shutdown {
+        reply: oneshot::Sender<()>,
+        probe: Option<Arc<Probe>>,
+    },
 }
 
 /// The handle is cloneable; the connection is not. Queue and byte budgets bound memory.
@@ -72,9 +78,15 @@ impl Store {
                             let _ = release.recv();
                             continue;
                         }
-                        Job::Shutdown(reply) => {
+                        Job::Shutdown { reply, probe } => {
+                            mark(&probe, Phase::WorkerPickedUp);
+                            mark(&probe, Phase::DropStarted);
                             drop(repository);
-                            let _ = reply.send(());
+                            mark(&probe, Phase::DropFinished);
+                            mark(&probe, Phase::AcknowledgementStarted);
+                            if reply.send(()).is_ok() {
+                                mark(&probe, Phase::AcknowledgementSent);
+                            }
                             return;
                         }
                     };
@@ -95,15 +107,45 @@ impl Store {
 
     /// Drain preceding commands and release the database before acknowledging shutdown.
     pub async fn shutdown(&self) -> Result<(), Error> {
+        self.shutdown_tracked(None).await.0
+    }
+
+    /// Observe one original shutdown attempt without changing either wait or
+    /// its Result. Missing phases are not proof of rollback, release or retry.
+    pub async fn shutdown_observed(&self) -> (Result<(), Error>, ShutdownSnapshot) {
+        let probe = Arc::new(Probe::new());
+        let (result, outcome) = self.shutdown_tracked(Some(probe.clone())).await;
+        (result, probe.snapshot(outcome))
+    }
+
+    async fn shutdown_tracked(
+        &self,
+        probe: Option<Arc<Probe>>,
+    ) -> (Result<(), Error>, ShutdownOutcome) {
         let (reply, rx) = oneshot::channel();
-        tokio::time::timeout(self.deadline, self.tx.send(Job::Shutdown(reply)))
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Unavailable)?;
-        tokio::time::timeout(self.deadline, rx)
-            .await
-            .map_err(|_| Error::OutcomeUnknown)?
-            .map_err(|_| Error::Unavailable)
+        mark(&probe, Phase::EnqueueStarted);
+        let queued = tokio::time::timeout(
+            self.deadline,
+            self.tx.send(Job::Shutdown {
+                reply,
+                probe: probe.clone(),
+            }),
+        )
+        .await;
+        let verdict = match queued {
+            Err(_) => (Err(Error::OutcomeUnknown), ShutdownOutcome::EnqueueTimedOut),
+            Ok(Err(_)) => (Err(Error::Unavailable), ShutdownOutcome::EnqueueClosed),
+            Ok(Ok(())) => {
+                mark(&probe, Phase::EnqueueObserved);
+                match tokio::time::timeout(self.deadline, rx).await {
+                    Err(_) => (Err(Error::OutcomeUnknown), ShutdownOutcome::ReplyTimedOut),
+                    Ok(Err(_)) => (Err(Error::Unavailable), ShutdownOutcome::ReplyClosed),
+                    Ok(Ok(())) => (Ok(()), ShutdownOutcome::Complete),
+                }
+            }
+        };
+        mark(&probe, Phase::CallerFinished);
+        verdict
     }
 
     pub fn queue_remaining(&self) -> usize {
@@ -293,5 +335,134 @@ mod tests {
         };
         assert!(reply.is_closed());
         assert_eq!(store.bytes.available_permits(), 4096);
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+
+    async fn closed(store: &Store) {
+        tokio::time::timeout(Duration::from_secs(2), store.tx.closed())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_custody_shutdown_release() {
+        for observed in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let state = root.path().join("private");
+            let store = Store::start(Repository::open(&state).unwrap(), 1).unwrap();
+            if observed {
+                let (result, snapshot) = store.shutdown_observed().await;
+                result.unwrap();
+                assert_eq!(snapshot.outcome, ShutdownOutcome::Complete);
+                assert!(snapshot.worker_picked_up_us.is_some());
+                assert!(snapshot.drop_started_us.is_some());
+                assert!(snapshot.drop_finished_us.is_some());
+                assert!(snapshot.acknowledgement_started_us.is_some());
+                assert!(snapshot.drop_finished_us.unwrap() >= snapshot.drop_started_us.unwrap());
+                assert!(
+                    snapshot.acknowledgement_started_us.unwrap()
+                        >= snapshot.drop_finished_us.unwrap()
+                );
+                assert!(snapshot.caller_finished_us.is_some());
+                // ACK may be received before the sender publishes its sent phase.
+            } else {
+                store.shutdown().await.unwrap();
+            }
+            Repository::open(&state).unwrap(); // Success means real ownership released.
+            closed(&store).await;
+            let (result, snapshot) = store.shutdown_observed().await;
+            assert!(matches!(result, Err(Error::Unavailable)));
+            assert_eq!(snapshot.outcome, ShutdownOutcome::EnqueueClosed);
+            assert_eq!(snapshot.worker_picked_up_us, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn native_custody_shutdown_phases() {
+        for phase in [Phase::DropStarted, Phase::AcknowledgementStarted] {
+            let root = tempfile::tempdir().unwrap();
+            let state = root.path().join("private");
+            let store = Store::start(Repository::open(&state).unwrap(), 1).unwrap();
+            let (probe, reached, resume) = Probe::paused(phase);
+            let attempt = tokio::spawn({
+                let store = store.clone();
+                let probe = probe.clone();
+                async move { store.shutdown_tracked(Some(probe)).await }
+            });
+            tokio::time::timeout(Duration::from_secs(2), reached)
+                .await
+                .unwrap()
+                .unwrap();
+            let (result, outcome) = attempt.await.unwrap();
+            let snapshot = probe.snapshot(outcome);
+            assert!(matches!(result, Err(Error::OutcomeUnknown)));
+            assert_eq!(outcome, ShutdownOutcome::ReplyTimedOut);
+            assert!(snapshot.worker_picked_up_us.is_some());
+            assert!(snapshot.drop_started_us.is_some());
+            assert_eq!(snapshot.acknowledgement_sent_us, None);
+            if phase == Phase::DropStarted {
+                assert_eq!(snapshot.drop_finished_us, None);
+                assert_eq!(snapshot.acknowledgement_started_us, None);
+                assert!(matches!(Repository::open(&state), Err(Error::Locked)));
+            } else {
+                assert!(snapshot.drop_finished_us.is_some());
+                assert!(snapshot.acknowledgement_started_us.is_some());
+                Repository::open(&state).unwrap();
+            }
+            resume.send(()).unwrap();
+            closed(&store).await;
+            Repository::open(&state).unwrap();
+            assert_eq!(probe.snapshot(outcome).acknowledgement_sent_us, None);
+            assert_eq!(snapshot.outcome, ShutdownOutcome::ReplyTimedOut); // No retrospective success.
+        }
+    }
+
+    #[tokio::test]
+    async fn native_custody_shutdown_queue() {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("private");
+        let store = Store::start(Repository::open(&state).unwrap(), 1).unwrap();
+        let (entered, reached) = oneshot::channel();
+        let (resume, release) = std::sync::mpsc::channel();
+        store
+            .tx
+            .try_send(Job::Pause { entered, release })
+            .unwrap_or_else(|_| panic!("fixture pause was refused"));
+        tokio::time::timeout(Duration::from_secs(2), reached)
+            .await
+            .unwrap()
+            .unwrap();
+        let (result, snapshot) = store.shutdown_observed().await;
+        assert!(matches!(result, Err(Error::OutcomeUnknown)));
+        assert_eq!(snapshot.outcome, ShutdownOutcome::ReplyTimedOut);
+        assert!(snapshot.enqueue_observed_us.is_some());
+        assert_eq!(snapshot.worker_picked_up_us, None);
+        assert_eq!(snapshot.drop_started_us, None);
+        assert!(matches!(Repository::open(&state), Err(Error::Locked)));
+        resume.send(()).unwrap();
+        closed(&store).await;
+        Repository::open(&state).unwrap();
+
+        let (tx, rx) = mpsc::channel(1);
+        let full = Store {
+            tx,
+            bytes: Arc::new(Semaphore::new(1)),
+            deadline: Duration::from_secs(2),
+        };
+        let (reply, _) = oneshot::channel();
+        full.tx
+            .try_send(Job::Shutdown { reply, probe: None })
+            .unwrap_or_else(|_| panic!("fixture queue not filled"));
+        let (result, snapshot) = full.shutdown_observed().await;
+        assert!(matches!(result, Err(Error::OutcomeUnknown)));
+        assert_eq!(snapshot.outcome, ShutdownOutcome::EnqueueTimedOut);
+        assert_eq!(snapshot.enqueue_observed_us, None);
+        assert_eq!(snapshot.worker_picked_up_us, None);
+        assert_eq!(snapshot.drop_finished_us, None);
+        drop(rx);
     }
 }
