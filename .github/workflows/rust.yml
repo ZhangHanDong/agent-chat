@@ -1,7 +1,7 @@
 name: Native Rust
 on:
   push:
-    branches: [master, stable]
+    branches: [master, stable, feat/native-windows-directory-sync-20260911]
   pull_request:
     branches: [master, stable]
 concurrency:
@@ -47,7 +47,7 @@ jobs:
       - id: native-tests
         run: cargo test --workspace --all-targets --locked --no-fail-fast
       - name: Qualify default Windows media storage with fresh process restoration
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
         shell: pwsh
         run: |
           cargo build --locked -p hagency-media-store --example windows_directory_flush
