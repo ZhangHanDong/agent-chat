@@ -1,10 +1,12 @@
 //! Host-only, single-operation integration. Production availability is false:
 //! directory provisioning, effective sandbox and owner approval IO remain gates.
+mod approval;
 mod host;
 mod operation;
 mod registration;
 mod usage;
 mod workspace;
+pub use approval::{ApprovalHost, ApprovalNotice, ApprovalRequests};
 pub use host::{Host, Limits};
 pub use operation::{
     Failure, Operation, Protocol, Report, RuntimeObservation, RuntimeStage,
@@ -19,3 +21,7 @@ mod reply_loss;
 #[cfg(test)]
 #[path = "../../hagency-store/tests/common/mod.rs"]
 mod test_common;
+
+#[cfg(test)]
+#[path = "../tests/support/approval_loss.rs"]
+mod approval_loss;

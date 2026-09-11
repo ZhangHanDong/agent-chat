@@ -207,3 +207,39 @@ settlement, cleanup or a longer execution interval.
 ## Alternatives Considered
 
 Launching before the original Started acknowledgement or reconstructing authority after losing that response could execute unowned work. A general command endpoint or detached cleanup path would bypass the fixed host operation.
+
+### Accepted retained approval owner and capacity (2026-09-11)
+
+The root approved the exact 28-path owned coordinator task. Its original
+OwnedSession is retained in Report immediately after spawn and before every
+startup or binding await. The immutable RuntimeObservation is still captured
+from that same owner before coordinator stop/removal; an earlier runtime error
+guard may already have stopped it while retaining the original first cause.
+
+One application-owned ApprovalHost supplies a shared finite live budget and a
+smaller parked budget to every enabled operation and the existing domain claim.
+A parked reservation precedes actual request submission and remains owned across
+unknown acknowledgment. Unknown process cleanup cannot manufacture a free live
+slot. The original 30 second operation and 2 second response ceilings remain.
+The enabled coordinator uses separate original-scope maintenance while genuinely
+parked, preserving task refusal and the existing generic Started renewal.
+
+Existing UsageRun custody remains one pending observation: process its real
+receipt before reading another update while retaining any older pinned control
+future. There is no canceled-read replay or unbounded event backlog. The bounded
+ID/owner-cutoff notice receiver carries no verdict or private callback payload;
+application and private SDK wiring remain separate. Implementation and the eight
+selectors in `specs/task-rust-owned-approval-coordinator.spec.md` are in progress;
+no actual provider application or full M6 qualification is claimed.
+
+### Coordinator partition qualification (2026-09-11)
+
+The accepted task is implemented and qualified across its final29 paths, which
+include only two exhaustive bootstrap failure labels beyond the original28.
+Final strict lifecycle passes the full boundary and all eight selectors (9/9),
+with11 distinct actual regression tests. Complete affected-package records pass
+316 tests, plus the bootstrap projection. Native warnings-denied Clippy and
+Windows GNU all-target compilation pass; actual Windows execution and complete
+private SDK/MCP service integration remain outside this partition. Earlier failed
+fixtures and the pre-fix usage-slot negative control remain preserved in the
+external migration cache. No synthetic Applied or production-cutover claim is made.

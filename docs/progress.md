@@ -6802,3 +6802,78 @@ passes4/4: three actual selectors and the exact9-path boundary, with empty
 Cargo targets excluded. Original Windows file-workflow acceptance still requires
 hosted requalification. All test runs used the explicit MAIN target from this
 clean edited source worktree; no other agent used that target.
+
+### Owned native approval coordinator (2026-09-11)
+
+The parent approved the exact 28-path task from eb80500, including the one-for-one
+fixture correction to `src/bin/approval_probe/mod.rs` so Cargo gains no binary.
+The task was parsed/linted before implementation and again before that boundary
+correction. No task-writer is provisioned in this checkout; these notes are
+coordination, not a replacement control-plane task record.
+
+The original OwnedSession now occupies Report before any startup await. A shared
+ApprovalHost bounds live and parked owners; the unique OwnedApprovalScope keeps
+only the original current lease within the immutable operation/capability/request
+bounds. Its writer samples time inside the original IMMEDIATE transaction.
+Generic parked task mutation remains refused. Actual supported callbacks and
+prepared frames remain owned through request, grant consumption, admission,
+recheck and write receipts, including cancellation and unwind. New callbacks can
+park during an older pinned receipt; the original unsent response waits for every
+current barrier. All returned write facts are retained before any await. Unknown
+cleanup keeps capacity occupied, and failure uses the existing single negative
+attempt fence without a per-grant cleanup loop.
+
+Only pending owner choices emit a committed ID and the earlier immutable owner
+cutoff. Saved grants use a fresh exact callback preparation/admission without a
+private notice. A first late choice cannot use the response reserve to prepare or
+acquire sending authority. Native write acceptance and resolved callbacks never
+manufacture Applied. Usage records retain the existing original one-slot receipt;
+no update is read past a refused slot. Pre-stop RuntimeObservation remains an
+independent immutable diagnostic, including early control failure and unwind.
+
+Focused qualification currently passes ten actual tests across eight selector
+prefixes: actual native allow/deny/reuse, multiple and pending-receipt barriers,
+resolution/EOF/retirement/caller-drop/late verdict, six real-effect receipt-loss
+and unwind modes, shared capacity, original-scope maintenance, SQLite/queue expiry,
+and positive/unknown usage custody. Warnings-denied all-target Clippy passes for
+execution, store, runtime and permissions. Complete affected-target and strict
+lifecycle qualification is in progress. Earlier failed checks are preserved in
+the external migration cache: first compile field/API errors, an unverified
+fixture session, missing post-write resolved observation, a locked reopen
+negative fixture, initial formatting and Clippy argument/visibility findings.
+
+Private SDK intake here is represented only by explicit domain observation test
+doubles. Application selection, encrypted owner cards/intake, actual native MCP
+transport acceptance and provider application remain separate parent-owned gates.
+No production cutover, actual Windows execution or complete M6 parity is claimed.
+
+Final coordinator qualification: parent approved the 29th path solely for the two
+exhaustive bootstrap labels `approval_capacity` and `approval_cancelled`; its
+corrected contract was parsed/linted before those two arms were edited. Source
+qualification passes 316 distinct affected-package tests (execution44, runtime56,
+store208, permissions8) and the existing bootstrap projection test, all with zero
+failed or ignored results in the successful package records. The package records
+are composed: the final execution/runtime run and final store run follow the
+preserved earlier combined runs whose only failures were new fixture deadlines.
+The original short bounds are now captured after each distinct fixture's setup,
+before that original scope binds and parks; production bounds did not change.
+
+A stronger actual regression exposed and fixed a late review gap: a successful
+older begin receipt could permit another typed update after the original usage
+write failed. The pre-fix test retained two callbacks instead of one. The owned
+coordinator now stops/fences on that failed retained slot, finishes the same
+older receipt, and retains its original frame/grant/write facts. Its final
+regression and complete execution/runtime targets pass; generic usage behavior
+is unchanged. The earlier strict pass remains preserved as earlier, narrower
+evidence, not evidence for the final fix.
+
+Final strict lifecycle passes9/9 (29 paths plus eight selectors), zero failed,
+skipped, uncertain or pending review results. The selectors execute12 successful
+test instances covering11 distinct tests; the maintenance clock case matches two
+prefixes. Empty filtered targets are not counted as tests. Final warnings-denied
+all-target Clippy and Windows GNU all-target compilation pass for application,
+execution, store, runtime and permissions. Cross-compilation does not establish
+actual Windows execution. Final artifacts, exact commands, source hashes and the
+failure/custody handoff live in the external cache under `owned-approval-*`.
+This completes only the accepted host coordinator partition. Full encrypted
+private-owner/MCP service qualification and complete M6 remain separate gates.

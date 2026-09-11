@@ -40,6 +40,10 @@ pub enum Failure {
     Protocol,
     #[error("owned approval application is unavailable")]
     UnsupportedApproval,
+    #[error("owned approval capacity exhausted")]
+    ApprovalCapacity,
+    #[error("original approval callback was cancelled before response admission")]
+    ApprovalCancelled,
     #[error("host operation deadline expired")]
     Deadline,
     #[error("whole-tree cleanup remains unproven")]
@@ -58,7 +62,9 @@ impl Failure {
             Self::SpawnFailed => OwnedFailure::SpawnFailed,
             Self::LostAuthority => OwnedFailure::LostAuthority,
             Self::Protocol | Self::Worker => OwnedFailure::Protocol,
-            Self::UnsupportedApproval => OwnedFailure::UnsupportedApproval,
+            Self::UnsupportedApproval | Self::ApprovalCapacity | Self::ApprovalCancelled => {
+                OwnedFailure::UnsupportedApproval
+            }
             Self::Deadline => OwnedFailure::Deadline,
             Self::CleanupUnknown => OwnedFailure::CleanupUnknown,
             Self::SettlementUnknown => OwnedFailure::SettlementUnknown,
@@ -106,7 +112,7 @@ pub struct RuntimeObservation {
     pub write: Option<RuntimeWriteObservation>,
 }
 impl RuntimeObservation {
-    fn capture(stage: RuntimeStage, runner: &OwnedSession) -> Self {
+    pub(crate) fn capture(stage: RuntimeStage, runner: &OwnedSession) -> Self {
         let termination = runner.transport_termination();
         Self {
             stage,
@@ -136,8 +142,11 @@ pub struct Report {
     pub settlement: Settlement,
     pub failure: Option<Failure>,
     runtime_observation: Option<RuntimeObservation>,
+    runtime_stage: RuntimeStage,
     pub text: Option<String>,
     owner: Option<OwnedSession>,
+    approvals: Option<crate::approval::ApprovalRun>,
+    live: Option<crate::approval::Reservation>,
     reconciliation: Option<(DomainStore, RunnerCapability, OwnedFailure)>,
     usage: Option<UsageRun>,
     // After owner in field order: actual cleanup drops before retained roots.
@@ -154,8 +163,11 @@ impl Report {
             settlement: Settlement::Pending,
             failure: None,
             runtime_observation: None,
+            runtime_stage: RuntimeStage::Initialize,
             text: None,
             owner: None,
+            approvals: None,
+            live: None,
             reconciliation: None,
             usage: None,
             workspace: None,
@@ -167,6 +179,12 @@ impl Report {
     /// owner. No descriptor, process ID, payload or private stderr is exposed.
     pub fn runtime_observation(&self) -> Option<&RuntimeObservation> {
         self.runtime_observation.as_ref()
+    }
+    #[cfg(test)]
+    pub(crate) fn approval_custody(&self) -> (usize, usize, usize, usize) {
+        self.approvals
+            .as_ref()
+            .map_or((0, 0, 0, 0), crate::approval::ApprovalRun::custody)
     }
     pub fn usage_status(&self) -> UsageStatus {
         self.usage
@@ -210,8 +228,18 @@ impl Report {
     pub fn retry_stop(&mut self) -> Cleanup {
         if let Some(owner) = &mut self.owner {
             self.cleanup = owner.stop();
+        } else if self.cleanup == Cleanup::Pending
+            && let Some(live) = &mut self.live
+        {
+            live.release();
         }
         if stopped(self.cleanup) {
+            if let Some(live) = &mut self.live {
+                live.release();
+            }
+            if let Some(approvals) = &mut self.approvals {
+                approvals.stopped();
+            }
             self.owner.take();
         }
         self.cleanup
@@ -233,6 +261,7 @@ pub struct Operation {
     result: oneshot::Receiver<Box<Report>>,
     workspace: Handoff,
     registration: RegistrationSlot,
+    approvals: Option<crate::ApprovalRequests>,
 }
 impl Operation {
     pub fn start(
@@ -262,6 +291,24 @@ impl Operation {
         if !limits.validate() {
             return Err(Failure::Admission);
         }
+        let until = Instant::now() + Duration::from_millis(limits.operation_ms);
+        let expires_at = crate::approval::state::wall_now()?
+            .checked_add(limits.operation_ms)
+            .ok_or(Failure::Deadline)?;
+        let (live, approval_run, approval_requests) = if let Some(policy) = &host.approvals {
+            if !policy.fits(limits) {
+                return Err(Failure::Admission);
+            }
+            let live = policy.reserve_live()?;
+            let (send, receive) = crate::approval::notices();
+            (
+                Some(live),
+                Some(crate::approval::ApprovalRun::new(policy.clone(), send)),
+                Some(receive),
+            )
+        } else {
+            (None, None, None)
+        };
         // Runtime construction has no child/domain effect and fails synchronously.
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -276,9 +323,14 @@ impl Operation {
         let worker = std::thread::Builder::new()
             .name("hagency-owned-dispatch".into())
             .spawn(move || {
-                let until = Instant::now() + Duration::from_millis(limits.operation_ms);
                 let mut report = Box::new(Report::new(handoff));
                 report.registration = required.then_some(gate);
+                report.live = live;
+                report.approvals = approval_run;
+                #[cfg(test)]
+                if let Some(run) = &mut report.approvals {
+                    run.set_fault(host.approval_fault, host.approval_gate.clone());
+                }
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     runtime.block_on(execute(
                         &domain,
@@ -286,7 +338,7 @@ impl Operation {
                         host,
                         limits,
                         &signal,
-                        until,
+                        Deadline { until, expires_at },
                         &mut report,
                     ))
                 }))
@@ -297,6 +349,12 @@ impl Operation {
                 if let Err(failure) = outcome {
                     // execute retains any returned owner; stop before negative domain
                     // observation too. This can never authorize lease release.
+                    if report.runtime_observation.is_none()
+                        && let Some(owner) = &report.owner
+                    {
+                        report.runtime_observation =
+                            Some(RuntimeObservation::capture(report.runtime_stage, owner));
+                    }
                     report.retry_stop();
                     report.failure = Some(failure);
                     report.reconciliation =
@@ -311,6 +369,9 @@ impl Operation {
                         Err(_) => Settlement::Unknown,
                     };
                 }
+                if let Some(approvals) = &mut report.approvals {
+                    approvals.finish_notices();
+                }
                 // If the host dropped its handle, sending returns ownership and its
                 // Drop still runs here before this retained worker exits.
                 let _ = reply.send(report);
@@ -322,6 +383,7 @@ impl Operation {
             result,
             workspace,
             registration,
+            approvals: approval_requests,
         })
     }
     /// Nonblocking, one-shot handoff. None means not ready, already taken, or
@@ -332,6 +394,9 @@ impl Operation {
     /// One bounded host handoff; unavailable in the ordinary start mode.
     pub fn take_workspace_registration(&mut self) -> Option<WorkspaceRegistration> {
         self.registration.try_lock().ok()?.take()
+    }
+    pub fn take_approval_requests(&mut self) -> Option<crate::ApprovalRequests> {
+        self.approvals.take()
     }
     pub fn is_finished(&self) -> bool {
         self.worker
@@ -433,15 +498,20 @@ async fn watched<F: Future<Output = Result<T, session::Error>>, T>(
         }
     }
 }
+pub(crate) struct Deadline {
+    pub until: Instant,
+    pub expires_at: u64,
+}
 async fn execute(
     domain: &DomainStore,
     cap: &RunnerCapability,
     host: Host,
     limits: Limits,
     cancel: &Arc<AtomicBool>,
-    until: Instant,
+    deadline: Deadline,
     report: &mut Report,
 ) -> Result<(), Failure> {
+    let Deadline { until, expires_at } = deadline;
     let scope = bounded(domain.owned_dispatch_scope(cap.clone()), cancel, until)
         .await?
         .map_err(|_| Failure::Admission)?;
@@ -524,20 +594,40 @@ async fn execute(
     }
     workspace.check_root().map_err(|_| Failure::Admission)?;
     checkpoint(cancel, until)?;
-    let mut runner = OwnedSession::spawn(
-        &host.guardian,
-        &launch,
-        settings,
-        io_limits,
-        limits.response_ms,
-    )
-    .map_err(|error| {
-        if let hagency_runtime::owned::StartError::Uncertain { cleanup, .. } = error {
-            report.cleanup = cleanup;
-        }
-        Failure::SpawnFailed
-    })?;
-    let mut runtime_stage = RuntimeStage::Initialize;
+    let approval_workspace = settings.cwd().to_owned();
+    let approval_may_write = !settings.is_read_only();
+    if let Some(live) = &mut report.live {
+        live.possible();
+    }
+    report.owner = Some(
+        OwnedSession::spawn(
+            &host.guardian,
+            &launch,
+            settings,
+            io_limits,
+            limits.response_ms,
+        )
+        .map_err(|error| {
+            if let hagency_runtime::owned::StartError::Uncertain { cleanup, .. } = error {
+                report.cleanup = cleanup;
+                if stopped(cleanup)
+                    && let Some(live) = &mut report.live
+                {
+                    live.release();
+                }
+            } else if let Some(live) = &mut report.live {
+                live.release();
+            }
+            Failure::SpawnFailed
+        })?,
+    );
+    #[cfg(test)]
+    if host.approval_fault == Some(crate::approval::Fault::SpawnPanic) {
+        panic!("actual owned spawn unwind");
+    }
+    // The actual child owner is retained before initialize or any startup await.
+    let runner = report.owner.as_mut().ok_or(Failure::SpawnFailed)?;
+    let runtime_stage = &mut report.runtime_stage;
     let drive = async {
         watched(
             runner.initialize(),
@@ -549,8 +639,8 @@ async fn execute(
             &mut report.canonical_status,
         )
         .await?;
-        runtime_stage = RuntimeStage::ThreadStart;
-        watched(
+        *runtime_stage = RuntimeStage::ThreadStart;
+        let thread_id = watched(
             runner.start_thread(),
             domain,
             cap,
@@ -560,8 +650,8 @@ async fn execute(
             &mut report.canonical_status,
         )
         .await?;
-        runtime_stage = RuntimeStage::TurnStart;
-        watched(
+        *runtime_stage = RuntimeStage::TurnStart;
+        let turn_id = watched(
             runner.start_turn(input),
             domain,
             cap,
@@ -572,9 +662,61 @@ async fn execute(
         )
         .await?;
         let usage = report.usage.as_mut().ok_or(Failure::UsageBinding)?;
-        usage.attach(&runner);
+        usage.attach(runner);
+        if let Some(approvals) = &mut report.approvals {
+            let connection = hagency_core::canonical::digest(&serde_json::json!([
+                cap,
+                runner.id(),
+                thread_id,
+                turn_id
+            ]))
+            .map_err(|_| Failure::Admission)?;
+            let context = hagency_core::approvals::HostApprovalContext {
+                id: format!("owned_{connection}"),
+                connection_id: connection,
+                thread_id,
+                turn_id,
+                workspace_resource: scope
+                    .input()
+                    .resources
+                    .first()
+                    .ok_or(Failure::Admission)?
+                    .id
+                    .clone(),
+                workspace: approval_workspace,
+                windows_paths: cfg!(windows),
+                environment_id: None,
+                may_write: approval_may_write,
+                yolo: false,
+            };
+            approvals
+                .bind(
+                    domain,
+                    cap,
+                    &expected,
+                    context,
+                    Deadline { until, expires_at },
+                    runner,
+                )
+                .await?;
+            *runtime_stage = RuntimeStage::Update;
+            return approvals
+                .drive(
+                    crate::approval::Drive {
+                        domain,
+                        cap,
+                        cancel,
+                        until,
+                        status: &mut report.canonical_status,
+                        usage,
+                        observation: &mut report.runtime_observation,
+                    },
+                    runner,
+                )
+                .await;
+        }
         loop {
-            runtime_stage = RuntimeStage::Update;
+            *runtime_stage = RuntimeStage::Update;
             let (update, observation) = watched(
                 runner.next_observed_update(),
                 domain,
@@ -604,7 +746,9 @@ async fn execute(
     // Capture before coordinator stop/removal. The runtime's own failure guard
     // may already have stopped it; its first transport cause remains retained.
     // Observation cannot alter the original drive or cleanup result.
-    report.runtime_observation = Some(RuntimeObservation::capture(runtime_stage, &runner));
+    report
+        .runtime_observation
+        .get_or_insert_with(|| RuntimeObservation::capture(*runtime_stage, runner));
     report.protocol = match runner.protocol_outcome() {
         Some(Outcome::Completed { text }) => {
             report.text = Some(text.clone());
@@ -616,7 +760,14 @@ async fn execute(
         _ => Protocol::Unknown,
     };
     report.cleanup = runner.stop();
-    report.owner = Some(runner);
+    if stopped(report.cleanup) {
+        if let Some(live) = &mut report.live {
+            live.release();
+        }
+        if let Some(approvals) = &mut report.approvals {
+            approvals.stopped();
+        }
+    }
     if host.task_helper_enabled() {
         // Observation only, after actual owner stop and before negative fencing.
         // This adds one bounded (2 s) fresh-clock writer read. Done changes the

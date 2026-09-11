@@ -1,4 +1,6 @@
 //! Offline native fixture, never a model or a public runtime-launch endpoint.
+#[path = "approval_probe/mod.rs"]
+mod approval_probe;
 use serde_json::{Value, json};
 use std::{
     fs::{self, OpenOptions},
@@ -226,6 +228,9 @@ fn fake(mode: &str, marker: &Path) -> io::Result<()> {
         // A real acknowledged turn can run a tool without another app-server
         // event during the shorter RPC response interval.
         std::thread::sleep(Duration::from_millis(2200));
+    }
+    if mode.starts_with("owned-approval") && !approval_probe::run(mode, &mut stdin, marker)? {
+        return Ok(());
     }
     if mode == "approval" {
         send(

@@ -13,6 +13,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "owned/approval_fixture.rs"]
+mod approval_fixture;
+#[path = "owned/approvals.rs"]
+mod approvals;
 #[path = "owned/idle.rs"]
 mod idle;
 #[path = "owned/receive.rs"]
@@ -48,6 +52,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::configured(false)
+    }
+    fn configured(approvals: bool) -> Self {
         let root = tempfile::tempdir().unwrap();
         let work = root.path().join("固定 工作目录");
         hagency_store::private::directory(&work).unwrap();
@@ -68,13 +75,20 @@ impl Fixture {
             },
         )
         .unwrap();
-        db.register_session(&SessionBinding {
+        if approvals {
+            approval_fixture::bindings(&mut db, &e.id);
+        }
+        let binding = SessionBinding {
             id: "session".into(),
             engagement_id: e.id.clone(),
             room_id: "!project:example.test".into(),
             thread_root: Some("$thread".into()),
-        })
-        .unwrap();
+        };
+        if approvals {
+            db.resolve_verified_matrix_session(&binding, now()).unwrap();
+        } else {
+            db.register_session(&binding).unwrap();
+        }
         db.register_workspace("work").unwrap();
         db.create_canonical_task("task", "session", "Exact frozen task", now())
             .unwrap();

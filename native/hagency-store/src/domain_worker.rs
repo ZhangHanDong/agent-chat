@@ -394,9 +394,21 @@ mod clock_tests {
         RunnerCapability,
         hagency_core::approvals::HostApprovalContext,
     ) {
+        approval_fixture_mode(root, true)
+    }
+    pub(super) fn approval_fixture_mode(
+        root: &std::path::Path,
+        started: bool,
+    ) -> (
+        DomainRepository,
+        RunnerCapability,
+        hagency_core::approvals::HostApprovalContext,
+    ) {
         use hagency_core::approvals::*;
         let (mut db, cap) = owned_fixture(root);
-        db.start_dispatch(&cap, now()).unwrap();
+        if started {
+            db.start_dispatch(&cap, now()).unwrap();
+        }
         let inspect = rusqlite::Connection::open(root.join("state/domain.sqlite3")).unwrap();
         let engagement_id: String = inspect
             .query_row(
@@ -3194,3 +3206,44 @@ mod approval_response_commands {
 #[cfg(test)]
 #[path = "../tests/approvals/responses_worker.rs"]
 mod approval_response_tests;
+
+// Separate instance-bound custody maintenance; never generic parked execution.
+impl DomainStore {
+    pub async fn bind_owned_approval_context(
+        &self,
+        cap: RunnerCapability,
+        expected: String,
+        context: hagency_core::approvals::HostApprovalContext,
+        until: std::time::Instant,
+        expires_at: u64,
+    ) -> Result<crate::OwnedApprovalScope, Error> {
+        self.call(
+            weight(&(&cap, &expected, &context, expires_at))?,
+            move |db| {
+                db.bind_owned_approval_clock(
+                    &cap,
+                    &expected,
+                    &context,
+                    until,
+                    expires_at,
+                    writer_time,
+                )
+            },
+        )
+        .await
+    }
+    pub async fn maintain_owned_approval(
+        &self,
+        scope: &crate::OwnedApprovalScope,
+    ) -> Result<crate::OwnedApprovalStatus, Error> {
+        let proof = scope.proof();
+        self.call(weight(&proof.weight())?, move |db| {
+            db.maintain_owned_approval_clock(&proof, writer_time)
+        })
+        .await
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/approvals/owned_worker.rs"]
+mod owned_approval_tests;

@@ -91,3 +91,5 @@ pub use domain::{
     ApprovalResponseGrant, ApprovalResponseObservation, ApprovalResponseState,
     ApprovalResponseSummary,
 };
+
+pub use domain::{OwnedApprovalScope, OwnedApprovalStatus};

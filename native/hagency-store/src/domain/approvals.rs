@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 pub(super) mod card;
+pub(super) mod owned;
 pub(super) mod responses;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,63 +286,13 @@ impl DomainRepository {
         input: &HostApprovalContext,
         sample: impl FnOnce() -> Result<u64, Error>,
     ) -> Result<(), Error> {
-        input.validate()?;
-        if input.yolo {
-            return Err(Error::RunnerAuthority);
-        }
-        let workspace = if input.windows_paths {
-            PathFlavor::Windows
-        } else {
-            PathFlavor::Posix
-        }
-        .normalize(&input.workspace)
-        .ok_or(Error::RunnerAuthority)?;
+        let workspace = context_input(input)?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = sample()?; // The original writer queue and SQLite lock waits have ended.
         clock(now)?;
-        let d = execution::authorize(&tx, cap, now, &["started", "parked"])?;
-        if d.report_task.is_some() {
-            return Err(Error::RunnerAuthority);
-        }
-        let task = execution::task(&tx, d.task_id.as_deref().ok_or(Error::RunnerAuthority)?)?;
-        let route = matrix_routes::route(&tx, &d.session_id)?;
-        let binding = binding(&tx, &route.engagement_id)?;
-        let c = Context {
-            id: input.id.clone(),
-            dispatch: cap.dispatch_id.clone(),
-            fence: cap.fence,
-            task: task.id,
-            epoch: task.execution_epoch,
-            route,
-            binding,
-            connection: input.connection_id.clone(),
-            thread: input.thread_id.clone(),
-            turn: input.turn_id.clone(),
-            resource: input.workspace_resource.clone(),
-            workspace,
-            windows: input.windows_paths,
-            environment: input.environment_id.clone(),
-            may_write: input.may_write,
-        };
-        live(&tx, &c, now)?;
-        let digest = canonical::digest(&json!(c))?;
-        let old: Option<String> = tx
-            .query_row(
-                "SELECT digest FROM approval_contexts WHERE id=?1",
-                [&c.id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(old) = old {
-            if old != digest {
-                return Err(Error::Conflict);
-            }
-            return Ok(());
-        }
-        bounded_row(&tx, "approval_contexts", "id", &c.id, 100_000)?;
-        tx.execute("INSERT INTO approval_contexts(id,dispatch_id,fence,engagement_id,digest,config) VALUES(?1,?2,?3,?4,?5,?6)",params![c.id,c.dispatch,c.fence,c.binding.engagement,digest,serialize(&c)?])?;
+        bind_context(&tx, cap, input, workspace, now)?;
         tx.commit()?;
         Ok(())
     }
@@ -953,4 +904,70 @@ fn consume(
         params![id, serialize(&application)?],
     )?;
     Ok(application)
+}
+
+fn context_input(input: &HostApprovalContext) -> Result<String, Error> {
+    input.validate()?;
+    if input.yolo {
+        return Err(Error::RunnerAuthority);
+    }
+    let workspace = if input.windows_paths {
+        PathFlavor::Windows
+    } else {
+        PathFlavor::Posix
+    }
+    .normalize(&input.workspace)
+    .ok_or(Error::RunnerAuthority)?;
+    Ok(workspace)
+}
+
+fn bind_context(
+    tx: &Transaction<'_>,
+    cap: &RunnerCapability,
+    input: &HostApprovalContext,
+    workspace: String,
+    now: u64,
+) -> Result<Context, Error> {
+    let d = execution::authorize(tx, cap, now, &["started", "parked"])?;
+    if d.report_task.is_some() {
+        return Err(Error::RunnerAuthority);
+    }
+    let task = execution::task(tx, d.task_id.as_deref().ok_or(Error::RunnerAuthority)?)?;
+    let route = matrix_routes::route(tx, &d.session_id)?;
+    let binding = binding(tx, &route.engagement_id)?;
+    let c = Context {
+        id: input.id.clone(),
+        dispatch: cap.dispatch_id.clone(),
+        fence: cap.fence,
+        task: task.id,
+        epoch: task.execution_epoch,
+        route,
+        binding,
+        connection: input.connection_id.clone(),
+        thread: input.thread_id.clone(),
+        turn: input.turn_id.clone(),
+        resource: input.workspace_resource.clone(),
+        workspace,
+        windows: input.windows_paths,
+        environment: input.environment_id.clone(),
+        may_write: input.may_write,
+    };
+    live(tx, &c, now)?;
+    let digest = canonical::digest(&json!(c))?;
+    let old: Option<String> = tx
+        .query_row(
+            "SELECT digest FROM approval_contexts WHERE id=?1",
+            [&c.id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(old) = old {
+        if old != digest {
+            return Err(Error::Conflict);
+        }
+        return Ok(c);
+    }
+    bounded_row(tx, "approval_contexts", "id", &c.id, 100_000)?;
+    tx.execute("INSERT INTO approval_contexts(id,dispatch_id,fence,engagement_id,digest,config) VALUES(?1,?2,?3,?4,?5,?6)",params![c.id,c.dispatch,c.fence,c.binding.engagement,digest,serialize(&c)?])?;
+    Ok(c)
 }

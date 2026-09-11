@@ -191,6 +191,8 @@ fn owned_failure_label(error: hagency_execution::Failure) -> &'static str {
         LostAuthority => "lost_authority",
         Protocol => "protocol",
         UnsupportedApproval => "unsupported_approval",
+        ApprovalCapacity => "approval_capacity",
+        ApprovalCancelled => "approval_cancelled",
         Deadline => "deadline",
         CleanupUnknown => "cleanup_unknown",
         SettlementUnknown => "settlement_unknown",

@@ -193,3 +193,34 @@ request refusal.
 ## Alternatives Considered
 
 Treating serverRequest/resolved or a flushed response as Applied would contradict the pinned callback ordering. Session-wide acceptance or policy amendments would widen the recorded once/task/always scope mappings.
+
+### Accepted original owned coordinator integration (2026-09-11)
+
+The root approved a distinct execution-owned integration of the cooperative
+runtime pump and schema22 unique router grants. Report retains original callback
+frames, a separate admission batch and uncertain observations alongside the
+actual OwnedSession. Every domain future stays pinned across control updates.
+New observed callbacks must be persisted as barriers before any original unsent
+response can continue. Local write acceptance consumes transmit admission;
+callback resolution and native application evidence remain independent. The
+old standalone SessionDriver coordinator stays an offline compatibility seam.
+
+Only an explicit shared host policy enables this owned integration. Owner cutoff,
+domain expiry, prepared response deadline and the original operation end remain
+fixed; response reserve never revives an expired domain decision. Actual private
+Matrix request delivery and encrypted executable qualification are separate
+root-owned gates. No sandbox or timeout ceiling changes are authorized here.
+The active 28-path contract is `specs/task-rust-owned-approval-coordinator.spec.md`;
+implementation and qualification are in progress.
+
+### Coordinator partition qualification (2026-09-11)
+
+The accepted task is implemented and qualified across its final29 paths, which
+include only two exhaustive bootstrap failure labels beyond the original28.
+Final strict lifecycle passes the full boundary and all eight selectors (9/9),
+with11 distinct actual regression tests. Complete affected-package records pass
+316 tests, plus the bootstrap projection. Native warnings-denied Clippy and
+Windows GNU all-target compilation pass; actual Windows execution and complete
+private SDK/MCP service integration remain outside this partition. Earlier failed
+fixtures and the pre-fix usage-slot negative control remain preserved in the
+external migration cache. No synthetic Applied or production-cutover claim is made.

@@ -36,6 +36,7 @@ impl Limits {
 /// mutation, and this API must not enable a production runner catalog.
 pub struct Host {
     pub(crate) guardian: PathBuf,
+    pub(crate) approvals: Option<crate::ApprovalHost>,
     executable: PathBuf,
     environment: BTreeMap<OsString, OsString>,
     workspaces: Workspaces,
@@ -44,6 +45,10 @@ pub struct Host {
     receive_tools: bool,
     #[cfg(test)]
     pub(crate) discard_start_reply: bool,
+    #[cfg(test)]
+    pub(crate) approval_fault: Option<crate::approval::Fault>,
+    #[cfg(test)]
+    pub(crate) approval_gate: Option<Arc<crate::approval::Gate>>,
     #[cfg(test)]
     pub(crate) discard_usage_binding_reply: bool,
     #[cfg(test)]
@@ -83,6 +88,7 @@ impl Host {
         .map_err(|_| super::Failure::Admission)?;
         Ok(Self {
             guardian,
+            approvals: None,
             executable,
             environment,
             workspaces,
@@ -91,6 +97,10 @@ impl Host {
             receive_tools: false,
             #[cfg(test)]
             discard_start_reply: false,
+            #[cfg(test)]
+            approval_fault: None,
+            #[cfg(test)]
+            approval_gate: None,
             #[cfg(test)]
             discard_usage_binding_reply: false,
             #[cfg(test)]
@@ -102,6 +112,16 @@ impl Host {
     /// The host must protect the executable, workspace and Codex config/home;
     /// executable path checks are not executable custody, and retained source
     /// roots do not establish stable namespace provisioning.
+    pub fn with_approvals(
+        mut self,
+        approvals: crate::ApprovalHost,
+    ) -> Result<Self, super::Failure> {
+        if self.approvals.is_some() {
+            return Err(super::Failure::Admission);
+        }
+        self.approvals = Some(approvals);
+        Ok(self)
+    }
     pub fn with_task_helper(
         mut self,
         executable: PathBuf,

@@ -178,3 +178,32 @@ The single domain writer records bounded one-use decisions and exact replay rece
 ## Alternatives Considered
 
 Public-room text, runtime-generated verdicts or reusable unscoped grants would bypass owner consent. Treating an approved row as proof of process application would erase the unresolved adapter boundary.
+
+### Accepted owned maintenance scope (2026-09-11)
+
+The root approved the exact 28-path owned coordinator contract after the schema22
+router-authority prerequisite. A fresh original writer may mint one opaque owned
+approval scope only for the first context of the exact dispatch/fence. It binds
+its current fingerprint, private context, original repository instance and the
+absolute operation end captured before parking. Existing or legacy context rows
+cannot mint a later bound. Separate approval maintenance may keep only that same
+lease current within its original capability, operation and unresolved request
+expiry. It samples time after the original Immediate lock and never mutates a
+task, resumes execution, revives expiry or admits a response. Generic Started
+renewal and schema22 response-grant authority remain unchanged.
+
+The active contract is `specs/task-rust-owned-approval-coordinator.spec.md`.
+Implementation and qualification are in progress. No schema or private Matrix
+intake behavior changes in this partition.
+
+### Coordinator partition qualification (2026-09-11)
+
+The accepted task is implemented and qualified across its final29 paths, which
+include only two exhaustive bootstrap failure labels beyond the original28.
+Final strict lifecycle passes the full boundary and all eight selectors (9/9),
+with11 distinct actual regression tests. Complete affected-package records pass
+316 tests, plus the bootstrap projection. Native warnings-denied Clippy and
+Windows GNU all-target compilation pass; actual Windows execution and complete
+private SDK/MCP service integration remain outside this partition. Earlier failed
+fixtures and the pre-fix usage-slot negative control remain preserved in the
+external migration cache. No synthetic Applied or production-cutover claim is made.
