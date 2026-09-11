@@ -5283,3 +5283,17 @@ failure is preserved, and the corrected run used the existing dependency tree
 whose mockup lockfile matches exactly. No runtime tests or lifecycle pass are
 claimed for this documentation-only change. Evidence and the actual 85-path
 boundary manifest use knowledge-governance-* in the external migration cache.
+
+
+### 2026-09-10 — Governance integration verification
+
+Integrated a971d65 as94c4ead after root and independent preservation review.
+Only an independent progress append conflicted; both histories were retained,
+and the intended historical native state-ownership reference moved to ADR095.
+Root knowledge lint reproduces exactly the157 baseline error records: zero new
+or removed baseline records and all260 introduced records closed. The gate remains
+failing with exit2. No source behavior or test selector changed in this cleanup.
+Root post-integration binding catalogs resolve543 Node and420 Rust selectors,
+with no missing bindings. Whitespace checks pass. The previously completed full
+native521-independent-test run and Clippy remain the source validation for this
+metadata-only integration; no redundant full runtime suite is claimed here.

@@ -41,10 +41,11 @@ OutcomeUnknown observations whose internal cause is still unknown. Subsequent
 diagnostics passed separately. Original logs remain preserved; their failure
 is not replaced by the diagnostic passes or this local integration result.
 
-The migration-introduced knowledge corpus errors are being closed separately:
-417 errors at fc57d6b versus 157 at baseline5dbef22. The docs/spec-only cleanup
-preserves baseline findings and actual test selectors; its independent review
-and integration remain pending.
+Knowledge governance cleanup is integrated as94c4ead after independent review.
+The root gate still fails with exactly the same157 baseline error records: all260
+migration-introduced errors are closed, with no baseline record added or removed.
+The64 original ADR bodies, valid requirement links and touched test selectors
+remain intact. Native state ownership is ADR095; legacy execution ADR028 is unchanged.
 
 The next user-visible slice is native send_file and get_file_delivery: actual
 MCP admission, the retained workspace, bounded capture/staging, immutable metadata,
