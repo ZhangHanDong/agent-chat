@@ -6,10 +6,13 @@ in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
 Current integration priorities (2026-09-10): schema17 usage observations,
 operator aggregate reads, private approval intake, terminal event refusals, private
-media staging and encrypted downloads are integrated. ADR069 exact runtime
+media staging and encrypted downloads are integrated. ADR072 now adds bounded
+encrypted HTTPS upload with retained possible-write uncertainty. Integrated
+Matrix85/85, full Clippy and scoped lifecycle6/6 pass. ADR069 exact runtime
 observations now pass through ADR071 typed normalization into ADR070's private
 owned-execution ledger attachment. Affected tests pass25/25; the locked full workspace passes441 unique tests
-plus one proxy child, with301 resolved selectors and warnings-denied Clippy.
+plus one proxy child and warnings-denied Clippy. After upload integration all306
+Rust selectors resolve without missing tests.
 Strict lifecycle integration passes10/10 across all20 explicit changed paths.
 
 At a2f8348, Linux and macOS native jobs and Node CI passed. Windows
@@ -20,8 +23,8 @@ failures at3b5db90 remain unexplained; their later green run does not identify
 the historical cause.
 
 Keep canonical Done, cleanup, owner decision, runtime application, usage and
-message acceptance separate. Approval application proof, file event admission
-and uploads, browser/service wiring, provisioning, quotas and release parity
+message acceptance separate. Approval application proof, file event admission, durable upload staging
+and file tools, browser/service wiring, provisioning, quotas and release parity
 remain open. No milestone or overall migration is complete by this checkpoint.
 
 1. M0/M1 first checkpoint: native Salvo process, protected fresh state, custody,

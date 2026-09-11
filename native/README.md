@@ -43,7 +43,10 @@ through interrupted writes/restart under private directory/file handles. Missing
 or incomplete storage remains explicit; Windows unconfirmed directory sync is
 distinct from durable admission. A host-only encrypted downloader now uses authenticated HTTPS to the configured
 homeserver, consumes complete bounded ciphertext and verifies it before returning
-checked plaintext. Event provenance, uploads and native file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
+checked plaintext. A sibling encrypted uploader borrows original codec ciphertext,
+retains a finite attempt across cancellation, and accepts only complete bounded
+repository responses. A possible write cannot automatically resend. Event
+provenance, durable upload recovery and native file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one

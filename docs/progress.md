@@ -4315,3 +4315,33 @@ selectors plus the explicit eleven-path boundary), with zero failed, skipped,
 uncertain or pending-review verdicts. External media-upload-* logs retain the
 original failures and successful checks. No full workspace build or live
 service was needed.
+
+
+## 2026-09-10 — Integrated usage capture and upload checkpoint
+
+The isolated migration branch now includes ADR071 typed counters(e45043c),
+ADR070 exact owned capture(22503a1) and ADR072 encrypted upload(0f18bdc).
+The upload merge had only an append-only progress-note conflict; all parent and
+agent lines were retained and checked. Cargo adds one local execution-to-metering
+edge and two Matrix test-only edges, with no package/version additions.
+
+At22503a1 the locked workspace passes441 unique tests plus one proxy child,
+83 suite summaries and zero failed/ignored. All301 selectors resolve and full
+workspace warnings-denied Clippy plus affected Windows GNU Clippy pass. Integrated
+ADR071 lifecycle passes6/6 across8paths, separately from ADR070's10/10 across20.
+After upload integration, all85 affected Matrix tests pass again from the edited
+root tree. The new shared HTTP path is independent of JSON and download behavior;
+parent review required and confirmed the final cancellation/deadline check before
+Accepted. Workspace warnings-denied Clippy passes, and integrated strict upload lifecycle
+passes6/6 across all11 explicit changed paths. The new fixture is not a live
+homeserver or an actual Windows runtime qualification; fresh CI remains required.
+
+Uploads still lack durable staged-byte recovery, event authority, file-tool and
+service integration. A possible HTTP write is not retry permission. Native owner
+approval application, full room/history behavior, physical provisioning/sandbox,
+quotas, console and release parity remain open; no M0-M9 milestone is complete.
+
+Integrated upload binding enumeration resolves306 Rust selectors with no missing
+tests. The final documentation scope check also passed10/10, including its three
+explicit paths; agent-spec executed the bound tests despite the requested
+lint/boundary layers. This rerun is recorded separately, not as new coverage.
