@@ -4876,3 +4876,36 @@ Native and Windows GNU store all-target Clippy pass with warnings denied; rustfm
 and diff checks pass. Windows cross-compilation does not replace hosted runtime
 qualification. SDK provenance, exact-reference startup discovery and the actual
 consuming network coordinator remain unimplemented by this domain-only slice.
+
+## 2026-09-10 — Node launch retry wake cutoff (ADR087)
+
+Original Node CI34556196694/job103129331815 at7cf0dc0 failed only
+`backend requeues a wrapper that dies before takePayload without losing its input`
+at the30000ms Vitest deadline. The original log and uploaded JSON artifact retain
+4287 passed,1 failed,1 skipped. Neither contains an inner phase or dispatch row;
+the historical cause remains unknown. No Node runtime source changed from prior
+passing25c01ee, which is context rather than proof of a cause.
+
+Read-only trace and an external disposable SQLite reproduction confirmed a
+specific scheduler gap: claim at1800000000099 returned null, the retry became due
+at1800000000100, and the later future-only wake lookup also returned null. The
+row stayed queued with one launch failure and its original input; a later
+explicit claim succeeded. No process timing, live runtime or network was needed.
+
+In clean43fcb8e worktree, agent-spec1.4 parsed and linted the10-path contract
+before implementation. The new combined claim/wake API reuses the actual claim
+transaction's eligibility cutoff. Existing predicates, leases/capabilities,
+standalone APIs and generated-build workflow stay intact. The pump consumes the
+combined wake; due blocked rows cannot supply an immediate timer spin. The old
+real-wrapper test adds fixed-stage/state/numeric failure observation only.
+
+Validation: deterministic clock, blocked/future work and claim compatibility
+checks pass3/3; full affected router-core67, actual recovery1 and Claude runtime20
+pass88/88 with no skips. Typecheck, normal generated router build comparison,
+router boundary, affected ESLint and diff checks pass. Exact contract selectors,
+parsed-path boundary and original evidence are retained externally under
+node-retry-* and node-7cf0dc0-*. Parse/lint quality is96% with coverage/output
+wording advisories; Node's Cargo-only lifecycle cannot verify these scenarios,
+so no native lifecycle success is claimed. Parent integration and fresh hosted
+Node execution remain separate gates. No live services, credentials, original
+checkout, merge or push changed.

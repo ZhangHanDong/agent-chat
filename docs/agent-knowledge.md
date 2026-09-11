@@ -2169,3 +2169,12 @@ receipt authenticity still belongs to its actual owner; domain matching is not
 proof of a POST. Restored history never issues capture, claim or send authority,
 and missing history never means unsent. Automatic selector/config/key discovery
 is still a separate host integration gate.
+
+Node retry scheduling must preserve the actual claim cutoff. ADR087 fixes a
+confirmed gap: a retry becoming due between claimDispatch and a fresh future-only
+wake lookup matched neither query. The combined claimDispatchWithWake reuses the
+eligibility cutoff from inside the original transaction; due blocked rows cannot
+create an immediate timer loop. The deterministic clock reproduction establishes
+this code defect, while original7cf0dc0 Node CI's30s launch-recovery timeout still
+has no observed inner cause. That fixture now emits fixed-stage and row evidence
+on failure without changing its timeout or assertions.
