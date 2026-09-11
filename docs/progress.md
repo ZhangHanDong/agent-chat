@@ -6143,3 +6143,9 @@ the service and sink after accounting for exact capability and post-lock clock
 checks. Original partial-write/platform and full encrypted incoming executable
 acceptance remain separate required gates; these HTTP fixtures do not establish
 a real Ready destination. Strict lifecycle and final source hashes follow.
+
+Final adapter strict lifecycle passes6/6: all seventeen changed paths plus five
+separate selectors, each running exactly one actual passing test. No failed,
+skipped, uncertain or pending-review result remains in this adapter report.
+The workspace-scoped lifecycle compiles all packages but executes only its
+bound selectors; it is not a full workspace-suite pass.
