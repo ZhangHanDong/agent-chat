@@ -28,7 +28,9 @@ mod notice_custody;
 mod owned_completion;
 mod owned_dispatch;
 pub use owned_completion::OwnedCompletion;
-pub use owned_dispatch::{OwnedDispatchScope, OwnedFailure, OwnedObservation};
+pub use owned_dispatch::{
+    OwnedClaimProfile, OwnedClaimRoom, OwnedDispatchScope, OwnedFailure, OwnedObservation,
+};
 pub(crate) mod file_delivery;
 mod peers;
 mod replies;

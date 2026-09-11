@@ -256,7 +256,7 @@ fn helper(params: &Value, mode: &str) -> io::Result<()> {
     Ok(())
 }
 fn fake() -> io::Result<()> {
-    let mode = std::env::var("HAGENCY_OFFLINE_MODE").map_err(|_| invalid())?;
+    let mode = std::env::var("HAGENCY_OFFLINE_MODE").unwrap_or_else(|_| "heartbeat".into());
     if !["heartbeat", "done", "finish"].contains(&mode.as_str()) {
         return Err(invalid());
     }

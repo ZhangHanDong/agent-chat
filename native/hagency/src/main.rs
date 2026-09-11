@@ -1,9 +1,8 @@
 #[path = "mcp/stdio.rs"]
 mod mcp_stdio;
 use clap::{Parser, Subcommand};
-use hagency_store::{DomainRepository, DomainStore, Repository, Store, private};
-use salvo::prelude::*;
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use hagency_store::{DomainRepository, Repository, private};
+use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Parser)]
 #[command(
@@ -44,6 +43,9 @@ enum Command {
         listen: SocketAddr,
         #[arg(long, default_value_t = 16)]
         queue_capacity: usize,
+        /// Execute one configured development attempt after authenticated Matrix refresh.
+        #[arg(long)]
+        development_driver: bool,
     },
 }
 
@@ -104,26 +106,16 @@ async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             state_dir,
             listen,
             queue_capacity,
+            development_driver,
         } => {
-            if !listen.ip().is_loopback() || listen.port() == 0 {
-                return Err("native development service requires a loopback address".into());
-            }
-            let token = private::read_secret(&state_dir.join("operator.token"))
-                .map_err(|e| format!("native credential check failed: {e}"))?;
-            let store = Store::start(
-                Repository::open(&state_dir)
-                    .map_err(|e| format!("native custody startup failed: {e}"))?,
+            let mut bootstrap = hagency::bootstrap::Bootstrap::open(
+                &state_dir,
+                listen,
                 queue_capacity,
+                development_driver,
             )?;
-            let domain = DomainStore::start(
-                DomainRepository::open(&state_dir)
-                    .map_err(|e| format!("native domain startup failed: {e}"))?,
-                queue_capacity,
-            )?;
-            let app = hagency::App::new(store.clone(), &token, listen)?.with_domain(domain.clone());
-            let acceptor = TcpListener::new(listen).try_bind().await?;
-            let server = Server::new(acceptor).max_connections(64);
-            let handle = server.handle();
+            let cancel = hagency_matrix::CancellationToken::new();
+            let signal = cancel.clone();
             tokio::spawn(async move {
                 #[cfg(unix)]
                 {
@@ -134,12 +126,16 @@ async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 #[cfg(not(unix))]
                 let _ = tokio::signal::ctrl_c().await;
-                handle.stop_graceful(Some(Duration::from_secs(5)));
+                signal.cancel();
             });
-            tracing::info!(%listen, "native foundation listening; Agent execution and Matrix transport are unavailable");
-            server.try_serve(app.router()).await?;
-            store.shutdown().await?;
-            domain.shutdown().await?;
+            if let Err(error) = bootstrap.serve(&cancel).await {
+                tracing::error!("native server stopped; closing retained owners");
+                if bootstrap.close().await.is_err() {
+                    tracing::error!("native shutdown remains unknown; retaining original owners");
+                    std::future::pending::<()>().await;
+                }
+                return Err(error.into());
+            }
         }
     }
     Ok(())

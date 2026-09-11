@@ -5380,3 +5380,50 @@ test run. Knowledge lint still exits2 with the exact157 baseline error records a
 no ADR100 additions. The final documentation delta changes no production or test
 source. These results close the scoped association contract, without claiming actual
 Windows execution/durability or completion of the dependent publisher/service slice.
+### 2026-09-10 — ADR096 one-attempt development bootstrap
+
+The actual native `serve --development-driver` now uses the shared Bootstrap,
+current-token TLS Collector refresh, an exact compatible writer claim and required
+Started-workspace registration before any child launch. The private configuration
+selects fixed executable bytes/profile, original roots and Matrix scope; no raw
+capability, command, environment or HTTP authority setter is accepted. This remains
+one development attempt per service start, with no scheduler or file tool.
+
+The original executable fixture exposed a real macOS stack overflow while moving
+a 35,696-byte Report through nested oneshot/async polling. Outer-future boxing alone
+still failed. The original result channel now retains one boxed Report and the
+bootstrap uses wait_boxed; legacy wait remains available. No deadline or stack
+budget increased. The real executable then completed its authenticated Matrix
+refresh, fresh claim, registration and actual native MCP task read/heartbeat.
+
+Full affected hagency/execution/store regressions passed 242 unique named tests,
+with zero failures/ignored, before four additional compatibility/error-classification
+regressions were added; the six final claim-profile tests pass separately. Actual
+queue-held and SQLite-lock tests prove owned-claim time sampling after both waits.
+Required registration, dropped/late/expired ACK, wrong binding, actual committed
+claim-response loss and required Started-response loss exercise the original
+writers/owners. Native and Windows GNU warnings-denied Clippy cover all three
+crates including CLI tests. Strict cross-crate lifecycle passes all seven scenarios plus the explicit
+27-path boundary, with no skipped, uncertain or pending-review verdict.
+
+On macOS, completed protocol still has the existing unknown whole-tree cleanup:
+the actual SIGTERM fixture confirms the original service and both writer locks
+remain held with outcome_unknown. Linux's same Unix fixture requires observed
+whole-tree stop and writer reopen. Windows has no Unix-signal fixture; cross-build
+is not Windows runtime evidence. Production capabilities stay false. Logs,
+original failures, crash-frame evidence and validation live in the external
+2026-09-10 migration cache under bootstrap-*; no live service/model was contacted.
+
+The final host compatibility check also leaves canonical Done follow-ups and
+recovery reports queued: current OwnedDispatchScope cannot run them. Actual
+verified event/intent/Done/follow-up and Started/reopen/recovery fixtures place
+these before compatible work, prove the host selects the later runnable dispatch,
+then prove ordinary claim still selects the untouched earlier work. General claim
+pre-lock validation and invalid-clock error precedence are preserved.
+
+After the final compatibility changes, all 170 store tests pass. The combined
+unique test evidence is 246 names across the earlier full affected run and this
+final store run; it is not a claim of one later 246-test invocation. Final native
+and Windows GNU Clippy again pass all affected targets. The final stable-source strict lifecycle again passes all seven scenarios plus
+the 27-path boundary (8/8), with zero skipped, uncertain or pending-review results;
+original checkpoint output is retained separately. No actual Windows bootstrap run has been claimed locally.

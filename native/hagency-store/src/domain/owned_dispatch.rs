@@ -12,6 +12,82 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
 use serde_json::json;
 
+/// Bounded host selection metadata, never a serialized execution grant.
+pub struct OwnedClaimRoom {
+    id: String,
+    generation: u64,
+    privacy: hagency_core::replies::RoomPrivacy,
+}
+impl OwnedClaimRoom {
+    pub fn new(
+        id: String,
+        generation: u64,
+        privacy: hagency_core::replies::RoomPrivacy,
+    ) -> Result<Self, Error> {
+        use hagency_core::replies::{RoomPrivacy, matrix_room, matrix_user};
+        let server = id.split_once(':').ok_or(Error::RunnerAuthority)?.1;
+        matrix_room(&id, server)?;
+        hagency_core::replies::generation(generation)?;
+        if let RoomPrivacy::Direct { human_mxid } = &privacy {
+            matrix_user(human_mxid, server)?;
+        }
+        Ok(Self {
+            id,
+            generation,
+            privacy,
+        })
+    }
+}
+pub struct OwnedClaimProfile(String);
+impl OwnedClaimProfile {
+    pub fn new(
+        transport: hagency_core::replies::MatrixTransportObservation,
+        rooms: Vec<OwnedClaimRoom>,
+        workspaces: Vec<String>,
+    ) -> Result<Self, Error> {
+        use hagency_core::{project::identifier, replies::*, tasks::text};
+        identifier(&transport.engagement_id, 128)?;
+        generation(transport.generation)?;
+        generation(transport.registration_generation)?;
+        text(&transport.device_id, 255)?;
+        let server = transport
+            .sender_mxid
+            .split_once(':')
+            .ok_or(Error::RunnerAuthority)?
+            .1;
+        matrix_user(&transport.sender_mxid, server)?;
+        if rooms.is_empty() || rooms.len() > 16 || workspaces.is_empty() || workspaces.len() > 16 {
+            return Err(Error::Capacity);
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        for room in &rooms {
+            matrix_room(&room.id, server)?;
+            if !ids.insert(&room.id) {
+                return Err(Error::Conflict);
+            }
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        for id in &workspaces {
+            identifier(id, 128)?;
+            if !ids.insert(id) {
+                return Err(Error::Conflict);
+            }
+        }
+        let encoded = serde_json::to_string(&json!({
+            "transport": transport,
+            "rooms": rooms.iter().map(|r|json!({"id":r.id,"generation":r.generation,"privacy":r.privacy})).collect::<Vec<_>>(),
+            "workspaces": workspaces,
+        }))?;
+        if encoded.len() > 16 * 1024 {
+            return Err(Error::Capacity);
+        }
+        Ok(Self(encoded))
+    }
+    pub(crate) fn encoded(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Constructed from the writer's exact authorized snapshot. This is logical
 /// dispatch authority; it does not prove a path's physical directory custody.
 #[derive(Clone)]
@@ -344,5 +420,50 @@ impl DomainRepository {
         };
         tx.commit()?;
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod claim_clock_tests {
+    use super::*;
+    use hagency_core::replies::{MatrixTransportObservation, RoomPrivacy};
+    #[test]
+    fn native_owned_claim_profile_clock_after_actual_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
+        let observer =
+            rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        observer.busy_timeout(std::time::Duration::ZERO).unwrap();
+        let profile = OwnedClaimProfile::new(
+            MatrixTransportObservation {
+                engagement_id: "engagement".into(),
+                registration_generation: 1,
+                generation: 1,
+                sender_mxid: "@worker:example.test".into(),
+                device_id: "DEVICE".into(),
+            },
+            vec![
+                OwnedClaimRoom::new("!project:example.test".into(), 1, RoomPrivacy::Group {})
+                    .unwrap(),
+            ],
+            vec!["work".into()],
+        )
+        .unwrap();
+        let result = db
+            .claim_owned_clock(&profile, "host", 1000, 1000, 1, || {
+                // This independent connection MUST encounter the writer's actual
+                // IMMEDIATE lock when the clock is sampled, with no timing sleeps.
+                let error = observer.execute_batch("BEGIN IMMEDIATE").unwrap_err();
+                assert_eq!(
+                    error.sqlite_error_code(),
+                    Some(rusqlite::ErrorCode::DatabaseBusy)
+                );
+                Ok(2000)
+            })
+            .unwrap();
+        assert!(result.is_none());
+        observer
+            .execute_batch("BEGIN IMMEDIATE; ROLLBACK;")
+            .unwrap();
     }
 }

@@ -1,5 +1,6 @@
 use hagency_core::custody::{Delivery, MAX_DELIVERY_BYTES};
 use hagency_store::{DomainStore, Error, Store};
+pub mod bootstrap;
 pub mod mcp;
 mod resources;
 mod runner;
@@ -22,6 +23,7 @@ pub struct App {
     token_hash: [u8; 32],
     authority: String,
     requests: Arc<Semaphore>,
+    development: Option<bootstrap::StatusHandle>,
 }
 
 impl App {
@@ -42,11 +44,17 @@ impl App {
             token_hash: Sha256::digest(token).into(),
             authority: address.to_string(),
             requests: Arc::new(Semaphore::new(8)),
+            development: None,
         })
     }
 
     pub fn with_domain(mut self, domain: DomainStore) -> Self {
         self.domain = Some(domain);
+        self
+    }
+
+    pub(crate) fn with_development(mut self, status: bootstrap::StatusHandle) -> Self {
+        self.development = Some(status);
         self
     }
 
@@ -78,10 +86,15 @@ async fn capabilities(depot: &mut Depot, res: &mut Response) {
     let management = depot
         .get_typed::<App>()
         .is_ok_and(|app| app.domain.is_some());
-    res.render(Json(
-        serde_json::json!({"custody":true, "agent_execution":false, "palpo_transport":false,
-        "matrix_crypto":false, "resource_management":management, "runner_task_api":management, "usage_observations_read":management, "project_request_transport":false, "production_api_parity":false}),
-    ));
+    let mut value = serde_json::json!({"custody":true, "agent_execution":false, "palpo_transport":false,
+        "matrix_crypto":false, "resource_management":management, "runner_task_api":management, "usage_observations_read":management, "project_request_transport":false, "production_api_parity":false});
+    if let Ok(app) = depot.get_typed::<App>()
+        && let Some(status) = &app.development
+    {
+        value["development_execution"] =
+            serde_json::to_value(status.get()).expect("fixed status serializes");
+    }
+    res.render(Json(value));
 }
 
 fn refusal(res: &mut Response, status: StatusCode, code: &str) {

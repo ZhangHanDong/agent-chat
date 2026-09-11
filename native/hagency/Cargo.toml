@@ -11,6 +11,9 @@ publish.workspace = true
 hagency-core = { path = "../hagency-core" }
 hagency-store = { path = "../hagency-store" }
 hagency-platform = { path = "../hagency-platform" }
+hagency-execution = { path = "../hagency-execution" }
+hagency-matrix = { path = "../hagency-matrix" }
+hagency-runtime = { path = "../hagency-runtime" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -28,9 +31,6 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
 hagency-metering = { path = "../hagency-metering" }
-hagency-matrix = { path = "../hagency-matrix" }
-hagency-execution = { path = "../hagency-execution" }
-hagency-runtime = { path = "../hagency-runtime" }
 tokio = { workspace = true, features = ["process"] }
 rmcp = { version = "=1.8.0", default-features = false, features = ["client", "transport-async-rw"] }
 rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled"] }

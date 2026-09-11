@@ -2315,3 +2315,32 @@ Held-stage fixtures run actual SDK/SQLite work, drop callers, verify retained
 lock/committed cursor, and retain original Identity plus failed domain fencing
 while returning the same OutcomeUnknown. This instrumentation changes no
 production/fixture deadline, retry policy, finite queue or authority boundary.
+
+### ADR096: development bootstrap is one attempt, not a scheduler
+
+`Bootstrap` is the real serve entry path. Its explicit private development profile
+must complete current Collector identity/full-room refresh before the writer can
+claim exact supported verified-Matrix work. Persisted availability alone is not
+fresh authentication; an already fenced generation refuses without rotation.
+`start_requiring_workspace` supplies one sealed post-Started binding plus local
+LaunchAck. ACK send is only enqueue: the worker receives it under the original
+absolute deadline/cancel flag, then rechecks its original writer scope and root
+immediately before spawn. Unknown claim/Started results do not issue a replacement.
+
+A 35,696-byte by-value Report caused an actual debug executable stack overflow in
+nested wait/oneshot polling. The one boxed channel result and `wait_boxed` keep
+that custody indirect without growing stacks or timeouts. `retains_process_custody`
+is only local physical ownership; Pending before a child differs from unknown
+spawn/stop, and neither property can release a domain lease or declare task Done.
+Bootstrap keeps unknown shutdown visible and retains the original wrappers; a
+writer shutdown timeout says nothing definitive about its eventual Drop/ACK.
+
+MacOS protocol completion can still leave process cleanup unknown. Normal shutdown
+then intentionally keeps the service/result/writer locks until explicit host
+resolution; it is not full operational parity. FileService, continuous scheduling,
+live runtime qualification and native send_file remain separate work.
+
+The development compatible claim excludes canonical Done follow-ups and recovery
+report grants because current OwnedDispatchScope refuses those execution modes.
+Their ordinary domain admission remains available; they must not be consumed and
+failed merely to discover this known runtime limitation.

@@ -242,6 +242,138 @@ mod clock_tests {
         (db, cap)
     }
 
+    #[tokio::test]
+    async fn native_owned_claim_profile_after_queue() {
+        use hagency_core::replies::*;
+        let root = tempfile::tempdir().unwrap();
+        let (mut db, _original) = owned_fixture(root.path());
+        let inspection =
+            rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        let engagement: String = inspection
+            .query_row(
+                "SELECT engagement_id FROM runner_sessions WHERE id='session'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        drop(inspection);
+        db.observe_matrix_room(
+            &MatrixRoomObservation {
+                engagement_id: engagement.clone(),
+                registration_generation: 1,
+                transport_generation: 1,
+                room_id: "!project:example.test".into(),
+                generation: 2,
+                privacy: RoomPrivacy::Group {},
+                joined: std::collections::BTreeSet::from([
+                    "@worker:example.test".into(),
+                    "@owner:example.test".into(),
+                ]),
+                invite_only: true,
+                encrypted: true,
+            },
+            now(),
+        )
+        .unwrap();
+        db.resolve_verified_matrix_session(
+            &SessionBinding {
+                id: "fresh".into(),
+                engagement_id: engagement.clone(),
+                room_id: "!project:example.test".into(),
+                thread_root: Some("$fresh".into()),
+            },
+            now(),
+        )
+        .unwrap();
+        db.create_canonical_task("fresh_task", "fresh", "Queued host claim", now())
+            .unwrap();
+        db.register_workspace("fresh_work").unwrap();
+        db.enqueue_dispatch(&DispatchInput {
+            id: "fresh_dispatch".into(),
+            session_id: "fresh".into(),
+            task_id: Some("fresh_task".into()),
+            resources: vec![hagency_core::tasks::ResourceLease {
+                id: "fresh_work".into(),
+                exclusive: true,
+            }],
+            payload: json!({"instruction":"offline"}),
+        })
+        .unwrap();
+        let profile = crate::OwnedClaimProfile::new(
+            MatrixTransportObservation {
+                engagement_id: engagement,
+                registration_generation: 1,
+                generation: 1,
+                sender_mxid: "@worker:example.test".into(),
+                device_id: "DEVICE".into(),
+            },
+            vec![
+                crate::OwnedClaimRoom::new(
+                    "!project:example.test".into(),
+                    2,
+                    RoomPrivacy::Group {},
+                )
+                .unwrap(),
+            ],
+            vec!["fresh_work".into()],
+        )
+        .unwrap();
+        let store = DomainStore::start(db, 16).unwrap();
+        let (entered, ready) = oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let worker = store.clone();
+        let hold = tokio::spawn(async move {
+            worker
+                .call(1, move |_| {
+                    let _ = entered.send(());
+                    gate.recv_timeout(Duration::from_secs(4))
+                        .map_err(|_| Error::Unavailable)?;
+                    Ok(())
+                })
+                .await
+        });
+        ready.await.unwrap();
+        let mut claim = Box::pin(store.claim_owned_dispatch_for_host(
+            profile,
+            "queued_host".into(),
+            60_000,
+            60_000,
+            2,
+        ));
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(claim.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        let before = now();
+        // Advance one real UTC tick while the actual writer stays held. This
+        // separates pre-enqueue timestamps without a deadline-sensitive sleep.
+        let bound = tokio::time::Instant::now() + Duration::from_secs(1);
+        while now() == before {
+            assert!(tokio::time::Instant::now() < bound);
+            tokio::task::yield_now().await;
+        }
+        let released_at = now();
+        release.send(()).unwrap();
+        hold.await.unwrap().unwrap();
+        let cap = claim.await.unwrap().unwrap();
+        assert_eq!(cap.dispatch_id, "fresh_dispatch");
+        let inspect = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+        let observed: u64 = inspect
+            .query_row(
+                "SELECT created_at FROM runner_attempts WHERE dispatch_id='fresh_dispatch'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            observed >= released_at,
+            "claim used a timestamp from before its queue wait"
+        );
+        drop(inspect);
+        store.shutdown().await.unwrap();
+    }
+
     fn usage_snapshot() -> hagency_metering::observation::UsageObservation {
         hagency_metering::observation::UsageObservation::parse(
             hagency_metering::Framework::Codex,
@@ -1441,6 +1573,27 @@ impl DomainStore {
     ) -> Result<Option<RunnerCapability>, Error> {
         self.call(weight(&runner)?, move |db| {
             db.claim_dispatch(&runner, now, lease_ms, capability_ms, max_live)
+        })
+        .await
+    }
+    /// One host-selected compatible claim; time is observed inside the transaction.
+    pub async fn claim_owned_dispatch_for_host(
+        &self,
+        profile: crate::OwnedClaimProfile,
+        runner: String,
+        lease_ms: u64,
+        capability_ms: u64,
+        max_live: u32,
+    ) -> Result<Option<RunnerCapability>, Error> {
+        self.call(weight(&(profile.encoded(), &runner))?, move |db| {
+            db.claim_owned_clock(
+                &profile,
+                &runner,
+                lease_ms,
+                capability_ms,
+                max_live,
+                writer_time,
+            )
         })
         .await
     }

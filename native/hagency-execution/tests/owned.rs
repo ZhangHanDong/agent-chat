@@ -13,6 +13,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "owned/registration.rs"]
+mod registration;
 #[path = "owned/usage.rs"]
 mod usage;
 #[path = "owned/workspace.rs"]
@@ -183,10 +185,12 @@ async fn native_owned_dispatch_real_pipes() {
     assert!(cleanup.scope.leader_exited);
     if cfg!(target_os = "macos") {
         assert!(!cleanup.scope.whole_tree_stopped);
+        assert!(report.retains_process_custody());
         assert_eq!(report.failure, Some(Failure::CleanupUnknown));
         f.quarantined();
     } else {
         assert!(cleanup.scope.whole_tree_stopped);
+        assert!(!report.retains_process_custody());
         assert_eq!(report.settlement, Settlement::Completed);
         assert_eq!(report.failure, None);
         assert_eq!(f.state(), "completed");

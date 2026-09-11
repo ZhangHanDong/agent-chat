@@ -26,8 +26,28 @@ async fn native_workspace_binding_lost_start() {
 async fn native_workspace_binding_retirement_unwind() {
     lost_reply(Fault::WorkspacePanic).await;
 }
+#[tokio::test]
+async fn native_bootstrap_unknown_start() {
+    lost_reply(Fault::RequiredStart).await;
+}
+#[tokio::test]
+async fn native_workspace_registration_gate_expired_ready_ack() {
+    let (send, receive) = tokio::sync::oneshot::channel::<()>();
+    send.send(()).unwrap();
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    assert!(matches!(
+        crate::operation::bounded(
+            receive,
+            &cancel,
+            tokio::time::Instant::now() - std::time::Duration::from_millis(1)
+        )
+        .await,
+        Err(Failure::Deadline)
+    ));
+}
 enum Fault {
     Start,
+    RequiredStart,
     Usage,
     WorkspacePanic,
 }
@@ -92,10 +112,15 @@ async fn lost_reply(fault: Fault) {
         BTreeMap::from([("work".into(), work)]),
     )
     .unwrap();
-    host.discard_start_reply = matches!(fault, Fault::Start);
+    host.discard_start_reply = matches!(fault, Fault::Start | Fault::RequiredStart);
     host.discard_usage_binding_reply = usage;
     host.panic_after_workspace = panic;
-    let mut operation = Operation::start(
+    let start = if matches!(fault, Fault::RequiredStart) {
+        Operation::start_requiring_workspace
+    } else {
+        Operation::start
+    };
+    let mut operation = start(
         domain.clone(),
         cap.clone(),
         host,
@@ -106,6 +131,7 @@ async fn lost_reply(fault: Fault) {
     )
     .unwrap();
     let report = operation.wait().await.unwrap();
+    assert!(operation.take_workspace_registration().is_none());
     if panic {
         let late = operation.take_workspace_binding().unwrap();
         assert!(matches!(

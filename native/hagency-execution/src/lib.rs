@@ -2,10 +2,12 @@
 //! directory provisioning, effective sandbox and owner approval IO remain gates.
 mod host;
 mod operation;
+mod registration;
 mod usage;
 mod workspace;
 pub use host::{Host, Limits};
 pub use operation::{Failure, Operation, Protocol, Report, Settlement};
+pub use registration::{LaunchAck, RegistrationError, WorkspaceRegistration};
 pub use usage::{UsageFailure, UsageStatus};
 pub use workspace::{StartedWorkspace, WorkspaceError};
 #[cfg(test)]

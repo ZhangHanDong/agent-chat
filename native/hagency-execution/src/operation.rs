@@ -1,3 +1,4 @@
+use crate::registration::{Gate, RegistrationSlot, WorkspaceRegistration};
 use crate::usage::{UsageFailure, UsageRun, UsageStatus};
 use crate::workspace::{Binding, Handoff};
 use crate::{Host, Limits, StartedWorkspace};
@@ -97,6 +98,7 @@ pub struct Report {
     // After owner in field order: actual cleanup drops before retained roots.
     workspace: Option<Arc<Binding>>,
     handoff: Handoff,
+    registration: Option<Gate>,
 }
 impl Report {
     fn new(handoff: Handoff) -> Self {
@@ -112,6 +114,7 @@ impl Report {
             usage: None,
             workspace: None,
             handoff,
+            registration: None,
         }
     }
     pub fn usage_status(&self) -> UsageStatus {
@@ -141,6 +144,18 @@ impl Report {
         self.settlement
     }
 
+    /// Local physical custody only, never task/grant/lease settlement authority.
+    /// Pending without an owner is the existing pre-child result. Unknown spawn
+    /// or incomplete stop observations remain retained even without a returned owner.
+    pub fn retains_process_custody(&self) -> bool {
+        self.owner.is_some()
+            || match self.cleanup {
+                Cleanup::Pending => false,
+                Cleanup::Observed(_) => !stopped(self.cleanup),
+                Cleanup::Unknown { .. } => true,
+            }
+    }
+
     pub fn retry_stop(&mut self) -> Cleanup {
         if let Some(owner) = &mut self.owner {
             self.cleanup = owner.stop();
@@ -164,8 +179,9 @@ fn stopped(cleanup: Cleanup) -> bool {
 pub struct Operation {
     cancel: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
-    result: oneshot::Receiver<Report>,
+    result: oneshot::Receiver<Box<Report>>,
     workspace: Handoff,
+    registration: RegistrationSlot,
 }
 impl Operation {
     pub fn start(
@@ -173,6 +189,24 @@ impl Operation {
         capability: RunnerCapability,
         host: Host,
         limits: Limits,
+    ) -> Result<Self, Failure> {
+        Self::start_mode(domain, capability, host, limits, false)
+    }
+    /// Require the host to register the exact Started workspace before any child.
+    pub fn start_requiring_workspace(
+        domain: DomainStore,
+        capability: RunnerCapability,
+        host: Host,
+        limits: Limits,
+    ) -> Result<Self, Failure> {
+        Self::start_mode(domain, capability, host, limits, true)
+    }
+    fn start_mode(
+        domain: DomainStore,
+        capability: RunnerCapability,
+        host: Host,
+        limits: Limits,
+        required: bool,
     ) -> Result<Self, Failure> {
         if !limits.validate() {
             return Err(Failure::Admission);
@@ -187,11 +221,13 @@ impl Operation {
         let (reply, result) = oneshot::channel();
         let workspace = Arc::new(Mutex::new(None));
         let handoff = workspace.clone();
+        let (gate, registration) = Gate::new();
         let worker = std::thread::Builder::new()
             .name("hagency-owned-dispatch".into())
             .spawn(move || {
                 let until = Instant::now() + Duration::from_millis(limits.operation_ms);
-                let mut report = Report::new(handoff);
+                let mut report = Box::new(Report::new(handoff));
+                report.registration = required.then_some(gate);
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     runtime.block_on(execute(
                         &domain,
@@ -234,6 +270,7 @@ impl Operation {
             worker: Some(worker),
             result,
             workspace,
+            registration,
         })
     }
     /// Nonblocking, one-shot handoff. None means not ready, already taken, or
@@ -241,10 +278,24 @@ impl Operation {
     pub fn take_workspace_binding(&mut self) -> Option<StartedWorkspace> {
         self.workspace.try_lock().ok()?.take()
     }
+    /// One bounded host handoff; unavailable in the ordinary start mode.
+    pub fn take_workspace_registration(&mut self) -> Option<WorkspaceRegistration> {
+        self.registration.try_lock().ok()?.take()
+    }
+    pub fn is_finished(&self) -> bool {
+        self.worker
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
+    }
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
     }
     pub async fn wait(&mut self) -> Result<Report, Failure> {
+        self.wait_boxed().await.map(|report| *report)
+    }
+    /// Keep the single retained result indirect across nested host futures.
+    /// This changes storage location only; cancellation and ownership are identical.
+    pub async fn wait_boxed(&mut self) -> Result<Box<Report>, Failure> {
         let mut guard = WaitGuard {
             cancel: &self.cancel,
             done: false,
@@ -287,7 +338,7 @@ fn checkpoint(cancel: &AtomicBool, until: Instant) -> Result<(), Failure> {
         Ok(())
     }
 }
-async fn bounded<F: Future>(
+pub(crate) async fn bounded<F: Future>(
     future: F,
     cancel: &AtomicBool,
     until: Instant,
@@ -379,7 +430,15 @@ async fn execute(
     let workspace = Binding::start(root, domain.clone(), cap, &started, cancel.clone())?;
     let _retire_workspace = workspace.retirement(); // all returns and unwinds
     report.workspace = Some(workspace.clone()); // before any child can exist
-    *report.handoff.lock().map_err(|_| Failure::Worker)? = Some(workspace.handoff());
+    let required = report.registration.is_some();
+    if let Some(gate) = report.registration.take() {
+        let acknowledged = gate.publish(workspace.handoff())?;
+        bounded(acknowledged, cancel, until)
+            .await?
+            .map_err(|_| Failure::Admission)?;
+    } else {
+        *report.handoff.lock().map_err(|_| Failure::Worker)? = Some(workspace.handoff());
+    }
     #[cfg(test)]
     if host.panic_after_workspace {
         panic!("offline post-Started workspace unwind");
@@ -402,7 +461,18 @@ async fn execute(
     };
     report.usage = Some(binding.map_err(|_| Failure::UsageBinding)?);
     checkpoint(cancel, until)?;
+    if required {
+        bounded(
+            domain.check_owned_dispatch(cap.clone(), expected.clone()),
+            cancel,
+            until,
+        )
+        .await?
+        .map_err(|_| Failure::LostAuthority)?;
+        checkpoint(cancel, until)?;
+    }
     workspace.check_root().map_err(|_| Failure::Admission)?;
+    checkpoint(cancel, until)?;
     let mut runner = OwnedSession::spawn(
         &host.guardian,
         &launch,
