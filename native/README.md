@@ -6,7 +6,7 @@ run in the existing JS/TS implementation. Native capability responses distinguis
 development resource/task APIs from unavailable Agent execution, connected Palpo/
 Matrix transport and production API parity.
 
-The current developer checkpoint includes domain schema 18: scoped tasks,
+The current developer checkpoint includes domain schema 19: scoped tasks,
 internal groups, durable graphs, verified-input task activation, owner approvals
 and notice/final-reply send custody, with exact negative Matrix transport fencing. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
@@ -41,10 +41,11 @@ encryption and fully checked decryption using the pinned Matrix SDK. The new
 hagency-media-store retains bounded bytes and original encryption descriptors
 through interrupted writes/restart under private directory/file handles. Missing
 or incomplete storage remains explicit; Windows unconfirmed directory sync is
-distinct from durable admission. Qualified clean recovery can now return distinct
-RestoredEncrypted custody for the original operation and receipt digest, retaining
-the exact ciphertext and descriptor. It neither reconstructs source handles nor
-authorizes an upload retry. A host-only encrypted downloader now uses authenticated HTTPS to the configured
+distinct from durable admission. PreparedEncrypted now retains the original codec object and its stable storage
+commitment before journal IO. Qualified clean recovery returns distinct
+RestoredEncrypted custody for that original operation and receipt digest,
+retaining the exact ciphertext and descriptor. Neither reconstructs source
+handles nor authorizes an upload retry. A host-only encrypted downloader now uses authenticated HTTPS to the configured
 homeserver, consumes complete bounded ciphertext and verifies it before returning
 checked plaintext. A sibling encrypted uploader borrows original codec ciphertext,
 retains a finite attempt across cancellation, and accepts only complete bounded
@@ -56,8 +57,13 @@ Host lookup checks current capability and exact scope before and after its
 asynchronous work. Keys stay in the encrypted SDK journal. Current-dispatch
 receive now coordinates the retained manifest, bounded authenticated download
 and final authority revalidation under one deadline, returning host-only checked
-bytes. Four held results remain bounded across SDK Owner reopen. Cache paths,
-durable upload recovery and native file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
+bytes. Four held results remain bounded across SDK Owner reopen. Schema19 now
+retains exact upload reservations, staging commitments, fenced claims and
+nonrearmable possible writes. Lost replies never recreate preparation or send
+grants; historical acceptance remains separate from current task/route authority.
+Only opaque private receipt commitments enter the domain database. An actual
+upload owner, protected repository acceptance journal, cache paths and native
+file tools remain to implement. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one

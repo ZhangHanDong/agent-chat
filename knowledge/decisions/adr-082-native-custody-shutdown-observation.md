@@ -7,7 +7,7 @@ requirements: [REQ-RUST-MIGRATION-EXECUTION]
 ---
 
 At25c01ee the original Windows Palpo transport target passed13/13. A later
-failure-only serial diagnostic failed12/13: native_outbound_http_publication_
+failure-only serial diagnostic passed12/13 and failed1/13: native_outbound_http_publication_
 frozen_restart_and_rotation panicked at transport.rs620 with OutcomeUnknown.
 The call was the first shutdown before reopen, after the expected publication
 Transport error and subsequent freeze Conflict. No phase evidence was recorded.

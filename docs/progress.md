@@ -4690,8 +4690,8 @@ execution is still required; this change does not establish its historical cause
 
 ## 2026-09-10 — ADR082 custody shutdown phase observation
 
-The25c01ee original Palpo target passed13/13; its later serial diagnostic failed
-12/13 at the first Store::shutdown before publication reopen. This uses the custody
+The25c01ee original Palpo target passed13/13; its later serial diagnostic passed
+12/13 and failed1/13 at the first Store::shutdown before publication reopen. This uses the custody
 worker, not DomainStore. Read-only audit could not determine whether its unchanged
 wait expired before pickup, during repository release or around acknowledgement.
 Original evidence remains external in windows-25c01ee-original.log and the Palpo
@@ -4717,3 +4717,30 @@ library test module. Native and Windows GNU all-target store/Palpo Clippy pass
 with warnings denied. Parse/lint, rustfmt and diff checks pass. Complete strict
 cross-crate lifecycle remains pending parent integration by explicit coordination;
 no partial lifecycle or historical Windows timeout is reported as passing.
+
+
+## 2026-09-10 — Integrated upload and Windows diagnostic checkpoint
+
+At8fce06e the complete locked native workspace passes483 unique tests plus one
+proxy child (484 printed),85 suite summaries, zero failed/ignored. Full all-target
+Clippy passes with warnings denied. All357 Rust specification selectors resolve;
+formatting and diff checks pass. Logs are external upload-integrated-*.
+ADR078 strict root integration passes8/8 with all23 changed paths. ADR082 runs
+from the workspace root, passes5/5 with all6 changed paths, and includes both the
+actual custody-worker tests and actual Palpo publication/restart selector. No
+failed/skipped/uncertain/pending-review verdict is counted as passing. Earlier
+ADR0795/5 across9 paths and ADR0818/8 across7 retain their separate results.
+
+Independent read-only ADR078/079 review found no concrete blocker in the accepted
+primitive scopes. It traced commit-before-grant, exact staging ownership, current
+lease/route checks and historical settlement. It also confirmed the real Matrix
+uploader still consumes neither UploadSend nor RestoredEncrypted; integrated upload
+qualification is not claimed. ADR083 sealed response custody and ADR084 protected
+SDK upload journal are proceeding independently in separate clean worktrees.
+
+Latest pushed25c01ee native34553424733 remains an original Windows failure, with
+Linux/macOS and Node34553424721 passing. ADR081 fixes the confirmed test-only
+mandatory-lock read bug; ADR080 exposes early transport outcomes; ADR082 preserves
+shutdown failure while recording phases. Actual fresh Windows execution remains
+required. No live service, account, credential, model call, original checkout or
+production cutover was touched. No M0-M9 or whole migration completion is claimed.

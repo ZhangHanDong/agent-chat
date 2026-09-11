@@ -4,30 +4,36 @@ This is coordination, not canonical runtime task state. There is no provisioned
 `task-writer` in this source checkout. User instruction: execute the Rust migration
 in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
-Current integration priorities (2026-09-10): ADR070/071 connect actual owned
-runtime usage to the historical ledger; ADR072 supplies a bounded encrypted
-upload primitive. ADR073 schema18 freezes attachment visibility at the actual
-selected inbox trigger and independent projection cutoff. ADR074 retains
-verified encrypted file/image manifests in the SDK journal. ADR076 now joins
-current domain authority, retained manifests and configured HTTPS download,
-rechecking authority before returning complete checked host bytes. ADR077
-restores exact encrypted staging under the original operation/receipt and actual
-qualified sync evidence; it never grants permission to retry a possible upload.
-Cache paths, file tools, durable upload recovery and service integration remain.
+Current integration priorities (2026-09-10): schema19 now retains original
+upload reservation and stage commitments, current fenced claims, nonrearmable
+possible writes and exact historical acceptance. ADR079 binds the actual encrypted
+material's stable identity before staging IO; ADR077 restores that original
+ciphertext under qualified sync evidence. ADR076 already receives checked bytes
+from verified retained manifests with current-authority revalidation. The actual
+upload owner, protected response journal, cache paths and native file tools remain.
+ADR083 response custody and ADR084 private SDK receipt storage are in separate
+implementation worktrees; they are not included in this checkpoint.
 
-At integrated a96fd30 the locked full workspace passes468 unique tests plus one
-proxy child,84 suite summaries and no failed/ignored tests. All331 Rust spec
+At integrated8fce06e the locked full workspace passes483 unique tests plus one
+proxy child,85 suite summaries and no failed/ignored tests. All357 Rust spec
 selectors resolve. Full warnings-denied Clippy, rustfmt and diff checks pass.
-Integrated strict lifecycle passes ADR0767/7 across10 explicit changed paths
-and ADR0775/5 across11, with no failed/skipped/uncertain/pending verdicts.
+Integrated cross-crate ADR082 lifecycle passes5/5 across all6 changed paths,
+including the actual Palpo publication/restart test. ADR079 passes5/5 across9
+paths; ADR081 passes8/8 across7. ADR078 integrated lifecycle passes8/8 across all
+23 paths; its148 store regressions also pass. Independent
+ADR078/079 review found no concrete blocker within their declared primitive scopes.
 
-Remote native CI34551463344 at ff8be6b passes Linux, macOS and Windows, including
-original full workspace tests, warnings-denied Clippy and release builds. Printed
-test counts are460/459/456 respectively, each includes one proxy child; no failed
-or ignored tests. Both failure-only Windows diagnostics were skipped. Node CI
-34551463340 passes. These runs precede ADR076/077 and do not qualify their new
-runtime cases. Historical a856aa5 Windows shutdown failure remains unexplained;
-a later passing run does not establish its cause.
+Latest pushed25c01ee native CI34553424733 failed Windows while Linux and macOS
+passed their original suites, Clippy and release builds; Node34553424721 passed.
+Original Windows461 printed passes plus5 failures are retained: three restoration
+fixtures opened a second handle against the mandatory file lock; ADR081 now reads
+through the original owner. Two Matrix fixtures obscured the Collector result with
+a later scripted-request timeout; ADR080 now exposes the original early error.
+The original Palpo suite passed13/13; a later serial diagnostic passed12/13 and
+failed1/13 at custody Store shutdown. ADR082 adds phase observation without changing
+waits or verdicts. Historical transport/shutdown causes remain unproven; fresh
+three-platform execution is required. Earlier all-greenff8be6b CI34551463344
+predates the new receive/restoration cases and does not replace this failed run.
 
 Keep canonical Done, cleanup, owner decision, runtime application, usage and
 message acceptance separate. Approval application proof, complete room/history
