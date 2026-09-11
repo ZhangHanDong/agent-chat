@@ -238,10 +238,13 @@ async fn native_receive_workspace_sink_original() {
 
 #[tokio::test]
 async fn native_receive_workspace_sink_mutations() {
-    let f = fixture();
-    let mut operation = f.operation("usage-gate");
-    let binding = started(&f, &mut operation).await;
     for index in 0..4 {
+        // Each independent mutation owns a fresh actual runtime. The probe waits
+        // silently at usage-gate, so unrelated preceding fsyncs must not spend
+        // this case's fixed runtime read deadline before its assertion begins.
+        let f = fixture();
+        let mut operation = f.operation("usage-gate");
+        let binding = started(&f, &mut operation).await;
         let mut held = owner(&f, &binding, index, b"original").await;
         held.materialize(b"original").await.unwrap();
         let path = f.work.join(held.relative_path());
@@ -269,9 +272,13 @@ async fn native_receive_workspace_sink_mutations() {
             held.materialize(b"original").await,
             Err(WorkspaceReceiveError::Attempted)
         );
+        close(&f, &mut operation).await;
     }
     #[cfg(unix)]
     {
+        let f = fixture();
+        let mut operation = f.operation("usage-gate");
+        let binding = started(&f, &mut operation).await;
         let mut held = owner(&f, &binding, 4, b"original").await;
         held.materialize(b"original").await.unwrap();
         let original = f.root.path().join("original-root");
@@ -286,8 +293,8 @@ async fn native_receive_workspace_sink_mutations() {
             fs::read(original.join(held.relative_path())).unwrap(),
             b"original"
         );
+        close(&f, &mut operation).await;
     }
-    close(&f, &mut operation).await;
 }
 
 #[tokio::test]

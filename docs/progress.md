@@ -6470,3 +6470,13 @@ No ambient destination reopening, ignored sync error, or Windows change.
 Existing bound sink scenarios cover actual materialization, one-shot refusal,
 retirement, mutation and read-only deadlines. Format/diff and independent
 source review pass; integrated native and actual Linux qualification are pending.
+
+Integrated27b76d1: store unit54 + approval19 + permissions8 and incoming
+executable4 all pass; warnings-denied all-feature Clippy passes. Owned22 cases
+recorded21 pass and one mutation failure, Workspace(Retired) on the fifth
+independent file before root replacement. That test shared one silent usage-gate
+runtime across five filesystem mutation cases; the fixture's native read bound
+is1500ms. Each independent mutation now retains its own fresh actual runtime,
+with the same fixed limits and unchanged assertions. The exact original failure
+is retained; this removes cross-case elapsed-time coupling without extending
+any runtime deadline. Final integrated qualification follows this fixture change.
