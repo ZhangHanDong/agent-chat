@@ -168,8 +168,19 @@ pub(super) fn freeze(tx: &Transaction<'_>, dispatch: &str, session: &str) -> Res
         return Ok(());
     }
     matrix_routes::check(tx, session)?;
-    // This runs once with the dispatch INSERT, never on replay or retry.
-    tx.execute("INSERT INTO dispatch_attachment_windows(dispatch_id,session_id,source_cutoff,projection_cutoff) SELECT ?1,?2,COALESCE((SELECT MAX(message_sequence) FROM session_inputs WHERE session_id=?2),0),COALESCE((SELECT MAX(projection_sequence) FROM session_attachment_visibility WHERE session_id=?2),0)",params![dispatch,session])?;
+    // Dispatches without an actual selected inbox have no file-read authority.
+    tx.execute("INSERT INTO dispatch_attachment_windows(dispatch_id,session_id,source_cutoff,projection_cutoff) VALUES(?1,?2,0,0)",params![dispatch,session])?;
+    Ok(())
+}
+/// Called only in the first inbox dispatch INSERT transaction, never on replay.
+/// Later queued files must not expand the selected trigger's source boundary.
+pub(super) fn freeze_inputs(
+    tx: &Transaction<'_>,
+    dispatch: &str,
+    session: &str,
+    source_cutoff: u64,
+) -> Result<(), Error> {
+    tx.execute("UPDATE dispatch_attachment_windows SET source_cutoff=?3,projection_cutoff=COALESCE((SELECT MAX(projection_sequence) FROM session_attachment_visibility WHERE session_id=?2),0) WHERE dispatch_id=?1 AND session_id=?2 AND source_cutoff=0 AND projection_cutoff=0",params![dispatch,session,source_cutoff])?;
     Ok(())
 }
 fn ticket(

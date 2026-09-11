@@ -14,7 +14,9 @@ Ordinary text admission cannot later acquire a file capability by annotation.
 Exact historical receipts permit acknowledgement only and never revive routes.
 
 Per-session attachment projection receives its own monotonic sequence. Dispatch
-creation freezes both the source-event cutoff and this projection cutoff; late
+creation freezes the highest actually selected inbox source sequence and this
+projection cutoff. Ordinary dispatches without selected inbox input get a deny-all
+window. Already queued uploads after the selected trigger remain excluded; late
 projection of an old source cannot expand an already queued dispatch's authority.
 Only the existing verified task-input provenance can copy attachments to a child
 session. Later dispatches may use earlier files in that authorized lineage.

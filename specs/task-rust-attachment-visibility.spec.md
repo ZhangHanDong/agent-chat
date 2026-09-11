@@ -15,7 +15,7 @@ current dispatch without leaking media secrets or expanding frozen input.
 ### Must
 - Persist safe metadata and opaque SDK manifest identity atomically with authenticated encrypted file ingress.
 - Preserve exact receipt replay and reject changed metadata or later annotation of an existing text-only receipt.
-- Freeze source sequence and independent session projection sequence at dispatch creation.
+- Freeze the highest actually selected inbox source sequence and independent session projection sequence at dispatch creation.
 - Project historical attachments only through verified task-input provenance.
 - Require current Started capability and exact current Matrix route before ticket issue and revalidation.
 - Keep receipts visibility and windows bounded and durable across restart.
@@ -43,6 +43,7 @@ current dispatch without leaking media secrets or expanding frozen input.
 - native/hagency-store/src/domain.rs
 - native/hagency-store/src/domain/attachments.rs
 - native/hagency-store/src/domain/verified_ingress.rs
+- native/hagency-store/src/domain/messages.rs
 - native/hagency-store/src/domain/execution.rs
 - native/hagency-store/src/domain/task_intents.rs
 - native/hagency-store/src/domain_worker.rs

@@ -18,15 +18,19 @@ fn file(f: &Fixture, session: &str, id: &str, at: u64) -> MatrixAttachmentObserv
         content_digest: hagency_core::canonical::digest(&json!([id, "ciphertext"])).unwrap(),
     }
 }
-fn direct_start(f: &mut Fixture, id: &str, at: u64) -> RunnerCapability {
-    f.db.enqueue_dispatch(&DispatchInput {
+fn read_dispatch(id: &str) -> DispatchInput {
+    DispatchInput {
         id: id.into(),
         session_id: "a".into(),
         task_id: None,
         resources: vec![],
         payload: json!({"test":"scoped host attachment read"}),
-    })
-    .unwrap();
+    }
+}
+fn direct_start(f: &mut Fixture, id: &str, at: u64) -> RunnerCapability {
+    let first = f.db.inbox("a", 0, 100, None).unwrap()[0].message.sequence;
+    f.db.enqueue_inbox_dispatch(&read_dispatch(id), &[first])
+        .unwrap();
     let cap =
         f.db.claim_dispatch("files", at, 60000, 120000, 8)
             .unwrap()
@@ -146,8 +150,14 @@ fn native_attachment_frozen_visibility() {
     let mut f = Fixture::new(true);
     let earlier = file(&f, "a", "early", 1004);
     f.db.admit_matrix_attachment(&earlier, 1005).unwrap();
+    let queued = file(&f, "a", "queued-after-trigger", 1005);
+    f.db.admit_matrix_attachment(&queued, 1006).unwrap();
     let cap = direct_start(&mut f, "read", 1006);
     let ticket = f.db.authorize_attachment(&cap, "$early", 1008).unwrap();
+    assert!(
+        f.db.authorize_attachment(&cap, "$queued-after-trigger", 1008)
+            .is_err()
+    );
     assert_eq!(ticket.metadata().filename, "报告.txt");
     assert_eq!(ticket.manifest_id(), earlier.manifest_id);
     f.db.revalidate_attachment(&cap, &ticket, 1009).unwrap();
@@ -155,14 +165,8 @@ fn native_attachment_frozen_visibility() {
     f.db.admit_matrix_attachment(&later, 1010).unwrap();
     assert!(f.db.authorize_attachment(&cap, "$later", 1011).is_err());
     // Re-enqueue identical content cannot advance the original cutoffs.
-    f.db.enqueue_dispatch(&DispatchInput {
-        id: "read".into(),
-        session_id: "a".into(),
-        task_id: None,
-        resources: vec![],
-        payload: json!({"test":"scoped host attachment read"}),
-    })
-    .unwrap();
+    f.db.enqueue_inbox_dispatch(&read_dispatch("read"), &[ticket.source_sequence()])
+        .unwrap();
     assert!(f.db.authorize_attachment(&cap, "$later", 1012).is_err());
     let sql = f.sql();
     let cutoff: u64 = sql
@@ -286,6 +290,8 @@ fn native_attachment_ticket_revalidation() {
 #[test]
 fn native_attachment_schema_migration() {
     let mut f = Fixture::new(true);
+    let event = f.event("a", "old-input", None, &[], 1004);
+    f.db.admit_matrix_event(&event, 1004).unwrap();
     let cap = direct_start(&mut f, "old", 1004);
     f.db.complete_dispatch(&cap, &json!({}), 1006).unwrap();
     let path = f.root.path().join("state");

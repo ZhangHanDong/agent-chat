@@ -4364,3 +4364,14 @@ the tests without weakening schema constraints. Store all-target warnings-denied
 Clippy passes. Full affected store regressions and strict lifecycle are pending.
 No download, runner tool, cache path or production service is enabled. Matrix
 authenticated descriptor retention is proceeding separately as ADR074.
+
+ADR073 pre-integration review found that the initial source cutoff included every
+already queued session input, rather than only the selected dispatch trigger.
+The corrected path starts with a deny-all window; first inbox enqueue freezes
+the highest actual selected sequence plus current projection cutoff. Replay never
+changes either cutoff. The focused five tests pass again, including a file already
+queued after the selected trigger and exclusion of later input/projection.
+
+Before this correction, all139 affected store tests, Windows GNU Clippy and
+strict lifecycle6/6 across24 explicit changed paths passed. These results do not
+substitute for verification of the correction, which will be rerun in integration.

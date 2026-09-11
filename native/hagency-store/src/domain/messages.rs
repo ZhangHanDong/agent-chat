@@ -280,7 +280,20 @@ impl DomainRepository {
                 "dispatch payload must be object",
             ))?
             .insert("inbox".into(), serde_json::to_value(&items)?);
+        let existed: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM runner_dispatches WHERE id=?1)",
+            [&input.id],
+            |r| r.get(0),
+        )?;
         execution::enqueue(&tx, &frozen)?;
+        if !existed {
+            let cutoff = items
+                .iter()
+                .map(|item| item.message.sequence)
+                .max()
+                .ok_or(Error::State)?;
+            super::attachments::freeze_inputs(&tx, &input.id, &input.session_id, cutoff)?;
+        }
         for item in &items {
             super::task_intents::check_input(&tx, input.task_id.as_deref(), item.message.sequence)?;
             tx.execute(
