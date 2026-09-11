@@ -4,62 +4,62 @@ This is coordination, not canonical runtime task state. There is no provisioned
 `task-writer` in this source checkout. User instruction: execute the Rust migration
 in a clean worktree. Branch `feat/rust-migration`; baseline `5dbef22`.
 
-Current integration priorities (2026-09-10): the staged encrypted upload owner
-now joins original domain reservations, qualified encrypted staging, one actual
-HTTPS upload and protected SDK acceptance. It rechecks exact input association,
-current token identity and current domain scope before upload. Cancellation or a
-lost result cannot rearm the send. A fresh process can record first historical
-domain acceptance from the protected SDK journal without the original runner
-secret or another POST. Upload acceptance still does not publish a room file.
-ADR091 also retains already enqueued Matrix invalidations after caller loss,
-while ordinary abandoned domain work remains cancellable.
+Current integration priorities (2026-09-10): ADR096/097/098/099/100 are integrated.
+One actual development attempt now authenticates the original Collector, claims
+compatible work and registers the original Started workspace before launch.
+Schema20 separates immutable file metadata, upload acceptance and encrypted room
+event delivery. The publisher retains original ciphertext/claim custody and
+checks current identity, privacy and task authority at the write boundary.
+Actual recipient SDK fixtures decrypt exact metadata/bytes and frozen relations.
+A protected Complete can settle first Delivered across process restart without
+reissuing a POST or PUT. Final SDK Settle acknowledgement loss requires exact
+already-Delivered receipt replay before the retained media owner can be released.
+Unmatched retained jobs remain unknown and block close.
 
-ADR093 now binds execution and file snapshots to the same retained private
-workspace object. Its one-shot Started handoff retains the original writer and
-capability, rejects root aliases and retires new reads on every execution exit.
-The fixed runtime path still requires trusted, stable host provisioning; this
-is not hostile same-UID namespace or actual Codex sandbox qualification.
-ADR094 adds bounded test-only evidence for each original Matrix/SDK operation,
-including separate primary/fencing errors and close/acknowledgement stages.
+The pre-publisher combined096/097/099/100 workspace passes556 independent tests
+plus one proxy child (557 printed),88 suite summaries, zero failed or ignored.
+Full workspace all-target warnings-denied Clippy and formatting pass. Publisher
+source passes123 Matrix tests, with three later test-only recovery extensions
+passing their exact selectors. Final publisher strict lifecycle passes8 actual
+scenarios plus the full19-path boundary (9/9); native and Windows GNU Clippy pass.
+The combined five-slice workspace passes564 independent tests (565 printed),
+88 suite summaries and zero failures/ignored tests. A newly reviewed consuming
+SDK-close acknowledgement follow-up is in progress. Node binding catalog resolves
+543 selectors with none missing.
 
-After integrating c3a75ec and bbf19e2, the locked full workspace passes 521
-independent tests plus one proxy child (522 printed), 85 suite summaries and no
-failed or ignored tests. Full warnings-denied Clippy, rustfmt and diff checks
-pass, including cleanup of one unused CLI fixture import. All 420 Rust selectors
-resolve. Final integrated ADR093 lifecycle passes 8/8 across all 17 changed
-paths, and ADR094 passes 14/14 across all 12 changed paths. Both have zero
-failed, skipped, uncertain or pending-review results.
-Windows GNU compilation is not native Windows workflow evidence, and unconfirmed
-directory sync remains a typed refusal rather than a positive upload qualification.
+Latest original hosted CI is1da8f1b. Native34563968212 passes Linux/macOS and fails
+six Windows approval tests: four SDK-open acknowledgement timeouts, one SDK-close
+timeout and one repository-close timeout after drop began. The cause is unproven.
+ADR099 now observes exact connection/ownership-file destruction separately without
+changing deadlines, retries or original verdicts. Node34563968228 passes4291 tests
+with one platform skip. Original logs are preserved before the next branch push.
+Windows GNU compilation is not native Windows workflow evidence; unconfirmed
+directory sync remains a no-upload refusal, not positive file qualification.
 
-Latest completed fc57d6b Node CI 34560957060 passes: 4291 tests, one platform skip.
-Native CI 34560957072 passes Linux and macOS but fails Windows. Original suites
-contain Linux 512 printed passes, macOS 511, and Windows 502 passes plus six
-Matrix outgoing failures, each with 85 summaries and zero ignored. Two failures
-are original domain shutdown timeout paths; four are early collector
-OutcomeUnknown observations whose internal cause is still unknown. Subsequent
-diagnostics passed separately. Original logs remain preserved; their failure
-is not replaced by the diagnostic passes or this local integration result.
+Knowledge governance still has the exact157 pre-migration Error records, with all
+260 introduced migration errors removed and no baseline record added or removed.
+The original ADR bodies, valid requirements and executable test links remain.
+Native state ownership is ADR095; legacy execution ADR028 is unchanged.
 
-Knowledge governance cleanup is integrated as94c4ead after independent review.
-The root gate still fails with exactly the same157 baseline error records: all260
-migration-introduced errors are closed, with no baseline record added or removed.
-The64 original ADR bodies, valid requirement links and touched test selectors
-remain intact. Native state ownership is ADR095; legacy execution ADR028 is unchanged.
-
-The next user-visible slice is native send_file and get_file_delivery: actual
-MCP admission, the retained workspace, bounded capture/staging, immutable metadata,
-the single upload owner, and separate encrypted Matrix file-event acknowledgement.
-Proposed ADR092 remains isolated with unimplemented selectors. Its real service
-bootstrap/owned-dispatch driver and pre-launch workspace registration must be
-specified before implementation. A first tool request must not race registration.
+The next user-visible slice is the accepted ADR101 FileService application in a
+new isolated worktree, based on the integrated prerequisites. Three disjoint
+implementation owners handle the shared Bootstrap/file worker, HTTP/MCP plus
+actual runtime tool enablement, and executable/TLS/recipient acceptance. It reuses
+one fixed private profile, original Collector/writer/workspace and two retained
+jobs. POST needs current source authority; historical GET is exact original-row
+inspection only. No unimplemented ADR101 selector is integrated into main. Actual fresh SDK device
+trust and Olm-session enrollment are a newly identified prerequisite; existing
+publisher positives use verified fixture devices. ADR102 will define the real
+first-use enrollment path without trusting arbitrary server-supplied keys or
+importing fixture cryptographic authority. Positive executable file acceptance
+remains required and unpassed until that path exists.
 
 Keep canonical Done, cleanup, owner decision, runtime application, usage and
-message acceptance separate. Approval application proof, complete room/history
-behavior, physical provisioning/sandbox, file tools, service/console integration,
-quotas and release parity remain open. No M0-M9 milestone or entire migration is
-complete. The numbered notes below describe earlier checkpoints; this current
-section supersedes their interim status.
+message acceptance separate. Complete room/history behavior, physical provisioning,
+effective sandbox/config-home qualification, file tools, service/console parity,
+quotas/retention, measured budgets and release/cutover remain open. No M0–M9 phase
+or full migration is complete. The numbered notes below record earlier checkpoints;
+this current section supersedes their interim status.
 
 1. M0/M1 first checkpoint: native Salvo process, protected fresh state, custody,
    recovery, bounded work, shared protocol vectors and offline encrypted SDK proof.

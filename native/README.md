@@ -6,7 +6,7 @@ run in the existing JS/TS implementation. Native capability responses distinguis
 development resource/task APIs from unavailable Agent execution, connected Palpo/
 Matrix transport and production API parity.
 
-The current developer checkpoint includes domain schema 19: scoped tasks,
+The current developer checkpoint includes domain schema 20: scoped tasks,
 internal groups, durable graphs, verified-input task activation, owner approvals
 and notice/final-reply send custody, with exact negative Matrix transport fencing. Independent custody schema 2 preserves outbound work and publication
 receipts across machine-token rotation; hagency-palpo adds bounded outbound HTTPS
@@ -77,14 +77,30 @@ acknowledgement. That binding uses the original writer for current checks and
 retires new reads after execution exits. Fixed paths and ancestors still require
 trusted host provisioning; actual runtime sandbox qualification remains open.
 Test-only Matrix diagnostics now retain each original operation's phases and
-separate original/fencing errors across SDK work and caller loss. File-event
-publication, cache paths, native file tools and service activation remain to implement. Schema17 also stores host-attributed token observations and exposes
+separate original/fencing errors across SDK work and caller loss.
+Schema20 adds immutable file metadata and independent event-delivery custody.
+The encrypted publisher consumes the actual original accepted upload and media
+permit. Recipient SDK fixtures decrypt the original bytes, filename, caption and
+frozen thread/private relation. Coherent metadata/key replacement cannot settle.
+Complete event acceptance can recover first Delivered after restart without a
+new upload or event write. A lost final SDK settlement ACK releases retained
+media only after exact private receipt/already-Delivered acceptance replay;
+unmatched retained jobs stay unknown. Cache paths and native file tools remain
+separate application integration work. Schema17 also stores host-attributed token observations and exposes
 aggregate operator reads while preserving unknown and incomplete evidence. The
 private owned runner now binds a historical source before spawn and records exact
 fresh-session usage through typed normalization. Fixed counter evidence and one
 pending receipt survive bounded failure; retries cannot renew execution or claim
 provider billing. Runtime stream coverage remains explicitly incomplete.
-Service Agent execution and actual Matrix delivery remain disabled.
+Default service Agent execution and connected Matrix delivery remain disabled.
+The explicit `serve --development-driver` mode now permits one supported attempt
+from a fixed private development profile. The actual Bootstrap authenticates the
+same Collector, claims only compatible work and registers the original Started
+workspace before launch. It retains process reports and writers when close is
+unknown. This is not a continuous scheduler or production activation. See
+[ADR096](../knowledge/decisions/adr-096-native-development-bootstrap.md) for the
+closed profile, required host provisioning and remaining sandbox qualification.
+The same-process FileService and MCP file-tool slice is still being implemented.
 The sections below record the successive checkpoints.
 
 Build and run from this worktree, using a new state directory:
@@ -548,9 +564,10 @@ Codex pipes. The writer commits Started before child creation; an unknown start
 receipt never launches work. Cancellation retains the worker and process owner,
 and incomplete cleanup keeps resource leases quarantined. Upstream completion,
 canonical Done, process cleanup and dispatch settlement remain separate results.
-The host-only library is disabled in the service: physical workspace protection,
-effective sandbox qualification and approval application are still required
-before operational use.
+The default service keeps execution disabled; the explicit development bootstrap
+now connects one supported attempt. Physical workspace protection, effective
+sandbox qualification and approval application remain required before operational
+use.
 
 [Actual Matrix sending](../knowledge/decisions/adr-059-native-matrix-outgoing.md)
 uses the existing frozen notice/final claims and performs account, full-room and
