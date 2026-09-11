@@ -5335,3 +5335,25 @@ The separate requirement-trace diagnostic remains visible. Knowledge lint still
 exits 2 with exactly the 157 pre-migration errors and no additional ADR097 errors.
 This completes the domain slice's scoped verification, not the future encrypted
 publisher or actual service/MCP acceptance.
+
+
+### 2026-09-10 — File-delivery domain integration verification
+
+Integrated final ADR097 as 83f425a and 1e6acc4 after reviewing the original
+preparation/capture, accepted-upload association and historical settlement seams.
+Only the independent progress append conflicted; both histories were retained.
+The integration's locked full workspace passes 529 independent tests plus one
+proxy child (530 printed), across 86 summaries, with zero failed or ignored tests.
+Full workspace all-target warnings-denied Clippy and rustfmt pass. Exact scoped
+strict lifecycle passes 9/9: eight file-delivery scenarios and the complete actual
+25-path boundary, with zero failed/skipped/uncertain/pending-review results. This
+is scoped verification, not closure of other requirements or native file tools.
+
+Latest original hosted evidence remains 1da8f1b: Linux and macOS native jobs and
+Node pass; Windows fails six approval fixture cases (513 printed passes and six
+failures). Four failures are private SDK open ACK deadlines, one is a private SDK
+close ACK deadline, and one exact snapshot places a domain shutdown timeout after
+repository destruction began. No specific SQLite/OS cause is established. Original
+logs and automatic diagnostics remain separate. ADR099 will add missing original
+approval/field-drop observation without changing timeouts or retries. ADR096 actual
+bootstrap and ADR098 encrypted file publication remain separate integration work.
