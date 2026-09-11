@@ -5309,3 +5309,29 @@ focused run had seven passes and one failure in a new fixture's nonexistent SQL
 execution_epoch column; its original log is retained as adr097-tests-first.log.
 The fixture now targets the actual canonical-task JSON field. Focused and full
 validation, strict lifecycle and final review remain pending at this checkpoint.
+
+The post-checkpoint domain review also rejects first capture facts after a recorded
+upload staging outcome and checks historical capture/stage length consistency.
+The approved borrowed send identity supports retained uncertainty after unique-send
+consumption. Tests cover that path, different upload capability/request/fence,
+accepted upload cancelled before event publication, and real encoded-route capacity
+rollback. The second focused attempt preserved a room fixture Generation failure;
+its corrected observation now advances generation. All eight focused selectors
+then passed. Both subsequent complete core/store all-target runs pass 186 tests
+across 26 summaries with zero failed or ignored. Final native and Windows GNU
+all-target warnings-denied Clippy pass. Windows execution/durability and actual
+Matrix/service/MCP delivery remain separate unqualified gates.
+
+The first strict lifecycle passes eight selected scenarios plus its explicit
+25-path boundary result (9/9). Its separate requirement-trace diagnostic still
+reports unexecuted scenarios from other mapped contracts; no full requirement
+closure is claimed. Final scoped lifecycle follows the reviewed getter and test
+additions immediately before the final delta commit. External evidence uses
+adr097-* and preserves both original focused failures separately.
+
+Final strict lifecycle passes again: eight selected scenarios and the 25-path
+boundary result, 9/9 with zero failed, skipped, uncertain or pending-review results.
+The separate requirement-trace diagnostic remains visible. Knowledge lint still
+exits 2 with exactly the 157 pre-migration errors and no additional ADR097 errors.
+This completes the domain slice's scoped verification, not the future encrypted
+publisher or actual service/MCP acceptance.

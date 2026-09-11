@@ -16,7 +16,7 @@ for publication and exact historical receipt data for Delivered.
 ### Must
 - Reserve immutable metadata and original upload preparation in one transaction with exact content-bound replay.
 - Compare full request metadata and capture facts independently of the caller's request digest.
-- Bind the actual host-observed captured size and hash with the original staging commitment before storage IO.
+- Bind the actual host-observed captured size and hash with an equal-length original staging commitment before any recorded storage outcome.
 - Require current original Started capability task epoch exclusive lease and frozen encrypted route plus accepted upload for new publication.
 - Sample current time after the writer queue and SQLite transaction wait.
 - Persist WritePossible before returning one nonrecreatable publication send and keep uncertainty after cancellation expiry or reopen.
@@ -73,8 +73,8 @@ Scenario: Metadata and preparation commit together exactly once
 Scenario: Capture facts and original stage cannot be substituted
   Test: native_file_delivery_capture_binding
   Given original delivery preparation and host-observed captured facts
-  When the original stage is bound or a different preparation size hash or stage is substituted
-  Then exact immutable capture and stage commit together while substitutions conflict
+  When the original stage is bound or a different preparation size hash stage or already observed upload is substituted
+  Then exact immutable capture and equal-length stage commit together while substitutions and late backfilling refuse
 
 Scenario: Publication has independent nonreissued send custody
   Test: native_file_delivery_publication_nonreissue

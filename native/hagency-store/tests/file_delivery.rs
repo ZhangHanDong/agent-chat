@@ -425,7 +425,10 @@ fn native_file_delivery_capture_binding() {
         let mut capture = captured();
         let mut changed = stage("a");
         match mode {
-            "size" => capture.size += 1,
+            "size" => {
+                capture.size += 1;
+                changed.len += 1;
+            }
             "hash" => capture.sha256 = "8".repeat(64),
             _ => changed.receipt_digest = "8".repeat(64),
         }
@@ -448,6 +451,38 @@ fn native_file_delivery_capture_binding() {
             .captured,
         Some(captured())
     );
+    // The upload-only seam must not allow backfilling original facts after IO.
+    f.db.bind_upload_stage(
+        &f.cap,
+        b.upload.preparation.as_ref().unwrap(),
+        &stage("b"),
+        1015,
+    )
+    .unwrap();
+    f.db.observe_upload_staged(
+        &b.upload.identity,
+        &stage("b"),
+        UploadStageObservation::FileAndDirectorySynced,
+        1016,
+    )
+    .unwrap();
+    assert!(matches!(
+        f.db.bind_file_delivery_stage(
+            &f.cap,
+            &b.identity,
+            b.upload.preparation.as_ref().unwrap(),
+            &captured(),
+            &stage("b"),
+            1017
+        ),
+        Err(Error::State)
+    ));
+    assert!(
+        f.db.inspect_file_delivery(&f.cap, b.identity.id())
+            .unwrap()
+            .captured
+            .is_none()
+    );
 }
 
 #[test]
@@ -458,6 +493,17 @@ fn native_file_delivery_publication_nonreissue() {
         f.db.claim_file_publication(&f.cap, &pending.identity, 1011, 100)
             .unwrap()
             .is_none()
+    );
+    let (cancelled, _, _) = f.accepted("accepted_cancelled");
+    let receipt =
+        f.db.cancel_file_delivery(&cancelled.identity, FileDeliveryFailure::Cancelled, 1016)
+            .unwrap();
+    assert_eq!(receipt.upload, UploadState::Accepted);
+    assert_eq!(receipt.event, FileEventState::Pending);
+    assert_eq!(receipt.status, FileDeliveryStatus::Failed);
+    assert!(
+        f.db.claim_file_publication(&f.cap, &cancelled.identity, 1017, 100)
+            .is_err()
     );
     let (a, upload, old_upload) = f.accepted("one");
     let before = f.db.canonical_task("task").unwrap();
@@ -495,6 +541,8 @@ fn native_file_delivery_publication_nonreissue() {
     assert!(f.db.begin_file_publication(&f.cap, &claim, 1032).is_err());
     f.db.validate_file_publication(&f.cap, &claim, 1032)
         .unwrap();
+    let retained_identity = send.identity().clone();
+    assert_eq!(retained_identity.id(), a.identity.id());
     drop(send);
     assert!(
         f.db.validate_file_publication(&f.cap, &claim, 1130)
@@ -505,7 +553,7 @@ fn native_file_delivery_publication_nonreissue() {
             .unwrap()
             .is_none()
     );
-    f.db.mark_file_publication_uncertain(&a.identity, claim.fence(), 1131)
+    f.db.mark_file_publication_uncertain(&retained_identity, claim.fence(), 1131)
         .unwrap();
     assert!(f.db.begin_file_publication(&f.cap, &claim, 1132).is_err());
     let r =
@@ -562,6 +610,7 @@ fn native_file_delivery_current_scope() {
             }
             "room" => {
                 let mut r = f.room.clone();
+                r.generation += 1;
                 r.joined.insert("@stranger:example.test".into());
                 f.db.observe_matrix_room(&r, 1022).unwrap();
             }
@@ -732,6 +781,16 @@ fn native_file_delivery_status_bounds() {
         Err(Error::Capacity)
     ));
     assert!(f.reserve("one").upload.preparation.is_none());
+    let long_root = format!("${}", "r".repeat(MAX_FILE_RECORD_BYTES));
+    let mut large = Fixture::new(true, Some(&long_root));
+    assert!(matches!(
+        large
+            .db
+            .reserve_file_delivery(&large.cap, &input("encoded_bound"), 1010),
+        Err(Error::Capacity)
+    ));
+    assert_eq!(count(&large.sql(), "file_deliveries"), 0);
+    assert_eq!(count(&large.sql(), "file_uploads"), 0);
     let mut request = input("bad");
     request.filename = "x".repeat(256);
     assert!(request.validate().is_err());

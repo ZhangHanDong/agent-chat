@@ -2243,6 +2243,12 @@ retained UploadClaim's full private identity/fence and separately verify private
 media history. Captured size equals ciphertext stage length for fixed AES-CTR;
 contradictory host facts refuse before either capture facts or stage commit. Domain
 receipt correlations are host data, not a public verified-SDK proof constructor.
+Initial capture facts cannot be backfilled after an upload-only staging outcome;
+the first binding remains atomic with its original upload stage. Publication's
+borrowed original file identity permits retained negative custody after consuming
+the unique send. It never restores current authority. Scoped lifecycle test/path
+success does not close the separate requirement-trace diagnostics for unexecuted
+scenarios belonging to other contracts.
 
 ADR089 StagedUpload failure returns original typed custody; Collector admission
 must recheck full matches because failure.into_input can contain a mismatch.

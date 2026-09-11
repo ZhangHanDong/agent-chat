@@ -29,14 +29,17 @@ no delivery row is not adopted as permission or assigned invented metadata.
 The host binds actual captured length and SHA256 plus original stage commitment
 in one transaction using that original preparation. Captured size must equal
 stage length for the fixed Matrix v2 AES-CTR codec, so the product bound also
-covers the actual ciphertext. Both observations are immutable;
-reusing the request digest cannot replace them. These are host-provided facts, not
-proof that this database performed filesystem IO. Actual retained source/encryption
+covers the actual ciphertext. Both observations are immutable; reusing the request
+digest cannot replace them. Initial capture facts refuse after a recorded staging
+outcome or upload departure from Pending; old upload-only methods cannot backfill
+them after IO. These are host-provided facts, not proof that this database performed
+filesystem IO. Actual retained source/encryption
 and qualified durability must be supplied by the consuming owner. The first file
-product bound remains 4 MiB with fixed application/octet-stream MIME, filename255,
-caption1000, call_id128 and 64 lowercase-hex digest bounds. Global4096 and per-dispatch16
-rows are permanent; existing upload limits remain independently enforced. Original
-metadata, frozen route and receipt encodings are each bounded before persistence.
+product bound remains 4 MiB with fixed application/octet-stream MIME, filename 255,
+caption 1000, call_id 128 and 64 lowercase-hex digest bounds. Global 4096 and
+per-dispatch 16 rows are permanent; existing upload limits remain independently
+enforced. The file row's metadata/capture/publication/receipt payload has an 8 KiB
+encoded ceiling; original metadata plus frozen route is also bounded at admission.
 
 Publication has its own Pending, Claimed, WritePossible and Delivered phases,
 claim secret, increasing fence and stable transaction identity. A new claim/begin
@@ -52,6 +55,8 @@ both original upload and event permission without erasing either historical fact
 The send compares the actual retained opaque UploadClaim, including its full
 private identity and original upload fence; it cannot reconstruct consumed
 UploadSend. The publisher separately compares its private SDK/media association.
+The send borrows its original opaque file identity for retained cancellation or
+uncertainty after consuming the unique send; this creates no new current grant.
 The send binds original upload identity/fence/stage/acceptance, full immutable file
 metadata and capture facts, frozen route, event fence and transaction/content
 commitment. A historical locator is bounded correlation data; only its exact

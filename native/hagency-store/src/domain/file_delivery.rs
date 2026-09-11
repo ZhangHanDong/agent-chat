@@ -45,6 +45,10 @@ pub struct FilePublicationSend {
     captured: CapturedFile,
 }
 impl FilePublicationSend {
+    /// Borrow the exact original identity for retained cancellation/uncertainty.
+    pub fn identity(&self) -> &FileDeliveryIdentity {
+        &self.identity
+    }
     pub fn locator(&self) -> &FilePublicationLocator {
         &self.locator
     }
@@ -264,6 +268,9 @@ fn locator(row: &Row) -> Result<FilePublicationLocator, Error> {
     }
     let captured = row.captured.as_ref().ok_or(Error::State)?;
     let stage = row.upload.stage.clone().ok_or(Error::Schema)?;
+    if captured.size != stage.len {
+        return Err(Error::Schema);
+    }
     let accepted: Value =
         serde_json::from_str(row.upload.acceptance.as_deref().ok_or(Error::Schema)?)?;
     let observed = UploadAcceptance {
@@ -395,6 +402,15 @@ pub(crate) fn bind(
     current(tx, cap, &row, now)?;
     if !preparation.matches_identity(&id.upload) {
         return Err(Error::RunnerAuthority);
+    }
+    if row.captured.is_none()
+        && (row.upload.receipt.upload != UploadState::Pending
+            || !matches!(
+                row.upload.receipt.stage,
+                UploadStageState::Unbound | UploadStageState::Bound
+            ))
+    {
+        return Err(Error::State);
     }
     if row.captured.as_ref().is_some_and(|old| old != captured) {
         return Err(Error::Conflict);
