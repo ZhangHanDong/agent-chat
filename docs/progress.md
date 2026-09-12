@@ -7083,3 +7083,13 @@ client qualification and ongoing identity/key management remain separate.
   hit ERROR_SHARING_VIOLATION renaming a retained namespace directory; on
   Windows the retained handle refuses the rename itself, which the test now
   asserts instead of continuing the Unix replacement flow.
+- Hosted run for `3bcf5d6`: Node CI, console-browser, macOS and Ubuntu green.
+  Windows: `native_owned_approval_resume` refused again; the liveness facts at
+  refusal time were parked, fence 1, one resource lease, workspace clean, task
+  epoch 0, capability 60 s ahead and the 5 s dispatch lease 4.9 s ahead, so the
+  only time-varying predicate is the lease that `watched()` renews every
+  100 ms. The fixture now retries a refused verdict up to five times 200 ms
+  apart and reports the attempt count, to distinguish a transient lease lapse
+  from a persistent refusal. Windows also returned Timeout instead of
+  Transport once in `native_outbound_http_authority_tls_and_redaction`
+  (hostname mismatch against `localhost`), left as observed for now.

@@ -72,20 +72,32 @@ pub(super) async fn notice(notices: &mut ApprovalRequests) -> hagency_execution:
 pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
     let card = f.domain.private_approval(id.into()).await.unwrap();
     let expires_at = card.expires_at;
-    let result = f
-        .domain
-        .observe_owner_verdict(OwnerVerdictObservation {
-            request_id: id.into(),
-            request_digest: card.digest,
-            binding_generation: card.binding_generation,
-            server_name: "example.test".into(),
-            room_id: card.room_id,
-            sender_mxid: card.owner_mxid,
-            event_id: format!("${id}"),
-            encrypted: true,
-            choice,
-        })
-        .await;
+    let observation = OwnerVerdictObservation {
+        request_id: id.into(),
+        request_digest: card.digest,
+        binding_generation: card.binding_generation,
+        server_name: "example.test".into(),
+        room_id: card.room_id,
+        sender_mxid: card.owner_mxid,
+        event_id: format!("${id}"),
+        encrypted: true,
+        choice,
+    };
+    // Hosted Windows refused verdicts with every retained liveness fact intact
+    // except a 5 s dispatch lease renewed on a 100 ms cadence. A bounded retry
+    // distinguishes a transient lease lapse from a persistent refusal; the
+    // attempt count is reported so that a lapse is never silent.
+    let mut attempts = 0;
+    let result = loop {
+        attempts += 1;
+        match f.domain.observe_owner_verdict(observation.clone()).await {
+            Err(hagency_store::Error::RunnerAuthority) if attempts < 5 => {
+                eprintln!("verdict attempt {attempts} refused with RunnerAuthority; retrying");
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            other => break other,
+        }
+    };
     if let Err(error) = result {
         // Hosted Windows has refused verdicts here without any local
         // reproduction; report the retained state instead of a bare unwrap.
