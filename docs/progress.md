@@ -7583,3 +7583,26 @@ client qualification and ongoing identity/key management remain separate.
   and no approval cancellation. The approval middle case remains
   intermittent under load (reproducible on the operator VM) and its fix
   is in implementation; this run is the baseline for measuring it.
+
+## 2026-09-12 — Console-browser logout-wait failure evidence (diagnostic)
+
+- Diagnostic for the hosted console-browser flake
+  (`context-console-browser-flake.md` §4.1 item 1, Node driver only):
+  `native-console-resource-configuration-browser.mjs` gains an
+  `expectLogoutState` helper. It waits for the same
+  `[data-logout-state="<state>"]` selector with the same default bound and, on
+  timeout, reports the observed attribute value, the section count, the first
+  400 characters of `main`'s text, and — when `HAGENCY_CONSOLE_SCREENSHOTS`
+  is set — saves a full-page screenshot named for the expected state, so a
+  hosted artifact can tell "never rendered" from "rendered with another
+  value" (the product maps only `Error::Busy` to `busy`; everything else
+  renders `unknown`). The two bare waits (`busy`, `ended`) now go through it.
+  No bound changes, no assertion relaxation — the test demands the same
+  states.
+- The other browser scripts are unchanged: they share no browser-helper
+  module (`mockup/scripts/lib/` holds Matrix helpers only), so per the brief
+  the failure-path screenshot stays local to this driver.
+- Gates: `node --check` on the script passes; the repository's Node lint is
+  skipped (`node_modules` absent offline). The browser test itself runs in
+  the hosted console-browser job (Chromium + native console assets), not in
+  this sandbox.

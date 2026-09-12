@@ -18,6 +18,30 @@ try {
   const editUrl = (id) => `${config.base}/console/resources/new/?resource_id=${id}`;
   const createUrl = (id) => `${config.base}/console/resources/new/?source_resource_id=${id}`;
   const next = () => page.getByRole('button', { name: /^(Next|下一步)$/ }).click();
+  // The logout attribute is a single value the product only renders for ONE store
+  // outcome (`console/authority.rs:200-205` maps only `Error::Busy` to the 429 the
+  // client turns into `busy`; every other outcome renders `unknown`). A bare
+  // `waitFor` on the expected value cannot tell "never rendered" from "rendered
+  // with another value", so report what was actually there.
+  async function expectLogoutState(state) {
+    const expected = page.locator(`[data-logout-state="${state}"]`);
+    try {
+      await expected.waitFor();
+    } catch (error) {
+      const sections = await page.locator('[data-logout-state]').count();
+      const observed = sections
+        ? await page.locator('[data-logout-state]').first().getAttribute('data-logout-state')
+        : null;
+      const body = await page.locator('main').innerText().catch(() => '');
+      if (process.env.HAGENCY_CONSOLE_SCREENSHOTS) {
+        await page.screenshot({ path: join(process.env.HAGENCY_CONSOLE_SCREENSHOTS, `logout-${state}-failure.png`), fullPage: true }).catch(() => {});
+      }
+      throw new Error(
+        `expected data-logout-state="${state}", observed ${JSON.stringify(observed)} ` +
+        `(sections=${sections}); main=${JSON.stringify(body.slice(0, 400))}; ${error.message}`
+      );
+    }
+  }
   async function budget(id, edit = false) { await page.goto(edit ? editUrl(id) : createUrl(id)); await editor(id); await next(); await next(); await next(); }
   async function ceiling(tokens) { await page.locator('#configuration-ceiling').selectOption('monthly'); await page.locator('#wz-tokens').fill(String(tokens)); }
   async function save(edit = false) { await page.getByRole('button', { name: edit ? /^(Save configuration|保存配置)$/ : /^(Create another configuration|创建另一项配置)$/ }).click(); await page.locator('[data-configuration-action="saved"]').waitFor(); }
@@ -79,9 +103,9 @@ try {
       await budget(created, true); await ceiling(77777); await fixture('HOLD_STORE');
       const finished = page.waitForResponse((r) => r.url() === configuration(created) && r.request().method() === 'PATCH');
       await page.getByRole('button', { name: 'Save configuration', exact: true }).click(); await page.locator('[data-configuration-action="pending"]').waitFor();
-      await page.getByRole('button', { name: 'End access', exact: true }).click(); await page.locator('[data-logout-state="busy"]').waitFor();
+      await page.getByRole('button', { name: 'End access', exact: true }).click(); await expectLogoutState('busy');
       await fixture('RELEASE_STORE'); await finished;
-      await page.getByRole('button', { name: 'Retry ending access', exact: true }).click(); await page.locator('[data-logout-state="ended"]').waitFor();
+      await page.getByRole('button', { name: 'Retry ending access', exact: true }).click(); await expectLogoutState('ended');
       assert.equal(await page.locator('[data-native-configuration-id]').count(), 0);
     }
   }
