@@ -182,17 +182,29 @@ impl Fixture {
     /// Diagnostic only. Sampled from the caller while the writer is provably
     /// still inside the SQLite close path (the caller has just timed out and
     /// `connection_drop_finished_us` is unpublished). Sizes only, no content.
-    fn teardown_sample(&self) -> Vec<(&'static str, Option<u64>)> {
+    fn teardown_sample(&self) -> Vec<(&'static str, Option<(u64, u128)>)> {
         let state = self._root.path().join("state");
         [
+            "domain.sqlite3",
             "domain.sqlite3-wal",
             "domain.sqlite3-shm",
             "domain.sqlite3-journal",
         ]
         .into_iter()
         .map(|name| {
-            let len = std::fs::metadata(state.join(name)).ok().map(|m| m.len());
-            (name, len)
+            // Size and modification age in milliseconds: a main database
+            // touched moments ago means the close-time checkpoint completed
+            // and the wait is in the unlink or handle close; an old main
+            // database with a large `-wal` means the checkpoint itself waits.
+            let sample = std::fs::metadata(state.join(name)).ok().map(|m| {
+                let age = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .map_or(u128::MAX, |d| d.as_millis());
+                (m.len(), age)
+            });
+            (name, sample)
         })
         .collect()
     }
@@ -203,9 +215,11 @@ impl Fixture {
             // before unwinding. A present, non-zero `-wal`/`-shm` means the
             // unlink inside `sqlite3_close` is failing and retrying; absent
             // means the wait is elsewhere (for example a stalled sync).
+            let first = self.teardown_sample();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let second = self.teardown_sample();
             panic!(
-                "domain shutdown failed: {error:?}; {snapshot:?}; teardown={:?}",
-                self.teardown_sample()
+                "domain shutdown failed: {error:?}; {snapshot:?}; teardown={first:?}; teardown_after_500ms={second:?}"
             );
         }
         self.custody.shutdown().await.unwrap();

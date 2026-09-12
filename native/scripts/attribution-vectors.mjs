@@ -12,6 +12,12 @@ const source = readFileSync(new URL('../../lib/metering/attribute.js', import.me
 // The nominal process cwd recorded for `path.resolve` of relative inputs. Every
 // workspace in these vectors is absolute, so replay is cwd-independent anyway.
 const processCwd = '/';
+if (process.platform === 'win32') {
+  // The retained JavaScript uses the host path module; on Windows path.join and
+  // path.resolve produce drive-letter backslash paths, so the recorded POSIX
+  // fixture cannot be regenerated or checked here. The Rust tests replay it.
+  throw new Error('attribution vectors are a POSIX oracle; run this script on a POSIX host');
+}
 let seed = 0x4A721B5;
 const next = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % 10000; };
 
