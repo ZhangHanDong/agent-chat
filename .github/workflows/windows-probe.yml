@@ -12,7 +12,7 @@ on:
     inputs:
       packages:
         description: Space-separated Cargo packages whose test targets are built
-        default: hagency
+        default: hagency hagency-execution
         required: true
       filters:
         description: Space-separated cargo test name filters (any match runs)
@@ -47,13 +47,13 @@ jobs:
       - name: Build the selected test targets once
         shell: pwsh
         run: |
-          $packages = "${{ inputs.packages || 'hagency' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
+          $packages = "${{ inputs.packages || 'hagency hagency-execution' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
           cargo test @packages --all-targets --locked --no-run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run the selectors repeatedly with full output
         shell: pwsh
         run: |
-          $packages = "${{ inputs.packages || 'hagency' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
+          $packages = "${{ inputs.packages || 'hagency hagency-execution' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
           $filters = "${{ inputs.filters || 'native_' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
           $repeat = [int]"${{ inputs.repeat || '4' }}"
           New-Item -ItemType Directory -Force -Path probe-logs | Out-Null
