@@ -49,6 +49,10 @@ impl Error {
     }
     /// Reverse of `exit_code` for diagnostics: what a code means, so a hosted
     /// failure is readable from the status without stderr.
+    ///
+    /// 101 is not an `Error` either: it is the Rust runtime's fixed exit for a
+    /// panic that unwound out of `main`, a distinct and load-relevant class for
+    /// this helper (a panic under a loaded host looks nothing like a refusal).
     pub fn exit_code_name(code: i32) -> &'static str {
         match code {
             70 => "Framing",
@@ -56,6 +60,7 @@ impl Error {
             72 => "Io",
             73 => "Context",
             74 => "IoDeadline",
+            101 => "Panic",
             _ => "unknown",
         }
     }

@@ -92,27 +92,66 @@ Accepting arbitrary URLs, methods or capabilities in tool arguments would turn s
 
 ## Amendment (2026-09-12): each helper refusal names its own class
 
-A hosted failure of this helper was reported as `Error: Protocol` with exit 1,
-which eleven distinct return sites in `mcp.rs` and `stdio.rs` all produced. The
-refusals are now named, and each class carries its own process exit, so a
-spawning test attributes a load failure from the status alone — stderr is only
-drained after the exit and cannot be load-bearing.
+A hosted failure of this helper was reported as `Error: Protocol` with exit 1.
+At HEAD the helper funnels **21** `Error::Protocol` constructions into that one
+verdict — 17 in `native/hagency/src/mcp.rs`, 3 in `native/hagency/src/mcp/json.rs`
+and 1 in `native/hagency/src/mcp/stdio.rs` — of which **15** are on the
+pre-`tools/list` path (11 / 3 / 1 respectively; `mcp.rs`'s twelfth,
+"session already closed", is unreachable from the stdio loop, which returns on the
+first refusal). The refusals are now named, and each class carries its own process
+exit, so a spawning test attributes a load failure from the status alone — stderr
+is only drained after the exit and cannot be load-bearing.
+
+Five of those sites were reclassified from `Protocol` to `Framing` (three in
+`stdio.rs`, two in `mcp.rs`); the other sixteen keep `Protocol`, each with a
+`&'static str` tag naming its check.
 
 - **`Framing` (exit 70)**: a bounded stdio frame was refused before it became a
   request — EOF with a partial frame, a frame over `FRAME_LIMIT` (32 KiB), or a
   response over `OUTPUT_LIMIT` (256 KiB). Records the bound and the observed
-  size. This is a transport/pipe fault, deliberately not conflated with a
-  protocol refusal.
+  size. Two conditions share this code deliberately: an EOF mid-frame and a frame
+  over the advertised limit are both **stream faults the helper cannot answer** —
+  in neither case is there a complete request to refuse, so neither can be
+  reported as a protocol verdict, and both mean the peer's byte stream, not the
+  host's session, is the thing that failed. The `detail` string separates them
+  (`"stdin reached EOF with a partial frame"` vs `"frame exceeds FRAME_LIMIT"` vs
+  `"response exceeds OUTPUT_LIMIT"`) so the exit code names the class and stderr
+  names the site.
 - **`Protocol` (exit 71)**: a well-formed frame outside the current MCP
   lifecycle or schema. Each site carries a `&'static str` tag naming the check
   (unrecognized notification, request-id shape, initialize params, projection),
   so the verdict is distinguishable without new variants.
 - **`Io` (exit 72)** and **`Context` (exit 73)**: unchanged refusals, now also
   distinguishable by code.
-- **74** remains the stdio watchdog's exit, unchanged; it is documented as the
+- **74** remains the stdio watchdog's exit, unchanged; it is documented as a
   fourth value rather than folded into the enum, because it is not an `Error`.
+- **101** is named too, by `exit_code_name` only: it is the Rust runtime's fixed
+  exit for a panic that unwound out of `main`, a distinct and load-relevant class
+  for a helper under a loaded host.
 
 `main`'s `Mcp` arm previously propagated the `Err` through `?` to Rust's default
-handler, which printed the same message and always exited 1; it now prints and
-exits with `Error::exit_code()`. No deadline, no limit value and no existing
-refusal changes: every refusal that refused before still refuses.
+handler. That handler prints the **`Debug`** form — `Error: Protocol`, the bare
+variant name — and always exits 1, which is exactly the captured hosted failure
+and why its stderr named no check: the descriptive message was never printed. It
+now prints the `Display` form (`native MCP framing refused (… bound N bytes;
+observed M bytes)`) and exits with `Error::exit_code()`, so both the code and the
+text name the cause.
+
+The codes are **diagnostic only and carry no authority**. They exist so a
+spawning test can attribute a refusal from the status; nothing branches on them,
+no peer or protocol handshake may negotiate them, and they are not an operator
+contract. The same clause covers the `detail` tags.
+
+One residual is recorded rather than fixed. `process::exit` runs no destructors,
+so the new path skips the `stdout` flush that `StdoutLock`'s drop would have
+performed. No response can be lost by that in the normal case: the loop flushes
+explicitly (`stdio.rs:139-140`) before reading the next frame, so a returned
+`write_all`/`flush` never coexists with buffered response bytes. The one window is
+a **failed** `output.flush()` at `stdio.rs:140` on the exit path: the old drop
+would have attempted a second flush before the handler printed, the new path exits
+72 immediately. That is the same broken-pipe condition that just failed the flush,
+so recovering a response there is close to impossible — but it is the only
+byte-loss difference, and it is stated here rather than left implicit.
+
+No deadline, no limit value and no existing refusal changes: every refusal that
+refused before still refuses.

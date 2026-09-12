@@ -7850,3 +7850,17 @@ client qualification and ongoing identity/key management remain separate.
   `Client::new` hands stdin to `serve`), and `exit_evidence` now prints what the
   exit code means so a hosted failure is readable without stderr. No deadline
   and no limit value changes.
+
+- 2026-09-12 — Corrected the MCP helper attribution after review (ADR-051). The
+  amendment's claim that the old `?` path "printed the same message" was false:
+  Rust's `Termination` prints the `Debug` form, so the old path emitted exactly
+  `Error: Protocol` — the bare variant — which is the captured hosted evidence,
+  and why its stderr named no check. The ADR now states the real counts (21
+  `Error::Protocol` constructions at HEAD across `mcp.rs`/`json.rs`/`stdio.rs`,
+  15 on the pre-`tools/list` path, five reclassified to `Framing`), records the
+  `Framing`/`Protocol` boundary judgement, names the `101 Panic` exit in
+  `exit_code_name`, and records one residual: a **failed** `output.flush()` on
+  the new exit path skips the second flush the old drop would have attempted, in
+  the same broken-pipe case only. The commit message for `01545c8` keeps the old
+  wording; this entry and the ADR are the correction. The exit codes are
+  documented as diagnostic only, carrying no authority.
