@@ -2398,9 +2398,10 @@ impl DomainStore {
                 // this command was still queued behind another job.
                 let dequeued =
                     self.progress.started.load(Ordering::Acquire) == ticket.wrapping_add(1);
+                // 1 = dequeued, 2 = still queued, matching `unknown_dequeued`.
                 self.progress
                     .last_unknown
-                    .store(u8::from(dequeued) + 1, Ordering::Release);
+                    .store(if dequeued { 1 } else { 2 }, Ordering::Release);
                 Error::OutcomeUnknown
             })?
             .map_err(|_| Error::Unavailable)?
