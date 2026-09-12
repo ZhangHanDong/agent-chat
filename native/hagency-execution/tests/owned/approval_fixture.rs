@@ -71,7 +71,9 @@ pub(super) async fn notice(notices: &mut ApprovalRequests) -> hagency_execution:
 }
 pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
     let card = f.domain.private_approval(id.into()).await.unwrap();
-    f.domain
+    let expires_at = card.expires_at;
+    let result = f
+        .domain
         .observe_owner_verdict(OwnerVerdictObservation {
             request_id: id.into(),
             request_digest: card.digest,
@@ -83,8 +85,18 @@ pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
             encrypted: true,
             choice,
         })
-        .await
-        .unwrap();
+        .await;
+    if let Err(error) = result {
+        // Hosted Windows has refused verdicts here without any local
+        // reproduction; report the retained state instead of a bare unwrap.
+        let summary = f.domain.approval_summary(id.into()).await.map(|s| s.state);
+        panic!(
+            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}",
+            f.state(),
+            now(),
+            f.marker().exists()
+        );
+    }
 }
 pub(super) fn responses(f: &Fixture) -> Vec<serde_json::Value> {
     fs::read_to_string(f.work.join("owned-dispatch.requests"))
