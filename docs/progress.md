@@ -1,5 +1,41 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — Ceiling alarm slice (b): publish open alerts, sweep hourly (ADR-124 amendment)
+
+- Store read `DomainRepository::open_ceiling_alerts(limit)` (and the
+  `DomainStore` wrapper, exports `CeilingAlert`/`MAX_OPEN_CEILING_ALERTS`):
+  open rows only, `last_seen_ms` desc, limit defaulted 100 by the route and
+  refused at 0/>200 (`Error::Invalid`, the retained listAlerts pagination
+  cap); `detail` is PARSED on read — a corrupt row is `Error::Schema`, never
+  a silent null. Every retained field is carried.
+- Route `GET /api/native/v1/alerts?limit=` (`hagency/src/alerts.rs`, mounted
+  in the `api/native/v1` chain): exactly the `usage.rs` operator authority
+  (bearer + local authority, same refusal mapping) with one recorded
+  divergence — `Busy` → `429` per the brief's explicit instruction where
+  `usage.rs` uses `503`. Response `{"at_ms":…,"alerts":[…]}`, snake_case,
+  no-store; publishes what the sweep wrote, never re-derives the draw.
+- Trigger: `start_ceiling_sweep(domain, shutdown, period)` in `bootstrap.rs`,
+  spawned from `Bootstrap::serve` beside the other background owners and
+  stopped in `close`. Production period `CEILING_SWEEP_PERIOD` = 3600 s (the
+  retained hourly cadence and rationale); tests override via
+  `with_ceiling_sweep_period` or drive the starter directly. On
+  `Busy`/`OutcomeUnknown`/failed acquisition the tick logs the refusal code
+  with the `[ceiling]` prefix and waits for the next tick — no in-line
+  retry, never blocking admission traffic. Observation hook:
+  `tokio::sync::watch` of `CeilingSweepTick` (`Swept`/`Refused`); no
+  sleep-based polling in tests. The `Options` field was deliberately avoided
+  (a builder instead) so no existing `Options` literal outside this slice
+  needed touching.
+- Tests (`native/hagency/tests/alerts.rs`): the authority matrix applied to
+  the new route, the publication read (every retained field, parsed detail,
+  resolved absent, limit respected), and the sweep loop (short period, tick
+  observed on the watch, writer held busy via a second connection's
+  `BEGIN IMMEDIATE` → refusal survived, recovery sweep after release).
+  Known latent defect flagged for the orchestrator, outside this brief's
+  ownership: brief 8's `tests/ceiling_alerts.rs` uses nine `u64::MAX`
+  ceilings, which `Tokens` refuses above JSON_SAFE_MAX — masked in the peer
+  sandbox by the EPERM, it will fail in CI unless lowered.
+
 ## 2026-09-12 — Ceiling alarm slice (a): file and resolve overrun alerts (ADR-124)
 
 - Migration `024-ceiling-alerts.sql`: one row per dedupe key

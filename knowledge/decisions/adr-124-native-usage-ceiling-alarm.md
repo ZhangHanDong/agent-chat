@@ -71,3 +71,38 @@ native sweep and the retained sweep agree on the same seeds. The seven tests
 (`tests/ceiling_alerts.rs`) exercise every transition; the SQLite-backed ones
 cannot open their fixture in the peer sandbox (cap-std ancestor EPERM) and run
 under CI.
+
+## Amendment: slice (b) — publication and the hourly trigger
+
+**Consumer list (this slice).** One consumer ships: the operator read
+`GET /api/native/v1/alerts?limit=` (`hagency/src/alerts.rs`, mounted in the
+existing `api/native/v1` chain), with exactly the `usage.rs` operator
+authority (bearer token plus local management authority) and its refusal
+mapping — one intentional divergence: `Busy` maps to `429` here (the brief's
+explicit instruction) where `usage.rs` uses `503`. The response is
+`{"at_ms": …, "alerts": [...]}` with snake_case keys; every retained field is
+published (dedupe key, resource id, summary, the parsed `detail` object,
+runbook, impact, recovery_condition, occurrences, first/last seen, resolved
+state), open rows only, newest activity first, limit defaulted to 100 (the
+retained `listAlerts` default) and bounded/refused at 200
+(`MAX_OPEN_CEILING_ALERTS`, the retained pagination cap). A corrupt `detail`
+string is `Error::Schema` surfaced as `503 alerts_corrupt` — never a silent
+null. The route publishes what the sweep wrote; it never re-derives the draw.
+SSE, the console page and Matrix delivery are NOT in this slice; the retained
+SSE echo and console consumers remain future work on the same store read.
+
+**Cadence and its rationale.** The sweep loop starts in `Bootstrap::serve`,
+beside the other background owners, and stops in `close`. The production
+period is `CEILING_SWEEP_PERIOD` = 3600 s — the retained hourly cadence and
+its rationale (`backend-v2.js:17499-17504`): an overrun is a standing
+condition nobody requests, and a tighter loop would only re-file the same
+alert. Tests override it via `Bootstrap::with_ceiling_sweep_period` or drive
+`start_ceiling_sweep` directly with a short period.
+
+**Refusal-on-tick rule.** On `Busy` or `OutcomeUnknown` the tick logs the
+refusal code with the `[ceiling]` prefix and waits for the next tick — never
+an in-line retry, never blocking admission traffic: the sweep is idempotent
+by dedupe key, so a missed tick is harmless. The same rule covers a failed
+SQLite acquisition. The loop exposes a `tokio::sync::watch` of the last
+`CeilingSweepTick` (`Swept(outcome)` / `Refused(code)`) so tests await
+transitions without sleep-based polling.

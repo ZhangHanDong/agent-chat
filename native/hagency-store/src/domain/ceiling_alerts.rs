@@ -9,19 +9,22 @@ use super::{DomainRepository, Error, usage::ceiling_report};
 use hagency_core::JSON_SAFE_MAX;
 use hagency_core::project::Resource;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Retained bound (`lib/alert-store.js:25`): resolved alerts live 7 days.
 const RESOLVED_RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 /// Retained bound (`lib/alert-store.js:28`, `MAX_PAYLOAD_SIZE`): the detail
 /// JSON string is capped at 4096 bytes.
 const MAX_DETAIL_BYTES: usize = 4096;
+/// Publication bound: one operator read returns at most this many open rows,
+/// mirroring the retained listAlerts pagination cap (alert-store.js:413).
+pub const MAX_OPEN_CEILING_ALERTS: usize = 200;
 
 /// Counters one sweep produced. `raised` counts newly-open alerts (fresh
 /// insert or reopen after resolution); `updated` counts repeats against an
 /// already-open row; `resolved` and `pruned` count display-state and
 /// retention transitions.
-#[derive(Debug, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, PartialEq, Eq)]
 pub struct SweepOutcome {
     pub raised: u64,
     pub updated: u64,
@@ -190,4 +193,85 @@ impl DomainRepository {
         tx.commit()?;
         Ok(outcome)
     }
+
+    /// Open alerts for the operator read (ADR-124 slice b), newest activity
+    /// first, at most `MAX_OPEN_CEILING_ALERTS` rows. A limit above the bound
+    /// is refused the way every bounded read here refuses (`Error::Invalid`)
+    /// rather than silently clamped. The stored `detail` string is PARSED
+    /// here: a corrupt row is `Error::Schema`, never a silently-empty object.
+    pub fn open_ceiling_alerts(&self, limit: u32) -> Result<Vec<CeilingAlert>, Error> {
+        let limit = usize::try_from(limit)
+            .map_err(|_| Error::Invalid(hagency_core::InvalidInput("invalid alert limit")))?;
+        if limit == 0 || limit > MAX_OPEN_CEILING_ALERTS {
+            return Err(Error::Invalid(hagency_core::InvalidInput(
+                "invalid alert limit",
+            )));
+        }
+        let mut statement =
+            self.db.prepare("SELECT dedupe_key,resource_id,summary,detail,runbook,impact,recovery_condition,occurrences,first_seen_ms,last_seen_ms FROM ceiling_alerts WHERE resolved_at_ms IS NULL ORDER BY last_seen_ms DESC LIMIT ?1")?;
+        let rows = statement
+            .query_map(params![limit], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, u64>(8)?,
+                    row.get::<_, u64>(9)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(
+                |(
+                    dedupe_key,
+                    resource_id,
+                    summary,
+                    detail,
+                    runbook,
+                    impact,
+                    recovery_condition,
+                    occurrences,
+                    first_seen_ms,
+                    last_seen_ms,
+                )| {
+                    Ok(CeilingAlert {
+                        resolved: false,
+                        detail: serde_json::from_str(&detail).map_err(|_| Error::Schema)?,
+                        occurrences: u64::try_from(occurrences).map_err(|_| Error::Schema)?,
+                        dedupe_key,
+                        resource_id,
+                        summary,
+                        runbook,
+                        impact,
+                        recovery_condition,
+                        first_seen_ms,
+                        last_seen_ms,
+                    })
+                },
+            )
+            .collect()
+    }
+}
+
+/// One open overrun alert with every retained field (`backend-v2.js:9422-9447`):
+/// `detail` is the parsed object, not the stored string; the resolved state is
+/// carried so the projection can state it without a second column.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct CeilingAlert {
+    pub dedupe_key: String,
+    pub resource_id: String,
+    pub summary: String,
+    pub detail: serde_json::Value,
+    pub runbook: String,
+    pub impact: String,
+    pub recovery_condition: String,
+    pub occurrences: u64,
+    pub first_seen_ms: u64,
+    pub last_seen_ms: u64,
+    pub resolved: bool,
 }

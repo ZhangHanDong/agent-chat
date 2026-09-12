@@ -1,0 +1,279 @@
+#[path = "alerts/fixture.rs"]
+mod fixture;
+use fixture::*;
+use hagency::bootstrap::{CeilingSweepTick, start_ceiling_sweep};
+use hagency_matrix::CancellationToken;
+use salvo::{
+    prelude::*,
+    test::{ResponseExt, TestClient},
+};
+use serde_json::{Value, json};
+use std::time::Duration;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+/// The authority matrix of the usage test, applied to the alerts route: the
+/// operator boundary is the product's, not this route's invention.
+#[tokio::test]
+async fn native_alerts_read_requires_operator_authority() {
+    let f = Fixture::new(false);
+    for token in [None, Some("incorrect")] {
+        let request = TestClient::get(f.url()).add_header("host", "127.0.0.1:13300", true);
+        let request = match token {
+            Some(token) => request.bearer_auth(token),
+            None => request,
+        };
+        let mut response = request.send(&f.service).await;
+        assert_eq!(response.status_code, Some(StatusCode::UNAUTHORIZED));
+        assert_eq!(
+            response.take_json::<Value>().await.unwrap(),
+            json!({"ok":false,"code":"operator_auth_required"})
+        );
+    }
+    for (header, value) in [
+        ("origin", "https://untrusted.test"),
+        ("x-forwarded-for", "127.0.0.1"),
+        ("host", "untrusted.test"),
+    ] {
+        let mut response = TestClient::get(f.url())
+            .add_header("host", "127.0.0.1:13300", true)
+            .add_header(header, value, true)
+            .bearer_auth(TOKEN)
+            .send(&f.service)
+            .await;
+        assert_eq!(response.status_code, Some(StatusCode::FORBIDDEN));
+        assert_eq!(
+            response.take_json::<Value>().await.unwrap(),
+            json!({"ok":false,"code":"local_authority_required"})
+        );
+    }
+    let response = TestClient::post(f.url())
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .json(&json!({"input":999}))
+        .send(&f.service)
+        .await;
+    assert!(matches!(
+        response.status_code,
+        Some(StatusCode::METHOD_NOT_ALLOWED | StatusCode::NOT_FOUND)
+    ));
+    // Bounded read: an empty, repeated, non-numeric, zero or above-cap limit
+    // is refused exactly the way every other bounded read here refuses.
+    for query in [
+        "?limit=bad",
+        "?limit=0",
+        "?limit=201",
+        "?limit=1&limit=2",
+        "?unknown=1",
+        "?at_ms=2000",
+        "?limit=99999999999999999999",
+    ] {
+        let mut response = TestClient::get(format!("{}{}", f.url(), query))
+            .add_header("host", "127.0.0.1:13300", true)
+            .bearer_auth(TOKEN)
+            .send(&f.service)
+            .await;
+        assert_eq!(
+            response.status_code,
+            Some(StatusCode::BAD_REQUEST),
+            "{query}"
+        );
+        assert_eq!(
+            response.take_json::<Value>().await.unwrap(),
+            json!({"ok":false,"code":"invalid_alerts_query"}),
+            "{query}"
+        );
+    }
+    f.close().await;
+}
+
+/// Publication: every retained field on the row, resolved rows absent, limit
+/// respected. The route publishes what the sweep wrote — it never re-derives
+/// the draw (which is how the console/headroom divergence bug was born).
+#[tokio::test]
+async fn native_alerts_read_publishes_open_ceiling_alerts() {
+    let f = Fixture::new(true);
+    let swept = f.domain.sweep_ceiling_overruns(now_ms()).await.unwrap();
+    assert_eq!(swept.raised, 2);
+
+    let mut response = TestClient::get(f.url())
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .send(&f.service)
+        .await;
+    assert_eq!(response.status_code, Some(StatusCode::OK));
+    assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
+    let value = response.take_json::<Value>().await.unwrap();
+    let text = value.to_string();
+    for private in [
+        TOKEN,
+        "!project:example.test",
+        "@owner:example.test",
+        "ownerDmRoomId",
+    ] {
+        assert!(
+            !text.contains(private),
+            "unexpected private field {private} in alerts read"
+        );
+    }
+    assert!(value["at_ms"].as_u64().unwrap() > 0);
+    let alerts = value["alerts"].as_array().unwrap();
+    assert_eq!(alerts.len(), 2);
+    let alert = &alerts[0];
+    let expected_id = resource("alerts_pool_b", "alerts_pool_b_seat", 1).id();
+    assert_eq!(alert["resource_id"], expected_id);
+    assert_eq!(
+        alert["dedupe_key"],
+        format!("agent_ceiling_overrun:{expected_id}")
+    );
+    assert_eq!(alert["resolved"], false);
+    assert_eq!(alert["occurrences"], 1);
+    assert!(alert["first_seen_ms"].as_u64().unwrap() > 0);
+    assert!(alert["last_seen_ms"].as_u64().unwrap() > 0);
+    assert!(
+        alert["summary"]
+            .as_str()
+            .unwrap()
+            .contains("has drawn 2500000 against a ceiling of 2000000")
+    );
+    assert!(
+        alert["runbook"]
+            .as_str()
+            .unwrap()
+            .contains("raise the ceiling on preset alerts_pool_b")
+    );
+    assert!(alert["impact"].as_str().unwrap().contains("cannot retract"));
+    assert!(
+        alert["recovery_condition"]
+            .as_str()
+            .unwrap()
+            .contains("falls back under the ceiling")
+    );
+    // detail is the PARSED object with the raw numbers, not a string.
+    let detail = &alert["detail"];
+    assert!(detail.is_object());
+    assert_eq!(detail["committedTokens"], 2_500_000);
+    assert_eq!(detail["drawnTokens"], 2_500_000);
+    assert_eq!(detail["overByTokens"], 500_000);
+    assert_eq!(detail["ceilingTokens"], 2_000_000);
+    assert_eq!(detail["measuredTokens"], Value::Null);
+
+    // Limit respected: one row for ?limit=1, newest activity first.
+    let mut response = TestClient::get(format!("{}/?limit=1", f.url()))
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .send(&f.service)
+        .await;
+    let value = response.take_json::<Value>().await.unwrap();
+    assert_eq!(value["alerts"].as_array().unwrap().len(), 1);
+    assert_eq!(value["alerts"][0]["resource_id"], expected_id);
+
+    // Resolved alerts are absent: restore the ceiling, sweep, read again.
+    f.domain
+        .put_resource(resource("alerts_pool_a", "alerts_pool_a_seat", GENEROUS))
+        .await
+        .unwrap();
+    f.domain
+        .put_resource(resource("alerts_pool_b", "alerts_pool_b_seat", GENEROUS))
+        .await
+        .unwrap();
+    let outcome = f.domain.sweep_ceiling_overruns(now_ms()).await.unwrap();
+    assert_eq!(outcome.resolved, 2);
+    let mut response = TestClient::get(f.url())
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .send(&f.service)
+        .await;
+    let value = response.take_json::<Value>().await.unwrap();
+    assert_eq!(
+        value["alerts"].as_array().unwrap().len(),
+        0,
+        "resolved alerts must not be published"
+    );
+    f.close().await;
+}
+
+/// The trigger: a short period, one tick observed sweeping, a tick refused
+/// while another connection holds the SQLite write lock, and the loop alive
+/// and sweeping again after release — awaited on the watch hook, never by
+/// sleeping. Refusal handling is the loop's contract: log with the `[ceiling]`
+/// prefix and wait for the next tick; never an in-line retry, never blocking
+/// admission traffic.
+#[tokio::test]
+async fn native_alert_sweep_runs_hourly_and_survives_busy() {
+    let f = Fixture::new(false);
+    let cancel = CancellationToken::new();
+    let (handle, mut observed) =
+        start_ceiling_sweep(f.domain.clone(), cancel.clone(), Duration::from_millis(50));
+    async fn until<F>(observed: &mut tokio::sync::watch::Receiver<CeilingSweepTick>, ok: F)
+    where
+        F: Fn(&CeilingSweepTick) -> bool,
+    {
+        loop {
+            if ok(&observed.borrow()) {
+                return;
+            }
+            tokio::time::timeout(Duration::from_secs(10), observed.changed())
+                .await
+                .expect("tick observation timed out")
+                .expect("sweep loop dropped its watch");
+        }
+    }
+    // One tick observed sweeping the seeded overrun.
+    until(&mut observed, |tick| {
+        matches!(tick, CeilingSweepTick::Swept(_))
+    })
+    .await;
+    let first = observed.borrow().clone();
+    let CeilingSweepTick::Swept(outcome) = first else {
+        unreachable!()
+    };
+    assert_eq!(outcome.raised, 1);
+
+    // Hold the writer: another connection's BEGIN IMMEDIATE keeps the sweep
+    // transaction off the write lock, so every tick while it is held is a
+    // refusal. Which code surfaces depends on where the writer was when the
+    // lock appeared (`busy` from the queue bound, `outcome_unknown` from the
+    // reply bound, or a failed sqlite acquisition); the loop's rule is the
+    // same for all three — log and wait — and this test pins that rule.
+    let lock = rusqlite::Connection::open(&f.state).unwrap();
+    lock.execute_batch("BEGIN IMMEDIATE").unwrap();
+    until(&mut observed, |tick| {
+        matches!(tick, CeilingSweepTick::Refused(_))
+    })
+    .await;
+    let refusal = observed.borrow().clone();
+    let CeilingSweepTick::Refused(code) = refusal else {
+        unreachable!()
+    };
+    assert!(
+        matches!(code, "busy" | "outcome_unknown" | "failed"),
+        "unexpected refusal code {code}"
+    );
+    assert!(
+        !handle.is_finished(),
+        "the sweep loop must survive a refusal"
+    );
+
+    // Release: the next tick sweeps again — recovery, not a restart.
+    lock.execute_batch("COMMIT").unwrap();
+    drop(lock);
+    until(&mut observed, |tick| {
+        matches!(tick, CeilingSweepTick::Swept(_))
+    })
+    .await;
+    let recovered = observed.borrow().clone();
+    let CeilingSweepTick::Swept(outcome) = recovered else {
+        unreachable!()
+    };
+    assert_eq!(outcome.updated, 1, "the open row rides the repeat counter");
+
+    cancel.cancel();
+    handle.await.unwrap();
+    f.close().await;
+}

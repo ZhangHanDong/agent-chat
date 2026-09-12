@@ -397,6 +397,76 @@ pub struct Options {
     pub palpo_transport: bool,
 }
 
+/// What one sweep tick observed: the outcome, or the refusal code when the
+/// writer could not take the job. Diagnostic only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CeilingSweepTick {
+    Swept(hagency_store::SweepOutcome),
+    Refused(&'static str),
+}
+
+/// Production ceiling-overrun sweep cadence (ADR-124 slice b): the condition
+/// is standing, so an hour is the retained default
+/// (`backend-v2.js:17499-17504`); tests inject a short one via
+/// [`Bootstrap::with_ceiling_sweep_period`].
+pub const CEILING_SWEEP_PERIOD: Duration = Duration::from_secs(3600);
+
+/// The ceiling-overrun sweep loop (ADR-124 slice b): hourly in production
+/// because the condition is standing — an agent past its ceiling at 09:00 is
+/// still past it at 09:05, and a tighter loop would only re-file the same
+/// alert (`backend-v2.js:17499-17504`). On `Busy` or `OutcomeUnknown` the
+/// tick logs the refusal with the `[ceiling]` prefix and waits for the next
+/// one: never an in-line retry, never blocking admission traffic — the sweep
+/// is idempotent by dedupe key, so a missed tick is harmless. The returned
+/// watch channel is the observation hook a test awaits; no sleep-based
+/// polling. The loop exits when `shutdown` cancels.
+pub fn start_ceiling_sweep(
+    domain: DomainStore,
+    shutdown: CancellationToken,
+    period: Duration,
+) -> (
+    tokio::task::JoinHandle<()>,
+    tokio::sync::watch::Receiver<CeilingSweepTick>,
+) {
+    let (sender, observed) = tokio::sync::watch::channel(CeilingSweepTick::Refused("unstarted"));
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(period);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = shutdown.cancelled() => break,
+                _ = interval.tick() => {}
+            }
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|d| u64::try_from(d.as_millis()).ok())
+                .unwrap_or_default();
+            let tick = match domain.sweep_ceiling_overruns(now).await {
+                Ok(outcome) => CeilingSweepTick::Swept(outcome),
+                Err(hagency_store::Error::Busy) => {
+                    tracing::warn!("[ceiling] sweep tick refused: busy; waiting for the next tick");
+                    CeilingSweepTick::Refused("busy")
+                }
+                Err(hagency_store::Error::OutcomeUnknown) => {
+                    tracing::warn!(
+                        "[ceiling] sweep tick outcome unknown; waiting for the next tick"
+                    );
+                    CeilingSweepTick::Refused("outcome_unknown")
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "[ceiling] sweep tick failed: {error}; waiting for the next tick"
+                    );
+                    CeilingSweepTick::Refused("failed")
+                }
+            };
+            let _ = sender.send(tick);
+        }
+    });
+    (handle, observed)
+}
+
 pub struct Bootstrap {
     store: Store,
     domain: DomainStore,
@@ -415,6 +485,8 @@ pub struct Bootstrap {
     status: StatusHandle,
     domain_closed: bool,
     store_closed: bool,
+    ceiling_sweep_period: Duration,
+    ceiling_sweep: Option<tokio::task::JoinHandle<()>>,
 }
 impl Bootstrap {
     /// Own fresh development state. No live repository, .env, arbitrary command
@@ -544,6 +616,8 @@ impl Bootstrap {
             status,
             domain_closed: false,
             store_closed: false,
+            ceiling_sweep_period: CEILING_SWEEP_PERIOD,
+            ceiling_sweep: None,
         })
     }
     pub fn status(&self) -> Status {
@@ -552,6 +626,13 @@ impl Bootstrap {
     /// Install an already validated startup asset owner before HTTP admission.
     pub fn with_console(mut self, console: crate::console::Console) -> Self {
         self.app = self.app.with_console(console);
+        self
+    }
+    /// Override the ceiling-overrun sweep cadence (ADR-124 slice b). The
+    /// production default is [`CEILING_SWEEP_PERIOD`] (hourly, the retained
+    /// cadence); tests inject a short one here rather than sleeping.
+    pub fn with_ceiling_sweep_period(mut self, period: Duration) -> Self {
+        self.ceiling_sweep_period = period;
         self
     }
     /// Borrowing close retains this original owner/writer wrapper on failure.
@@ -570,6 +651,9 @@ impl Bootstrap {
         }
         if let Some(driver) = &self.driver {
             driver.cancel();
+        }
+        if let Some(sweep) = &mut self.ceiling_sweep {
+            sweep.abort();
         }
         if let Some(palpo) = &self.palpo {
             palpo.cancel();
@@ -665,6 +749,14 @@ impl Bootstrap {
                 self.status.clone(),
             )?);
         }
+        // Hourly ceiling-overrun sweep (ADR-124 slice b): started beside the
+        // other background owners, after the writer exists and before serving.
+        let (ceiling_sweep, _) = start_ceiling_sweep(
+            self.domain.clone(),
+            shutdown.clone(),
+            self.ceiling_sweep_period,
+        );
+        self.ceiling_sweep = Some(ceiling_sweep);
         tracing::trace!(target: "hagency_startup_observation", "native startup boundary: serving");
         tracing::info!("native service ready; production Agent execution remains unavailable");
         tokio::select! {

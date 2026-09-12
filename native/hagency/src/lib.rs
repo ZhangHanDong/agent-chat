@@ -1,5 +1,6 @@
 use hagency_core::custody::{Delivery, MAX_DELIVERY_BYTES};
 use hagency_store::{DomainStore, Error, Store};
+mod alerts;
 pub mod bootstrap;
 pub mod console;
 pub(crate) mod file_service;
@@ -101,6 +102,7 @@ impl App {
                     .push(Router::with_path("capabilities").get(capabilities))
                     .push(resources::router())
                     .push(usage::router())
+                    .push(alerts::router())
                     .push(console::operator_router())
                     .push(Router::with_path("custody").post(receive)),
             )

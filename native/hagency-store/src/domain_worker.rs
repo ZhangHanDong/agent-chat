@@ -1,6 +1,6 @@
 use crate::{
-    DomainRepository, Effect, EffectOutcome, Error, ShutdownOutcome, ShutdownSnapshot,
-    SweepOutcome,
+    CeilingAlert, DomainRepository, Effect, EffectOutcome, Error, ShutdownOutcome,
+    ShutdownSnapshot, SweepOutcome,
     shutdown::{Phase, Probe, mark},
 };
 use hagency_core::approvals::{
@@ -2550,6 +2550,11 @@ impl DomainStore {
     /// caller so tests drive it directly; no timer is attached in this slice.
     pub async fn sweep_ceiling_overruns(&self, now: u64) -> Result<SweepOutcome, Error> {
         self.call(weight(&now)?, move |db| db.sweep_ceiling_overruns(now))
+            .await
+    }
+    /// Open ceiling alerts for the operator read (ADR-124 slice b).
+    pub async fn open_ceiling_alerts(&self, limit: u32) -> Result<Vec<CeilingAlert>, Error> {
+        self.call(weight(&limit)?, move |db| db.open_ceiling_alerts(limit))
             .await
     }
     /// Host-only concrete publication command; never part of RunnerCommand.

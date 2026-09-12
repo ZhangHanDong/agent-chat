@@ -100,3 +100,21 @@ Scenario: The native sweep matches the retained JavaScript
   Given the regenerated oracle vectors computed by the retained sweep
   When the native sweep replays each seed
   Then raised, updated, resolved and final-row state agree, including the month-rollover unknown-not-zero rule
+
+Scenario: The alerts read requires operator authority
+  Test: native_alerts_read_requires_operator_authority
+  Given the alerts route behind the operator boundary
+  When a request arrives without the token, with a wrong token, with a foreign origin or forwarded header, or with an invalid limit
+  Then it is refused exactly as the usage read is, and no other method is admitted
+
+Scenario: The alerts read publishes open ceiling alerts
+  Test: native_alerts_read_publishes_open_ceiling_alerts
+  Given two seeded overruns swept into open alerts and one resolved alert
+  When an operator reads /api/native/v1/alerts
+  Then every retained field is present with the parsed detail object and raw numbers, resolved alerts are absent, and the limit is respected newest-first
+
+Scenario: The sweep loop runs on its period and survives a busy writer
+  Test: native_alert_sweep_runs_hourly_and_survives_busy
+  Given the sweep loop on a short injected period and an open alert
+  When one tick is observed, the writer is held busy so a tick is refused, and the hold is released
+  Then the loop keeps running and the tick after release sweeps again, awaited on the observation hook without sleeping

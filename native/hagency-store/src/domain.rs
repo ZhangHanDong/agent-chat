@@ -24,7 +24,7 @@ mod catalog_publication;
 pub use attachments::AttachmentTicket;
 pub use catalog_publication::PublishedCatalog;
 mod ceiling_alerts;
-pub use ceiling_alerts::SweepOutcome;
+pub use ceiling_alerts::{CeilingAlert, MAX_OPEN_CEILING_ALERTS, SweepOutcome};
 mod conversation_lifecycle;
 mod conversations;
 mod execution;
