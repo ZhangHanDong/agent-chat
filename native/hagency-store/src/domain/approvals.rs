@@ -97,18 +97,51 @@ fn request(db: &Connection, id: &str) -> Result<(Context, Request), Error> {
 }
 fn live(db: &Connection, c: &Context, now: u64) -> Result<(), Error> {
     let current:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM runner_dispatches d JOIN resource_leases lease ON lease.dispatch_id=d.id AND lease.resource_id=?3 JOIN workspace_resources resource ON resource.id=lease.resource_id AND resource.dirty=0 JOIN dispatch_resources intended ON intended.dispatch_id=d.id AND intended.resource_id=lease.resource_id WHERE d.id=?1 AND d.fence=?2 AND d.state IN ('started','parked') AND d.lease_until>?4 AND d.capability_until>?4 AND (?5=0 OR (lease.exclusive=1 AND intended.exclusive=1)))",params![c.dispatch,c.fence,c.resource,now,c.may_write],|r|r.get(0))?;
-    if !current
-        || binding(db, &c.binding.engagement)? != c.binding
-        || matrix_routes::route(db, &c.route.session_id)? != c.route
-    {
-        return Err(Error::RunnerAuthority);
+    // Temporary hosted-Windows diagnostic (debug builds only): name the term
+    // that refuses. Remove once the refusing predicate is identified.
+    let refuse = |term: &str, detail: String| -> Error {
+        #[cfg(debug_assertions)]
+        eprintln!("approval liveness refused: {term}: {detail}");
+        let _ = (term, detail);
+        Error::RunnerAuthority
+    };
+    if !current {
+        return Err(refuse("dispatch", format!("now {now} {:?}", c.dispatch)));
+    }
+    let derived = binding(db, &c.binding.engagement)?;
+    if derived != c.binding {
+        return Err(refuse(
+            "binding",
+            format!(
+                "derived {} context {}",
+                serde_json::to_string(&derived).unwrap_or_default(),
+                serde_json::to_string(&c.binding).unwrap_or_default()
+            ),
+        ));
+    }
+    let route = matrix_routes::route(db, &c.route.session_id)?;
+    if route != c.route {
+        return Err(refuse(
+            "route",
+            format!(
+                "derived {} context {}",
+                serde_json::to_string(&route).unwrap_or_default(),
+                serde_json::to_string(&c.route).unwrap_or_default()
+            ),
+        ));
     }
     let task = execution::task(db, &c.task)?;
     if task.session_id != c.route.session_id
         || task.execution_epoch != c.epoch
         || task.status == TaskState::Done
     {
-        return Err(Error::RunnerAuthority);
+        return Err(refuse(
+            "task",
+            format!(
+                "session {} epoch {} status {:?} context epoch {}",
+                task.session_id, task.execution_epoch, task.status, c.epoch
+            ),
+        ));
     }
     Ok(())
 }
@@ -614,6 +647,20 @@ fn decide_verdict(
         || input.sender_mxid != c.binding.owner
         || input.binding_generation != c.binding.generation
     {
+        // Temporary hosted-Windows diagnostic (debug builds only).
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "approval verdict refused: binding fields: encrypted {} server {}/{} room {}/{} sender {}/{} generation {}/{}",
+            input.encrypted,
+            input.server_name,
+            c.binding.server,
+            input.room_id,
+            c.binding.room,
+            input.sender_mxid,
+            c.binding.owner,
+            input.binding_generation,
+            c.binding.generation
+        );
         return Err(Error::RunnerAuthority);
     }
     let (digest, state, expires, scope, kind): (
@@ -628,6 +675,12 @@ fn decide_verdict(
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
     )?;
     if digest != input.request_digest || expires <= now {
+        // Temporary hosted-Windows diagnostic (debug builds only).
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "approval verdict refused: digest match {} expires {expires} now {now}",
+            digest == input.request_digest
+        );
         return Err(Error::RunnerAuthority);
     }
     let source = canonical::digest(&json!([input.server_name, input.event_id]))?;
@@ -648,6 +701,9 @@ fn decide_verdict(
         return summary(tx, &input.request_id);
     }
     if state != "pending" {
+        // Temporary hosted-Windows diagnostic (debug builds only).
+        #[cfg(debug_assertions)]
+        eprintln!("approval verdict refused: state {state}");
         return Err(Error::RunnerAuthority);
     }
     let grant = if matches!(input.choice, ApprovalChoice::Task | ApprovalChoice::Always) {
