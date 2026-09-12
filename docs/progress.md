@@ -7762,3 +7762,37 @@ client qualification and ongoing identity/key management remain separate.
   `WriteAccepted`; M2 → truthful `Failure::Protocol`, and the middle-case
   test correctly fails on that path). Gates re-run clean after the
   corrections.
+
+## 2026-09-12 — In-flight approval scenario made deterministic on macOS
+
+- The macOS flake in `native_owned_approval_in_flight_resolution_completes_write`
+  is a test-side ordering race, now explained and closed. (i) The test set
+  `gate.release` before writing the probe's `approval-release` marker, so the
+  host left the recheck hold and armed/wrote its frame while the probe's
+  `resolved()` was still in flight; `Drive::pump` also polls the wire during
+  every store future, so in losing runs the resolution was parsed and consumed
+  by an earlier pump while the entry had only `retained, acknowledged`
+  (pre-admission). `gate.entered` proves only that the recheck hold was
+  reached — never that the resolution was emitted while in flight. (ii) When
+  that pre-admission resolution is consumed by `send_prepared_inner`, the send
+  pops it before writing and returns `PreparedUpdate::Update`; the drive
+  re-enters the send with the same retained frame, but the resolution had
+  already removed `server_pending`, so the write hits `Transport(Closed)` and
+  the operation fails `Failure::Protocol` (0 of 51 bytes) — a real M2-shaped
+  hazard the scenario must not drive.
+- The fix is a three-way handshake, still harness-only: the test writes the
+  release marker first; the probe emits `resolved("approval-1")` and then
+  writes a new `approval-resolving` marker; the test waits for that marker
+  before setting `gate.release`. The resolution is therefore provably on the
+  wire while the host is provably held in flight, and the send that follows
+  can never race it. The orchestrator's macOS-aware verdict edit is applied:
+  the bare `assert!(report.failure.is_none())` became the crate's
+  `CleanupUnknown`-on-macOS expectation with the runtime observation and
+  cancellation trace in the message.
+- Gates: fmt, clippy (execution + runtime, all targets), and
+  `cargo check --tests` pass; the repository-free unit tests
+  (`native_approval_trace_labels_every_phase`,
+  `native_settlement_cause_markers_are_distinct`) pass. The scenario itself
+  cannot run in this sandbox (EPERM on the SQLite repository open at fixture
+  setup); determinism is argued from the trace labels above and the
+  orchestrator validates on the VM.

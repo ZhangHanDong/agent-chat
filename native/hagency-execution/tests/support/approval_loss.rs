@@ -747,10 +747,26 @@ async fn native_owned_approval_in_flight_resolution_completes_write() {
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    // The host is in flight at the gate; release both halves. The probe now
-    // emits the resolution BEFORE the write, which is the state under test.
-    gate.release.store(true, Ordering::Release);
+    // Deterministic ordering, proven by the trace labels. The host is held at
+    // the recheck gate with `in_flight` set and the frame armed (the gate
+    // fires only after `check_approval_response` succeeds, which requires the
+    // arm). Write the release marker FIRST so the probe emits the resolution
+    // while the host is still held: `Drive::pump` polls the wire while it
+    // awaits the held future, so the resolution is parsed and consumed during
+    // the hold — the exact middle case (in-flight, write pending, `Ok(false)`
+    // from the resolution arm, no cancellation). Only after the probe
+    // confirms emission (`approval-resolving`) is the gate released, so the
+    // send that follows can never race the resolution bytes.
     std::fs::write(work.join("owned-dispatch.approval-release"), b"release").unwrap();
+    let sent = tokio::time::Instant::now() + Duration::from_secs(2);
+    while !work.join("owned-dispatch.approval-resolving").exists() {
+        assert!(
+            tokio::time::Instant::now() < sent,
+            "probe never emitted the in-flight resolution"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    gate.release.store(true, Ordering::Release);
     let report = op.wait().await.unwrap();
     assert_eq!(
         report.protocol,
@@ -760,7 +776,22 @@ async fn native_owned_approval_in_flight_resolution_completes_write() {
         report.runtime_observation(),
         crate::approval::diagnostics::last_cancellation_trace(&cap.dispatch_id)
     );
-    assert!(report.failure.is_none());
+    // The crate's macOS verdict: CleanupUnknown where the retained owner keeps
+    // process custody, no failure otherwise. Runtime observation and trace in
+    // the message attribute a surprise verdict instead of hiding it.
+    let expected = if cfg!(target_os = "macos") {
+        Some(Failure::CleanupUnknown)
+    } else {
+        None
+    };
+    assert_eq!(
+        report.failure,
+        expected,
+        "{:?} {:?}; {}",
+        report.failure,
+        report.runtime_observation(),
+        crate::approval::diagnostics::last_cancellation_trace(&cap.dispatch_id)
+    );
     assert_eq!(host_response_frames(&work).len(), 1);
     assert_eq!(probe_read_frames(&work).len(), 1);
     let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();

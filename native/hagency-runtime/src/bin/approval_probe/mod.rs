@@ -83,6 +83,10 @@ pub(super) fn run(mode: &str, reader: &mut impl BufRead, marker: &Path) -> io::R
         announce(marker, "approval-ready")?;
         await_release(marker, "approval-release")?;
         resolved("approval-1")?;
+        // Handshake: the resolution bytes are on the wire. The test waits for
+        // this marker before releasing the host's gate, so the resolution can
+        // never be emitted before the host is in flight nor after the write.
+        fs::write(marker.with_extension("approval-resolving"), b"resolving")?;
         let response = read(reader, marker)?;
         let id = response["id"].as_str().ok_or(io::ErrorKind::InvalidData)?;
         if !id.starts_with("approval-")
