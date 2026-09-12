@@ -193,6 +193,13 @@ pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
         let intended = dump("dispatch_resources");
         let tasks = dump("canonical_tasks");
         let requests = dump("owner_approvals");
+        // The route check consults the current_matrix_routes view; dump it
+        // and every table it joins so an empty view names the missing join.
+        let current_routes = dump("current_matrix_routes");
+        let sessions = dump("runner_sessions");
+        let transports = dump("matrix_transports");
+        let scopes = dump("matrix_room_scopes");
+        let memberships = dump("matrix_room_memberships");
         // Replica of the writer's liveness predicate with this test's clock,
         // split so a hosted refusal names the failing term.
         let replica = |sql_text: &str| -> String {
@@ -214,7 +221,7 @@ pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
             "SELECT EXISTS(SELECT 1 FROM runner_dispatches d JOIN resource_leases lease ON lease.dispatch_id=d.id AND lease.resource_id=?3 JOIN workspace_resources resource ON resource.id=lease.resource_id AND resource.dirty=0 JOIN dispatch_resources intended ON intended.dispatch_id=d.id AND intended.resource_id=lease.resource_id WHERE d.id=?1 AND d.fence=?2 AND ?4=?4 AND ?5=?5)",
         );
         panic!(
-            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}; live_full {live_full} live_dispatch {live_dispatch} live_joins {live_joins}; leases [{resources}]; intended [{intended}]; contexts [{contexts}]; routes [{routes}]; bindings [{bindings}]; current_bindings [{current_bindings}]; rooms [{rooms}]; tasks [{tasks}]; requests [{requests}]",
+            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}; live_full {live_full} live_dispatch {live_dispatch} live_joins {live_joins}; leases [{resources}]; intended [{intended}]; contexts [{contexts}]; routes [{routes}]; bindings [{bindings}]; current_bindings [{current_bindings}]; rooms [{rooms}]; tasks [{tasks}]; requests [{requests}]; current_routes [{current_routes}]; sessions [{sessions}]; transports [{transports}]; scopes [{scopes}]; memberships [{memberships}]",
             f.state(),
             now(),
             f.marker().exists()
