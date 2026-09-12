@@ -111,7 +111,11 @@ fn native_ceiling_unknown_spend_falls_back_to_commitments() {
     // was consumed: spend stays unknown and the commitment stands alone.
     let value = vectors();
     let mut f = Fixture::new(Framework::Claude);
-    let at = observe(&mut f, named(&value, "month-roll-unknown"));
+    let vector = named(&value, "month-roll-unknown");
+    let last = observe(&mut f, vector);
+    // The vector queries after the period rolled over, where no bucket exists;
+    // at the observation instant itself the bucket is present and measured.
+    let at = vector["queryAt"].as_u64().unwrap_or(last);
     let r = report(&f, at);
     assert_eq!(r.spent, None);
     assert_eq!(r.consumed, None);
