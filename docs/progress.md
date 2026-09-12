@@ -7072,3 +7072,14 @@ client qualification and ongoing identity/key management remain separate.
   `clock_fixtures` include instead. All eight bound scenarios
   pass locally: identity, preparation, association, retirement, schema22,
   host consumer, owned current and the offline CLI, plus the bootstrap check.
+- Hosted run for `5c8312e`: Node CI, console-browser and macOS green. Ubuntu
+  failed once in the new `native_private_approval_fresh_enrollment_and_delivery_after_expired_refusal`;
+  it passed three consecutive runs in the local Linux container, so it is a
+  hosted-runner timing flake, not a regression. Windows: the verdict diagnostics
+  show `native_owned_approval_resume` refused with the request pending, the
+  dispatch parked and the card unexpired, so the liveness predicate (dispatch
+  lease, capability, resource lease, workspace dirty flag or task epoch) is what
+  refuses; the fixture now prints those facts. `native_account_host_consumer`
+  hit ERROR_SHARING_VIOLATION renaming a retained namespace directory; on
+  Windows the retained handle refuses the rename itself, which the test now
+  asserts instead of continuing the Unix replacement flow.

@@ -22,7 +22,21 @@ async fn native_account_host_consumer() {
         }
         if choice == "replacement" {
             let original = f.root.path().join("state").join(&ids[0]);
-            fs::rename(&original, original.with_extension("retained-original")).unwrap();
+            let renamed = fs::rename(&original, original.with_extension("retained-original"));
+            if cfg!(windows) {
+                // The retained directory handle refuses the rename itself on
+                // Windows (ERROR_SHARING_VIOLATION); the namespace cannot be
+                // replaced under the original handle, which is the property
+                // the Unix branch proves through the mismatch below.
+                let error = renamed.expect_err("Windows rename of a retained namespace");
+                assert_eq!(error.raw_os_error(), Some(32), "{error}");
+                assert_eq!(
+                    fs::read_to_string(original.join("fixture-account-marker")).unwrap(),
+                    "selected-A"
+                );
+                continue;
+            }
+            renamed.unwrap();
             hagency_store::private::create_directory_new(&original).unwrap();
             fs::write(original.join("fixture-account-marker"), "selected-A").unwrap();
         }

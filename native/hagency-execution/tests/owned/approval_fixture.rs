@@ -90,8 +90,27 @@ pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
         // Hosted Windows has refused verdicts here without any local
         // reproduction; report the retained state instead of a bare unwrap.
         let summary = f.domain.approval_summary(id.into()).await.map(|s| s.state);
+        let sql = f.sql();
+        let liveness = sql
+            .query_row(
+                "SELECT d.state,d.fence,d.lease_until,d.capability_until,(SELECT COUNT(*) FROM resource_leases l WHERE l.dispatch_id=d.id),(SELECT group_concat(w.id||':'||w.dirty) FROM workspace_resources w),(SELECT json_extract(t.config,'$.execution_epoch') FROM canonical_tasks t WHERE t.id=d.task_id) FROM runner_dispatches d WHERE d.id='dispatch'",
+                [],
+                |r| {
+                    Ok(format!(
+                        "state {} fence {} lease_until {} capability_until {} leases {} workspaces {:?} task_epoch {:?}",
+                        r.get::<_, String>(0)?,
+                        r.get::<_, u64>(1)?,
+                        r.get::<_, Option<u64>>(2)?.map_or("null".into(), |v| v.to_string()),
+                        r.get::<_, Option<u64>>(3)?.map_or("null".into(), |v| v.to_string()),
+                        r.get::<_, u64>(4)?,
+                        r.get::<_, Option<String>>(5)?,
+                        r.get::<_, Option<i64>>(6)?
+                    ))
+                },
+            )
+            .unwrap_or_else(|e| format!("liveness query failed: {e}"));
         panic!(
-            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}",
+            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}",
             f.state(),
             now(),
             f.marker().exists()
