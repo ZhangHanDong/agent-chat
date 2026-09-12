@@ -188,9 +188,33 @@ pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
         };
         let routes = dump("matrix_session_routes");
         let bindings = dump("approval_bindings");
+        let current_bindings = dump("current_approval_bindings");
+        let rooms = dump("approval_rooms");
+        let intended = dump("dispatch_resources");
+        let tasks = dump("canonical_tasks");
         let requests = dump("owner_approvals");
+        // Replica of the writer's liveness predicate with this test's clock,
+        // split so a hosted refusal names the failing term.
+        let replica = |sql_text: &str| -> String {
+            sql.query_row(
+                sql_text,
+                rusqlite::params!["dispatch", 1u64, "work", now(), true],
+                |r| r.get::<_, bool>(0),
+            )
+            .map(|v| v.to_string())
+            .unwrap_or_else(|e| format!("error: {e}"))
+        };
+        let live_full = replica(
+            "SELECT EXISTS(SELECT 1 FROM runner_dispatches d JOIN resource_leases lease ON lease.dispatch_id=d.id AND lease.resource_id=?3 JOIN workspace_resources resource ON resource.id=lease.resource_id AND resource.dirty=0 JOIN dispatch_resources intended ON intended.dispatch_id=d.id AND intended.resource_id=lease.resource_id WHERE d.id=?1 AND d.fence=?2 AND d.state IN ('started','parked') AND d.lease_until>?4 AND d.capability_until>?4 AND (?5=0 OR (lease.exclusive=1 AND intended.exclusive=1)))",
+        );
+        let live_dispatch = replica(
+            "SELECT EXISTS(SELECT 1 FROM runner_dispatches d WHERE d.id=?1 AND d.fence=?2 AND d.state IN ('started','parked') AND d.lease_until>?4 AND d.capability_until>?4 AND ?3=?3 AND ?5=?5)",
+        );
+        let live_joins = replica(
+            "SELECT EXISTS(SELECT 1 FROM runner_dispatches d JOIN resource_leases lease ON lease.dispatch_id=d.id AND lease.resource_id=?3 JOIN workspace_resources resource ON resource.id=lease.resource_id AND resource.dirty=0 JOIN dispatch_resources intended ON intended.dispatch_id=d.id AND intended.resource_id=lease.resource_id WHERE d.id=?1 AND d.fence=?2 AND ?4=?4 AND ?5=?5)",
+        );
         panic!(
-            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}; leases [{resources}]; contexts [{contexts}]; routes [{routes}]; bindings [{bindings}]; requests [{requests}]",
+            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}; live_full {live_full} live_dispatch {live_dispatch} live_joins {live_joins}; leases [{resources}]; intended [{intended}]; contexts [{contexts}]; routes [{routes}]; bindings [{bindings}]; current_bindings [{current_bindings}]; rooms [{rooms}]; tasks [{tasks}]; requests [{requests}]",
             f.state(),
             now(),
             f.marker().exists()
