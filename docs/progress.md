@@ -7100,3 +7100,16 @@ client qualification and ongoing identity/key management remain separate.
   the Native Rust workflow keeps the verdict. Default selectors: the two
   owned-approval fixtures, the cancellation fixture and the Palpo hostname
   mismatch test that failed on hosted Windows.
+- Probe evidence (runs 34666824897, 34666903801, 34667077363, 34667172019):
+  on hosted Ubuntu the two approval-delivery tests pass ten of ten serially,
+  so their full-suite timeouts are CPU contention from the parallel matrix
+  crate; the delivery fixture now keeps its own HTTP budgets (connect 2 s,
+  headers 2 s, request 4 s, body idle 1 s, SDK 20 s) since no delivery
+  scenario expects a timeout. On hosted Windows, serial and isolated, the
+  Palpo hostname-mismatch test and the barriers and cancellation fixtures
+  pass five of five; `native_owned_approval_resume` fails five of five with
+  RunnerAuthority on every retry. Its dumped rows show a pending request, a
+  parked dispatch with a live exclusive lease, a clean workspace, epoch 0, a
+  consistent route and binding, and a callback cwd of the verbatim
+  `\\?\C:\...` form with no reusable scope, which a Once or Deny verdict does
+  not need. The refusing predicate is still unidentified.

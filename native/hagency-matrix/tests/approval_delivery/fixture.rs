@@ -13,6 +13,21 @@ pub fn now() -> u64 {
         .unwrap()
         .as_millis() as u64
 }
+/// Hosted runners execute the whole matrix crate in parallel; these deliveries
+/// then exceeded the shared 900 ms request budget while passing ten of ten
+/// serial probe iterations on the same runner. No delivery scenario expects an
+/// HTTP timeout, so this suite keeps its own fixture budgets. Production
+/// limits are unchanged.
+pub fn limits() -> hagency_matrix::Limits {
+    hagency_matrix::Limits {
+        connect: std::time::Duration::from_secs(2),
+        headers: std::time::Duration::from_secs(2),
+        request: std::time::Duration::from_secs(4),
+        body_idle: std::time::Duration::from_secs(1),
+        sdk: std::time::Duration::from_secs(20),
+        ..hagency_matrix::Limits::default()
+    }
+}
 pub fn who() -> Value {
     json!({"user_id":BOT,"device_id":DEVICE,"is_guest":false})
 }
@@ -52,7 +67,7 @@ pub fn config(
                 human_mxid: crypto::HUMAN.into(),
             },
         }],
-        common::limits(),
+        limits(),
     )
     .unwrap()
     .with_root_pem(include_bytes!("../fixtures/ca.pem"))
