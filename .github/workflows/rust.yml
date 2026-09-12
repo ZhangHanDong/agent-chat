@@ -39,8 +39,19 @@ jobs:
           export HAGENCY_NATIVE_CONSOLE_ASSETS="$RUNNER_TEMP/native-console-assets"
           export HAGENCY_BROWSER_NODE="$(command -v node)"
           export HAGENCY_BROWSER_CHROME="$(cd mockup && node -e 'process.stdout.write(require("playwright-core").chromium.executablePath())')"
+          # Failure-path screenshots only: the browser drivers skip their
+          # routine screenshots when a native executable is under test.
+          export HAGENCY_CONSOLE_SCREENSHOTS="$RUNNER_TEMP/console-screenshots"
+          mkdir -p "$HAGENCY_CONSOLE_SCREENSHOTS"
           cargo clippy --locked -p hagency --all-targets --features native-console-browser -- -D warnings
           cargo test --locked -p hagency --features native-console-browser --test console -- --nocapture
+      - name: Keep console failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-failure-screenshots
+          path: ${{ runner.temp }}/console-screenshots
+          if-no-files-found: ignore
   native:
     strategy:
       fail-fast: false
@@ -127,6 +138,13 @@ jobs:
         # fixture run distinguishes repeatable failures from concurrent load;
         # it neither widens a production deadline nor counts as a successful retry.
         run: cargo test --locked -p hagency-matrix -p hagency-palpo --test transport --no-fail-fast -- --test-threads=1 --nocapture
+      - name: Diagnose a closed Windows MCP helper transport under the same load
+        if: failure() && runner.os == 'Windows' && steps.native-tests.outcome == 'failure'
+        timeout-minutes: 6
+        # The MCP catalog failure has only been seen under parallel load, so a
+        # serial re-run would hide it; the fixture now reports the helper's
+        # try_wait state when tools/list fails. Diagnostic only, never a retry.
+        run: cargo test --locked -p hagency --test mcp_coordination --no-fail-fast -- --test-threads=8 --nocapture
       - name: Qualify Linux cgroup recovery on a disposable hosted VM
         if: runner.os == 'Linux'
         shell: bash

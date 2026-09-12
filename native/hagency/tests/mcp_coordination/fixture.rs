@@ -257,11 +257,22 @@ pub struct Client {
     child: Child,
 }
 impl Client {
-    /// Diagnostic only: expose the helper's exit state so a `TransportClosed`
-    /// can be attributed to "helper exited" rather than "pipe closed while
-    /// alive". `try_wait` is non-blocking and does not reap a running child.
-    pub fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
-        self.child.try_wait()
+    /// Diagnostic only: attribute a `TransportClosed` to "helper exited"
+    /// (with its exit status and everything it wrote to stderr, otherwise
+    /// only read at `close()`) rather than "pipe closed while alive".
+    /// `try_wait` is non-blocking and does not reap a running child.
+    pub async fn exit_evidence(&mut self) -> String {
+        match self.child.try_wait() {
+            Ok(Some(status)) => {
+                let mut stderr = String::new();
+                if let Some(mut pipe) = self.child.stderr.take() {
+                    use tokio::io::AsyncReadExt;
+                    let _ = pipe.read_to_string(&mut stderr).await;
+                }
+                format!("helper exited {status:?}; stderr={stderr:?}")
+            }
+            other => format!("helper try_wait={other:?}"),
+        }
     }
     pub async fn new(address: SocketAddr, cap: &RunnerCapability, task: &str) -> Self {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_hagency"));

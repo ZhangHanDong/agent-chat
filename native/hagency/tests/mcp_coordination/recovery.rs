@@ -122,8 +122,8 @@ async fn native_mcp_coordination_catalog() {
     let tools = match c.service.list_all_tools().await {
         Ok(tools) => tools,
         Err(error) => {
-            let status = c.try_wait();
-            panic!("tools/list failed: {error:?}; helper try_wait={status:?}");
+            let evidence = c.exit_evidence().await;
+            panic!("tools/list failed: {error:?}; {evidence}");
         }
     };
     let names: std::collections::BTreeSet<_> = tools.iter().map(|t| t.name.as_ref()).collect();

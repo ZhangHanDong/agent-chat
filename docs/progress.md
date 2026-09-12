@@ -7658,3 +7658,11 @@ client qualification and ongoing identity/key management remain separate.
   always known; used and remaining null when unmeasured or undeclared) and
   the usage page renders it bilingually next to the summary. Verified with
   the real browser: all 13 console tests pass.
+- 2026-09-12: MCP catalog failure attributed on the Windows VM: one of ten
+  eight-thread runs failed `tools/list` with `TransportClosed` and the new
+  diagnostic reported `helper try_wait=Ok(Some(ExitStatus(1)))`, so the
+  helper child exits under load rather than closing its pipe while alive.
+  The fixture now reads the exited helper's stderr at the failure point.
+  The workflow gains a Windows MCP diagnosis step at eight threads (a serial
+  re-run would hide a load-only failure) and keeps console failure
+  screenshots as an artifact.
