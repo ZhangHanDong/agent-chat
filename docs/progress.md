@@ -7355,3 +7355,9 @@ client qualification and ongoing identity/key management remain separate.
   and `native_file_service_shutdown_original_job_unwind` once; no shutdown
   timeout on the VM at all. The barrier selector is now being run on the
   VM alone and under the owned binary's own eight-way load with full output.
+- The reader replay test imported a Unix-only permissions extension
+  unconditionally, so every Windows build of the workspace test targets
+  failed to compile at `b1c1634` (caught on the operator VM before the
+  hosted run reported). The unreadable-directory vector is now Unix-only
+  and skipped elsewhere with a printed reason; the other vectors replay on
+  every OS.

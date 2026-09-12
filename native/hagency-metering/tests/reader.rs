@@ -13,6 +13,7 @@
 
 use std::fs;
 use std::ops::Deref;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -138,20 +139,33 @@ fn native_metering_reader_vectors() {
         // mask actually denies the walk; when record and replay disagree on
         // denial, the environment differs and comparison is skipped.
         if let Some(recorded_denied) = vector["denied"].as_bool() {
-            let denied_dir = home.join(".codex/sessions/2026/09/01/锁");
-            let _ = fs::set_permissions(&denied_dir, fs::Permissions::from_mode(0o000));
-            let denied = fs::read_dir(&denied_dir).is_err();
-            let _ = fs::set_permissions(&denied_dir, fs::Permissions::from_mode(0o755));
-            if denied != recorded_denied {
-                eprintln!("skipping {name}: directory denial differs in this environment");
+            // A POSIX permission mask is the only portable way to deny a
+            // directory walk; Windows ACLs are not modelled here, so the
+            // vector is skipped rather than compared against a walk that
+            // was never denied.
+            #[cfg(not(unix))]
+            {
+                let _ = recorded_denied;
+                eprintln!("skipping {name}: no permission mask denies a directory walk here");
                 continue;
             }
-            // Rebuild the mask for the actual read below.
-            let _ = fs::set_permissions(&denied_dir, fs::Permissions::from_mode(0o000));
-            let result = run_read(vector, &home, now);
-            let _ = fs::set_permissions(&denied_dir, fs::Permissions::from_mode(0o755));
-            assert_read_matches(vector, &result, &home, name);
-            continue;
+            #[cfg(unix)]
+            {
+                let denied_dir = home.join(".codex/sessions/2026/09/01/锁");
+                let _ = fs::set_permissions(&denied_dir, fs::Permissions::from_mode(0o000));
+                let denied = fs::read_dir(&denied_dir).is_err();
+                let _ = fs::set_permissions(&denied_dir, fs::Permissions::from_mode(0o755));
+                if denied != recorded_denied {
+                    eprintln!("skipping {name}: directory denial differs in this environment");
+                    continue;
+                }
+                // Rebuild the mask for the actual read below.
+                let _ = fs::set_permissions(&denied_dir, fs::Permissions::from_mode(0o000));
+                let result = run_read(vector, &home, now);
+                let _ = fs::set_permissions(&denied_dir, fs::Permissions::from_mode(0o755));
+                assert_read_matches(vector, &result, &home, name);
+                continue;
+            }
         }
 
         let result = run_read(vector, &home, now);
