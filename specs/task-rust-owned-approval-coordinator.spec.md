@@ -149,6 +149,12 @@ Scenario: A resolved-away frame is never sent
   When the host reaches the send
   Then the operation reports ResponseUnavailable never Closed and no frame reaches the wire
 
+Scenario: Unparsed transport input survives a mid-write read
+  Test: native_transport_hold_keeps_unparsed_input
+  Given a frame with accepted unflushed bytes while the peer delivers its resolution and further stdout
+  When the read window opens mid-write
+  Then every byte parses in order after the flush with nothing lost and the resolution follows the receipt
+
 ## Out of Scope
 
 Application bootstrap selection and request delivery, private SDK collection,

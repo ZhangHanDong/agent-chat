@@ -499,6 +499,12 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> Driver<R
             .writing
             .as_ref()
             .is_some_and(|w| w.offset == w.bytes.len() && !w.flushed);
+        // A read may only ever overwrite an EMPTY buffer. F1 lets control reach
+        // this select with unparsed bytes still in `input` (mid-write, parse
+        // suppressed); without this guard the read arm would reset
+        // `input_start`/`input_end` and silently discard them. Mirrors the
+        // invariant the old early return used to provide for free.
+        let read_ready = self.input_start == self.input_end;
         let observed = tokio::select! {
             _ = tokio::time::sleep_until(deadline) => Observed::Deadline,
             result = async {
@@ -509,7 +515,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> Driver<R
                     }
                 } else { Observed::Flush(streams.stdin.flush().await) }
             }, if write_active || flush_active => result,
-            result = streams.stdout.read(&mut self.input) => Observed::Read(result),
+            result = streams.stdout.read(&mut self.input), if read_ready => Observed::Read(result),
             result = streams.stderr.read(&mut self.stderr_buffer), if self.stderr_open => Observed::Stderr(result),
         };
         match observed {
@@ -536,5 +542,171 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> Driver<R
             | Observed::Stderr(Err(_)) => return Err(Error::Io),
         }
         self.check(operation_deadline)
+    }
+}
+
+#[cfg(test)]
+mod hold_tests {
+    //! The F1 hold: unparsed input survives a mid-write read window.
+    use super::*;
+    use crate::codex::approval::ApprovalRequest;
+    use serde_json::{Value, json};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
+    use tokio::time::{Instant, sleep, timeout};
+
+    fn limits() -> Limits {
+        Limits {
+            write_timeout_ms: 10_000,
+            event_wait_ms: 1_000,
+            lifetime_ms: 30_000,
+        }
+    }
+    fn line(value: Value) -> Vec<u8> {
+        let mut bytes = serde_json::to_vec(&value).unwrap();
+        bytes.push(b'\n');
+        bytes
+    }
+    async fn read_byte_line(reader: &mut DuplexStream) -> Vec<u8> {
+        timeout(Duration::from_secs(3), async {
+            let mut bytes = Vec::new();
+            loop {
+                let byte = reader.read_u8().await.unwrap();
+                bytes.push(byte);
+                if byte == b'\n' {
+                    return bytes;
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+    fn approval_params() -> Value {
+        json!({"threadId":"owned-thread","turnId":"owned-turn","itemId":"approval-1",
+            "startedAtMs":1,"command":"echo x","cwd":"/tmp"})
+    }
+
+    /// The peer's stdout delivers `serverRequest/resolved` for the in-flight
+    /// id while the frame has accepted bytes and is not yet flushed (the
+    /// duplex(16) stdin keeps the write pending until the peer drains it),
+    /// more stdout bytes arrive before the flush, and after the flush every
+    /// byte is parsed in order with nothing lost: the resolution is delivered
+    /// after the receipt, then the extra line. A read may only ever
+    /// overwrite an empty buffer — the invariant the guarded read arm
+    /// preserves; without the guard the second stdout read would reset
+    /// `input_start`/`input_end` over the unparsed resolution and destroy it.
+    #[tokio::test(start_paused = true)]
+    async fn native_transport_hold_keeps_unparsed_input() {
+        // stdin capacity 16: the 52-byte frame cannot fully fit, so the write
+        // stays mid-flight (accepted, unflushed) until the peer drains it.
+        let (stdin_host, mut peer_in) = tokio::io::duplex(16);
+        let (stdout_host, mut peer_out) = tokio::io::duplex(65536);
+        let (stderr_host, _peer_err) = tokio::io::duplex(1024);
+        let mut driver = Driver::new(stdout_host, stdin_host, stderr_host, limits()).unwrap();
+        let peer_task = tokio::spawn(async move {
+            read_byte_line(&mut peer_in).await;
+            peer_out
+                .write_all(&line(json!({ "id": 0, "result": {
+                    "userAgent": "fixture/0.153.4", "platformFamily": "unix",
+                    "platformOs": "macos", "codexHome": "/fixture"
+                } })))
+                .await
+                .unwrap();
+            read_byte_line(&mut peer_in).await; // initialized notification
+            peer_out
+                .write_all(&line(json!({
+                    "id": "approval-1", "method": "item/commandExecution/requestApproval",
+                    "params": approval_params()
+                })))
+                .await
+                .unwrap();
+            // Hold the frame mid-write: take a prefix so the pipe is full and
+            // the driver's write arm stays pending with accepted bytes.
+            let mut head = vec![0u8; 8];
+            peer_in.read_exact(&mut head).await.unwrap();
+            // The resolution for the in-flight id, then one more line, both
+            // while the frame is accepted-but-unflushed.
+            peer_out
+                .write_all(&line(json!({"method":"serverRequest/resolved","params":{
+                    "threadId":"owned-thread","requestId":"approval-1"}})))
+                .await
+                .unwrap();
+            peer_out
+                .write_all(&line(json!({"method":"fixture/extra","params":{"n":1}})))
+                .await
+                .unwrap();
+            // Let the driver poll once in this state: input non-empty,
+            // mid-write, stdout readable. Only the guard keeps the read arm
+            // from overwriting the buffered resolution bytes.
+            sleep(Duration::from_millis(10)).await;
+            // Drain the rest of the frame so the write can flush.
+            let mut tail = Vec::new();
+            while tail.last() != Some(&b'\n') {
+                tail.push(peer_in.read_u8().await.unwrap());
+            }
+            let mut frame = head;
+            frame.append(&mut tail);
+            frame
+        });
+        // Handshake to Ready, then receive the approval request.
+        driver
+            .send(Command::Initialize {
+                client_version: "0.1".into(),
+                response_timeout_ms: 1_000,
+            })
+            .await
+            .unwrap();
+        assert!(matches!(
+            driver.next_event().await,
+            Ok(Event::Initialized { .. })
+        ));
+        driver.send(Command::Initialized).await.unwrap();
+        assert!(matches!(
+            driver.next_event().await,
+            Ok(Event::ServerRequest { .. })
+        ));
+        assert_eq!(driver.phase(), Phase::Ready);
+        // Prepare the one-shot decline and drive the prepared send through
+        // the mid-write window above.
+        let request = ApprovalRequest::parse(
+            RequestId::String("approval-1".into()),
+            "item/commandExecution/requestApproval".into(),
+            approval_params(),
+        )
+        .unwrap();
+        let mut prepared = driver
+            .prepare_approval(
+                request.response(false),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .unwrap();
+        let receipt = match driver.send_prepared_or_event(&mut prepared).await.unwrap() {
+            Controlled::Control(write) => write,
+            Controlled::Event(_) => panic!("resolution must not preempt the frame"),
+        };
+        let frame = timeout(Duration::from_secs(3), peer_task)
+            .await
+            .unwrap()
+            .unwrap();
+        // The receipt covers the whole frame and the peer read exactly the
+        // prepared bytes, in order, with nothing overwritten.
+        assert_eq!(receipt.bytes, frame.len());
+        assert_eq!(
+            receipt.request_id,
+            Some(RequestId::String("approval-1".into()))
+        );
+        let sent = serde_json::from_slice::<Value>(&frame).unwrap();
+        assert_eq!(sent["id"], "approval-1");
+        assert_eq!(sent["result"]["decision"], "decline");
+        // After the receipt, the unparsed input parses in arrival order:
+        // the resolution first, then the extra line. Nothing was lost.
+        match driver.next_event().await {
+            Ok(Event::Notification { method, .. }) => assert_eq!(method, "serverRequest/resolved"),
+            _ => panic!("resolution lost or reordered"),
+        }
+        match driver.next_event().await {
+            Ok(Event::Notification { method, .. }) => assert_eq!(method, "fixture/extra"),
+            _ => panic!("extra line lost or reordered"),
+        }
     }
 }

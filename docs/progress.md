@@ -7839,3 +7839,40 @@ client qualification and ongoing identity/key management remain separate.
   spawn wall (PeerEof at initialize), not a regression; the execution
   integration tests are EPERM-blocked on the SQLite repository open as since
   brief 3. The orchestrator runs both on the VM.
+
+## 2026-09-12 — Guard the transport read arm under the F1 hold (blocking review finding)
+
+- An independent review found a blocking defect in brief 10's F1: the hold lets
+  `step()` fall through to its select while `mid_write` is true and unparsed
+  bytes remain in `input`, but the read arm was unguarded and its handler does
+  `input_start = 0; input_end = n` — a stdout read mid-write overwrote unparsed
+  wire bytes. The old early return made the select reachable only with an empty
+  buffer; F1 removed that invariant without replacing it. The route is real:
+  `first_write_step` can deposit bytes at `offset == 0`, the write arm then
+  advances `offset`, and the next `step()` is the one F1 de-suppresses.
+- Fixed with the reviewer's minimal guard exactly: `let read_ready =
+  self.input_start == self.input_end;` before the select, the stdout read arm
+  armed only `if read_ready`, with a comment stating that a read may only ever
+  overwrite an empty buffer and that this mirrors the invariant the early
+  return used to provide. Write/flush/stderr/deadline arms unchanged.
+- The other two read-into-`input` sites need no guard: `control_inner` and
+  `first_write_step` drain `input` via `buffered_event`→`parse_input` before
+  arming reads and run only at `offset == 0` (verified from the code, reported
+  in the ADR sentence).
+- `native_transport_hold_keeps_unparsed_input` (new in-crate `hold_tests`
+  module in `transport.rs` — `prepare_approval`/`send_prepared_or_event` are
+  `pub(in crate::codex)`, so integration-test placement is impossible; stated
+  as the adaptation): the peer task owns the whole wire protocol, holds the
+  52-byte frame mid-write on a duplex(16) stdin, writes the
+  `serverRequest/resolved` for the in-flight id and one more stdout line while
+  the frame is accepted-but-unflushed, sleeps one poll, then drains the frame.
+  The receipt covers the whole frame; afterwards both stdout lines parse in
+  arrival order with nothing lost. The spec gains the scenario with its
+  `Test:` line and ADR-034 gains the read-guard paragraph.
+- Gates: fmt clean; clippy clean on runtime + execution + hagency (all
+  targets); `cargo test -p hagency-runtime --lib --locked` green including the
+  new test (6 passed); `cargo check --tests -p hagency-execution` clean; the
+  repository-free unit tests pass. The execution integration tests remain
+  EPERM-blocked (19, the SQLite repository open) and the runtime owned-pipe
+  suite remains environment-blocked (PeerEof at initialize, pre-existing —
+  proven by the brief-10 stash baseline); the orchestrator runs both on the VM.
