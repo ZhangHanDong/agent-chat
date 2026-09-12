@@ -4,6 +4,10 @@ name: Windows probe
 # replaces the Native Rust workflow's verdict and never publishes artifacts
 # that a release step could consume.
 on:
+  # A workflow_dispatch is only addressable once the file exists on the default
+  # branch. Until then, pushing a `probe/**` branch runs it with the defaults.
+  push:
+    branches: ["probe/**"]
   workflow_dispatch:
     inputs:
       packages:
@@ -39,21 +43,21 @@ jobs:
       - name: Build the selected test targets once
         shell: pwsh
         run: |
-          $packages = "${{ inputs.packages }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
+          $packages = "${{ inputs.packages || 'hagency-execution hagency-palpo' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
           cargo test @packages --all-targets --locked --no-run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run the selectors repeatedly with full output
         shell: pwsh
         run: |
-          $packages = "${{ inputs.packages }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
-          $filters = "${{ inputs.filters }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
-          $repeat = [int]"${{ inputs.repeat }}"
+          $packages = "${{ inputs.packages || 'hagency-execution hagency-palpo' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
+          $filters = "${{ inputs.filters || 'approvals::native_owned_approval_resume approval_loss::native_owned_approval_barriers_pending_receipt approvals::native_owned_approval_cancellation native_outbound_http_authority_tls_and_redaction' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+          $repeat = [int]"${{ inputs.repeat || '5' }}"
           New-Item -ItemType Directory -Force -Path probe-logs | Out-Null
           $failures = 0
           for ($i = 1; $i -le $repeat; $i++) {
             Write-Host "=== probe iteration $i of $repeat ==="
             $PSNativeCommandUseErrorActionPreference = $false
-            cargo test @packages --all-targets --locked -- @filters --nocapture --test-threads=${{ inputs.test_threads }} 2>&1 | Tee-Object -FilePath "probe-logs/iteration-$i.log"
+            cargo test @packages --all-targets --locked -- @filters --nocapture --test-threads=${{ inputs.test_threads || '1' }} 2>&1 | Tee-Object -FilePath "probe-logs/iteration-$i.log"
             if ($LASTEXITCODE -ne 0) { $failures++ }
             "iteration=$i exit=$LASTEXITCODE" | Add-Content probe-logs/summary.txt
           }
