@@ -57,7 +57,7 @@ jobs:
           for ($i = 1; $i -le $repeat; $i++) {
             Write-Host "=== probe iteration $i of $repeat ==="
             $PSNativeCommandUseErrorActionPreference = $false
-            cargo test @packages --all-targets --locked -- @filters --nocapture --test-threads=${{ inputs.test_threads || '1' }} 2>&1 | Tee-Object -FilePath "probe-logs/iteration-$i.log"
+            cargo test @packages --all-targets --locked --no-fail-fast -- @filters --nocapture --test-threads=${{ inputs.test_threads || '1' }} 2>&1 | Tee-Object -FilePath "probe-logs/iteration-$i.log"
             if ($LASTEXITCODE -ne 0) { $failures++ }
             "iteration=$i exit=$LASTEXITCODE" | Add-Content probe-logs/summary.txt
           }
@@ -93,7 +93,7 @@ jobs:
           failures=0
           for i in 1 2 3 4 5; do
             echo "=== probe iteration $i of 5 ==="
-            cargo test -p hagency-matrix --all-targets --locked -- \
+            cargo test -p hagency-matrix --all-targets --locked --no-fail-fast -- \
               approval_delivery::tests::enrollment::native_private_approval_fresh_enrollment_and_delivery_after_expired_refusal \
               approval_delivery::tests::journal::native_private_approval_historical_restart_and_capacity \
               --nocapture --test-threads=1 2>&1 | tee "probe-logs/iteration-$i.log"
