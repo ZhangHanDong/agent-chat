@@ -7232,3 +7232,21 @@ client qualification and ongoing identity/key management remain separate.
   layout facts with the host path module, so the oracle is POSIX-only; the
   CI step is gated to POSIX hosts and the script refuses on win32 with that
   reason, while the Rust replay tests keep running on every OS.
+- Probe run 34681376784 (`probe/windows-shutdown` with the deepened teardown
+  sample, every `hagency` target, eight threads, four iterations) did not
+  reproduce the close stall; iteration 3 instead failed
+  `accounts::native_account_bootstrap` and `native_bootstrap_executable`
+  in the shared fake Matrix server, where the next scripted request did
+  not arrive within the fixture's SDK-plus-HTTP orchestration budget. Same
+  class as the other hosted Windows failures: a fixture bound under
+  whole-process load, not a product deadline. Recorded, not changed.
+- ADR-120 (accepted): both private stores set
+  `SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE` right after open, so a close performs
+  no checkpoint and unlinks neither `-wal` nor `-shm`; the next open replays
+  them. This removes every mechanism the hosted Windows shutdown stall has
+  been placed in (close-time checkpoint and its sync, the refused-delete
+  retry loop, the process-global SHM purge) without touching a budget, phase
+  or verdict. Spec `task-rust-native-bounded-close-path` binds
+  `native_store_close_leaves_wal_for_replay`. Durability stays on
+  `synchronous=FULL` at commit. The whole-package Windows probe decides
+  whether the stall is gone.

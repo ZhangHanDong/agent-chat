@@ -104,6 +104,17 @@ pub(crate) fn open(directory: &Path, definition: Schema) -> Result<Database, Err
             db.prepare(query).map_err(|_| Error::Schema)?;
         }
     }
+    // The close path is a bounded resource release, not a checkpoint (ADR-120).
+    // With checkpoints-on-close disabled SQLite skips the EXCLUSIVE lock and
+    // the PASSIVE checkpoint at close and leaves both the -wal and the -shm in
+    // place instead of unlinking them; committed frames stay in the WAL and
+    // are replayed by the next open, which already admits leftover -wal, -shm
+    // and -journal files above. Every commit is synced under synchronous=FULL,
+    // so no committed data depends on the close-time checkpoint.
+    db.set_db_config(
+        rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+        true,
+    )?;
     db.pragma_update(None, "journal_mode", "WAL")?;
     db.pragma_update(None, "synchronous", "FULL")?;
     db.pragma_update(None, "foreign_keys", "ON")?;
