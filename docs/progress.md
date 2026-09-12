@@ -7250,3 +7250,108 @@ client qualification and ongoing identity/key management remain separate.
   `native_store_close_leaves_wal_for_replay`. Durability stays on
   `synchronous=FULL` at commit. The whole-package Windows probe decides
   whether the stall is gone.
+- Probe run 34681480044 (deepened sample, every `hagency` target, eight
+  threads, four iterations) failed two of four iterations with fourteen
+  distinct tests across the `hagency` library tests (file service, MCP
+  coordination, bootstrap driver) and four `mcp_coordination` domain
+  shutdowns with the same signature as the runner stalls: SQLite close
+  entered, nothing after it, zero writer CPU, four threads of one process.
+  The stall is therefore process-wide under load and not tied to one
+  fixture, which is what ADR-120 addresses; the runner fixture's deepened
+  sample did not fire because its own binary passed in that run.
+- Hosted run for `94c1177`: console-browser and macOS green, Windows
+  cancelled by the following push, Ubuntu failed once on
+  `approvals::native_owned_approval_cancellation` with "notice channel
+  closed" (the operation ended before committing an approval request; the
+  test prints nothing else). Second occurrence of this selector on hosted
+  Ubuntu. Recorded, not changed; the fixture should print the operation
+  report when the notice channel closes before it is treated further.
+- Operator Windows VM (`54.156.69.166`, Server 2025, 4 vCPU, 16 GB, Defender
+  on, MSVC 2022 Build Tools, Rust 1.95.0 MSVC): every `hagency` test target
+  at `94c1177` ran four times under eight test threads with no shutdown
+  stall (0 of 4 failed), so the package-level probe does not reproduce on
+  this VM even though it reproduces one in four on hosted `windows-2025`.
+  The CI-equivalent whole-workspace suite is now running there three times
+  at the same baseline before the ADR-120 tree is tried.
+- Probe run 34682424382 (ADR-120 tree, every `hagency` target, eight
+  threads, four iterations): no domain shutdown timed out in any iteration,
+  the first hosted whole-package run without a `ReplyTimedOut` snapshot.
+  Three of four iterations still failed, dominated by "collector completed
+  before its HTTP script: Err(OutcomeUnknown)" from the shared scripted
+  fixture (`hagency-matrix/tests/common/mod.rs:148`) across file service,
+  owned Matrix and bootstrap tests, plus one fixture orchestration budget
+  and one restart recovery miss. That class also appeared before ADR-120
+  and is the next analysis target; it is a different producer of
+  `OutcomeUnknown` than the domain shutdown.
+
+## 2026-09-12 — Native bounded transcript reader (ADR119)
+
+- Ported `lib/metering/reader.js` to `hagency_metering::reader` (ADR-119,
+  proposed): the four ceilings with their defaults (30-day window, 200 files,
+  8 MiB per transcript, 20 000 walked entries), `ReaderLimits::from_env`
+  parsing explicit strings with the JavaScript `parseInt` positive-integer
+  rule, the breadth-first walk that recurses only where the layout says so
+  (nested Codex date tree recursive, Claude project directory flat), the
+  narrowed-vs-unread age split, newest-first reads under the file ceiling,
+  line-boundary truncation with `lastIndexOf`-exact semantics, and
+  `bounds_report` with the exact JavaScript wording keeping understatement
+  and unknown-ownership claims apart. `meter_fleet` ports the TTL cache
+  (force, `computedAt` stamp, `reset`) keyed over fleet identity and home
+  directory with an injected clock.
+- Gates: `native/scripts/reader-vectors.mjs` records 21 vectors (13 reads,
+  5 reports, 3 fleets) from the retained JavaScript over synthetic trees and
+  its `--check` was added to the Rust CI job after the attribution line;
+  `cargo fmt/clippy -D warnings` and `cargo test -p hagency-metering
+  --locked` (18 tests, five new reader tests) pass locally, plus the
+  attribution and metering vector checks.
+- Operator Windows VM, CI-equivalent whole-workspace suite at `94c1177`,
+  iteration 1: four failures and no domain shutdown timeout
+  (`native_file_service_shutdown_original_job_unwind` on an orchestration
+  `Elapsed`, `approvals::native_owned_approval_barriers`,
+  `approval_loss::native_owned_approval_barriers_pending_receipt`,
+  `card::native_private_approval_card_clock`). The VM reproduces the
+  load-bound fixture class but not the SQLite close stall; the hosted
+  runner reproduces both. Iterations 2 and 3 are running.
+- Hosted run for `5c20f8c` (ADR-120): console-browser, Ubuntu and macOS
+  green; Windows ran the whole suite with no shutdown timeout and failed
+  only `approvals::native_owned_approval_barriers` and
+  `approval_loss::native_owned_approval_barriers_pending_receipt`, both
+  asserting `Protocol::Unknown` where a completed protocol was expected
+  after an `ApprovalCancelled` failure at stage `Update`. The same two
+  failed on the operator VM's whole-workspace baseline, so they are now
+  reproducible off the hosted runner.
+- Probe rerun 34682424382 (second ADR-120 sample, every `hagency` target,
+  eight threads, four iterations): again no shutdown timeout; one
+  iteration failed only `native_matrix_owned_complete_workflow`, now with
+  the writer's verdict printed next to the raw row. Two consecutive
+  whole-package samples without a `ReplyTimedOut` snapshot, against one to
+  four per failing iteration before ADR-120.
+- In the second ADR-120 probe sample the one failure,
+  `native_matrix_owned_complete_workflow`, was no longer the status
+  mismatch but `report.failure == Some(SettlementUnknown)` at
+  `owned_matrix.rs:154` (completion custody could not confirm the
+  settlement within its bound). Recorded for the next analysis round.
+- Operator VM whole-workspace baseline, iteration 2: the only failure was
+  `approvals::native_owned_approval_barriers`, no shutdown timeout. That
+  selector has now failed on both VM iterations and on the hosted ADR-120
+  run, so it is the first Windows defect reproducible on demand off the
+  hosted runner; it will be run alone with full output on the VM next.
+- The shared scripted fake-server fixture (`hagency-matrix/tests/common`)
+  keeps its tight `limits()` for this crate's transport-bound tests, which
+  deliberately drive slow headers and deadlines against them, and gains
+  `load_limits()` (connect 2 s, headers 2 s, request 4 s, body idle 1 s,
+  sdk 20 s, the suite-local precedent, all below the production defaults)
+  for the service-level fixtures that share a current-thread runtime with
+  the fake peer: the file service admission tests and the owned Matrix
+  workflow now run with them, the wait between scripted requests uses
+  them, the fake peer's TLS accept has five seconds instead of one, and an
+  early collector settlement reports its elapsed time. Fixture
+  orchestration only; no product deadline, verdict or assertion changes
+  (ADR-080 invariant kept).
+- Operator VM whole-workspace baseline at `94c1177`, three iterations: all
+  three failed, `approvals::native_owned_approval_barriers` in every one,
+  `approval_loss::native_owned_approval_barriers_pending_receipt` and
+  `card::native_private_approval_card_clock` in two, `approvals::native_owned_approval_usage`
+  and `native_file_service_shutdown_original_job_unwind` once; no shutdown
+  timeout on the VM at all. The barrier selector is now being run on the
+  VM alone and under the owned binary's own eight-way load with full output.

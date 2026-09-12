@@ -21,6 +21,8 @@ use tokio_rustls::{
 #[path = "../../../hagency-store/tests/common/mod.rs"]
 pub mod domain;
 pub const TOKEN: &str = "synthetic-Matrix-token-not-real";
+/// Tight fixture bounds for the transport-bound tests of this crate, which
+/// deliberately drive slow headers, idle bodies and deadlines against them.
 pub fn limits() -> Limits {
     Limits {
         connect: Duration::from_millis(300),
@@ -28,6 +30,23 @@ pub fn limits() -> Limits {
         request: Duration::from_millis(900),
         body_idle: Duration::from_millis(200),
         sdk: Duration::from_secs(10),
+        ..Limits::default()
+    }
+}
+/// Fixture orchestration bounds for the service-level tests that drive a fake
+/// peer through `scripted()` on one current-thread runtime, eight runtimes per
+/// process under the whole-package Windows probe. There the tight bounds above
+/// were reached by scheduler starvation, not by the product. Every value stays
+/// strictly below `hagency_matrix::Limits::default()`, which the production
+/// binary runs with, so a real transport refusal still fails a test. The values
+/// match the suite-local precedent in `tests/approval_delivery/fixture.rs`.
+pub fn load_limits() -> Limits {
+    Limits {
+        connect: Duration::from_secs(2),
+        headers: Duration::from_secs(2),
+        request: Duration::from_secs(4),
+        body_idle: Duration::from_secs(1),
+        sdk: Duration::from_secs(20),
         ..Limits::default()
     }
 }
@@ -72,6 +91,14 @@ impl Fixture {
         }
     }
     pub fn config(&self, endpoint: &str) -> HostConfig {
+        self.config_with(endpoint, limits())
+    }
+    /// The same host configuration with the load bounds, for service-level
+    /// fixtures that share their runtime with the fake peer.
+    pub fn config_under_load(&self, endpoint: &str) -> HostConfig {
+        self.config_with(endpoint, load_limits())
+    }
+    fn config_with(&self, endpoint: &str, limits: Limits) -> HostConfig {
         HostConfig::new(
             self.identity.clone(),
             endpoint,
@@ -85,7 +112,7 @@ impl Fixture {
                     human_mxid: "@owner:example.test".into(),
                 },
             }],
-            limits(),
+            limits,
         )
         .unwrap()
     }
@@ -141,11 +168,20 @@ where
     C::Output: Debug,
     S: Future,
 {
+    // Diagnostic only: an early collector settlement is reported with its
+    // elapsed time against the fixture bounds, so a starved fake peer under
+    // whole-package load can be told from a real refusal.
+    let started = std::time::Instant::now();
     tokio::pin!(collector, script);
     tokio::select! {
         biased;
         output = &mut script => (collector.await, output),
-        output = &mut collector => panic!("collector completed before its HTTP script: {output:?}"),
+        output = &mut collector => panic!(
+            "collector completed before its HTTP script: {output:?} (after {:?}; fixture request bounds {:?} tight, {:?} load)",
+            started.elapsed(),
+            limits().request,
+            load_limits().request
+        ),
     }
 }
 /// Observe the original domain shutdown once. A failure stays a failure; late
@@ -239,7 +275,7 @@ impl Fake {
                         let tx = tx.clone(); let acceptor = acceptor.clone();
                         jobs.spawn(async move {
                             if let Some(acceptor) = acceptor {
-                                if let Ok(Ok(stream)) = timeout(Duration::from_secs(1), acceptor.accept(stream)).await { serve(stream, tx).await; }
+                                if let Ok(Ok(stream)) = timeout(Duration::from_secs(5), acceptor.accept(stream)).await { serve(stream, tx).await; }
                             } else { serve(stream, tx).await; }
                         });
                     }
@@ -261,7 +297,11 @@ impl Fake {
     pub async fn next_phase(&mut self, phase: Option<&'static str>) -> Request {
         // An SDK bootstrap or committed sync runs between HTTP requests. This
         // is a fixture orchestration bound, not an HTTP/production deadline.
-        let result = timeout(limits().sdk + limits().request, self.requests.recv()).await;
+        let result = timeout(
+            load_limits().sdk + load_limits().request,
+            self.requests.recv(),
+        )
+        .await;
         if (result.is_err() || matches!(&result, Ok(None)))
             && let Some(phase) = phase
         {
