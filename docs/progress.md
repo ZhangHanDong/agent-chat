@@ -7093,3 +7093,10 @@ client qualification and ongoing identity/key management remain separate.
   from a persistent refusal. Windows also returned Timeout instead of
   Transport once in `native_outbound_http_authority_tls_and_redaction`
   (hostname mismatch against `localhost`), left as observed for now.
+- Added a manual `Windows probe` workflow (`.github/workflows/windows-probe.yml`)
+  that builds selected packages' test targets once on `windows-2025` and runs
+  chosen selectors N times with `--nocapture` and backtraces, uploading the
+  per-iteration logs. It is diagnostic evidence only and does not gate anything;
+  the Native Rust workflow keeps the verdict. Default selectors: the two
+  owned-approval fixtures, the cancellation fixture and the Palpo hostname
+  mismatch test that failed on hosted Windows.
