@@ -89,6 +89,46 @@ pub enum Settlement {
     Unknown,
 }
 
+/// Which store refusal produced `Failure::SettlementUnknown`. A fixed
+/// discriminant, never the store's own error text: this carries no path,
+/// payload or capability material, and cannot become execution authority,
+/// retry, reply or lease input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettlementCause {
+    /// The command never entered the writer queue (`Busy`).
+    QueueBusy,
+    /// The writer is gone (`Unavailable`).
+    QueueUnavailable,
+    /// The writer reply did not arrive inside its bound (`OutcomeUnknown`).
+    ReplyTimedOut,
+    /// The writer refused this scope, fence, route or deadline.
+    RunnerAuthority,
+    /// The writer refused its own current state.
+    State,
+    /// An unrelated dispatch or lease still holds the scope.
+    Quarantined,
+    /// Durable store capacity, schema or IO refusal.
+    Storage,
+}
+impl SettlementCause {
+    fn of(error: &hagency_store::Error) -> Self {
+        match error {
+            hagency_store::Error::Busy => Self::QueueBusy,
+            hagency_store::Error::Unavailable => Self::QueueUnavailable,
+            hagency_store::Error::OutcomeUnknown => Self::ReplyTimedOut,
+            hagency_store::Error::RunnerAuthority => Self::RunnerAuthority,
+            hagency_store::Error::State => Self::State,
+            hagency_store::Error::Quarantined => Self::Quarantined,
+            _ => Self::Storage,
+        }
+    }
+}
+/// Record the cause and preserve the existing terminal verdict exactly.
+fn settlement_failure(report: &mut Report, error: &hagency_store::Error) -> Failure {
+    report.settlement_cause = Some(SettlementCause::of(error));
+    Failure::SettlementUnknown
+}
+
 /// Fixed diagnostics from the original owned runtime, never execution authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeStage {
@@ -140,6 +180,9 @@ pub struct Report {
     pub cleanup: Cleanup,
     pub canonical_status: Option<TaskState>,
     pub settlement: Settlement,
+    /// Diagnostic only: which store refusal was observed first. Set once,
+    /// never used for authority, retry, reply or lease decisions.
+    pub settlement_cause: Option<SettlementCause>,
     pub failure: Option<Failure>,
     runtime_observation: Option<RuntimeObservation>,
     runtime_stage: RuntimeStage,
@@ -162,6 +205,7 @@ impl Report {
             cleanup: Cleanup::Pending,
             canonical_status: None,
             settlement: Settlement::Pending,
+            settlement_cause: None,
             failure: None,
             runtime_observation: None,
             runtime_stage: RuntimeStage::Initialize,
@@ -807,7 +851,7 @@ async fn execute(
     ) && let Some(reference) = domain
         .observe_owned_completion(cap.clone(), started.clone())
         .await
-        .map_err(|_| Failure::SettlementUnknown)?
+        .map_err(|error| settlement_failure(report, &error))?
     {
         report.canonical_status = Some(TaskState::Done);
         checkpoint(cancel, until)?;
@@ -826,10 +870,9 @@ async fn execute(
                 until.into_std(),
             )
             .await
-            .map_err(|_| {
-                checkpoint(cancel, until)
-                    .err()
-                    .unwrap_or(Failure::SettlementUnknown)
+            .map_err(|error| match checkpoint(cancel, until).err() {
+                Some(refused) => refused,
+                None => settlement_failure(report, &error),
             })?;
         report.settlement = Settlement::CanonicalReplyReady;
         report.text = None; // Stored explicit content is the sole final body.
@@ -854,9 +897,70 @@ async fn execute(
             serde_json::json!({"upstream_text":text}),
         )
         .await
-        .map_err(|_| Failure::SettlementUnknown)?;
+        .map_err(|error| settlement_failure(report, &error))?;
     report.canonical_status = Some(task.status);
     report.settlement = Settlement::Completed;
     report.owner.take();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SettlementCause;
+    use hagency_store::Error;
+
+    /// Every store refusal that can produce `Failure::SettlementUnknown` maps
+    /// to its own marker, and anything else collapses to `Storage`. The
+    /// mapping is a fixed diagnostic discriminant: it never carries the
+    /// store's error text and never feeds authority, retry, reply or leases.
+    #[test]
+    fn native_settlement_cause_markers_are_distinct() {
+        let mapped = [
+            (Error::Busy, SettlementCause::QueueBusy),
+            (Error::Unavailable, SettlementCause::QueueUnavailable),
+            (Error::OutcomeUnknown, SettlementCause::ReplyTimedOut),
+            (Error::RunnerAuthority, SettlementCause::RunnerAuthority),
+            (Error::State, SettlementCause::State),
+            (Error::Quarantined, SettlementCause::Quarantined),
+        ];
+        for (error, expected) in mapped {
+            assert_eq!(SettlementCause::of(&error), expected, "{error:?}");
+        }
+        // Every other refusal — authority, IO, schema, capacity — reports as
+        // durable storage, never as one of the queue or reply markers.
+        let fallback = [
+            Error::LocalAuthority,
+            Error::Conflict,
+            Error::NotFound,
+            Error::Unqualified,
+            Error::InsufficientCapacity,
+            Error::Locked,
+            Error::Schema,
+            Error::Capacity,
+            Error::Io(std::io::Error::other("fixture")),
+            Error::Json(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
+        ];
+        for error in fallback {
+            assert_eq!(
+                SettlementCause::of(&error),
+                SettlementCause::Storage,
+                "{error:?}"
+            );
+        }
+        // All seven markers are pairwise distinct discriminants.
+        let all = [
+            SettlementCause::QueueBusy,
+            SettlementCause::QueueUnavailable,
+            SettlementCause::ReplyTimedOut,
+            SettlementCause::RunnerAuthority,
+            SettlementCause::State,
+            SettlementCause::Quarantined,
+            SettlementCause::Storage,
+        ];
+        for (i, left) in all.iter().enumerate() {
+            for right in &all[i + 1..] {
+                assert_ne!(left, right);
+            }
+        }
+    }
 }

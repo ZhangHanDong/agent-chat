@@ -263,6 +263,9 @@ async fn native_owned_dispatch_real_pipes() {
         assert!(!report.retains_process_custody());
         assert_eq!(report.settlement, Settlement::Completed);
         assert_eq!(report.failure, None);
+        // A clean completion records no settlement cause: the marker exists
+        // only to name the store refusal behind a lost settlement.
+        assert_eq!(report.settlement_cause, None);
         assert_eq!(f.state(), "completed");
         assert_eq!(f.count("SELECT COUNT(*) FROM resource_leases"), 0);
         assert_eq!(f.count("SELECT COUNT(*) FROM final_replies"), 0);

@@ -190,3 +190,30 @@ Held completion binds original content and exact Started evidence to qualified c
 ## Alternatives Considered
 
 Refreshing the old runner's epoch after Done would authorize more tools. A separate reporting runner needs its own qualified tool-free inventory; neither an echoed readOnly setting nor later model prose supplies that proof.
+
+## Amendment 2026-09-12 — Settlement cause marker
+
+Hosted Windows returned `Failure::SettlementUnknown` where `None` was
+expected, and the artifact could not say which of three producer sites or
+which store refusal it was: all three discarded the `hagency_store::Error`,
+and `Failure` is a payload-free `Copy` enum. Three distinct product
+situations — the command never entered the writer queue (`Busy`), the writer
+reply did not arrive inside its bound (`OutcomeUnknown`), and an outright
+refusal (`RunnerAuthority`, `State`, `Quarantined`) — collapsed into one
+discriminant.
+
+`Report` now carries `settlement_cause: Option<SettlementCause>`, a bounded
+`Copy` marker set by a `settlement_failure(report, &error)` helper at the
+three producer sites (`observe_owned_completion`, `publish_owned_completion`
+with checkpoint precedence preserved, `complete_owned_dispatch`).
+`SettlementCause::of` maps `Busy → QueueBusy`, `Unavailable →
+QueueUnavailable`, `OutcomeUnknown → ReplyTimedOut`, `RunnerAuthority`,
+`State`, `Quarantined` to themselves, and every other refusal to `Storage`.
+The bootstrap status projection exposes it as a `settlement_cause` label
+next to `owned_failure`.
+
+The marker is a **diagnostic discriminant only**: it never carries the
+store's error text, path, payload or capability material, and is never
+authority, retry, reply or lease input. It changes no verdict: every
+`assert_eq!(report.failure, Some(Failure::SettlementUnknown))` still holds,
+`Failure` stays `Copy`, and a clean completion records `None`.

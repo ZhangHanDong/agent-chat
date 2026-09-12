@@ -7409,3 +7409,57 @@ client qualification and ongoing identity/key management remain separate.
   three `native_runner_http_*` tests and `native_owned_mcp_real_heartbeat`
   failed for reasons recorded in the session log; the runner fixture's
   teardown sample did not fire, so these are not the close stall.
+
+## 2026-09-12 — Stall-witness test harness (ADR-106, harness only)
+
+- Harness-only change, no product source: every fixture shutdown that
+  observes a domain or custody close now asserts the `ShutdownOutcome` and
+  prints `[shutdown-stall] <outcome>` with the snapshot (runner,
+  mcp_coordination, owned_matrix Workflow and RunnerApi, the matrix common
+  `shutdown_domain` — which also covers the file-service lib tests that
+  include it via `test_common`). A new process-wide test latch
+  (`hagency-matrix/tests/common/stall.rs`, first-writer-wins `OnceLock`)
+  records the first timed-out shutdown with its snapshot and a two-point
+  database teardown sample; a `witness(context)` helper lets later failure
+  paths attribute themselves to the recorded stall instead of misreporting
+  it (owned_matrix's status assertion now consults it and prints the
+  writer's verdict). The approval `notice()` helper no longer fails with a
+  bare "notice channel closed": it prints the operation's report and the
+  retained-state dump `choose()` pioneered, deadline unchanged. Nothing is
+  retried, widened or ignored; every affected test still fails.
+- Gates: `cargo fmt --all --check` and
+  `cargo clippy -p hagency -p hagency-execution -p hagency-matrix
+  --all-targets --locked -- -D warnings` pass. The cargo test gates were
+  run but cannot pass in this sandbox: every test binary fails at fixture
+  setup with EPERM on the SQLite repository open (`Repository::open` /
+  `DomainRepository::open`), including on the unmodified tree (verified by
+  stashing all changes and re-running: identical failures), so the failures
+  are environmental seatbelt denials, not regressions; per-target `cargo
+  check` of every touched test target is green.
+
+## 2026-09-12 — Settlement cause marker for SettlementUnknown
+
+- `Report` now carries `settlement_cause: Option<SettlementCause>` (ADR-060
+  amendment, appended today): a bounded `Copy` diagnostic discriminant set by
+  `settlement_failure(report, &error)` at the three producer sites in
+  `hagency-execution/src/operation.rs` (`observe_owned_completion`,
+  `publish_owned_completion` with checkpoint precedence preserved,
+  `complete_owned_dispatch`), so a lost settlement names whether the command
+  never entered the writer queue (`QueueBusy`), the writer is gone
+  (`QueueUnavailable`), the reply timed out (`ReplyTimedOut`), or it was
+  refused (`RunnerAuthority`/`State`/`Quarantined`); everything else reports
+  `Storage`. `Failure` stays `Copy` and every existing
+  `assert_eq!(report.failure, Some(Failure::SettlementUnknown))` compiles
+  unchanged. The bootstrap status projection adds `settlement_cause` next to
+  `owned_failure`. The marker is diagnostic only — never authority, retry,
+  reply or lease input, and carries no error text.
+- Tests: `native_settlement_cause_markers_are_distinct` (every mapped
+  refusal distinct, `Storage` the fallback, all seven markers pairwise
+  distinct) passes; `native_owned_dispatch_real_pipes` and
+  `native_matrix_owned_complete_workflow` assert the field is `None` on
+  clean completion. A queue-`Busy` test is not reachable from the execution
+  crate: the domain writer's queue is a private field, and the parking tests
+  in hagency-store reach it only through in-crate `#[path]` includes.
+- Spec: two scenarios added to the ADR-060 completion spec binding
+  `native_settlement_cause_markers_are_distinct` and
+  `native_owned_dispatch_real_pipes`.

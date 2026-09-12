@@ -200,6 +200,21 @@ fn owned_failure_label(error: hagency_execution::Failure) -> &'static str {
         Worker => "worker",
     }
 }
+/// Bounded projection of which store refusal produced a settlement failure.
+/// Diagnostic only: a fixed label, never authority, retry, reply or lease
+/// input, and never the store's own error text.
+fn settlement_cause_label(cause: hagency_execution::SettlementCause) -> &'static str {
+    use hagency_execution::SettlementCause::*;
+    match cause {
+        QueueBusy => "queue_busy",
+        QueueUnavailable => "queue_unavailable",
+        ReplyTimedOut => "reply_timed_out",
+        RunnerAuthority => "runner_authority",
+        State => "state",
+        Quarantined => "quarantined",
+        Storage => "storage",
+    }
+}
 fn session_error_label(error: hagency_runtime::codex::session::Error) -> &'static str {
     use hagency_runtime::codex::session::Error::*;
     match error {
@@ -270,6 +285,7 @@ pub struct Status {
     settlement: Option<&'static str>,
     error: Option<&'static str>,
     owned_failure: Option<&'static str>,
+    settlement_cause: Option<&'static str>,
     runtime: Option<RuntimeStatus>,
 }
 #[derive(Clone)]
@@ -285,6 +301,7 @@ impl StatusHandle {
             settlement: None,
             error: None,
             owned_failure: None,
+            settlement_cause: None,
             runtime: None,
         })))
     }
@@ -323,6 +340,7 @@ impl StatusHandle {
         use hagency_runtime::owned::Cleanup;
         let mut status = self.0.lock().unwrap_or_else(|e| e.into_inner());
         status.owned_failure = report.failure.map(owned_failure_label);
+        status.settlement_cause = report.settlement_cause.map(settlement_cause_label);
         status.runtime = report.runtime_observation().map(RuntimeStatus::from);
         status.protocol = Some(match report.protocol {
             Protocol::NotStarted => "not_started",

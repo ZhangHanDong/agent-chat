@@ -152,6 +152,8 @@ async fn native_matrix_owned_complete_workflow() {
     } else {
         assert!(cleanup.scope.whole_tree_stopped && cleanup.scope.signals_accepted);
         assert_eq!(report.failure, None);
+        // No store refusal was observed on this clean settlement.
+        assert_eq!(report.settlement_cause, None);
         assert_eq!(report.settlement, Settlement::CanonicalReplyReady);
         assert_eq!(w.count("SELECT COUNT(*) FROM resource_leases"), 0);
         let claim = w.f.store.claim_final_reply(60_000).await.unwrap().unwrap();

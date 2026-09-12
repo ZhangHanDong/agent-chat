@@ -10,7 +10,7 @@ pub use approval::{ApprovalHost, ApprovalNotice, ApprovalRequests};
 pub use host::{Host, Limits};
 pub use operation::{
     Failure, Operation, Protocol, Report, RuntimeObservation, RuntimeStage,
-    RuntimeWriteObservation, Settlement,
+    RuntimeWriteObservation, Settlement, SettlementCause,
 };
 pub use registration::{LaunchAck, RegistrationError, WorkspaceRegistration};
 pub use usage::{UsageFailure, UsageStatus};

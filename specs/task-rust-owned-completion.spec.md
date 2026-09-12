@@ -102,6 +102,19 @@ Scenario: Schema upgrade does not invent completion custody
   When schema sixteen is installed or required structure is missing
   Then only valid structure opens and no completion is invented for existing tasks
 
+Scenario: A lost settlement names which store refusal produced it
+  Test: native_settlement_cause_markers_are_distinct
+  Given the store refusals that can lose a settlement command
+  When the settlement failure marker is derived
+  Then each mapped refusal keeps its own bounded discriminant and every other refusal reports as storage
+  And the marker never carries error text or becomes authority retry reply or lease input
+
+Scenario: A clean completion records no settlement cause
+  Test: native_owned_dispatch_real_pipes
+  Given a normal owned dispatch that completes and settles cleanly
+  When its report is produced
+  Then no settlement cause is recorded because no store refusal was observed
+
 ## Out of Scope
 
 Automatic inspected restart recovery, model reporting continuation, live Matrix or
