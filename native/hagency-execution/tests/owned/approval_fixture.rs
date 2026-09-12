@@ -65,9 +65,10 @@ pub(super) fn operation(
     (operation, notices)
 }
 /// ADR-046 stage-1: when an owned approval cancels, name the primitive, the
-/// offending entry, and every phase it had reached.
-pub(super) fn cancellation_trace() -> String {
-    hagency_execution::diagnostics::last_cancellation_trace()
+/// offending entry, and every phase it had reached — for this operation's
+/// dispatch only, so parallel tests never read each other's records.
+pub(super) fn cancellation_trace(f: &Fixture) -> String {
+    hagency_execution::diagnostics::last_cancellation_trace(&f.cap.dispatch_id)
 }
 /// Await one committed approval request notice. Never a bare "notice channel
 /// closed": a closed channel or the expired deadline means the operation
@@ -284,11 +285,21 @@ pub(super) fn responses(f: &Fixture) -> Vec<serde_json::Value> {
 pub(super) fn unconfirmed(f: &Fixture) {
     assert_eq!(
         f.count("SELECT COUNT(*) FROM owner_approvals WHERE state='applied'"),
-        0
+        0,
+        "wire ids {:?}",
+        responses(f)
+            .iter()
+            .map(|value| value["id"].to_string())
+            .collect::<Vec<_>>()
     );
     assert_eq!(
         f.count("SELECT COUNT(*) FROM approval_responses WHERE write_accepted=1"),
-        responses(f).len() as u64
+        responses(f).len() as u64,
+        "wire ids {:?}",
+        responses(f)
+            .iter()
+            .map(|value| value["id"].to_string())
+            .collect::<Vec<_>>()
     );
 }
 pub(super) async fn marker(f: &Fixture, extension: &str) {

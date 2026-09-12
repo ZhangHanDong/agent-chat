@@ -41,7 +41,13 @@ async fn native_owned_usage_restart_and_capacity_keeps_execution_separate() {
     tx.commit().unwrap();
     fs::write(f.work.join("owned-dispatch.usage-release"), b"release").unwrap();
     let mut report = operation.wait().await.unwrap();
-    assert_eq!(report.protocol, Protocol::Completed);
+    assert_eq!(
+        report.protocol,
+        Protocol::Completed,
+        "failure={:?} runtime={:?}",
+        report.failure,
+        report.runtime_observation()
+    );
     assert_eq!(report.canonical_status, Some(TaskState::InProgress));
     assert_eq!(
         report.failure,
@@ -68,7 +74,13 @@ async fn native_owned_usage_restart_and_capacity_keeps_execution_separate() {
         f.count("SELECT COUNT(*) FROM usage_receipts"),
         hagency_store::MAX_SOURCE_USAGE_RECEIPTS
     );
-    assert_eq!(report.protocol, Protocol::Completed);
+    assert_eq!(
+        report.protocol,
+        Protocol::Completed,
+        "failure={:?} runtime={:?}",
+        report.failure,
+        report.runtime_observation()
+    );
     drop(report);
     f.domain.shutdown().await.unwrap();
     let db = reopen(&f.root.path().join("state")).await;
@@ -84,7 +96,13 @@ async fn native_owned_usage_normalization_refusal_keeps_completion_separate() {
     let f = Fixture::new();
     let mut operation = f.operation("usage-overflow");
     let report = operation.wait().await.unwrap();
-    assert_eq!(report.protocol, Protocol::Completed);
+    assert_eq!(
+        report.protocol,
+        Protocol::Completed,
+        "failure={:?} runtime={:?}",
+        report.failure,
+        report.runtime_observation()
+    );
     assert_eq!(report.canonical_status, Some(TaskState::InProgress));
     assert_eq!(
         report.failure,
@@ -113,7 +131,13 @@ async fn native_owned_usage_real_capture() {
     let f = Fixture::new();
     let mut operation = f.operation("usage");
     let report = operation.wait().await.unwrap();
-    assert_eq!(report.protocol, Protocol::Completed);
+    assert_eq!(
+        report.protocol,
+        Protocol::Completed,
+        "failure={:?} runtime={:?}",
+        report.failure,
+        report.runtime_observation()
+    );
     assert_eq!(report.canonical_status, Some(TaskState::InProgress));
     let usage = report.usage_status();
     assert!(usage.bound && usage.attached && usage.closed && usage.incomplete);
@@ -180,7 +204,13 @@ async fn native_owned_usage_missing_and_binding_refusal() {
     let f = Fixture::new();
     let mut operation = f.operation("normal");
     let report = operation.wait().await.unwrap();
-    assert_eq!(report.protocol, Protocol::Completed);
+    assert_eq!(
+        report.protocol,
+        Protocol::Completed,
+        "failure={:?} runtime={:?}",
+        report.failure,
+        report.runtime_observation()
+    );
     assert_eq!(report.usage_status().observed, 0);
     assert!(report.usage_status().incomplete);
     assert_eq!(f.count("SELECT COUNT(*) FROM usage_sources"), 1);

@@ -7683,3 +7683,33 @@ client qualification and ongoing identity/key management remain separate.
   `_unrecorded` (execution), each bound to a `Test:` scenario. The SQLite-backed
   selectors could not run in this sandbox (EPERM opening the private state
   directory); the orchestrator runs them.
+
+## 2026-09-12 — Approval evidence refinements (harness only)
+
+- Harness-only change under ADR-046 stage-1 diagnostics: the approval phase
+  journal and cancellation slot are now keyed by the operation's dispatch id
+  (`RunnerCapability::dispatch_id`, threaded through `Drive`), because the
+  VM trace showed the process-wide cancellation slot interleaving records
+  from parallel tests — one record listed two different phase histories for
+  the same entry id. `last_cancellation_trace(dispatch)` reads only its own
+  operation's records; `reset()` still clears everything; the state unit
+  test pins the isolation with a foreign-dispatch assert. All five assertion
+  sites (four in `approvals.rs`, one in `approval_loss.rs`) and the fixture
+  helper now pass their dispatch.
+- The `write-started` phase label was **not** added: the first OS write of a
+  frame is observable only inside `hagency-runtime`'s transport
+  (`writing.offset` in `Observed::Write`); the execution crate sees write
+  progress solely at termination via `RuntimeWriteObservation`, and adding
+  the label would need a cross-crate dependency outside this brief's
+  ownership. Reported rather than forced.
+- Q4 diagnostics: the five `usage.rs` `Protocol::Completed` assertions now
+  print `failure={:?} runtime={:?}` (a `SettlementUnknown` does not change
+  the protocol, so a bare assert hides a lost write-acceptance record), and
+  `unconfirmed()` prints the wire response ids before both counts
+  assertions.
+- Gates: `cargo fmt --all --check`,
+  `cargo clippy -p hagency-execution --all-targets --locked -- -D warnings`,
+  `cargo check --tests -p hagency-execution --locked` all pass;
+  `native_approval_trace_labels_every_phase` passes (1 passed). The owned
+  integration tests cannot run in this sandbox (EPERM on the SQLite
+  repository open at fixture setup); the orchestrator runs them.

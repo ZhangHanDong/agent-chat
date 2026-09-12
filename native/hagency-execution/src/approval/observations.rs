@@ -39,7 +39,7 @@ impl Drive<'_> {
         // usage or request receipt can await or unwind.
         let (request, terminal) = match update {
             Update::Approval(request) => (
-                Some(callbacks.retain(runner, request, self.until)?),
+                Some(callbacks.retain(runner, request, self.until, &self.cap.dispatch_id)?),
                 Ok(false),
             ),
             Update::ApprovalResolved { id } => {
@@ -48,6 +48,7 @@ impl Drive<'_> {
                 #[cfg(any(test, feature = "test-diagnostics"))]
                 if terminal.is_err() {
                     super::diagnostics::cancellation(
+                        &self.cap.dispatch_id,
                         "resolved-before-write",
                         &format!("{:?}", entry.request.id()),
                         entry.trace.as_slice(),
@@ -61,6 +62,7 @@ impl Drive<'_> {
                     if entry.write.is_none() {
                         entry.mark("turn-ended-unwritten");
                         super::diagnostics::cancellation(
+                            &self.cap.dispatch_id,
                             "turn-ended-unwritten",
                             &format!("{:?}", entry.request.id()),
                             entry.trace.as_slice(),

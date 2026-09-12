@@ -28,6 +28,11 @@ pub(super) struct Pending {
     pub admitted: bool,
     pub recorded: bool,
     pub resolved: bool,
+    /// The dispatch id of the operation that drove this entry. Test and
+    /// `test-diagnostics` builds only: keys the diagnostic journal and
+    /// cancellation slot so parallel tests never read each other's records.
+    #[cfg(any(test, feature = "test-diagnostics"))]
+    pub dispatch: String,
     /// Ordered diagnostic record of every phase this entry reached. Exists
     /// only in test and `test-diagnostics` builds; production carries none.
     #[cfg(any(test, feature = "test-diagnostics"))]
@@ -62,7 +67,7 @@ impl Pending {
     #[cfg(any(test, feature = "test-diagnostics"))]
     pub(super) fn mark(&mut self, label: &'static str) {
         self.trace.mark(label);
-        super::diagnostics::phase(&format!("{:?}", self.request.id()), label);
+        super::diagnostics::phase(&self.dispatch, &format!("{:?}", self.request.id()), label);
     }
     /// ADR-046 ruling for a resolution observed while this entry is live:
     /// before write acceptance it cancels the callback; after acceptance it
@@ -169,7 +174,12 @@ impl Callbacks {
         runner: &OwnedSession,
         request: ApprovalRequest,
         until: Instant,
+        dispatch: &str,
     ) -> Result<RequestId, Failure> {
+        // The dispatch key exists only for the diagnostic journal; silence
+        // the unused parameter exactly in the builds that compile no journal.
+        #[cfg(not(any(test, feature = "test-diagnostics")))]
+        let _ = dispatch;
         if self.entries.len() >= 16 || self.entries.contains_key(request.id()) {
             return Err(Failure::ApprovalCapacity);
         }
@@ -231,6 +241,8 @@ impl Callbacks {
                 admitted: false,
                 recorded: false,
                 resolved: false,
+                #[cfg(any(test, feature = "test-diagnostics"))]
+                dispatch: dispatch.to_owned(),
                 #[cfg(any(test, feature = "test-diagnostics"))]
                 trace: PhaseTrace::new(),
             },
@@ -377,33 +389,49 @@ mod trace_tests {
         // The cancellation primitive labels and outcomes, both directions.
         assert_eq!(resolution_outcome(true), ("resolved-before-write", true));
         assert_eq!(resolution_outcome(false), ("resolved-after-write", false));
-        // The journal mirrors the marks for the entry they belong to.
+        // The journal mirrors the marks for the entry they belong to, under
+        // the dispatch that drove them.
         let id = format!("{:?}", hagency_runtime::codex::RequestId::Number(1));
         for label in ["acknowledged", "prepared"] {
-            crate::approval::diagnostics::phase(&id, label);
+            crate::approval::diagnostics::phase("dispatch-test", &id, label);
         }
         assert_eq!(
-            crate::approval::diagnostics::phases_of(&id),
+            crate::approval::diagnostics::phases_of("dispatch-test", &id),
             ["acknowledged", "prepared"]
+        );
+        // Another operation's dispatch never sees this one's records: hosted
+        // CI runs tests in parallel inside one process.
+        assert_eq!(
+            crate::approval::diagnostics::phases_of("dispatch-other", &id),
+            Vec::<&str>::new()
         );
         // A cancellation is recorded with the primitive and the trace.
         crate::approval::diagnostics::cancellation(
+            "dispatch-test",
             "turn-ended-unwritten",
             &id,
             &["retained", "acknowledged"],
         );
-        let trace_text = crate::approval::diagnostics::last_cancellation_trace();
+        let trace_text = crate::approval::diagnostics::last_cancellation_trace("dispatch-test");
         assert!(trace_text.contains("turn-ended-unwritten"), "{trace_text}");
         assert!(trace_text.contains(&id), "{trace_text}");
         assert!(
             trace_text.contains("retained, acknowledged"),
             "{trace_text}"
         );
+        // A foreign dispatch never sees this operation's cancellation either.
+        assert_eq!(
+            crate::approval::diagnostics::last_cancellation_trace("dispatch-other"),
+            ""
+        );
         crate::approval::diagnostics::reset();
         assert_eq!(
-            crate::approval::diagnostics::phases_of(&id),
+            crate::approval::diagnostics::phases_of("dispatch-test", &id),
             Vec::<&str>::new()
         );
-        assert_eq!(crate::approval::diagnostics::last_cancellation_trace(), "");
+        assert_eq!(
+            crate::approval::diagnostics::last_cancellation_trace("dispatch-test"),
+            ""
+        );
     }
 }
