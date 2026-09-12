@@ -768,14 +768,20 @@ async fn native_file_service_shutdown_original_job_unwind() {
         .unwrap();
     assert_eq!(replay.delivery_id, queued.delivery_id);
     assert_eq!(replay.status, FileStatus::OutcomeUnknown);
-    assert_eq!(replay.error_code.as_deref(), Some("outcome_unknown"));
+    // Exact replay returns the retained live job, whose custody was neither
+    // acknowledged nor released, so it carries the custody label (ADR-101
+    // amendment); `inspect` below rebuilds through the durable receipt.
+    assert_eq!(
+        replay.error_code.as_deref(),
+        Some(crate::file_service::types::UnknownOrigin::Custody.code())
+    );
     assert!(replay.replayed);
     let inspected = handle
         .inspect(h.cap.clone(), queued.delivery_id.clone())
         .await
         .unwrap();
     assert_eq!(inspected.status, FileStatus::OutcomeUnknown);
-    assert_eq!(inspected.error_code, replay.error_code);
+    assert_eq!(inspected.error_code.as_deref(), Some("outcome_unknown"));
     // The receipt-derived projection stays `outcome_unknown`: `inspect` rebuilds
     // through `from_receipt` and never reads the job's custody-mutated view. The
     // local custody label is therefore observable only on the original job.

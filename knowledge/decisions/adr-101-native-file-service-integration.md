@@ -338,6 +338,6 @@ acknowledged nor released (`Job::mark_unknown`) reports
 `FileView::validate` accepts the closed set of exactly these two codes and
 still refuses any other string for that status. No status, deadline, retry,
 schema or settlement changes. The custody label is observable on the live job
-view; `inspect` and exact replay continue to rebuild through the durable
-receipt and therefore report the base code, which is stated here so the two
-are not confused.
+view, and an exact replay that returns the retained live job reports it too;
+`inspect` rebuilds through the durable receipt and therefore reports the base
+code, which is stated here so the two are not confused.
