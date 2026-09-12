@@ -7498,3 +7498,19 @@ client qualification and ongoing identity/key management remain separate.
 - Spec: two scenarios added to the ADR-060 completion spec binding
   `native_settlement_cause_markers_are_distinct` and
   `native_owned_dispatch_real_pipes`.
+- The approval phase trace ran on the operator VM under the owned
+  binary's eight-way load: every `ApprovalCancelled` is the
+  `ApprovalResolved` primitive on an entry at retained, acknowledged,
+  prepared, begun, admitted, checked, without a write-accepted record.
+  The fixture probe resolves an approval only after reading its response,
+  so the frame was on the wire while the host had not yet recorded the
+  receipt. A two-predicate change that merely stops the cancellation was
+  trialled earlier and moved the failure into a re-send the transport
+  refuses; the corrected design (complete the in-flight write, record its
+  acceptance, never re-send) is being written before any product change.
+- Hosted run 34689032882 for `63c4ac9`: console-browser, Ubuntu, macOS
+  and Windows all green. First run on this branch where every Native Rust
+  job passed, including the full Windows suite with no shutdown timeout
+  and no approval cancellation. The approval middle case remains
+  intermittent under load (reproducible on the operator VM) and its fix
+  is in implementation; this run is the baseline for measuring it.
