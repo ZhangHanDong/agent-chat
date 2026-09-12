@@ -23,7 +23,7 @@ fn native_ceiling_admission_uses_drawn_not_consumed() {
     assert_eq!(report.consumed, Some(13_609_601));
     assert!(report.consumed.unwrap() > report.ceiling_tokens.unwrap());
     // The approval SUCCEEDS: only fresh tokens drew the ceiling down.
-    let ask = request("lockout_request", "Worker", &pool, 1_000_000);
+    let ask = request("lockout_request", "Lockout", &pool, 1_000_000);
     f.db.admit(&proof(&ask), 3000).unwrap();
     let approved = f.db.approve("approve_lockout", &proof(&ask), 3000).unwrap();
     assert_eq!(approved.state, EngagementState::Reserved);
@@ -44,7 +44,7 @@ fn native_ceiling_admission_refuses_fresh_exhaustion() {
         2000,
     )
     .unwrap();
-    let ask = request("exhaustion_request", "Worker", &pool, 1_000_000);
+    let ask = request("exhaustion_request", "Exhaustion", &pool, 1_000_000);
     f.db.admit(&proof(&ask), 3000).unwrap();
     match f.db.approve("approve_exhaustion", &proof(&ask), 3000) {
         Err(Error::OverCommit { message }) => {
@@ -78,7 +78,7 @@ fn native_ceiling_publishes_headroom_after_approval() {
         2000,
     )
     .unwrap();
-    let ask = request("headroom_request", "Worker", &pool, 1_000_000);
+    let ask = request("headroom_request", "Headroom", &pool, 1_000_000);
     f.db.admit(&proof(&ask), 3000).unwrap();
     f.db.approve("approve_headroom", &proof(&ask), 3000)
         .unwrap();

@@ -7644,3 +7644,9 @@ client qualification and ongoing identity/key management remain separate.
   the helper child's `try_wait` state when `tools/list` fails, so a
   `TransportClosed` can be attributed to "helper exited" or "pipe closed
   while alive". Analysis: peer `dsflash` brief 10.
+- 2026-09-12: ceiling slice 3 landed red (2d7342cd): its three admission
+  tests reused the fixture engagement's agent name "Worker" in the same
+  project, which `admit` refuses as a name collision (`Error::Conflict`), and
+  the integration chain filtered the test output through a pipeline without
+  `pipefail`, so the failure did not stop the push. Each test now admits its
+  own agent; the arithmetic assertions are unchanged and pass.
