@@ -224,3 +224,41 @@ Windows GNU all-target compilation pass; actual Windows execution and complete
 private SDK/MCP service integration remain outside this partition. Earlier failed
 fixtures and the pre-fix usage-slot negative control remain preserved in the
 external migration cache. No synthetic Applied or production-cutover claim is made.
+
+### Reconciling a lost write-acceptance record (2026-09-12)
+
+The host's response frame may be physically accepted by the transport while the
+domain call that records that acceptance fails under the store's bounded reply
+wait. The operation previously reported `SettlementUnknown` with no way to tell
+"the store never recorded it" from "the store recorded it and the reply was
+lost". It now performs ADR-053's reconcile-before-retry step: exactly one bounded
+read of `approval_response_summary` for the same request id, inside the
+operation's remaining deadline.
+
+The read is **not a snapshot**. It runs through the same single-writer FIFO queue
+as the acceptance write, and that queue skips an enqueued job whose caller stopped
+waiting. Once this caller's two-second wait has expired and dropped its receiver,
+the read is therefore ordered behind the abandoned acceptance job's fate: either
+that job was skipped (the row stays `response_may_send`, `write_accepted` 0) or it
+had already executed (`write_accepted` 1). An acceptance write uses
+`ReceiverPolicy::CancelIfDropped`, never `RetainEnqueuedInvalidation`, so an
+abandoned acceptance job cannot execute *after* a negative read. The consequence
+is stated plainly: **when the read answers it is conclusive; when it does not
+answer at all (the writer is stalled) it is inconclusive** and the operation stays
+`SettlementUnknown`.
+
+If the row reports `write_accepted`, the operation continues along precisely the
+path a successful call would have taken, and the trace marks the reconcile. If it
+does not, the operation reports `SettlementUnknown` with an `AcceptanceUnrecorded`
+cause marker, because the ordered read answered and found no accepted row. If the
+read itself is refused or does not answer in time, the operation stays
+`SettlementUnknown` with the read's own refusal as the cause, and the original
+write error is retained in the trace.
+
+The frame is never re-sent and the acceptance write is never re-issued, so no
+second frame and no double-write is possible. This amendment changes no bound, and
+`write_accepted` continues to mean only that the store recorded the host's
+*local* acceptance for that id — it is not runtime application, not peer receipt,
+and never `Applied`; native application remains unconfirmed exactly as this ADR
+states. The reconcile read is read-only and grants no retry, reply, lease or
+completion authority.

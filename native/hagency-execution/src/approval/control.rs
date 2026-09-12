@@ -2,7 +2,7 @@ use super::{
     observations::Drive,
     state::{self, ApprovalRun, Sending},
 };
-use crate::{Failure, operation::Deadline};
+use crate::{Failure, SettlementCause, operation::Deadline};
 use hagency_core::{
     approvals::{ApprovalChoice, HostApprovalContext},
     tasks::RunnerCapability,
@@ -324,7 +324,106 @@ impl ApprovalRun {
                                 ),
                             )
                             .await;
-                        written.output.map_err(|_| Failure::SettlementUnknown)?;
+                        // The frame is physically accepted; only the store call that
+                        // RECORDS that acceptance may have failed. ADR-053's rule
+                        // applies: reconcile before retrying. Exactly one bounded read
+                        // decides whether the store recorded it. The frame is NEVER
+                        // re-sent and the acceptance write is NEVER re-issued here.
+                        //
+                        // The read is NOT a snapshot. `approval_response_summary` runs
+                        // through the same single-writer FIFO queue as the acceptance
+                        // write above, and that queue skips an enqueued job whose caller
+                        // stopped waiting (the `!reply.is_closed()` guard in
+                        // `call_with_policy`). Once this caller's two-second wait has
+                        // expired and dropped its receiver, the read is therefore ordered
+                        // behind the abandoned acceptance job's fate: either that job was
+                        // skipped (the row stays `response_may_send`, `write_accepted`
+                        // 0) or it had already executed (`write_accepted` 1). When the
+                        // read answers it is conclusive; when it does not answer at all
+                        // (the writer is stalled) it is inconclusive and the operation
+                        // stays `SettlementUnknown`. The acceptance write uses
+                        // `ReceiverPolicy::CancelIfDropped`, never
+                        // `RetainEnqueuedInvalidation`, so an abandoned acceptance job
+                        // cannot execute after a negative read.
+                        #[cfg(test)]
+                        let outcome = if self.callbacks.fault == Some(super::Fault::WriteAckLost) {
+                            // Test seam: a successful call converted to the reply-loss
+                            // verdict, so the reconcile sees an error while the row is
+                            // committed. It can only convert a success into an error; it
+                            // can never manufacture an accepted row.
+                            Err(hagency_store::Error::OutcomeUnknown)
+                        } else {
+                            written.output
+                        };
+                        #[cfg(not(test))]
+                        let outcome = written.output;
+                        match outcome {
+                            Ok(summary) => {
+                                // Continue exactly as today: the acceptance record
+                                // exists (or the call simply succeeded).
+                                let _ = summary;
+                            }
+                            Err(write_error) => {
+                                #[cfg(any(test, feature = "test-diagnostics"))]
+                                if let Some(entry) = self.callbacks.entries.get_mut(&sending.id) {
+                                    entry.mark("acceptance-lost");
+                                    entry.mark(SettlementCause::of(&write_error).label());
+                                }
+                                #[cfg(not(any(test, feature = "test-diagnostics")))]
+                                let _ = &write_error;
+                                let id = sending.grant.application().id.clone();
+                                match crate::operation::bounded(
+                                    domain.approval_response_summary(id),
+                                    cancel,
+                                    until,
+                                )
+                                .await?
+                                {
+                                    Ok(summary) if summary.write_accepted => {
+                                        // Reconciled: the store did record the
+                                        // acceptance; the reply was simply lost.
+                                        // Continue along the successful path.
+                                        #[cfg(any(test, feature = "test-diagnostics"))]
+                                        if let Some(entry) =
+                                            self.callbacks.entries.get_mut(&sending.id)
+                                        {
+                                            entry.mark("acceptance-reconciled");
+                                        }
+                                    }
+                                    Ok(_) => {
+                                        #[cfg(any(test, feature = "test-diagnostics"))]
+                                        if let Some(entry) =
+                                            self.callbacks.entries.get_mut(&sending.id)
+                                        {
+                                            entry.mark("acceptance-unrecorded");
+                                        }
+                                        // The ordered read answered and found no
+                                        // accepted row, so this is conclusive: the
+                                        // record is genuinely absent. Name the cause
+                                        // for the operator and keep the verdict.
+                                        *drive.settlement_cause =
+                                            Some(SettlementCause::AcceptanceUnrecorded);
+                                        return Err(Failure::SettlementUnknown);
+                                    }
+                                    Err(read_error) => {
+                                        #[cfg(any(test, feature = "test-diagnostics"))]
+                                        if let Some(entry) =
+                                            self.callbacks.entries.get_mut(&sending.id)
+                                        {
+                                            entry.mark("acceptance-unreconciled");
+                                        }
+                                        // The read was refused or did not answer in
+                                        // time, so nothing is decided: stay
+                                        // `SettlementUnknown` with the read's own
+                                        // refusal as the cause. The original write
+                                        // error is retained in the trace above.
+                                        *drive.settlement_cause =
+                                            Some(SettlementCause::of(&read_error));
+                                        return Err(Failure::SettlementUnknown);
+                                    }
+                                }
+                            }
+                        }
                         #[cfg(test)]
                         if self.callbacks.fault == Some(super::Fault::WriteAck) {
                             return Err(Failure::SettlementUnknown);

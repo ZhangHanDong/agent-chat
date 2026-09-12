@@ -37,6 +37,11 @@ pub(crate) enum Fault {
     ConsumeAck,
     BeginAck,
     WriteAck,
+    /// Test seam: a *successful* acceptance call is converted to the reply-loss
+    /// verdict, so the reconcile reads an error while the row is committed. It
+    /// can only convert a success into an error; it can never manufacture an
+    /// accepted row.
+    WriteAckLost,
     SpawnPanic,
     WritePanic,
     BeginGate,

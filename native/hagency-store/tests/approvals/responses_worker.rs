@@ -299,3 +299,78 @@ async fn native_approval_response_clock() {
         store.shutdown().await.unwrap();
     }
 }
+
+/// A caller whose reply wait expires leaves the row unrecorded, and the ordered
+/// reconcile read proves it: because the acceptance command's caller dropped its
+/// receiver, the queue skips that enqueued job, so it can never execute after the
+/// negative read. This is the store-side half of the reconcile contract; the
+/// execution crate's two branches are proven in its own suite.
+#[tokio::test]
+async fn native_domain_acceptance_reply_timeout_reconciles() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut db, cap, id) = setup(root.path());
+    let grant = db
+        .authorize_approval_response(&cap, &id, writer_time().unwrap())
+        .unwrap();
+    let store = DomainStore::start(db, 16).unwrap();
+    let mut batch = [grant];
+    store
+        .begin_approval_responses(
+            cap.clone(),
+            &mut batch,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+    assert!(batch[0].is_admitted());
+    assert_eq!(
+        store
+            .approval_response_summary(id.clone())
+            .await
+            .unwrap()
+            .response,
+        ApprovalResponseState::ResponseMaySend
+    );
+    // Occupy the single writer so the acceptance command provably cannot run.
+    let (entered, reached) = oneshot::channel();
+    let (resume, paused) = std::sync::mpsc::channel();
+    store
+        .tx
+        .try_send(Job::Run {
+            operation: Box::new(move |_| {
+                let _ = entered.send(());
+                let _ = paused.recv_timeout(Duration::from_secs(6));
+            }),
+            _bytes: store.bytes.clone().try_acquire_owned().unwrap(),
+        })
+        .unwrap_or_else(|_| panic!("parking operation was not admitted"));
+    tokio::time::timeout(Duration::from_secs(2), reached)
+        .await
+        .unwrap()
+        .unwrap();
+    // Enqueued behind the parked job, the acceptance observation's own
+    // two-second reply wait expires while the writer is provably occupied.
+    let failure = store
+        .observe_approval_response(
+            &mut batch[0],
+            crate::ApprovalResponseObservation::WriteAccepted,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(failure, Error::OutcomeUnknown), "{failure:?}");
+    // Attributed as still queued, never dequeued: nothing ran for the command.
+    assert_eq!(store.last_unknown_dequeued(), Some(false));
+    // Release the writer. The abandoned acceptance job is skipped because its
+    // caller dropped the receiver, so the ordered reconcile read must find that
+    // no acceptance was ever recorded. If this row turns out accepted, the skip
+    // is not effective for this path and that is a finding, not a weakening.
+    resume.send(()).unwrap();
+    let summary = store.approval_response_summary(id.clone()).await.unwrap();
+    assert_eq!(
+        summary.response,
+        ApprovalResponseState::ResponseMaySend,
+        "an abandoned acceptance job must not execute after the negative read"
+    );
+    assert!(!summary.write_accepted);
+    store.shutdown().await.unwrap();
+}

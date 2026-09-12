@@ -213,6 +213,7 @@ fn settlement_cause_label(cause: hagency_execution::SettlementCause) -> &'static
         State => "state",
         Quarantined => "quarantined",
         Storage => "storage",
+        AcceptanceUnrecorded => "acceptance_unrecorded",
     }
 }
 fn session_error_label(error: hagency_runtime::codex::session::Error) -> &'static str {

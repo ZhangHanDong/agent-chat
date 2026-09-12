@@ -7666,3 +7666,20 @@ client qualification and ongoing identity/key management remain separate.
   The workflow gains a Windows MCP diagnosis step at eight threads (a serial
   re-run would hide a load-only failure) and keeps console failure
   screenshots as an artifact.
+- 2026-09-12 — Reconciled a lost approval write-acceptance record before
+  reporting it unknown (ADR-053's reconcile-before-retry rule, ADR-046
+  amendment). The acceptance pump now performs exactly one bounded read of
+  `approval_response_summary` when the acceptance call fails: `write_accepted`
+  true continues on the successful path, a conclusive false reports
+  `SettlementUnknown` with the new `AcceptanceUnrecorded` cause, and a refused
+  or unanswered read stays `SettlementUnknown` with the read's own cause. The
+  frame is never re-sent and the acceptance write is never re-issued. The read
+  is ordered on the same single-writer FIFO queue as the write and skips an
+  abandoned job whose caller stopped waiting, so a negative answer is
+  conclusive; `Fault::WriteAckLost` covers the committed-but-unacknowledged
+  case and `Fault::WriteAck` remains the negative control. New tests:
+  `native_domain_acceptance_reply_timeout_reconciles` (store) plus
+  `native_owned_approval_acceptance_reconcile_accepted` and
+  `_unrecorded` (execution), each bound to a `Test:` scenario. The SQLite-backed
+  selectors could not run in this sandbox (EPERM opening the private state
+  directory); the orchestrator runs them.

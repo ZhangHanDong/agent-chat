@@ -109,9 +109,15 @@ pub enum SettlementCause {
     Quarantined,
     /// Durable store capacity, schema or IO refusal.
     Storage,
+    /// The acceptance write was refused or abandoned and the ordered reconcile
+    /// read found no accepted row. Set directly by the approval acceptance pump,
+    /// never derived from a store error: it names a *missing record*, not a
+    /// refused call. Carries no path, payload or capability material, and cannot
+    /// become execution authority, retry, reply or lease input.
+    AcceptanceUnrecorded,
 }
 impl SettlementCause {
-    fn of(error: &hagency_store::Error) -> Self {
+    pub(crate) fn of(error: &hagency_store::Error) -> Self {
         match error {
             hagency_store::Error::Busy => Self::QueueBusy,
             hagency_store::Error::Unavailable => Self::QueueUnavailable,
@@ -120,6 +126,20 @@ impl SettlementCause {
             hagency_store::Error::State => Self::State,
             hagency_store::Error::Quarantined => Self::Quarantined,
             _ => Self::Storage,
+        }
+    }
+    /// Fixed trace label. Never store text: the discriminant is the whole datum.
+    #[cfg(any(test, feature = "test-diagnostics"))]
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::QueueBusy => "queue-busy",
+            Self::QueueUnavailable => "queue-unavailable",
+            Self::ReplyTimedOut => "reply-timed-out",
+            Self::RunnerAuthority => "runner-authority",
+            Self::State => "state",
+            Self::Quarantined => "quarantined",
+            Self::Storage => "storage",
+            Self::AcceptanceUnrecorded => "acceptance-unrecorded",
         }
     }
 }
@@ -765,6 +785,7 @@ async fn execute(
                         status: &mut report.canonical_status,
                         usage,
                         observation: &mut report.runtime_observation,
+                        settlement_cause: &mut report.settlement_cause,
                     },
                     runner,
                 )
@@ -947,7 +968,10 @@ mod tests {
                 "{error:?}"
             );
         }
-        // All seven markers are pairwise distinct discriminants.
+        // All eight markers are pairwise distinct discriminants. The eighth is
+        // not derived from a store refusal (see `AcceptanceUnrecorded`), but it
+        // must still be distinct from every refusal-derived marker so a trace
+        // label can never be mistaken for a queue or reply attribution.
         let all = [
             SettlementCause::QueueBusy,
             SettlementCause::QueueUnavailable,
@@ -956,6 +980,7 @@ mod tests {
             SettlementCause::State,
             SettlementCause::Quarantined,
             SettlementCause::Storage,
+            SettlementCause::AcceptanceUnrecorded,
         ];
         for (i, left) in all.iter().enumerate() {
             for right in &all[i + 1..] {

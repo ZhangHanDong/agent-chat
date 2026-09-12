@@ -1,5 +1,5 @@
 use super::state::Callbacks;
-use crate::{Failure, RuntimeObservation, RuntimeStage, usage::UsageRun};
+use crate::{Failure, RuntimeObservation, RuntimeStage, SettlementCause, usage::UsageRun};
 use hagency_core::tasks::{RunnerCapability, TaskState};
 use hagency_runtime::{
     codex::session::{ControlUpdate, Observation, Update},
@@ -17,6 +17,11 @@ pub(crate) struct Drive<'a> {
     pub status: &'a mut Option<TaskState>,
     pub usage: &'a mut UsageRun,
     pub observation: &'a mut Option<RuntimeObservation>,
+    /// Diagnostic cause for a `Failure::SettlementUnknown` raised during this
+    /// drive. Mirrors `status`: the `Report` is owned by `operation.rs` and is
+    /// not reachable from the approval control loop. Diagnostic only — it grants
+    /// no retry, reply, lease or completion authority.
+    pub settlement_cause: &'a mut Option<SettlementCause>,
 }
 pub(super) struct Pumped<T> {
     pub output: T,

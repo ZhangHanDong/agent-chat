@@ -515,3 +515,157 @@ async fn native_owned_approval_usage_unknown_slot() {
         0
     );
 }
+
+/// The acceptance call succeeded and the store committed the row, but the
+/// caller's reply was lost. The reconcile read must find the accepted row and
+/// continue along the successful path, with no second frame and no double write.
+#[tokio::test]
+async fn native_owned_approval_acceptance_reconcile_accepted() {
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    hagency_store::private::directory(&work).unwrap();
+    let work = work.canonicalize().unwrap();
+    let (domain, cap) = fixture(root.path());
+    let mut op = Operation::start(
+        domain.clone(),
+        cap.clone(),
+        host(&work, Fault::WriteAckLost, "owned-approval"),
+        Limits {
+            operation_ms: 25_000,
+            response_ms: 1500,
+        },
+    )
+    .unwrap();
+    let mut notices = op.take_approval_requests().unwrap();
+    let notice = tokio::time::timeout(Duration::from_secs(6), notices.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    choose(&domain, notice.request_id).await;
+    let report = op.wait().await.unwrap();
+    // The reconcile found the committed row, so the attempt completes exactly
+    // as a successful acknowledgement would have.
+    assert_eq!(
+        report.protocol,
+        Protocol::Completed,
+        "{:?} {:?}",
+        report.failure,
+        report.runtime_observation()
+    );
+    assert!(report.failure.is_none(), "{:?}", report.failure);
+    assert_eq!(report.settlement_cause, None);
+    // One callback, one retained frame, one grant, one accepted write.
+    assert_eq!(report.approval_custody(), (1, 1, 1, 1));
+    let requests =
+        std::fs::read_to_string(work.join("owned-dispatch.requests")).unwrap_or_default();
+    let responses: Vec<serde_json::Value> = requests
+        .lines()
+        .map(|v| serde_json::from_str(v).unwrap())
+        .filter(|v: &serde_json::Value| v.get("result").is_some())
+        .collect();
+    assert_eq!(
+        responses.len(),
+        1,
+        "exactly one response frame may ever be written for the id"
+    );
+    let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+    assert_eq!(
+        sql.query_row(
+            "SELECT COUNT(*) FROM approval_responses WHERE state='write_accepted'",
+            [],
+            |r| r.get::<_, u64>(0)
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        sql.query_row(
+            "SELECT COUNT(*) FROM approval_responses WHERE write_accepted=1",
+            [],
+            |r| r.get::<_, u64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}
+
+/// The acceptance call never committed: the writer refused it, so the ordered
+/// reconcile read answers that no accepted row exists. That is conclusive, so
+/// the operation reports `SettlementUnknown` with the `AcceptanceUnrecorded`
+/// cause, one frame on the wire, and no accepted row.
+#[tokio::test]
+async fn native_owned_approval_acceptance_reconcile_unrecorded() {
+    use std::sync::{Arc, atomic::Ordering};
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    hagency_store::private::directory(&work).unwrap();
+    let work = work.canonicalize().unwrap();
+    let (domain, cap) = fixture(root.path());
+    let gate = Arc::new(crate::approval::Gate::default());
+    let mut configured = host(&work, Fault::RecheckGate, "owned-approval");
+    configured.approval_gate = Some(gate.clone());
+    let mut op = Operation::start(
+        domain.clone(),
+        cap.clone(),
+        configured,
+        Limits {
+            operation_ms: 25_000,
+            response_ms: 1500,
+        },
+    )
+    .unwrap();
+    let mut notices = op.take_approval_requests().unwrap();
+    let notice = tokio::time::timeout(Duration::from_secs(6), notices.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    choose(&domain, notice.request_id).await;
+    // The host is held after its recheck and before the frame is written, so the
+    // next store write it attempts is the acceptance observation. Taking the
+    // single writer here makes that acceptance transaction refuse after its
+    // bounded busy wait rather than commit.
+    let end = tokio::time::Instant::now() + Duration::from_secs(2);
+    while !gate.entered.load(Ordering::Acquire) {
+        assert!(
+            tokio::time::Instant::now() < end,
+            "the receipt did not reach the recheck gate"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+    sql.execute_batch("BEGIN IMMEDIATE").unwrap();
+    gate.release.store(true, Ordering::Release);
+    // Bounded and generous against the writer's 100 ms busy timeout: the
+    // acceptance write refuses, the ordered read then answers "unrecorded".
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    sql.execute_batch("COMMIT").unwrap();
+    let report = op.wait().await.unwrap();
+    assert_eq!(report.failure, Some(Failure::SettlementUnknown));
+    assert_eq!(
+        report.settlement_cause,
+        Some(crate::SettlementCause::AcceptanceUnrecorded),
+        "a conclusive negative read names the missing record"
+    );
+    assert_eq!(report.approval_custody(), (1, 1, 1, 0));
+    let requests =
+        std::fs::read_to_string(work.join("owned-dispatch.requests")).unwrap_or_default();
+    let responses: Vec<serde_json::Value> = requests
+        .lines()
+        .map(|v| serde_json::from_str(v).unwrap())
+        .filter(|v: &serde_json::Value| v.get("result").is_some())
+        .collect();
+    assert_eq!(
+        responses.len(),
+        1,
+        "the frame is written once even though its record was refused"
+    );
+    assert_eq!(
+        sql.query_row(
+            "SELECT COUNT(*) FROM approval_responses WHERE write_accepted=1",
+            [],
+            |r| r.get::<_, u64>(0)
+        )
+        .unwrap(),
+        0
+    );
+}
