@@ -1123,6 +1123,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "hagency-core",
+ "hagency-execution",
  "hagency-files",
  "hagency-metering",
  "hagency-platform",
