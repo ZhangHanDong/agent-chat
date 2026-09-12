@@ -7159,3 +7159,8 @@ client qualification and ongoing identity/key management remain separate.
   so the residual lock is a transient release lag; the usage tests now poll
   the reopen for up to two seconds on `Locked` instead of failing on the
   first attempt.
+- Hosted run for `c3b9ea8`: the Windows native job completed successfully
+  end to end for the first time (49 minutes: tests, media qualification,
+  release build and artifact), Ubuntu and console-browser passed, Node CI
+  passed. macOS failed only the transient `Locked` reopen fixed in the
+  following commit.
