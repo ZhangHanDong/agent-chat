@@ -101,6 +101,22 @@ Scenario: Coordination requests and projections remain bounded
   Then request response frame and deadline limits fail visibly without leaking credentials
   And existing task protocol and watchdog behavior remain enforced
 
+Scenario: Each helper refusal names its own class
+  Test: native_mcp_helper_framing_is_named
+  Level: integration
+  Test Double: the real helper spawned directly on its raw stdio
+  Given a partial frame whose peer write half closes before the newline
+  When the helper reaches end of input
+  Then it exits with the framing code and reports the bound and the observed size
+
+Scenario: A lifecycle refusal keeps its own code
+  Test: native_mcp_helper_protocol_is_named
+  Level: integration
+  Test Double: the real helper spawned directly on its raw stdio
+  Given a well-formed frame outside the current MCP lifecycle
+  When the helper reads it
+  Then it exits with the protocol code and names the refusing check
+
 ## Out of Scope
 
 This slice does not complete MCP parity or M3/M6. Agent discovery files Matrix

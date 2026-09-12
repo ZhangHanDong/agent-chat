@@ -62,9 +62,12 @@ impl<'de> Deserialize<'de> for Strict {
 }
 pub(crate) fn json(bytes: &[u8]) -> Result<Value, Error> {
     let mut d = serde_json::Deserializer::from_slice(bytes);
-    let Strict(value) = Strict::deserialize(&mut d).map_err(|_| Error::Protocol)?;
-    d.end().map_err(|_| Error::Protocol)?;
+    let Strict(value) = Strict::deserialize(&mut d)
+        .map_err(|_| Error::Protocol("frame is not unambiguous JSON"))?;
+    d.end()
+        .map_err(|_| Error::Protocol("frame has trailing content"))?;
     // serde limits parser recursion to 128; the retained transport contract is 64.
-    canonical::encode_transport(&value).map_err(|_| Error::Protocol)?;
+    canonical::encode_transport(&value)
+        .map_err(|_| Error::Protocol("frame exceeds the canonical transport contract"))?;
     Ok(value)
 }

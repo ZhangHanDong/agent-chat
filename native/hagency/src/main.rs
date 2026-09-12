@@ -85,7 +85,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     if matches!(command, Command::Mcp) {
-        mcp_stdio::run_stdio()?;
+        // The helper's exit code names its own refusal class, so a spawning
+        // test can attribute a hosted load failure from the status alone,
+        // without reading stderr (which is only drained after the exit).
+        // Previously `?` propagated the `Err` to Rust's default handler,
+        // which printed the same message but always exited 1.
+        if let Err(error) = mcp_stdio::run_stdio() {
+            eprintln!("Error: {error}");
+            std::process::exit(error.exit_code());
+        }
         return Ok(());
     }
     tracing_subscriber::fmt()

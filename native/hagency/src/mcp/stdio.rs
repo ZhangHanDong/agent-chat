@@ -94,7 +94,15 @@ pub(super) fn run_stdio() -> Result<(), Error> {
                 return if line.is_empty() {
                     Ok(())
                 } else {
-                    Err(Error::Protocol)
+                    // EOF arrived mid-frame: the peer's write half closed
+                    // between parts of one line. That is a transport/pipe
+                    // fault, not a protocol refusal, and it is the only
+                    // refusal that depends on timing rather than content.
+                    Err(Error::Framing {
+                        detail: "stdin reached EOF with a partial frame",
+                        bound: FRAME_LIMIT,
+                        observed: line.len(),
+                    })
                 };
             }
             if line.is_empty() {
@@ -103,7 +111,11 @@ pub(super) fn run_stdio() -> Result<(), Error> {
             let end = bytes.iter().position(|b| *b == b'\n');
             let count = end.unwrap_or(bytes.len());
             if line.len() + count > FRAME_LIMIT {
-                return Err(Error::Protocol);
+                return Err(Error::Framing {
+                    detail: "frame exceeds FRAME_LIMIT",
+                    bound: FRAME_LIMIT,
+                    observed: line.len() + count,
+                });
             }
             line.extend_from_slice(&bytes[..count]);
             input.consume(count + usize::from(end.is_some()));
@@ -113,9 +125,14 @@ pub(super) fn run_stdio() -> Result<(), Error> {
         }
         watch.set(None);
         if let Some(response) = runtime.block_on(session.handle(&line))? {
-            let mut bytes = serde_json::to_vec(&response).map_err(|_| Error::Protocol)?;
+            let mut bytes = serde_json::to_vec(&response)
+                .map_err(|_| Error::Protocol("response serialization failed"))?;
             if bytes.len() > OUTPUT_LIMIT {
-                return Err(Error::Protocol);
+                return Err(Error::Framing {
+                    detail: "response exceeds OUTPUT_LIMIT",
+                    bound: OUTPUT_LIMIT,
+                    observed: bytes.len(),
+                });
             }
             bytes.push(b'\n');
             watch.set(Some(Duration::from_secs(5)));

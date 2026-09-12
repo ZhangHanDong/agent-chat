@@ -89,3 +89,30 @@ Implemented tools reuse current runner API checks and durable receipts. Discover
 ## Alternatives Considered
 
 Accepting arbitrary URLs, methods or capabilities in tool arguments would turn scoped coordination into a generic host endpoint. Direct store access would create a second authority path outside the runner writer.
+
+## Amendment (2026-09-12): each helper refusal names its own class
+
+A hosted failure of this helper was reported as `Error: Protocol` with exit 1,
+which eleven distinct return sites in `mcp.rs` and `stdio.rs` all produced. The
+refusals are now named, and each class carries its own process exit, so a
+spawning test attributes a load failure from the status alone — stderr is only
+drained after the exit and cannot be load-bearing.
+
+- **`Framing` (exit 70)**: a bounded stdio frame was refused before it became a
+  request — EOF with a partial frame, a frame over `FRAME_LIMIT` (32 KiB), or a
+  response over `OUTPUT_LIMIT` (256 KiB). Records the bound and the observed
+  size. This is a transport/pipe fault, deliberately not conflated with a
+  protocol refusal.
+- **`Protocol` (exit 71)**: a well-formed frame outside the current MCP
+  lifecycle or schema. Each site carries a `&'static str` tag naming the check
+  (unrecognized notification, request-id shape, initialize params, projection),
+  so the verdict is distinguishable without new variants.
+- **`Io` (exit 72)** and **`Context` (exit 73)**: unchanged refusals, now also
+  distinguishable by code.
+- **74** remains the stdio watchdog's exit, unchanged; it is documented as the
+  fourth value rather than folded into the enum, because it is not an `Error`.
+
+`main`'s `Mcp` arm previously propagated the `Err` through `?` to Rust's default
+handler, which printed the same message and always exited 1; it now prints and
+exits with `Error::exit_code()`. No deadline, no limit value and no existing
+refusal changes: every refusal that refused before still refuses.

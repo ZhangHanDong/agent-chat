@@ -252,6 +252,29 @@ impl Fixture {
             .unwrap()
     }
 }
+/// Spawn the helper without an rmcp client, so a test can drive its raw stdio:
+/// a partial frame, a lifecycle-invalid frame, then EOF. `Client::new` cannot
+/// do this, because `serve()` consumes the child's stdin.
+pub fn raw_helper(address: SocketAddr, cap: &RunnerCapability, task: &str) -> Child {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_hagency"));
+    cmd.arg("mcp")
+        .env_clear()
+        .env("HAGENCY_RUNNER_API_ADDR", address.to_string())
+        .env(
+            "HAGENCY_RUNNER_CAPABILITY",
+            serde_json::to_string(cap).unwrap(),
+        )
+        .env("HAGENCY_TASK_ID", task)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    if let Some(root) = std::env::var_os("SystemRoot") {
+        cmd.env("SystemRoot", root);
+    }
+    cmd.spawn().unwrap()
+}
 pub struct Client {
     pub service: RunningService<RoleClient, ()>,
     child: Child,
@@ -269,7 +292,16 @@ impl Client {
                     use tokio::io::AsyncReadExt;
                     let _ = pipe.read_to_string(&mut stderr).await;
                 }
-                format!("helper exited {status:?}; stderr={stderr:?}")
+                // Print what the code means, so a hosted failure is readable
+                // from the status alone; stderr is only drained after the exit.
+                let meaning = status
+                    .code()
+                    .map(hagency::mcp::Error::exit_code_name)
+                    .unwrap_or("signal");
+                format!(
+                    "helper exited {status:?}; code={:?} means {meaning}; stderr={stderr:?}",
+                    status.code()
+                )
             }
             other => format!("helper try_wait={other:?}"),
         }

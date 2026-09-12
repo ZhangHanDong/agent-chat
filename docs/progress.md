@@ -7793,3 +7793,18 @@ client qualification and ongoing identity/key management remain separate.
   engagement reused the live agent name (admission refuses the collision),
   and the oracle replay asked for zero tokens where the retained seed
   commits nothing (a scoped request never asks for zero). All seven pass.
+
+- 2026-09-12 — Named each `hagency mcp` helper refusal with its own exit code
+  (ADR-051 amendment). A hosted load failure was reported as `Error: Protocol`
+  with exit 1, which eleven return sites produced indistinguishably. `Framing`
+  (exit 70) now covers the bounded stdio refusals — EOF with a partial frame,
+  frame over `FRAME_LIMIT`, response over `OUTPUT_LIMIT` — and reports the bound
+  and observed size; `Protocol` (exit 71) keeps the lifecycle/schema refusals,
+  each carrying a `&'static str` tag naming its check; `Io`/`Context` are 72/73
+  and the stdio watchdog's 74 is unchanged. `main`'s `Mcp` arm now exits with
+  `Error::exit_code()` instead of Rust's default handler. New tests
+  `native_mcp_helper_framing_is_named` and `native_mcp_helper_protocol_is_named`
+  drive the real helper on its raw stdio (the fixture's new `raw_helper`, since
+  `Client::new` hands stdin to `serve`), and `exit_evidence` now prints what the
+  exit code means so a hosted failure is readable without stderr. No deadline
+  and no limit value changes.

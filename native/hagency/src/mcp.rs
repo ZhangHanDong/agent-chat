@@ -15,12 +15,50 @@ pub const OUTPUT_LIMIT: usize = 256 * 1024;
 const REQUEST_LIMIT: usize = 4096;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("native MCP protocol is invalid or exceeds its bound")]
-    Protocol,
+    /// A bounded stdio frame was refused before it became a request: EOF with a
+    /// partial frame, a frame over `FRAME_LIMIT`, or a response over
+    /// `OUTPUT_LIMIT`. Names the bound and the observed size, so a hosted
+    /// failure is attributable without stderr.
+    #[error(
+        "native MCP framing refused ({detail}; bound {bound} bytes; observed {observed} bytes)"
+    )]
+    Framing {
+        detail: &'static str,
+        bound: usize,
+        observed: usize,
+    },
+    /// A well-formed frame outside the current MCP lifecycle or schema. The tag
+    /// names which check refused it.
+    #[error("native MCP protocol refused ({0})")]
+    Protocol(&'static str),
     #[error("native MCP IO failed")]
     Io,
     #[error("native MCP runner context is missing or invalid")]
     Context,
+}
+impl Error {
+    /// The helper's own process exit, so a spawning test attributes the cause
+    /// from the status alone. 74 stays the IO watchdog's code (stdio.rs).
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Self::Framing { .. } => 70,
+            Self::Protocol(_) => 71,
+            Self::Io => 72,
+            Self::Context => 73,
+        }
+    }
+    /// Reverse of `exit_code` for diagnostics: what a code means, so a hosted
+    /// failure is readable from the status without stderr.
+    pub fn exit_code_name(code: i32) -> &'static str {
+        match code {
+            70 => "Framing",
+            71 => "Protocol",
+            72 => "Io",
+            73 => "Context",
+            74 => "IoDeadline",
+            _ => "unknown",
+        }
+    }
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Phase {
@@ -55,7 +93,7 @@ impl Session {
     /// One complete frame, without its newline. A fatal frame closes this session.
     pub async fn handle(&mut self, bytes: &[u8]) -> Result<Option<Value>, Error> {
         if self.closed {
-            return Err(Error::Protocol);
+            return Err(Error::Protocol("session already closed by a prior refusal"));
         }
         let result = self.handle_inner(bytes).await;
         if result.is_err() {
@@ -64,17 +102,28 @@ impl Session {
         result
     }
     async fn handle_inner(&mut self, bytes: &[u8]) -> Result<Option<Value>, Error> {
-        if bytes.is_empty() || bytes.len() > FRAME_LIMIT || bytes.contains(&b'\n') {
-            return Err(Error::Protocol);
+        if bytes.is_empty() {
+            return Err(Error::Protocol("frame is empty"));
+        }
+        if bytes.len() > FRAME_LIMIT {
+            return Err(Error::Framing {
+                detail: "frame exceeds FRAME_LIMIT",
+                bound: FRAME_LIMIT,
+                observed: bytes.len(),
+            });
+        }
+        if bytes.contains(&b'\n') {
+            return Err(Error::Protocol("frame contains a newline"));
         }
         let value = json::json(bytes)?;
         // null is not a request ID and is not a notification with omitted ID.
         if value.get("id").is_some_and(Value::is_null) {
-            return Err(Error::Protocol);
+            return Err(Error::Protocol("request id is null"));
         }
-        let request: Request = serde_json::from_value(value).map_err(|_| Error::Protocol)?;
+        let request: Request = serde_json::from_value(value)
+            .map_err(|_| Error::Protocol("request schema is invalid"))?;
         if request.jsonrpc != "2.0" || request.method.len() > 128 {
-            return Err(Error::Protocol);
+            return Err(Error::Protocol("jsonrpc version or method name is invalid"));
         }
         let Some(id) = request.id else {
             match request.method.as_str() {
@@ -86,7 +135,11 @@ impl Session {
                 // Sequential operations finish before a later notification is read.
                 // Cancellation does not undo a mutation or authorize a retry.
                 "notifications/cancelled" if self.phase == Phase::Ready => {}
-                _ => return Err(Error::Protocol),
+                _ => {
+                    return Err(Error::Protocol(
+                        "notification is outside the current lifecycle",
+                    ));
+                }
             }
             return Ok(None);
         };
@@ -102,14 +155,19 @@ impl Session {
             {
                 format!("n:{n}")
             }
-            _ => return Err(Error::Protocol),
+            _ => return Err(Error::Protocol("request id is malformed")),
         };
         if self.ids.len() >= REQUEST_LIMIT || !self.ids.insert(key) {
-            return Err(Error::Protocol);
+            return Err(Error::Protocol(
+                "request id is reused or the request bound is reached",
+            ));
         }
         let result = match request.method.as_str() {
             "initialize" if self.phase == Phase::Initialize => {
-                let p = request.params.as_ref().ok_or(Error::Protocol)?;
+                let p = request
+                    .params
+                    .as_ref()
+                    .ok_or(Error::Protocol("initialize params are missing"))?;
                 if p.get("protocolVersion")
                     .and_then(Value::as_str)
                     .is_none_or(|v| v.is_empty() || v.len() > 64)
@@ -119,7 +177,7 @@ impl Session {
                             && v.get("version").is_some_and(Value::is_string)
                     })
                 {
-                    return Err(Error::Protocol);
+                    return Err(Error::Protocol("initialize params are invalid"));
                 }
                 self.phase = Phase::Initialized;
                 json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"hagency","version":env!("CARGO_PKG_VERSION")},"instructions":"Maintain the assigned task and coordinate only within current runner authority. Graph assignees are exact internal participant session IDs returned by conversations. Frames are limited to 32 KiB; page reads at most 32 items. Every mutation requires a stable call_id. A lost response is uncertain; inspect or retry the identical call_id and content."})
@@ -148,20 +206,24 @@ impl Session {
         };
         let response = json!({"jsonrpc":"2.0","id":id,"result":result});
         if serde_json::to_vec(&response)
-            .map_err(|_| Error::Protocol)?
+            .map_err(|_| Error::Protocol("response serialization failed"))?
             .len()
             > OUTPUT_LIMIT
         {
-            return Err(Error::Protocol);
+            return Err(Error::Framing {
+                detail: "response exceeds OUTPUT_LIMIT",
+                bound: OUTPUT_LIMIT,
+                observed: response.to_string().len(),
+            });
         }
         Ok(Some(response))
     }
     async fn call(&self, params: Option<Value>) -> Result<Value, Error> {
-        let params = params.ok_or(Error::Protocol)?;
+        let params = params.ok_or(Error::Protocol("tool call params are missing"))?;
         let name = params
             .get("name")
             .and_then(Value::as_str)
-            .ok_or(Error::Protocol)?;
+            .ok_or(Error::Protocol("tool call name is missing"))?;
         let args = params
             .get("arguments")
             .cloned()
@@ -210,7 +272,8 @@ impl Session {
             return Ok(
                 match files::run(&self.context, &command, task_client::DEFAULT_DEADLINE).await {
                     Ok(view) => {
-                        let structured = serde_json::to_value(view).map_err(|_| Error::Protocol)?;
+                        let structured = serde_json::to_value(view)
+                            .map_err(|_| Error::Protocol("file tool projection failed"))?;
                         json!({"content":[{"type":"text","text":structured.to_string()}],"structuredContent":structured,"isError":false})
                     }
                     Err(error) => tool_error(&error.to_string()),
@@ -252,7 +315,8 @@ impl Session {
                 .await
                 {
                     Ok(v) => {
-                        let structured = serde_json::to_value(v).map_err(|_| Error::Protocol)?;
+                        let structured = serde_json::to_value(v)
+                            .map_err(|_| Error::Protocol("receive tool projection failed"))?;
                         json!({"content":[{"type":"text","text":structured.to_string()}],"structuredContent":structured,"isError":false})
                     }
                     Err(e) => tool_error(&e.to_string()),
@@ -295,7 +359,8 @@ impl Session {
         .await
         {
             Ok(v) => {
-                let structured = serde_json::to_value(v).map_err(|_| Error::Protocol)?;
+                let structured = serde_json::to_value(v)
+                    .map_err(|_| Error::Protocol("task tool projection failed"))?;
                 Ok(
                     json!({"content":[{"type":"text","text":structured.to_string()}],"structuredContent":structured,"isError":false}),
                 )

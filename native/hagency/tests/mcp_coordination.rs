@@ -6,4 +6,5 @@ mod mcp_coordination {
     pub mod fixture;
     mod flows;
     mod recovery;
+    mod refusals;
 }
