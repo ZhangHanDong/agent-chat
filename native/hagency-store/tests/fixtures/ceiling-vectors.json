@@ -350,5 +350,167 @@
         "remainingAfterApproval": 0
       }
     }
+  ],
+  "sweeps": [
+    {
+      "name": "over-by-commitment",
+      "ceilingTokens": 1000000,
+      "reserved": 1500000,
+      "spent": null,
+      "consumed": null,
+      "sweeps": 3,
+      "expected": {
+        "states": [
+          {
+            "at": 1000000,
+            "raised": 1,
+            "updated": 0,
+            "resolved": 0
+          },
+          {
+            "at": 4600000,
+            "raised": 0,
+            "updated": 1,
+            "resolved": 0
+          },
+          {
+            "at": 8200000,
+            "raised": 0,
+            "updated": 1,
+            "resolved": 0
+          }
+        ],
+        "finalRow": {
+          "occurrences": 3,
+          "resolvedAt": null,
+          "resolvedBy": null
+        },
+        "pruned": 0
+      }
+    },
+    {
+      "name": "over-by-measured",
+      "ceilingTokens": 1000000,
+      "reserved": 0,
+      "spent": 1200000,
+      "consumed": 10200000,
+      "sweeps": 1,
+      "expected": {
+        "states": [
+          {
+            "at": 1000000,
+            "raised": 1,
+            "updated": 0,
+            "resolved": 0
+          }
+        ],
+        "finalRow": {
+          "occurrences": 1,
+          "resolvedAt": null,
+          "resolvedBy": null
+        },
+        "pruned": 0
+      }
+    },
+    {
+      "name": "inside",
+      "ceilingTokens": 2000000,
+      "reserved": 500000,
+      "spent": null,
+      "consumed": null,
+      "sweeps": 2,
+      "expected": {
+        "states": [
+          {
+            "at": 1000000,
+            "raised": 0,
+            "updated": 0,
+            "resolved": 0
+          },
+          {
+            "at": 4600000,
+            "raised": 0,
+            "updated": 0,
+            "resolved": 0
+          }
+        ],
+        "finalRow": null,
+        "pruned": 0
+      }
+    },
+    {
+      "name": "exactly-on",
+      "ceilingTokens": 1000000,
+      "reserved": 1000000,
+      "spent": null,
+      "consumed": null,
+      "sweeps": 1,
+      "expected": {
+        "states": [
+          {
+            "at": 1000000,
+            "raised": 0,
+            "updated": 0,
+            "resolved": 0
+          }
+        ],
+        "finalRow": null,
+        "pruned": 0
+      }
+    },
+    {
+      "name": "no-ceiling",
+      "ceilingTokens": null,
+      "reserved": 900000,
+      "spent": null,
+      "consumed": null,
+      "sweeps": 1,
+      "expected": {
+        "states": [
+          {
+            "at": 1000000,
+            "raised": 0,
+            "updated": 0,
+            "resolved": 0
+          }
+        ],
+        "finalRow": null,
+        "pruned": 0
+      }
+    },
+    {
+      "name": "month-rollover-resolves",
+      "ceilingTokens": 1000,
+      "reserved": 100,
+      "spent": 1200,
+      "spentByPhase": [
+        1200,
+        null
+      ],
+      "sweeps": 2,
+      "expected": {
+        "states": [
+          {
+            "at": 1000000,
+            "raised": 1,
+            "updated": 0,
+            "resolved": 0
+          },
+          {
+            "at": 2679400000,
+            "raised": 0,
+            "updated": 0,
+            "resolved": 1
+          }
+        ],
+        "finalRow": {
+          "occurrences": 1,
+          "resolvedAt": 2679400000,
+          "resolvedBy": "system"
+        },
+        "pruned": 0
+      },
+      "note": "unknown != zero: the closed period is not carried, so the first post-rollover sweep resolves"
+    }
   ]
 }

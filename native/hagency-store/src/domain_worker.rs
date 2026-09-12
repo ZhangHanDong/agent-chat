@@ -1,5 +1,6 @@
 use crate::{
     DomainRepository, Effect, EffectOutcome, Error, ShutdownOutcome, ShutdownSnapshot,
+    SweepOutcome,
     shutdown::{Phase, Probe, mark},
 };
 use hagency_core::approvals::{
@@ -2543,6 +2544,12 @@ impl DomainStore {
     }
     pub async fn resource_budget(&self, id: String) -> Result<Budget, Error> {
         self.call(weight(&id)?, move |db| db.resource_budget(&id))
+            .await
+    }
+    /// Ceiling overrun alarm sweep (ADR-124 slice a): takes the clock from the
+    /// caller so tests drive it directly; no timer is attached in this slice.
+    pub async fn sweep_ceiling_overruns(&self, now: u64) -> Result<SweepOutcome, Error> {
+        self.call(weight(&now)?, move |db| db.sweep_ceiling_overruns(now))
             .await
     }
     /// Host-only concrete publication command; never part of RunnerCommand.

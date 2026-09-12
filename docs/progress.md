@@ -1,5 +1,28 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — Ceiling alarm slice (a): file and resolve overrun alerts (ADR-124)
+
+- Migration `024-ceiling-alerts.sql`: one row per dedupe key
+  `agent_ceiling_overrun:<resource_id>` with the retained wording columns,
+  `detail` JSON-string ≤4096, `occurrences`, resolved-by; registered with its
+  `LIMIT 0` verification query.
+- `DomainRepository::sweep_ceiling_overruns(now)`: one `Immediate`
+  transaction over every resource with a declared finite ceiling, reading the
+  same `ceiling_report` admission uses. Strictly `drawn > ceiling` raises;
+  `<=` auto-resolves (`resolved_by='system'`); repeats increment
+  `occurrences`; a re-over after resolution reopens the same row (the
+  one-row-per-key divergence from Node's episode model, argued in the ADR);
+  resolved rows pruned after 7 days. `SweepOutcome` counts returned; async
+  `DomainStore` wrapper added (tests drive it directly — no timer in this
+  slice). An alert is diagnostic, never enforcement.
+- Oracle: `ceiling-vectors.mjs` gained the alert state machine (ingest-dedupe,
+  auto-resolve, reopen) with `alertStoreSha256` pinned; six seeds including
+  the 2-phase month-rollover unknown-not-zero case; fixture regenerated,
+  `--check` green ×3.
+- Tests (`tests/ceiling_alerts.rs`, the seven named scenarios): all compile;
+  the SQLite-backed ones hit the known sandbox EPERM at fixture open and are
+  CI's to run.
+
 ## 2026-09-12 — Ceiling slice 3: admission uses the draw, headroom published (ADR-123)
 
 - Folded the ADR-121 ceiling report into admission (`DomainRepository::approve`),

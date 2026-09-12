@@ -20,6 +20,7 @@ const sha = (p) => createHash('sha256').update(readFileSync(new URL(p, import.me
 const ledgerSha256 = sha('../../lib/metering/ledger.js');
 const backendSha256 = sha('../../backend-v2.js');
 const engagementStoreSha256 = sha('../../lib/engagement-store.js');
+const alertStoreSha256 = sha('../../lib/alert-store.js');
 
 // The Rust fixture (native/hagency-store/tests/usage.rs Fixture::new) commits
 // exactly one approved 100-token engagement on the resource, so reserved is
@@ -170,6 +171,147 @@ const admissionVectors = admissionCases.map(({ name, seed }) => {
   };
 });
 
+// Slice (a) of the alarm plan: the overrun alert state machine transcribed
+// from the retained sweep (backend-v2.js:9393-9452) over lib/alert-store.js
+// semantics (ingest-dedupe :231-249, reopen :254-271, autoResolve :337-355,
+// 7-day resolved TTL :25). The sweep arithmetic is the same drawn rule the
+// admission vectors use; this section pins what the STORE must do with it:
+// strictly drawn > ceiling raises; a repeat against an open row increments
+// occurrences (one open alert per key); falling back under resolves
+// (resolved_by 'system'); a re-over reopens the same row; resolved rows
+// older than 7 days are pruned.
+const ALERT_RESOLVED_TTL_MS = 7 * 86400_000;
+const sweepSeed = (name, ceiling, seed) => ({ name, ceiling, seed });
+
+// Each case is a SEQUENCE of sweeps over one resource: state carries forward
+// so reopen/dedupe/resolve transitions are exercised in order. `reserved` is
+// the native fixture's commitment figure (100) except where a case says 0.
+const sweepCases = [
+  // Over by commitment: the 1.5M-committed-then-lowered-to-1M case the
+  // retained test uses (:86). Unknown measurement falls back to reserved.
+  sweepSeed('over-by-commitment', 1_000_000, { reserved: 1_500_000, spent: null, sweeps: 3 }),
+  // The mutant-killer (:122): 1.2M FRESH with nothing committed, cacheRead
+  // deliberately huge and excluded — drawn must be 1.2M, not 10.2M, not 0.
+  sweepSeed('over-by-measured', 1_000_000, { reserved: 0, spent: 1_200_000, consumed: 10_200_000, sweeps: 1 }),
+  // Inside the ceiling: no alert, ever.
+  sweepSeed('inside', 2_000_000, { reserved: 500_000, spent: null, sweeps: 2 }),
+  // Exactly ON the ceiling is not over it (strict >).
+  sweepSeed('exactly-on', 1_000_000, { reserved: 1_000_000, spent: null, sweeps: 1 }),
+  // No declared ceiling: skipped, not over.
+  sweepSeed('no-ceiling', null, { reserved: 900_000, spent: null, sweeps: 1 }),
+];
+
+// The retained store, mirrored: one record per dedupe key, occurrences on
+// it, resolved rows reopened on the next over, pruned after 7 days.
+const mirrorSweep = (seed, ceiling, atMs) => {
+  const drawn = seed.spent === null || seed.spent === undefined
+    ? seed.reserved
+    : Math.max(seed.reserved, seed.spent);
+  return { drawn, over: ceiling === null ? null : drawn - ceiling };
+};
+
+const sweepVectors = sweepCases.map(({ name, ceiling, seed }) => {
+  const sweeps = seed.sweeps ?? 1;
+  const t0 = 1_000_000; // arbitrary fixed epoch ms
+  const states = [];
+  // In-memory mirror of the one-row-per-key table.
+  let row = null; // { occurrences, firstSeen, lastSeen, resolvedAt, resolvedBy }
+  for (let i = 0; i < sweeps; i += 1) {
+    const at = t0 + i * 3_600_000;
+    const { over } = mirrorSweep(seed, ceiling, at);
+    let raised = 0; let updated = 0; let resolved = 0;
+    if (over !== null && over > 0) {
+      if (row === null) {
+        row = { occurrences: 1, firstSeen: at, lastSeen: at, resolvedAt: null, resolvedBy: null };
+        raised = 1;
+      } else if (row.resolvedAt !== null) {
+        row.occurrences += 1; row.lastSeen = at; row.resolvedAt = null; row.resolvedBy = null;
+        raised = 1;
+      } else {
+        row.occurrences += 1; row.lastSeen = at;
+        updated = 1;
+      }
+    } else if (row !== null && row.resolvedAt === null) {
+      row.resolvedAt = at; row.resolvedBy = 'system';
+      resolved = 1;
+    }
+    states.push({ at, raised, updated, resolved });
+  }
+  // Retention over the same timeline: a resolved row older than 7 days from
+  // the final sweep disappears.
+  const finalAt = t0 + (sweeps - 1) * 3_600_000;
+  const pruned = row !== null && row.resolvedAt !== null
+    && (finalAt - row.resolvedAt) > ALERT_RESOLVED_TTL_MS ? 1 : 0;
+  return {
+    name,
+    ceilingTokens: ceiling,
+    reserved: seed.reserved,
+    spent: seed.spent ?? null,
+    consumed: seed.consumed ?? null,
+    sweeps,
+    expected: {
+      states,
+      finalRow: row === null ? null : {
+        occurrences: row.occurrences,
+        resolvedAt: row.resolvedAt,
+        resolvedBy: row.resolvedBy,
+      },
+      pruned,
+    },
+  };
+});
+
+// Month rollover: an unmeasured NEW period means spent=null so drawn falls
+// back to reserved; a resource over only by the CLOSED period's measurement
+// auto-resolves on the first post-rollover sweep (backend-v2.js:9410 with
+// ceilingSpendFor reading the CURRENT period). Two phases: over by
+// measurement, then the new period is unmeasured and the alert resolves.
+const rolloverVector = (() => {
+  const ceiling = 1_000;
+  const reserved = 100;
+  const t0 = 1_000_000;
+  const nextMonth = t0 + 31 * 86400_000;
+  const phases = [
+    { at: t0, spent: 1_200 },       // measured over: 1.2M-ish fresh vs 1k
+    { at: nextMonth, spent: null }, // new period unmeasured
+  ];
+  let row = null;
+  const states = [];
+  for (const phase of phases) {
+    const drawn = phase.spent === null ? reserved : Math.max(reserved, phase.spent);
+    const over = drawn - ceiling;
+    let raised = 0; let updated = 0; let resolved = 0;
+    if (over > 0) {
+      if (row === null) {
+        row = { occurrences: 1, resolvedAt: null, resolvedBy: null };
+        raised = 1;
+      } else {
+        row.occurrences += 1; row.resolvedAt = null; row.resolvedBy = null;
+        raised = 1;
+      }
+    } else if (row !== null && row.resolvedAt === null) {
+      row.resolvedAt = phase.at; row.resolvedBy = 'system';
+      resolved = 1;
+    }
+    states.push({ at: phase.at, raised, updated, resolved });
+  }
+  return {
+    name: 'month-rollover-resolves',
+    ceilingTokens: ceiling,
+    reserved,
+    spent: phases[0].spent,
+    spentByPhase: phases.map((p) => p.spent),
+    sweeps: phases.length,
+    expected: {
+      states,
+      finalRow: { occurrences: 1, resolvedAt: nextMonth, resolvedBy: 'system' },
+      pruned: 0,
+    },
+    note: 'unknown != zero: the closed period is not carried, so the first post-rollover sweep resolves',
+  };
+})();
+sweepVectors.push(rolloverVector);
+
 const output = JSON.stringify({
   source: 'lib/metering/ledger.js + backend-v2.js remainingFor drawn rule',
   ledgerSha256,
@@ -179,6 +321,7 @@ const output = JSON.stringify({
   vectors,
   messages: messageVectors,
   admission: admissionVectors,
+  sweeps: sweepVectors,
 }, null, 2) + '\n';
 const path = new URL('../hagency-store/tests/fixtures/ceiling-vectors.json', import.meta.url);if (process.argv.includes('--check')) {
   if (readFileSync(path, 'utf8').replaceAll('\r\n', '\n') !== output) throw new Error('Ceiling vectors differ from retained JavaScript');
