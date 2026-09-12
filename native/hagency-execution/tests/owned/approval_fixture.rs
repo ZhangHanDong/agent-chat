@@ -152,8 +152,45 @@ pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
             })
             .map(|rows| rows.join(","))
             .unwrap_or_else(|e| format!("lease query failed: {e}"));
+        // Generic row dump for the tables the writer re-derives its binding
+        // and route from; hosted Windows is the only platform refusing here.
+        let dump = |table: &str| -> String {
+            sql.prepare(&format!("SELECT * FROM {table}"))
+                .and_then(|mut statement| {
+                    let names: Vec<String> = statement
+                        .column_names()
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect();
+                    let rows = statement
+                        .query_map([], |r| {
+                            let mut cells = Vec::new();
+                            for (index, name) in names.iter().enumerate() {
+                                let text = match r.get_ref(index)? {
+                                    rusqlite::types::ValueRef::Null => "null".to_string(),
+                                    rusqlite::types::ValueRef::Integer(v) => v.to_string(),
+                                    rusqlite::types::ValueRef::Real(v) => v.to_string(),
+                                    rusqlite::types::ValueRef::Text(v) => {
+                                        String::from_utf8_lossy(v).chars().take(400).collect()
+                                    }
+                                    rusqlite::types::ValueRef::Blob(v) => {
+                                        format!("<{} bytes>", v.len())
+                                    }
+                                };
+                                cells.push(format!("{name}={text}"));
+                            }
+                            Ok(cells.join(" "))
+                        })?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(rows.join(" | "))
+                })
+                .unwrap_or_else(|e| format!("{table} query failed: {e}"))
+        };
+        let routes = dump("matrix_session_routes");
+        let bindings = dump("approval_bindings");
+        let requests = dump("owner_approvals");
         panic!(
-            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}; leases [{resources}]; contexts [{contexts}]",
+            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}; leases [{resources}]; contexts [{contexts}]; routes [{routes}]; bindings [{bindings}]; requests [{requests}]",
             f.state(),
             now(),
             f.marker().exists()
