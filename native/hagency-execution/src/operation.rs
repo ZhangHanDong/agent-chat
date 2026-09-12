@@ -50,6 +50,8 @@ pub enum Failure {
     CleanupUnknown,
     #[error("domain settlement outcome unknown")]
     SettlementUnknown,
+    #[error("prepared approval response resolved away before its send; never re-sent")]
+    ResponseUnavailable,
     #[error("host worker failed")]
     Worker,
 }
@@ -61,7 +63,7 @@ impl Failure {
             Self::StartUnknown => OwnedFailure::StartUnknown,
             Self::SpawnFailed => OwnedFailure::SpawnFailed,
             Self::LostAuthority => OwnedFailure::LostAuthority,
-            Self::Protocol | Self::Worker => OwnedFailure::Protocol,
+            Self::Protocol | Self::Worker | Self::ResponseUnavailable => OwnedFailure::Protocol,
             Self::UnsupportedApproval | Self::ApprovalCapacity | Self::ApprovalCancelled => {
                 OwnedFailure::UnsupportedApproval
             }

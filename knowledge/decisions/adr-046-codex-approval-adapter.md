@@ -339,3 +339,28 @@ turn end remains a cancellation everywhere, including on the recheck pump
 next to an armed frame: a turn end invalidates transmission — the wire is
 closed — so the frame is never sent and the operation reports
 `ApprovalCancelled`; only a resolution exempts an in-flight frame.
+
+**Amendment (2026-09-12): transport hold and named failures.** Two rules
+extend the in-flight amendment, both validated by the VM load runs where
+cancellations were gone but two windows remained.
+
+*Transport hold (with ADR-034).* A resolution parsed while the host's own
+frame is mid-write must not be delivered to the session until that frame's
+receipt has been processed. The transport therefore holds parsing while a
+frame has accepted bytes and is not yet flushed (ADR-034's amendment); the
+consequence here is that the write receipt, `entry.write`, and the acceptance
+observation all happen before any later pump can deliver the resolution. The
+trace vocabulary names the ordering: `write-started` (an update delivered
+while the transport holds accepted bytes) and `write-flushed` (the receipt
+arrived) precede `write-accepted` and `recorded`.
+
+*Named failures (no silent one-frame shortfall).* Two verdicts are named
+rather than implied. First, a frame whose server request was resolved away
+before its send is reported as `Failure::ResponseUnavailable` (outwardly the
+existing protocol verdict) — the frame is never re-sent and never surfaces as
+`Closed`, because the transport refusing a frame the host itself resolved is
+not a transport failure. Second, a lost acceptance observation records its
+store refusal as `settlement_cause` before the existing `SettlementUnknown`
+verdict, so a durable row that is genuinely absent is distinguishable from
+one the suite merely could not attribute. Neither rule admits retry,
+reconstruction, rearm, or any new authority.

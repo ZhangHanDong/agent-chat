@@ -76,6 +76,25 @@ pub(super) fn run(mode: &str, reader: &mut impl BufRead, marker: &Path) -> io::R
         pulse(marker)?;
         return Ok(false);
     }
+    if mode == "owned-approval-resolve-first" {
+        // F2's case: the resolution is emitted BEFORE any response is read —
+        // the §3 case-1 ordering (event buffered before the first byte). The
+        // host must refuse to send the resolved frame (ResponseUnavailable),
+        // never `Closed`, and no frame may reach the wire.
+        gate(marker)?;
+        resolved("approval-1")?;
+        // Handshake: the resolution bytes are on the wire. The test waits for
+        // this marker before releasing the host's gate, so the resolution can
+        // never be emitted before the host is in flight nor after its send.
+        fs::write(marker.with_extension("approval-resolving"), b"resolving")?;
+        if let Ok(extra) = timeout_read(Duration::from_millis(300)) {
+            return Err(io::Error::other(format!(
+                "frame after pre-first-byte resolution: {extra:?}"
+            )));
+        }
+        pulse(marker)?;
+        return Ok(false);
+    }
     if mode == "owned-approval-gate-resolve" {
         // Host is held at the recheck gate: in_flight is set and the frame is
         // armed but not yet committed to the OS. Emit the resolution for the

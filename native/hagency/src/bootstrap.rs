@@ -197,6 +197,7 @@ fn owned_failure_label(error: hagency_execution::Failure) -> &'static str {
         Deadline => "deadline",
         CleanupUnknown => "cleanup_unknown",
         SettlementUnknown => "settlement_unknown",
+        ResponseUnavailable => "response_unavailable",
         Worker => "worker",
     }
 }

@@ -2,7 +2,7 @@
 mod common;
 use common::*;
 use hagency_core::tasks::*;
-use hagency_execution::{Failure, Host, Limits, Operation, Protocol, Settlement};
+use hagency_execution::{Failure, Host, Limits, Operation, Protocol, Report, Settlement};
 use hagency_runtime::owned::Cleanup;
 use hagency_store::{DomainRepository, DomainStore, EffectOutcome, OwnedObservation};
 use serde_json::json;

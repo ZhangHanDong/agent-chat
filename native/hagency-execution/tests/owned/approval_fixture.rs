@@ -282,24 +282,33 @@ pub(super) fn responses(f: &Fixture) -> Vec<serde_json::Value> {
         .filter(|v| v.get("result").is_some())
         .collect()
 }
-pub(super) fn unconfirmed(f: &Fixture) {
+pub(super) fn unconfirmed(f: &Fixture, report: &Report) {
     assert_eq!(
         f.count("SELECT COUNT(*) FROM owner_approvals WHERE state='applied'"),
         0,
-        "wire ids {:?}",
+        "wire ids {:?}; settlement={:?}",
         responses(f)
             .iter()
             .map(|value| value["id"].to_string())
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        report.settlement_cause
     );
+    // Diagnostic: `write_accepted` can be missing because the acceptance
+    // observation failed (report.failure/settlement_cause) OR because its
+    // record was dropped before the drive's receipt path. The count alone
+    // cannot tell them apart.
+    let recorded = f.count("SELECT COUNT(*) FROM approval_responses WHERE write_accepted=1");
+    let expected = responses(f).len() as u64;
     assert_eq!(
-        f.count("SELECT COUNT(*) FROM approval_responses WHERE write_accepted=1"),
-        responses(f).len() as u64,
-        "wire ids {:?}",
+        recorded,
+        expected,
+        "wire ids {:?}; recorded={recorded} expected={expected}; settlement={:?}; failure={:?}",
         responses(f)
             .iter()
             .map(|value| value["id"].to_string())
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        report.settlement_cause,
+        report.failure
     );
 }
 pub(super) async fn marker(f: &Fixture, extension: &str) {

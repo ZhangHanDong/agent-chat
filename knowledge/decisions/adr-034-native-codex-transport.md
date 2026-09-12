@@ -166,3 +166,26 @@ and protocol deadlines can expire first.
 A normal event wait persists across Control returns and ends only upon an actual
 typed read result. Prepared-send buffer drains do not reset that read clock.
 No host execution budget, write timeout, partial-frame or request policy changes.
+
+## Amendment (2026-09-12): a frame mid-write owns the stream's parse order
+
+`Driver::step()` previously parsed buffered input before making any write or
+flush progress. Under the approval adapter's one-shot response protocol that
+parse-first order is a hazard: a `serverRequest/resolved` for the very frame
+being written could be queued between its first accepted byte and its flush,
+so the receipt (which the driver returns only after the flush) and the
+resolution (parsed mid-write, delivered by the next pump) could be consumed
+out of order by the session.
+
+The rule now: while a frame has accepted bytes and is not yet flushed
+(`writing.offset != 0 && !flushed`), `step()` does not parse buffered input;
+parsing resumes after the flush is observed. The resolution bytes stay
+unparsed in `input` until the frame's receipt has been returned, so the host
+records its write acceptance before any resolution can be delivered. This
+changes no deadline, no read clock, no partial-frame or request policy — it
+only removes one reorderable interleaving between the write path and the
+event queue. Two read-only projections accompany it for host diagnostics:
+`write_progress()` (`(accepted, total)` of the frame in flight, or `None`)
+and `prepared_admissible(id)` (whether the connection still holds the
+prepared server request). Neither carries authority; neither admits a resend;
+neither changes a verdict.

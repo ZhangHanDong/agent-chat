@@ -300,6 +300,13 @@ impl ApprovalRun {
                 if let Some(entry) = self.callbacks.entries.get_mut(&sending.id) {
                     entry.mark("checked");
                 }
+                // The runtime resolved this request. The transport no longer
+                // holds the prepared frame, so re-entering the send path could
+                // only be refused as `Closed`. Report the consumed frame with
+                // its real cause; never send.
+                if !runner.prepared_admissible(&sending.id) {
+                    return Err(Failure::ResponseUnavailable);
+                }
                 let step = crate::operation::bounded(
                     runner.send_prepared_approval(&mut sending.prepared),
                     cancel,
@@ -309,6 +316,16 @@ impl ApprovalRun {
                 .map_err(|_| Failure::Protocol)?;
                 match step {
                     PreparedUpdate::Update(update, observation) => {
+                        #[cfg(any(test, feature = "test-diagnostics"))]
+                        if runner.write_progress().is_some_and(|(n, _)| n > 0) {
+                            // The transport is mid-write on this frame (case 2:
+                            // bytes accepted, receipt pending). F1 holds
+                            // parsing until the flush, so any resolution the
+                            // probe emitted is still unparsed input.
+                            if let Some(entry) = self.callbacks.entries.get_mut(&sending.id) {
+                                entry.mark("write-started");
+                            }
+                        }
                         if drive
                             .update(&mut self.callbacks, runner, update, *observation)
                             .await?
@@ -328,10 +345,24 @@ impl ApprovalRun {
                         // resolution is post-write and is informational.
                         entry.in_flight = false;
                         #[cfg(any(test, feature = "test-diagnostics"))]
-                        entry.mark("write-accepted");
+                        {
+                            entry.mark("write-flushed");
+                            entry.mark("write-accepted");
+                        }
                         #[cfg(test)]
                         if self.callbacks.fault == Some(super::Fault::WritePanic) {
                             panic!("actual owned response write unwind");
+                        }
+                        // ReceiptGate: hold between the transport's write
+                        // receipt and the acceptance observation, so a test
+                        // can drive a resolution in exactly that window. The
+                        // gate does not pump the session, so the resolution
+                        // stays unparsed across the hold.
+                        #[cfg(test)]
+                        if self.callbacks.fault == Some(super::Fault::ReceiptGate)
+                            && let Some(gate) = self.callbacks.gate.take()
+                        {
+                            gate.wait().await;
                         }
                         let written = drive
                             .pump(

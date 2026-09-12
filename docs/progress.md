@@ -7796,3 +7796,46 @@ client qualification and ongoing identity/key management remain separate.
   cannot run in this sandbox (EPERM on the SQLite repository open at fixture
   setup); determinism is argued from the trace labels above and the
   orchestrator validates on the VM.
+
+## 2026-09-12 — Close the two remaining approval windows (transport hold, admissibility, cause)
+
+- The VM load runs after the in-flight fix showed cancellations gone but two
+  windows remained: the missing `write_accepted` row (the acceptance
+  observation's store reply wait mapping to a bare `SettlementUnknown`, which
+  does not change `report.protocol`) and the re-send of an armed frame refused
+  as `Closed` (0 of 51/52 bytes). Three changes close them, per the accepted
+  design.
+- F1 (ADR-034 amendment): the transport's `step()` no longer parses buffered
+  input while a frame has accepted bytes and is not yet flushed; parsing
+  resumes after the flush. A `serverRequest/resolved` for the very frame being
+  written can therefore never be queued between its write and its receipt.
+  Two read-only projections accompany it: `write_progress()` and
+  `prepared_admissible(id)`, threaded through the session layers; the trace
+  stamps `write-started` (update delivered while the transport holds accepted
+  bytes) and `write-flushed` (the receipt arrived) before `write-accepted`.
+- F2: `Failure::ResponseUnavailable` (outwardly the existing protocol
+  verdict, bootstrap label `response_unavailable`) — the send site asks
+  `prepared_admissible` before sending, so a frame whose server request was
+  resolved away is reported by name and never re-sent, never `Closed`.
+- F3: the acceptance pump records the store refusal as `settlement_cause`
+  (reusing the brief-4 marker; `OutcomeUnknown` → `ReplyTimedOut`) before the
+  existing `SettlementUnknown` mapping, so the suite can attribute a missing
+  row. `unconfirmed()` prints the cause, the recorded and expected counts, and
+  the failure alongside the wire ids.
+- `Fault::ReceiptGate` holds between the transport's write receipt and the
+  acceptance observation; two scenarios land with it:
+  `native_owned_approval_receipt_before_resolution` (mode `owned-approval`,
+  whose generic loop reads then resolves — the design's `owned-approval-resolve`
+  early-returns without reading, so the generic loop is the read-then-resolve
+  path it cites) and `native_owned_approval_resolved_before_first_byte` (new
+  mode `owned-approval-resolve-first`, resolution emitted before any response
+  read, handshake-marked for determinism). Both scenarios and the F1/F2 rules
+  are in the ADR-046 spec and amendments to ADR-046 and ADR-034.
+- Gates: fmt (clean after reformat), clippy (runtime + execution + hagency,
+  all targets, clean), `cargo check --tests -p hagency-execution` clean, and
+  the repository-free unit tests pass (trace vocabulary with the two new
+  labels, settlement-cause markers). The runtime suite's 7 owned-pipe tests
+  fail identically with all native changes stashed — a pre-existing sandbox
+  spawn wall (PeerEof at initialize), not a regression; the execution
+  integration tests are EPERM-blocked on the SQLite repository open as since
+  brief 3. The orchestrator runs both on the VM.

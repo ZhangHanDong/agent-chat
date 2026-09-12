@@ -61,7 +61,7 @@ async fn native_owned_approval_resume() {
                 "accept"
             }
         );
-        unconfirmed(&f);
+        unconfirmed(&f, &report);
     }
     let f = Fixture::configured(true);
     let (mut op, mut notices) = operation(&f, "owned-approval-reuse", policy());
@@ -80,7 +80,7 @@ async fn native_owned_approval_resume() {
         "saved grant must not emit a private owner card request"
     );
     assert_eq!(responses(&f).len(), 2);
-    unconfirmed(&f);
+    unconfirmed(&f, &report);
 }
 
 #[tokio::test]
@@ -109,7 +109,7 @@ async fn native_owned_approval_barriers() {
         cancellation_trace(&f)
     );
     assert_eq!(responses(&f).len(), 3);
-    unconfirmed(&f);
+    unconfirmed(&f, &report);
 }
 
 #[tokio::test]
@@ -168,7 +168,7 @@ async fn native_owned_approval_cancellation() {
             assert!(report.failure.is_some());
             assert!(responses(&f).is_empty());
         }
-        unconfirmed(&f);
+        unconfirmed(&f, &report);
     }
     // An owner choice first delivered after the original owner cutoff cannot
     // use the response reserve to create new preparation or router authority.
@@ -257,5 +257,5 @@ async fn native_owned_approval_usage() {
     assert!(!usage.pending);
     assert!(!usage.rejected);
     assert_eq!(usage.failure, None);
-    unconfirmed(&f);
+    unconfirmed(&f, &report);
 }

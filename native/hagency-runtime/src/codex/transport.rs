@@ -181,6 +181,20 @@ impl<R, W, E> Driver<R, W, E> {
     pub(super) fn has_partial_frame(&self) -> bool {
         self.connection.partial_frame_bytes() != 0
     }
+    /// Read-only writer progress for host diagnostics: `(accepted, total)` of
+    /// the frame currently in the transport, or `None` when nothing is in
+    /// flight. Carries no authority, admits no resend, changes no verdict.
+    pub(super) fn write_progress(&self) -> Option<(usize, usize)> {
+        self.writing
+            .as_ref()
+            .map(|writing| (writing.offset, writing.bytes.len()))
+    }
+    /// Whether the connection still holds this prepared server request, i.e.
+    /// the one-shot frame's transmit path is alive. False once
+    /// `serverRequest/resolved` was parsed for the id.
+    pub(super) fn prepared_admissible(&self, id: &RequestId) -> bool {
+        self.connection.has_prepared_approval(id)
+    }
 
     /// Drain the transport's received snapshot without reading any more IO.
     /// The session checks partial bytes separately before closing this snapshot.
@@ -455,7 +469,15 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin, E: AsyncRead + Unpin> Driver<R
 
     async fn step(&mut self, operation_deadline: Instant) -> Result<(), Error> {
         self.check(operation_deadline)?;
-        if self.input_start < self.input_end {
+        // A frame that has accepted bytes owns the stream until its flush is
+        // observed. Parsing first here would let a `serverRequest/resolved` for
+        // that very frame be queued between the write and its receipt, which is
+        // the ordering the approval middle case depends on not happening.
+        let mid_write = self
+            .writing
+            .as_ref()
+            .is_some_and(|w| w.offset != 0 && !w.flushed);
+        if !mid_write && self.input_start < self.input_end {
             self.parse_input()?;
             self.check(operation_deadline)?;
             return Ok(());
