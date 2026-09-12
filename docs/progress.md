@@ -7361,3 +7361,19 @@ client qualification and ongoing identity/key management remain separate.
   hosted run reported). The unreadable-directory vector is now Unix-only
   and skipped elsewhere with a printed reason; the other vectors replay on
   every OS.
+- Probe run on `probe/windows-shutdown` at `f9ff420` (ADR-120 plus the
+  service-level fixture budgets; every `hagency` test target, eight
+  threads, four iterations): four of four iterations passed with no
+  failing test, no shutdown timeout and no early collector settlement.
+  First fully green whole-package Windows probe on this branch. A rerun
+  collects a second sample.
+- Probe rerun at `f9ff420`: again four of four iterations green. Eight of
+  eight whole-package iterations without a failing test since the fixture
+  budgets landed on top of ADR-120.
+- Probe run with the `hagency-execution` targets added (eight threads,
+  four iterations): two of four iterations failed, no shutdown timeout.
+  The approval write-ordering class appeared as expected (`usage`,
+  `cancellation`, `barriers_pending_receipt`), and under the extra load
+  three `native_runner_http_*` tests and `native_owned_mcp_real_heartbeat`
+  failed for reasons recorded in the session log; the runner fixture's
+  teardown sample did not fire, so these are not the close stall.
