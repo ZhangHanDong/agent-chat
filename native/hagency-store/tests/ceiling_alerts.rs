@@ -3,7 +3,7 @@ use common::*;
 use hagency_core::project::Resource;
 use hagency_core::tasks::*;
 use hagency_metering::{Framework, observation::UsageObservation};
-use hagency_store::{DomainRepository, Error, SweepOutcome};
+use hagency_store::{DomainRepository, EffectOutcome, Error, SweepOutcome};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::json;
 use std::path::PathBuf;
@@ -55,6 +55,20 @@ fn engaged(alarm: &mut Alarm, id: &str, tokens: u64, at: u64) -> String {
     alarm
         .db
         .approve(&format!("approve_{id}"), &proof, at)
+        .unwrap();
+    // A usage source needs an active engagement: apply the approval effect
+    // exactly as the usage fixture does (tests/usage.rs), otherwise session
+    // registration is refused as runner authority.
+    let effect = alarm.db.claim_effect().unwrap().unwrap();
+    alarm
+        .db
+        .observe_effect(
+            &effect.id,
+            effect.fence,
+            &EffectOutcome::Applied {
+                receipt: "offline fixture".into(),
+            },
+        )
         .unwrap();
     ask.engagement_id().unwrap()
 }
@@ -191,7 +205,9 @@ fn native_ceiling_alert_sweep_files_warning_with_actionable_fields() {
     // An alert is diagnostic, never enforcement (ADR-124): with the alert
     // open, admission still refuses by its own rule and nothing else moved.
     let pool = resource("alarm_pool", "alarm_seat", 1_000_000);
-    let ask = request("post_alert", "Worker", &pool, 1_000_000);
+    // A distinct agent name: a live engagement named "Worker" already holds
+    // this project, and admit refuses a name collision before any ceiling rule.
+    let ask = request("post_alert", "PostAlert", &pool, 1_000_000);
     alarm.db.admit(&proof(&ask), 1000).unwrap();
     assert!(matches!(
         alarm.db.approve("approve_post_alert", &proof(&ask), 1000),
@@ -373,7 +389,11 @@ fn native_ceiling_alerts_match_javascript() {
             Framework::Codex
         };
         let mut alarm = open(framework, GENEROUS);
-        let engagement = engaged(&mut alarm, &format!("oracle_{name}"), reserved, 1000);
+        // The retained seed may commit zero, but a native usage source needs a
+        // holding engagement and a scoped request never asks for zero tokens;
+        // one committed token leaves the drawn rule (max of reserved and
+        // measured) and every expected sweep state unchanged.
+        let engagement = engaged(&mut alarm, &format!("oracle_{name}"), reserved.max(1), 1000);
         if let Some(spent) = measured {
             record(
                 &mut alarm,

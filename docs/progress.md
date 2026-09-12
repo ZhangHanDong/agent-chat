@@ -7786,3 +7786,10 @@ client qualification and ongoing identity/key management remain separate.
   `_unrecorded` (execution), each bound to a `Test:` scenario. The SQLite-backed
   selectors could not run in this sandbox (EPERM opening the private state
   directory); the orchestrator runs them.
+- 2026-09-12: three ceiling-alert store tests, never executable in the
+  peer sandbox, failed at fixture setup on first execution: the seeded
+  engagement was only Reserved (session registration is refused until the
+  approval effect is applied, as the usage fixture does), a second
+  engagement reused the live agent name (admission refuses the collision),
+  and the oracle replay asked for zero tokens where the retained seed
+  commits nothing (a scoped request never asks for zero). All seven pass.
