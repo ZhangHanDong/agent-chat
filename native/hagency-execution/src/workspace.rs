@@ -3,6 +3,7 @@
 //! namespace manipulation. Comparison detects changes; handles own objects.
 mod approval_path;
 mod received;
+pub use approval_path::ordinary_launch_path;
 pub use received::{WorkspaceReceive, WorkspaceReceiveError};
 
 use crate::Failure;

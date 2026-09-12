@@ -340,7 +340,13 @@ async fn roundtrip(done: bool) {
         .find(|v| v["method"] == "thread/start")
         .unwrap();
     assert_eq!(thread["params"]["model"], "gpt-5.6-sol");
-    assert_eq!(thread["params"]["cwd"], f.work.to_str().unwrap());
+    // The runner is launched in, and reports, the ordinary projection of the
+    // retained root (ADR-116 amendment); on Windows that drops the verbatim
+    // prefix of the canonical fixture path.
+    assert_eq!(
+        thread["params"]["cwd"],
+        hagency_execution::ordinary_launch_path(&f.work).unwrap()
+    );
     assert!(
         thread["params"]["developerInstructions"]
             .as_str()

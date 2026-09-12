@@ -1,21 +1,28 @@
-//! Private lexical metadata from an already-held canonical Root. This never
-//! changes the original launch path, reopens a directory or rewrites a callback.
+//! Ordinary lexical form of an already-held canonical Root. It never reopens a
+//! directory or rewrites a callback; custody stays on the retained handle.
 use super::Root;
 use crate::Failure;
 
 impl Root {
     pub(crate) fn approval_path(&self) -> Result<String, Failure> {
-        #[cfg(windows)]
-        {
-            canonical_windows_path(&self.path).ok_or(Failure::Admission)
-        }
-        #[cfg(not(windows))]
-        {
-            self.path
-                .to_str()
-                .map(str::to_owned)
-                .ok_or(Failure::Admission)
-        }
+        ordinary_launch_path(&self.path).ok_or(Failure::Admission)
+    }
+}
+
+/// The working-directory string an owned runner is launched with and reports
+/// back in callbacks (ADR-116 amendment). On Windows a canonical path carries
+/// the verbatim `\\?\` prefix, which the untrusted path parser refuses by
+/// design; this projects disk and UNC roots into their ordinary form and
+/// refuses device namespaces and ambiguous aliases. Elsewhere it is the path
+/// itself. Tests compare a runner's reported cwd against this value.
+pub fn ordinary_launch_path(path: &std::path::Path) -> Option<String> {
+    #[cfg(windows)]
+    {
+        canonical_windows_path(path)
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_str().map(str::to_owned)
     }
 }
 

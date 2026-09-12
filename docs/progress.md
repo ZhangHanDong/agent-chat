@@ -7130,3 +7130,12 @@ client qualification and ongoing identity/key management remain separate.
   again since a refusal is a real defect; its retained-state dump stays.
   The `probe/windows-approval` branch remains as the trigger for future
   probes until the workflow reaches the default branch.
+- Full hosted run for the cleaned tree (`6206d2d`): Node CI, macOS, Ubuntu and
+  console-browser green; Windows failed eight tests. Four asserted that a
+  runner reports the verbatim canonical fixture path as its cwd
+  (`native_owned_mcp_real_done_epoch`, `native_owned_mcp_real_heartbeat`,
+  `native_receive_executable`, `native_owned_dispatch_real_pipes`) and now
+  compare against the shared `hagency_execution::ordinary_launch_path`
+  projection. The other four (`native_runner_http_*`) failed the domain
+  shutdown with `ReplyTimedOut` at SQLite close, a Windows teardown stall
+  already observed at 85427cb before any of today's changes; it stays open.

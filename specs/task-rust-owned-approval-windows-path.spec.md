@@ -34,6 +34,9 @@ namespace. Keep launch and filesystem custody unchanged.
 - native/hagency-execution/src/workspace/approval_path.rs
 - native/hagency-execution/src/operation.rs
 - native/hagency-execution/src/host.rs
+- native/hagency-execution/tests/owned.rs
+- native/hagency/tests/owned_mcp.rs
+- native/hagency/tests/received_files.rs
 - native/hagency-execution/tests/owned/approvals.rs
 - specs/task-rust-owned-approval-windows-path.spec.md
 - knowledge/decisions/adr-116-owned-approval-windows-path.md

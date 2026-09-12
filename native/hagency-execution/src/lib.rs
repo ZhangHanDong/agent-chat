@@ -14,7 +14,9 @@ pub use operation::{
 };
 pub use registration::{LaunchAck, RegistrationError, WorkspaceRegistration};
 pub use usage::{UsageFailure, UsageStatus};
-pub use workspace::{StartedWorkspace, WorkspaceError, WorkspaceReceive, WorkspaceReceiveError};
+pub use workspace::{
+    StartedWorkspace, WorkspaceError, WorkspaceReceive, WorkspaceReceiveError, ordinary_launch_path,
+};
 #[cfg(test)]
 #[path = "../tests/support/reply_loss.rs"]
 mod reply_loss;

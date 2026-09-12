@@ -31,7 +31,12 @@ async fn native_receive_executable() {
             serde_json::from_value::<Vec<u8>>(actual["bytes"].clone()).unwrap(),
             DATA
         );
-        assert_eq!(actual["cwd"], f.work.to_str().unwrap());
+        // The runner reports the ordinary projection of the retained root
+        // (ADR-116 amendment), not the verbatim canonical fixture path.
+        assert_eq!(
+            actual["cwd"],
+            hagency_execution::ordinary_launch_path(&f.work).unwrap()
+        );
         assert_eq!(
             std::fs::read(f.work.join(received["path"].as_str().unwrap())).unwrap(),
             DATA

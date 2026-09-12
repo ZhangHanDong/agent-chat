@@ -277,7 +277,12 @@ async fn native_owned_dispatch_real_pipes() {
         .find(|v| v["method"] == "thread/start")
         .unwrap();
     assert_eq!(thread["params"]["model"], "gpt-5.6-sol");
-    assert_eq!(thread["params"]["cwd"], f.work.to_str().unwrap());
+    // The runner is launched in the ordinary projection of the retained root
+    // (ADR-116 amendment); on Windows that drops the verbatim prefix.
+    assert_eq!(
+        thread["params"]["cwd"],
+        hagency_execution::ordinary_launch_path(&f.work).unwrap()
+    );
     let turn = values.iter().find(|v| v["method"] == "turn/start").unwrap();
     assert_eq!(turn["params"]["approvalPolicy"], "on-request");
     assert_eq!(turn["params"]["sandboxPolicy"]["networkAccess"], false);
