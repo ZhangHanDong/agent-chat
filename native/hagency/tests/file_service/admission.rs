@@ -84,7 +84,7 @@ impl Harness {
         let f = test_common::Fixture::new();
         let mut fake = test_common::Fake::start(true).await;
         let config = f
-            .config(&fake.endpoint)
+            .config_under_load(&fake.endpoint)
             .with_root_pem(include_bytes!(
                 "../../../hagency-matrix/tests/fixtures/ca.pem"
             ))

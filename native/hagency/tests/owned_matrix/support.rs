@@ -72,7 +72,7 @@ impl Workflow {
                     RoomPrivacy::Group {}
                 },
             }],
-            common::limits(),
+            common::load_limits(),
         )
         .unwrap()
         .with_root_pem(include_bytes!(
