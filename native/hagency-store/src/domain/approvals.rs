@@ -669,7 +669,14 @@ fn decide_verdict(
     source_digest: Option<&str>,
 ) -> Result<ApprovalSummary, Error> {
     let (c, _) = request(tx, &input.request_id)?;
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "approval verdict deciding: request loaded for {}",
+        input.request_id
+    );
     live(tx, &c, now)?;
+    #[cfg(debug_assertions)]
+    eprintln!("approval verdict deciding: context live");
     if !input.encrypted
         || input.server_name != c.binding.server
         || input.room_id != c.binding.room
@@ -735,9 +742,25 @@ fn decide_verdict(
         eprintln!("approval verdict refused: state {state}");
         return Err(Error::RunnerAuthority);
     }
+    // Temporary hosted-Windows diagnostic (debug builds only).
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "approval verdict deciding: choice {} scope {:?} kind {:?} state {state}",
+        serde_json::to_string(&input.choice).unwrap_or_default(),
+        scope,
+        kind
+    );
     let grant = if matches!(input.choice, ApprovalChoice::Task | ApprovalChoice::Always) {
-        let key = scope.ok_or(Error::RunnerAuthority)?;
-        let kind = kind.ok_or(Error::RunnerAuthority)?;
+        let key = scope.ok_or_else(|| {
+            #[cfg(debug_assertions)]
+            eprintln!("approval verdict refused: reusable choice without scope key");
+            Error::RunnerAuthority
+        })?;
+        let kind = kind.ok_or_else(|| {
+            #[cfg(debug_assertions)]
+            eprintln!("approval verdict refused: reusable choice without scope kind");
+            Error::RunnerAuthority
+        })?;
         let id = format!(
             "grant_{}",
             &canonical::digest(&json!([input.request_id, input.choice]))?[..40]
