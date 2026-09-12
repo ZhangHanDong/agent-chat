@@ -301,13 +301,13 @@ impl ApprovalRun {
                     entry.mark("checked");
                 }
                 // The runtime resolved this request before any byte was
-                // accepted. The retained ADR-046 rule for a pre-send
-                // resolution is the quiet path: the resolution is
-                // informational, the armed frame is dropped (its transmit
-                // path is gone), the entry keeps `in_flight` so it is never
-                // re-selected, and the drive continues — the same quiet
-                // completion the pre-admission resolution produces, never a
-                // named failure.
+                // accepted. A resolution before admission cancels (ADR-046,
+                // unchanged); a resolution for this admitted, in-flight
+                // frame is informational: the armed frame is dropped (its
+                // transmit path is gone; never sent, never `Closed`), the
+                // entry keeps `in_flight` so it is never re-selected, and
+                // the drive continues to a quiet completion — no failure is
+                // raised for the dropped frame.
                 if !runner.prepared_admissible(&sending.id) {
                     let id = sending.id.clone();
                     drop(self.sending.take());
@@ -327,6 +327,15 @@ impl ApprovalRun {
                 .map_err(|_| Failure::Protocol)?;
                 match step {
                     PreparedUpdate::Update(update, observation) => {
+                        #[cfg(any(test, feature = "test-diagnostics"))]
+                        if let Some(entry) = self.callbacks.entries.get_mut(&sending.id) {
+                            // The transport returned a buffered event instead
+                            // of writing: the `offset == 0` early return in
+                            // `prepared_inner` (path 4 in the reshape review).
+                            // Named directly instead of inferred by absence —
+                            // the frame is still armed and no receipt exists.
+                            entry.mark("send-withheld-for-event");
+                        }
                         if drive
                             .update(&mut self.callbacks, runner, update, *observation)
                             .await?

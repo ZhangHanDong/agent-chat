@@ -352,15 +352,36 @@ wrong verdict for a resolution that arrives before the first byte.
 (`prepared_admissible(id)`, still exported read-only from the transport):
 it fires exactly when the connection has already parsed a
 `serverRequest/resolved` for the armed frame and the host has accepted no
-byte. The retained rule is the one the pre-admission resolution already
-follows: **the resolution is informational, never a cancellation and never
-a named failure.** The armed frame is dropped (its transmit path is gone;
-it is never re-sent and never surfaces as `Closed`), the entry keeps
-`in_flight` so it is never re-selected, and the drive continues to its
-normal quiet completion — the operation ends `Completed` with no failure
-raised for the dropped frame. The trace stamps `resolved-before-send` on
-the entry for diagnostics. What remains of the earlier vocabulary note is
-`write-flushed` (the receipt arrived, stamped immediately before
-`write-accepted`); `write-started` is withdrawn with the hold. A lost
-acceptance observation after a **written** frame keeps its named cause via
-the reconcile (the `settlement_cause` rules above), which owns that path.
+byte. A resolution before admission cancels (ADR-046, unchanged — the
+pre-admission arm is a named cancellation, and
+`native_owned_approval_resolution_before_admission_cancels` pins it); a
+resolution for an **admitted** frame whose bytes the transport has already
+accepted, or is about to accept, is informational: **the armed frame is
+dropped, not sent** (its transmit path is gone; it is never re-sent and
+never surfaces as `Closed`), the entry keeps `in_flight` so it is never
+re-selected, and the drive continues to its normal quiet completion — the
+operation ends `Completed` with no failure raised for the dropped frame.
+The trace names both channels: the arrival label (`resolved-before-write`/
+`resolved-after-write`) says when the resolution arrived; the arm label
+(`resolved-cancels`/`resolved-ignored-in-flight`/`resolved-ignored-written`)
+says which rule fired, and `resolved-before-send` is stamped only by this
+drop arm. A turn end follows the same two-label rule
+(`turn-ended-unwritten` on arrival; `turn-ended-cancels`/
+`turn-ended-ignored-in-flight`/`turn-ended-ignored-written` for the arm),
+and only a cancelling arm reaches the cancellation slot, so `cancelled[]`
+remains the record of what cancelled, not of what arrived.
+
+*Retention (bounded).* The quiet entry is deliberately left
+`recorded = false` forever, so `release_written()`'s every-entry-recorded
+condition can never fire while it exists: the batch's parked reservation is
+held until `ApprovalRun::stopped()` returns it. Bounded by the run's
+lifetime, accounted as live against `parked_limit` for that period, and
+conferring no authority — but the slot is not returned to the host pool
+while the turn continues. Recording it here is the fix for this slice, not
+changing the condition.
+
+What remains of the earlier vocabulary note is `write-flushed` (the receipt
+arrived, stamped immediately before `write-accepted`); `write-started` is
+withdrawn with the hold. A lost acceptance observation after a **written**
+frame keeps its named cause via the reconcile (the `settlement_cause` rules
+above), which owns that path.

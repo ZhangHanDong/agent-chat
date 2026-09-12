@@ -93,6 +93,13 @@ pub(super) fn run(mode: &str, reader: &mut impl BufRead, marker: &Path) -> io::R
                 "frame after pre-first-byte resolution: {extra:?}"
             )));
         }
+        // Deterministic ordering (review E4): do not end the turn until the
+        // test confirms the host took the quiet path (its trace gains
+        // `resolved-before-send`); the test then writes the turn-release
+        // marker. The turn end therefore cannot precede the F2 check, so the
+        // recheck pump's two endings (`Completed` / `ApprovalCancelled`) are
+        // not a race.
+        await_release(marker, "approval-turn-release")?;
         // Return into the parent's terminal turn: turn/completed ends the
         // drive promptly, quietly, with no approval frame on the wire.
         return Ok(true);

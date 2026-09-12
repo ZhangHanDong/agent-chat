@@ -1077,11 +1077,34 @@ async fn native_owned_approval_resolved_before_first_byte() {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     gate.release.store(true, Ordering::Release);
+    // E3: prove the quiet path ran — not merely that the operation completed
+    // (a turn-end-driven completion satisfies every other assertion). The
+    // entry's trace must gain `resolved-before-send`, which only the quiet
+    // drop arm stamps. Polled until present; the drive continues while we
+    // wait because the probe withholds its terminal turn.
+    let end = tokio::time::Instant::now() + harness_wait();
+    loop {
+        let trace = hagency_execution::diagnostics::dispatch_trace(&cap.dispatch_id);
+        if trace.contains("resolved-before-send") {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < end,
+            "quiet path never ran; trace: {trace}; probe markers present: {}",
+            markers_present(&work)
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    // E4: only now end the turn — the probe waits for this marker, so the
+    // turn end cannot race the recheck pump's F2 check.
+    std::fs::write(work.join("owned-dispatch.approval-turn-release"), b"turn").unwrap();
     let report = op.wait().await.unwrap();
-    // The quiet path (Q2): a pre-send resolution completes the operation —
-    // the same quiet completion the pre-admission resolution produces, never
-    // a named failure (`ResponseUnavailable` is withdrawn) and never a
-    // transport refusal (`Closed`).
+    // The quiet path (Q2): a resolution for this admitted, in-flight frame
+    // is informational — the armed frame is dropped without sending, and
+    // the drive completes quietly (a pre-admission resolution, by contrast,
+    // is a named cancellation; ADR-046 keeps the two rules distinct). No
+    // named failure (`ResponseUnavailable` is withdrawn), no transport
+    // refusal (`Closed`).
     assert_eq!(
         report.protocol,
         Protocol::Completed,

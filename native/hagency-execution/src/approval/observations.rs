@@ -59,8 +59,23 @@ impl Drive<'_> {
             Update::TurnEnded => {
                 #[cfg(any(test, feature = "test-diagnostics"))]
                 for entry in callbacks.entries.values_mut() {
-                    if entry.write.is_none() {
-                        entry.mark("turn-ended-unwritten");
+                    if entry.write.is_some() {
+                        entry.mark("turn-ended-ignored-written");
+                        continue;
+                    }
+                    // Two labels again: the arrival label is stamped on every
+                    // unwritten entry; the arm label names the rule that fired
+                    // for THIS entry, and only the cancelling arm reaches the
+                    // cancellation slot (review E1: `cancelled[]` must stay
+                    // the record of what cancelled, not of what arrived).
+                    let cancels = !entry.in_flight;
+                    entry.mark("turn-ended-unwritten");
+                    entry.mark(if cancels {
+                        "turn-ended-cancels"
+                    } else {
+                        "turn-ended-ignored-in-flight"
+                    });
+                    if cancels {
                         super::diagnostics::cancellation(
                             &self.cap.dispatch_id,
                             "turn-ended-unwritten",

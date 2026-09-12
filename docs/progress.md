@@ -7959,3 +7959,52 @@ client qualification and ongoing identity/key management remain separate.
   `native_owned_approval_resolved_before_first_byte` (quiet outcome),
   `native_approval_trace_labels_every_phase` (vocabulary without
   `write-started`).
+
+## 2026-09-12 — Name the approval arm taken in every trace; pin the quiet pre-send path
+
+- Harness/labels/docs only, per the reshape review (E1–E5); no product-path
+  change. The trace vocabulary now names the rule that fired, not just the
+  arrival: `resolution_arrives` stamps the arrival label
+  (`resolved-before-write`/`resolved-after-write`) plus an arm label
+  (`resolved-cancels` / `resolved-ignored-in-flight` /
+  `resolved-ignored-written`); the TurnEnded loop stamps `turn-ended-unwritten`
+  on arrival plus `turn-ended-cancels` / `turn-ended-ignored-in-flight` /
+  `turn-ended-ignored-written`, and records the cancellation slot only on the
+  cancelling arm — so `cancelled[]` is again exactly "what cancelled", not
+  "what arrived" (review E1's second point: the old loop recorded
+  `cancellation()` for every unwritten entry regardless of the outcome
+  predicate). The send block stamps `send-withheld-for-event` when the
+  transport returns a buffered event instead of writing (path 4, previously
+  only inferable by absence). The vocabulary unit test pins a full quiet-drive
+  sequence so a renamed or withdrawn label fails the suite, not the VM run.
+- E3+E4: scenario 2 now asserts `resolved-before-send` is present in the
+  dispatch trace (only the quiet drop arm stamps it — a turn-end-driven
+  completion can no longer pass), and the probe's
+  `owned-approval-resolve-first` mode waits for a second marker
+  (`approval-turn-release`) after the drop before returning into its terminal
+  turn, so the turn end cannot race the recheck pump's F2 check; the test
+  writes that marker only after the trace assertion holds.
+- E2+E5 in ADR-046: the false justification ("the same quiet completion the
+  pre-admission resolution produces") is replaced with the true rule — a
+  resolution before admission cancels (ADR-046 unchanged,
+  `resolution_before_admission_cancels` pins it); a resolution for an admitted
+  frame whose bytes the transport has accepted or is about to accept is
+  informational and the frame is dropped. A bounded-retention paragraph records
+  that the quiet entry stays `recorded=false`, so the batch's parked
+  reservation is held until `ApprovalRun::stopped()`. The two stale comments
+  (control.rs, scenario 2) were rewritten to match.
+- VM trace reading (df15b3d2): the `recorded=0` loaded failures split into two
+  labelled classes — path 1 (`turn-ended-cancels`: `turn-ended-unwritten` in
+  `cancelled[]` with `ApprovalCancelled`) for `_resume`/`_cancellation`, and
+  the in-flight/quiet class (`resolved-ignored-in-flight` arms, no
+  cancellation) for `_usage`/`_barriers`-shaped traces; lib.log's five
+  failures are distinct (reconcile custody `(1,1,1,0)`; a `BeginGate`
+  `Protocol`; two gate-expiry harness panics; and
+  `resolved_before_first_byte` dying `PeerEof`/`Unknown` because the old
+  `Ok(true)` ended the turn while the host still held the recheck pump — the
+  E4 handshake removes that race). Full per-test reading is in the peer
+  report; the product design for the remaining class is another peer's brief.
+- Gates: fmt, clippy (runtime + execution + hagency, all targets), `check
+  --tests` clean; runtime lib 5 passed; `--test transport` 8 passed 0 failed
+  (contract tests stay green); execution lib 7 passed with the 21 documented
+  EPERM SQLite-wall failures (unchanged in count and cause).

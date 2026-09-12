@@ -83,8 +83,21 @@ impl Pending {
         self.resolved = true;
         #[cfg(any(test, feature = "test-diagnostics"))]
         {
-            let (label, _cancels) = resolution_outcome(self.write.is_none());
-            self.mark(label);
+            // Two labels name two different things: the arrival label says
+            // WHEN the resolution arrived (before/after the write receipt);
+            // the arm label says WHICH RULE fired. The arrival label alone
+            // went stale as a discriminator the moment non-cancelling paths
+            // started stamping it (reshape review E1).
+            let (arrival, _) = resolution_outcome(self.write.is_none());
+            self.mark(arrival);
+            let arm = if self.write.is_some() {
+                "resolved-ignored-written"
+            } else if self.in_flight {
+                "resolved-ignored-in-flight"
+            } else {
+                "resolved-cancels"
+            };
+            self.mark(arm);
         }
         // Three cases. Before admission: cancel (ADR-046, unchanged). Admitted
         // and in flight: the frame the runtime is answering is already
@@ -406,6 +419,44 @@ mod trace_tests {
         // The cancellation primitive labels and outcomes, both directions.
         assert_eq!(resolution_outcome(true), ("resolved-before-write", true));
         assert_eq!(resolution_outcome(false), ("resolved-after-write", false));
+        // The arm labels name the rule that fired, not just the arrival.
+        // Pinned as one quiet-drive sequence so a withdrawn or renamed label
+        // fails here rather than silently impoverishing the VM traces: an
+        // in-flight entry whose frame is resolved away before its first byte,
+        // then retired by the quiet path, and a turn end that ignores it.
+        let mut quiet = PhaseTrace::new();
+        for label in [
+            "acknowledged",
+            "prepared",
+            "begun",
+            "admitted",
+            "in-flight",
+            "checked",
+            "resolved-before-write",
+            "resolved-ignored-in-flight",
+            "resolved-before-send",
+            "turn-ended-unwritten",
+            "turn-ended-ignored-in-flight",
+        ] {
+            quiet.mark(label);
+        }
+        assert_eq!(
+            quiet.as_slice(),
+            [
+                "retained",
+                "acknowledged",
+                "prepared",
+                "begun",
+                "admitted",
+                "in-flight",
+                "checked",
+                "resolved-before-write",
+                "resolved-ignored-in-flight",
+                "resolved-before-send",
+                "turn-ended-unwritten",
+                "turn-ended-ignored-in-flight",
+            ]
+        );
         // The journal mirrors the marks for the entry they belong to, under
         // the dispatch that drove them.
         let id = format!("{:?}", hagency_runtime::codex::RequestId::Number(1));
