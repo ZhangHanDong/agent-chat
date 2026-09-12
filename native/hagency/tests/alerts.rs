@@ -218,7 +218,7 @@ async fn native_ceiling_alert_prunes_resolved_rows_after_seven_days() {
     // Backdate the resolution 8+ days before the final sweep's clock.
     let connection = rusqlite::Connection::open(&f.state).unwrap();
     connection
-        .execute("UPDATE ceiling_alerts SET resolved_at_ms=1000", [1000u64])
+        .execute("UPDATE ceiling_alerts SET resolved_at_ms=?1", [1000u64])
         .unwrap();
     let count: i64 = connection
         .query_row("SELECT COUNT(*) FROM ceiling_alerts", [], |r| r.get(0))

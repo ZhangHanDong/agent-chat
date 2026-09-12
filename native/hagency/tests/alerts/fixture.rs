@@ -35,7 +35,13 @@ impl Fixture {
         let seed = |db: &mut DomainRepository, preset: &str, commit: u64, lowered: u64| {
             let generous = resource(preset, &format!("{preset}_seat"), GENEROUS);
             db.put_resource(&generous).unwrap();
-            let ask = request(&format!("{preset}_request"), "Worker", &generous, commit);
+            // One live agent name per project: admission refuses a collision.
+            let ask = request(
+                &format!("{preset}_request"),
+                &format!("Worker_{preset}"),
+                &generous,
+                commit,
+            );
             let proof = proof(&ask);
             db.admit(&proof, 1000).unwrap();
             db.approve(&format!("approve_{preset}"), &proof, 1000)
