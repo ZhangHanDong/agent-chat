@@ -16,11 +16,11 @@ on:
         required: true
       filters:
         description: Space-separated cargo test name filters (any match runs)
-        default: native_runner_http_authority native_runner_http_delegation native_runner_http_conversations native_runner_http_conversation_lifecycle
+        default: native_
         required: true
       repeat:
         description: How many times to run the selected tests
-        default: "10"
+        default: "4"
         required: true
       test_threads:
         description: cargo test --test-threads value (1 serializes the selectors)
@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test_threads: [8, 1]
+        test_threads: [8]
     runs-on: windows-2025
     timeout-minutes: 45
     env:
@@ -54,8 +54,8 @@ jobs:
         shell: pwsh
         run: |
           $packages = "${{ inputs.packages || 'hagency' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { @('-p', $_) }
-          $filters = "${{ inputs.filters || 'native_runner_http_authority native_runner_http_delegation native_runner_http_conversations native_runner_http_conversation_lifecycle' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
-          $repeat = [int]"${{ inputs.repeat || '10' }}"
+          $filters = "${{ inputs.filters || 'native_' }}".Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+          $repeat = [int]"${{ inputs.repeat || '4' }}"
           New-Item -ItemType Directory -Force -Path probe-logs | Out-Null
           $failures = 0
           for ($i = 1; $i -le $repeat; $i++) {
