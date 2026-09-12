@@ -70,3 +70,42 @@ jobs:
           name: windows-probe-logs
           path: probe-logs
           if-no-files-found: warn
+  # The hosted Ubuntu runner timed out two new matrix delivery tests that pass
+  # repeatedly in a local Linux container. Repeat them here with full output.
+  probe-ubuntu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-probe
+      - name: Build the matrix test targets once
+        run: cargo test -p hagency-matrix --all-targets --locked --no-run
+      - name: Run the delivery selectors repeatedly with full output
+        shell: bash
+        run: |
+          set +e
+          mkdir -p probe-logs
+          failures=0
+          for i in 1 2 3 4 5; do
+            echo "=== probe iteration $i of 5 ==="
+            cargo test -p hagency-matrix --all-targets --locked -- \
+              approval_delivery::tests::enrollment::native_private_approval_fresh_enrollment_and_delivery_after_expired_refusal \
+              approval_delivery::tests::journal::native_private_approval_historical_restart_and_capacity \
+              --nocapture --test-threads=1 2>&1 | tee "probe-logs/iteration-$i.log"
+            code=${PIPESTATUS[0]}
+            [ "$code" -ne 0 ] && failures=$((failures+1))
+            echo "iteration=$i exit=$code" >> probe-logs/summary.txt
+          done
+          cat probe-logs/summary.txt
+          echo "failed iterations: $failures of 5"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ubuntu-probe-logs
+          path: probe-logs
+          if-no-files-found: warn
