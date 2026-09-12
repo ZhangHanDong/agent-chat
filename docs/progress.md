@@ -8008,3 +8008,42 @@ client qualification and ongoing identity/key management remain separate.
   --tests` clean; runtime lib 5 passed; `--test transport` 8 passed 0 failed
   (contract tests stay green); execution lib 7 passed with the 21 documented
   EPERM SQLite-wall failures (unchanged in count and cause).
+
+## 2026-09-12 — Write an armed approval frame before delivering a buffered event
+
+- The designer's scoped fix for the armed-frame window (verdict Q3, applied
+  exactly): `prepared_inner` no longer returns a buffered event at
+  `offset == 0`. When a buffered message is queued it drains the input into
+  the event queue (`drain_parse`, parse-only, never deliver) and writes the
+  armed frame first; the buffered events are delivered on a later call,
+  after the receipt. One adaptation: `EventQueue` has no `is_empty`, so
+  `buffered_event_queued` uses `self.events.len() > 0`. The
+  `has_prepared_approval` check stays after the drain, so F2's quiet path
+  still fires on a resolution already parsed before any byte. The old
+  behaviour discarded the write for that call — zero bytes accepted, no
+  receipt — leaving the entry `write: None`, the exact `recorded=0`/
+  `failure=None`/`Completed` VM signature.
+- Scenario `native_owned_approval_armed_frame_precedes_buffered_event`
+  (additive probe mode `owned-approval-write-first`: hold at the recheck
+  gate, emit one usage event, handshake `approval-buffered` BEFORE the
+  release): asserts `Completed` with the macOS cleanup split, exactly one
+  wire frame, `write-accepted` and `recorded` in the trace, one
+  `write_accepted=1` row, and `usage.observed == 1` (the buffered event is
+  delivered after the receipt, nothing lost). Bound in the spec beside the
+  other approval scenarios.
+- Q2's second defect is recorded, not fixed: `accepted 0 of 51` with
+  `Transport(Io)` in `barriers_pending_receipt` is a distinct zero-byte
+  class (transport error on the first write step while the callback is
+  pending, `pending_server_requests: 1`), separated from the ordering class
+  by `transport_cause: Some(Io)` + `write` present with `accepted_bytes: 0`
+  vs the ordering class's `transport_cause: None` + `write: None`. The fix
+  needs the transport's three collapsed I/O error sites
+  (`transport.rs:511-514`) made distinguishable — next brief.
+- ADR-034 gains the armed-frame amendment (the rule, what the old behaviour
+  did, and the structural argument that both pinned contract tests drive
+  the ordinary `send` path and stay green — verified: 8 passed 0 failed);
+  ADR-046 gains the receipt-precedes-any-pre-byte-event sentence.
+- Gates: fmt, clippy (runtime + execution + hagency, all targets), `check
+  --tests` clean; runtime lib 5 passed; `--test transport` 8 passed 0
+  failed; execution lib 7 passed with 22 EPERM SQLite-wall failures (the
+  22nd is the new scenario at the same fixture line, not a regression).

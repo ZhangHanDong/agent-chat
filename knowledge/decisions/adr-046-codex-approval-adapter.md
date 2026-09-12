@@ -385,3 +385,9 @@ arrived, stamped immediately before `write-accepted`); `write-started` is
 withdrawn with the hold. A lost acceptance observation after a **written**
 frame keeps its named cause via the reconcile (the `settlement_cause` rules
 above), which owns that path.
+
+**Armed-frame write-first (with ADR-034).** The receipt of an armed response
+frame now precedes any event that was buffered before the frame's first
+byte: `prepared_inner` drains such input into the queue and writes the frame
+first, so `write-accepted` and `recorded` are reached before the resolution
+or turn end that would otherwise strand the unsent entry.
