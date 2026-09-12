@@ -47,9 +47,10 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
-    # Original Windows compilation + full tests consumed almost25 minutes.
-    # Preserve time for original diagnostics/release; no test deadline changes.
-    timeout-minutes: 40
+    # Hosted Windows at c96f76c: clippy 2 min, spec-binding inventory 7 min,
+    # full tests 17 min (720 passed), then the release build ran past the old
+    # 40-minute limit. Budget the whole job; no test deadline changes.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.95.0

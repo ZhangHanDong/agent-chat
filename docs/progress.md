@@ -7146,3 +7146,10 @@ client qualification and ongoing identity/key management remain separate.
   relies on that), so an injected failure landing first reports the complete
   frame. The assertion now accepts none or a fully written frame and still
   rejects a partial one.
+- Hosted run for `c96f76c`: Windows tests passed 720 of 720 across 103
+  binaries, the first fully green Windows test step on this branch; the job
+  was then cancelled at the 40-minute limit during the release build (clippy
+  2 min, spec-binding inventory 7 min, tests 17 min, release build past
+  04:24Z). The native job budget is now 60 minutes. Ubuntu's single failure
+  was the timing assertion relaxed above; macOS, console-browser and Node CI
+  were green.
