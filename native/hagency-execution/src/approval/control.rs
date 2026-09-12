@@ -106,6 +106,8 @@ impl ApprovalRun {
                         .map_err(|_| Failure::Protocol)?,
                 );
                 entry.selected = Some(allow);
+                #[cfg(any(test, feature = "test-diagnostics"))]
+                entry.mark("prepared");
                 let id = entry.id.clone().ok_or(Failure::Protocol)?;
                 let authorized = drive
                     .pump(
@@ -157,6 +159,8 @@ impl ApprovalRun {
                         self.batch
                             .grants
                             .push(entry.grant.take().ok_or(Failure::Protocol)?);
+                        #[cfg(any(test, feature = "test-diagnostics"))]
+                        entry.mark("begun");
                     }
                 }
                 if !self.batch.grants.is_empty() {
@@ -198,6 +202,8 @@ impl ApprovalRun {
                             .ok_or(Failure::Protocol)?;
                         entry.admitted = true;
                         entry.grant = Some(grant);
+                        #[cfg(any(test, feature = "test-diagnostics"))]
+                        entry.mark("admitted");
                     }
                     if begun.terminal? {
                         return Err(Failure::ApprovalCancelled);
@@ -275,6 +281,10 @@ impl ApprovalRun {
                 if checked.terminal? {
                     return Err(Failure::ApprovalCancelled);
                 }
+                #[cfg(any(test, feature = "test-diagnostics"))]
+                if let Some(entry) = self.callbacks.entries.get_mut(&sending.id) {
+                    entry.mark("checked");
+                }
                 let step = crate::operation::bounded(
                     runner.send_prepared_approval(&mut sending.prepared),
                     cancel,
@@ -298,6 +308,8 @@ impl ApprovalRun {
                             .get_mut(&sending.id)
                             .ok_or(Failure::Protocol)?;
                         entry.write = Some(write); // actual receipt before any await
+                        #[cfg(any(test, feature = "test-diagnostics"))]
+                        entry.mark("write-accepted");
                         #[cfg(test)]
                         if self.callbacks.fault == Some(super::Fault::WritePanic) {
                             panic!("actual owned response write unwind");
@@ -326,6 +338,8 @@ impl ApprovalRun {
                         entry.prepared = Some(sent.prepared);
                         entry.grant = Some(sent.grant);
                         entry.recorded = true;
+                        #[cfg(any(test, feature = "test-diagnostics"))]
+                        entry.mark("recorded");
                         self.callbacks.release_written();
                         if written.terminal? {
                             return Ok(());

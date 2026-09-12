@@ -61,7 +61,13 @@ pub(super) fn operation(
     let mut operation = Operation::start(f.domain.clone(), f.cap.clone(), host, limits()).unwrap();
     let notices = operation.take_approval_requests().unwrap();
     assert!(operation.take_approval_requests().is_none());
+    hagency_execution::diagnostics::reset();
     (operation, notices)
+}
+/// ADR-046 stage-1: when an owned approval cancels, name the primitive, the
+/// offending entry, and every phase it had reached.
+pub(super) fn cancellation_trace() -> String {
+    hagency_execution::diagnostics::last_cancellation_trace()
 }
 /// Await one committed approval request notice. Never a bare "notice channel
 /// closed": a closed channel or the expired deadline means the operation

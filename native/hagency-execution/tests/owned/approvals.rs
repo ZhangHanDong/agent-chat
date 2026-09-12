@@ -45,9 +45,10 @@ async fn native_owned_approval_resume() {
         assert_eq!(
             report.protocol,
             Protocol::Completed,
-            "{:?} {:?}",
+            "{:?} {:?}; {}",
             report.failure,
-            report.runtime_observation()
+            report.runtime_observation(),
+            cancellation_trace()
         );
         marker(&f, "approval-continued").await;
         let responses = responses(&f);
@@ -67,7 +68,13 @@ async fn native_owned_approval_resume() {
     let request = notice(&f, &mut op, &mut notices).await;
     choose(&f, &request.request_id, ApprovalChoice::Always).await;
     let report = op.wait().await.unwrap();
-    assert_eq!(report.protocol, Protocol::Completed, "{:?}", report.failure);
+    assert_eq!(
+        report.protocol,
+        Protocol::Completed,
+        "{:?}; {}",
+        report.failure,
+        cancellation_trace()
+    );
     assert!(
         notices.recv().await.is_none(),
         "saved grant must not emit a private owner card request"
@@ -96,9 +103,10 @@ async fn native_owned_approval_barriers() {
     assert_eq!(
         report.protocol,
         Protocol::Completed,
-        "{:?} {:?}",
+        "{:?} {:?}; {}",
         report.failure,
-        report.runtime_observation()
+        report.runtime_observation(),
+        cancellation_trace()
     );
     assert_eq!(responses(&f).len(), 3);
     unconfirmed(&f);
@@ -238,9 +246,10 @@ async fn native_owned_approval_usage() {
     assert_eq!(
         report.protocol,
         Protocol::Completed,
-        "{:?} {:?}",
+        "{:?} {:?}; {}",
         report.failure,
-        report.runtime_observation()
+        report.runtime_observation(),
+        cancellation_trace()
     );
     let usage = report.usage_status();
     assert_eq!(usage.observed, 3);

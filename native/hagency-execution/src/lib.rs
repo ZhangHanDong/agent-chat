@@ -6,6 +6,8 @@ mod operation;
 mod registration;
 mod usage;
 mod workspace;
+#[cfg(any(test, feature = "test-diagnostics"))]
+pub use approval::diagnostics;
 pub use approval::{ApprovalHost, ApprovalNotice, ApprovalRequests};
 pub use host::{Host, Limits};
 pub use operation::{

@@ -28,6 +28,70 @@ pub(super) struct Pending {
     pub admitted: bool,
     pub recorded: bool,
     pub resolved: bool,
+    /// Ordered diagnostic record of every phase this entry reached. Exists
+    /// only in test and `test-diagnostics` builds; production carries none.
+    #[cfg(any(test, feature = "test-diagnostics"))]
+    pub trace: PhaseTrace,
+}
+/// The per-entry phase sequence, testable without a live approval session.
+/// Vocabulary is fixed by ADR-046 stage-1: `retained` at insertion, then the
+/// transition labels appended by the coordinator in arrival order.
+#[cfg(any(test, feature = "test-diagnostics"))]
+#[derive(Debug, Default)]
+pub(super) struct PhaseTrace {
+    labels: Vec<&'static str>,
+}
+#[cfg(any(test, feature = "test-diagnostics"))]
+impl PhaseTrace {
+    pub(super) fn new() -> Self {
+        Self {
+            labels: vec!["retained"],
+        }
+    }
+    pub(super) fn mark(&mut self, label: &'static str) {
+        self.labels.push(label);
+    }
+    pub(super) fn as_slice(&self) -> &[&'static str] {
+        &self.labels
+    }
+}
+impl Pending {
+    /// Append one phase label. Test/`test-diagnostics` builds only: the
+    /// production build has neither the field nor this method, so no label
+    /// string can survive into a shipped binary.
+    #[cfg(any(test, feature = "test-diagnostics"))]
+    pub(super) fn mark(&mut self, label: &'static str) {
+        self.trace.mark(label);
+        super::diagnostics::phase(&format!("{:?}", self.request.id()), label);
+    }
+    /// ADR-046 ruling for a resolution observed while this entry is live:
+    /// before write acceptance it cancels the callback; after acceptance it
+    /// is unconfirmed application state and the run continues. The label and
+    /// cancellation outcome are decided by [`resolution_outcome`], the pure
+    /// and unit-testable half of this rule.
+    pub(super) fn resolution_arrives(&mut self) -> Result<bool, Failure> {
+        self.resolved = true;
+        #[cfg(any(test, feature = "test-diagnostics"))]
+        {
+            let (label, _cancels) = resolution_outcome(self.write.is_none());
+            self.mark(label);
+        }
+        if self.write.is_none() {
+            Err(Failure::ApprovalCancelled)
+        } else {
+            Ok(false)
+        }
+    }
+}
+/// Pure ADR-046 resolution rule: the diagnostic label for a resolution, and
+/// whether it cancels the callback, given whether the frame write was accepted.
+#[cfg(any(test, feature = "test-diagnostics"))]
+pub(super) fn resolution_outcome(write_not_accepted: bool) -> (&'static str, bool) {
+    if write_not_accepted {
+        ("resolved-before-write", true)
+    } else {
+        ("resolved-after-write", false)
+    }
 }
 #[derive(Default)]
 pub(super) struct AdmissionBatch {
@@ -167,6 +231,8 @@ impl Callbacks {
                 admitted: false,
                 recorded: false,
                 resolved: false,
+                #[cfg(any(test, feature = "test-diagnostics"))]
+                trace: PhaseTrace::new(),
             },
         );
         // Original reservation and callback are retained before request submission.
@@ -183,6 +249,8 @@ impl Callbacks {
     ) -> Result<(), Failure> {
         let entry = self.entries.get_mut(key).ok_or(Failure::Protocol)?;
         entry.id = Some(summary.id.clone());
+        #[cfg(any(test, feature = "test-diagnostics"))]
+        entry.mark("acknowledged");
         if summary.choice.is_some() {
             return Ok(());
         }
@@ -264,5 +332,78 @@ impl ApprovalRun {
                 .filter(|e| e.write.is_some())
                 .count(),
         )
+    }
+}
+
+#[cfg(test)]
+mod trace_tests {
+    use super::*;
+
+    /// Drives the label vocabulary through every phase the coordinator can
+    /// append, then through both resolution outcomes, asserting the ordered
+    /// trace each time. This is the ADR-046 stage-1 diagnostic contract: the
+    /// labels are stable and every phase transition is named.
+    #[test]
+    fn native_approval_trace_labels_every_phase() {
+        crate::approval::diagnostics::reset();
+        // The full happy-path sequence one entry drives through the
+        // coordinator: retained, then each transition in arrival order.
+        let mut trace = PhaseTrace::new();
+        assert_eq!(trace.as_slice(), ["retained"]);
+        for label in [
+            "acknowledged",
+            "prepared",
+            "begun",
+            "admitted",
+            "checked",
+            "write-accepted",
+            "recorded",
+        ] {
+            trace.mark(label);
+        }
+        assert_eq!(
+            trace.as_slice(),
+            [
+                "retained",
+                "acknowledged",
+                "prepared",
+                "begun",
+                "admitted",
+                "checked",
+                "write-accepted",
+                "recorded",
+            ]
+        );
+        // The cancellation primitive labels and outcomes, both directions.
+        assert_eq!(resolution_outcome(true), ("resolved-before-write", true));
+        assert_eq!(resolution_outcome(false), ("resolved-after-write", false));
+        // The journal mirrors the marks for the entry they belong to.
+        let id = format!("{:?}", hagency_runtime::codex::RequestId::Number(1));
+        for label in ["acknowledged", "prepared"] {
+            crate::approval::diagnostics::phase(&id, label);
+        }
+        assert_eq!(
+            crate::approval::diagnostics::phases_of(&id),
+            ["acknowledged", "prepared"]
+        );
+        // A cancellation is recorded with the primitive and the trace.
+        crate::approval::diagnostics::cancellation(
+            "turn-ended-unwritten",
+            &id,
+            &["retained", "acknowledged"],
+        );
+        let trace_text = crate::approval::diagnostics::last_cancellation_trace();
+        assert!(trace_text.contains("turn-ended-unwritten"), "{trace_text}");
+        assert!(trace_text.contains(&id), "{trace_text}");
+        assert!(
+            trace_text.contains("retained, acknowledged"),
+            "{trace_text}"
+        );
+        crate::approval::diagnostics::reset();
+        assert_eq!(
+            crate::approval::diagnostics::phases_of(&id),
+            Vec::<&str>::new()
+        );
+        assert_eq!(crate::approval::diagnostics::last_cancellation_trace(), "");
     }
 }

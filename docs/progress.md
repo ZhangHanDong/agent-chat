@@ -1,5 +1,40 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — Ordered per-entry approval phase trace (ADR-046 stage-1 diagnostic)
+
+- Diagnostic only, no behavior change, per the accepted approval-barriers
+  analysis Q4 (`.peer/evidence/context-approval-barriers.md`): the failing
+  owned approval tests report only `ApprovalCancelled` at `RuntimeStage::Update`
+  and cannot say which primitive fired (`ApprovalResolved` on an unwritten
+  entry vs `TurnEnded` while any entry is unwritten) or where the entry's
+  frame had reached. Added an ordered per-entry phase trace and a
+  cancellation record so the next failure names both.
+- `native/hagency-execution`: pending entries carry a test-only `PhaseTrace`
+  (`["retained"]` at insertion, then `acknowledged`, `prepared`, `begun`,
+  `admitted`, `checked`, `write-accepted`, `recorded`, plus the cancellation
+  primitives `resolved-before-write`/`resolved-after-write` and
+  `turn-ended-unwritten`). Every mark also lands in a process-wide journal;
+  when a cancellation primitive fires, the offending entry id, primitive and
+  full trace are recorded in a slot read by
+  `hagency_execution::diagnostics::last_cancellation_trace()`. The five
+  failing assertion sites (`approvals.rs` resume/reuse/barriers/usage,
+  `approval_loss.rs` pending-receipt) now include that trace in the panic
+  message. All of it compiles only under `cfg(test)` or the default-off
+  `test-diagnostics` feature (self dev-dependency lights it for test builds
+  only); `strings` on a production build of the rlib finds none of the labels.
+  New unit test `native_approval_trace_labels_every_phase` pins the
+  vocabulary and both resolution outcomes.
+- Gates: `cargo fmt --all --check` and `cargo clippy -p hagency-execution
+  --all-targets --locked -- -D warnings` pass. `cargo test -p
+  hagency-execution --locked` cannot complete here: every owned/lib fixture
+  dies at `DomainRepository::open` with `Io(EPERM)` — the same sandbox denial
+  of the cap-std ancestor-directory walk recorded in the ceiling-draw entry
+  (clean-HEAD `git stash` control reproduces it identically, e.g. at
+  `approval_loss.rs:52` unmodified vs `:53` with the reset added). The
+  deterministic unit test passes in the lib binary (5/5 runnable tests,
+  including the new one). CI is the authoritative executor for the owned
+  selectors.
+
 ## 2026-09-12 — Native read-side resource ceiling draw (ADR121)
 
 - Slice one of the ceiling-enforcement port (accepted gap analysis,

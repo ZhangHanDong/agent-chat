@@ -39,24 +39,38 @@ impl Drive<'_> {
             ),
             Update::ApprovalResolved { id } => {
                 let entry = callbacks.entries.get_mut(&id).ok_or(Failure::Protocol)?;
-                entry.resolved = true;
+                let terminal = entry.resolution_arrives();
+                #[cfg(any(test, feature = "test-diagnostics"))]
+                if terminal.is_err() {
+                    super::diagnostics::cancellation(
+                        "resolved-before-write",
+                        &format!("{:?}", entry.request.id()),
+                        entry.trace.as_slice(),
+                    );
+                }
+                (None, terminal)
+            }
+            Update::TurnEnded => {
+                #[cfg(any(test, feature = "test-diagnostics"))]
+                for entry in callbacks.entries.values_mut() {
+                    if entry.write.is_none() {
+                        entry.mark("turn-ended-unwritten");
+                        super::diagnostics::cancellation(
+                            "turn-ended-unwritten",
+                            &format!("{:?}", entry.request.id()),
+                            entry.trace.as_slice(),
+                        );
+                    }
+                }
                 (
                     None,
-                    if entry.write.is_none() {
+                    if callbacks.entries.values().any(|e| e.write.is_none()) {
                         Err(Failure::ApprovalCancelled)
                     } else {
-                        Ok(false)
+                        Ok(true)
                     },
                 )
             }
-            Update::TurnEnded => (
-                None,
-                if callbacks.entries.values().any(|e| e.write.is_none()) {
-                    Err(Failure::ApprovalCancelled)
-                } else {
-                    Ok(true)
-                },
-            ),
             _ => (None, Ok(false)),
         };
         if self.usage.observe(&observation) {

@@ -45,6 +45,7 @@ fn host(root: &std::path::Path, fault: Fault, mode: &str) -> Host {
     .unwrap()
     .with_approvals(ApprovalHost::new(2, 1, 20_000, 1500).unwrap())
     .unwrap();
+    crate::approval::diagnostics::reset();
     host.approval_fault = Some(fault);
     host
 }
@@ -355,9 +356,10 @@ async fn native_owned_approval_barriers_pending_receipt() {
         assert_eq!(
             report.protocol,
             Protocol::Completed,
-            "{fault:?}: {:?} {:?}",
+            "{fault:?}: {:?} {:?}; {}",
             report.failure,
-            report.runtime_observation()
+            report.runtime_observation(),
+            crate::approval::diagnostics::last_cancellation_trace()
         );
         assert_eq!(report.approval_custody(), (2, 2, 2, 2));
         assert_eq!(

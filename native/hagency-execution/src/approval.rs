@@ -1,6 +1,8 @@
 //! Original owned callback coordination. Notices never carry verdict authority.
 mod capacity;
 mod control;
+#[cfg(any(test, feature = "test-diagnostics"))]
+pub mod diagnostics;
 mod observations;
 pub(crate) mod state;
 pub use capacity::ApprovalHost;
