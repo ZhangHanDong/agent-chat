@@ -7210,3 +7210,25 @@ client qualification and ongoing identity/key management remain separate.
   the Rust CI job after `metering-vectors.mjs --check`;
   `cargo fmt/clippy -D warnings` and `cargo test -p hagency-metering --locked`
   (13 tests, including the three new replay tests) all pass locally.
+- Probe run 34680169676 on `probe/windows-shutdown` (the four stalled
+  `native_runner_http_*` selectors with the teardown sample, ten iterations
+  each at eight test threads and again serially): forty of forty passed and no
+  shutdown timed out, so the stall is not reproducible from those four tests
+  alone. That is consistent with the peer analysis: the failing four were the
+  earliest closes of a busy binary, and the trigger is the whole process's
+  first seconds under parallel load (or the process-global SQLite SHM mutex
+  serializing a slow purge). Probe run 34680568569 repeats every `hagency`
+  test target under parallel load four times to reach that state.
+- Probe run 34680568569 (every `hagency` test target, eight threads, four
+  iterations) reproduced the stall on its first iteration only: four
+  `native_runner_http_*` closes timed out with `ReplyTimedOut` and the new
+  teardown sample showed `domain.sqlite3-wal` at 375 to 416 KB and
+  `domain.sqlite3-shm` at 32 KB still present at the moment of timeout, so
+  the writer is stalled before the WAL is removed (inside the close-time
+  checkpoint or the unlink retry), not after. The sample now also records
+  the main database size and modification age and repeats after 500 ms to
+  separate those two. Hosted Windows also failed the new
+  `attribution-vectors.mjs --check`: the retained JavaScript computes POSIX
+  layout facts with the host path module, so the oracle is POSIX-only; the
+  CI step is gated to POSIX hosts and the script refuses on win32 with that
+  reason, while the Rust replay tests keep running on every OS.

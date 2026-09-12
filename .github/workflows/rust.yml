@@ -67,7 +67,12 @@ jobs:
       - run: npm ci --ignore-scripts --omit=dev
       - run: node native/scripts/matrix-format-vectors.mjs --check
       - run: node native/scripts/metering-vectors.mjs --check
+      # The retained JavaScript computes POSIX layout facts with the host path
+      # module; on Windows path.join/resolve yield drive-letter backslash paths,
+      # so its oracle exists only on POSIX hosts. The recorded fixture is still
+      # replayed by the Rust tests on every OS in the test step below.
       - run: node native/scripts/attribution-vectors.mjs --check
+        if: runner.os != 'Windows'
       - run: node native/scripts/usage-vectors.mjs --check
       - run: node native/scripts/account-vectors.mjs --check
       - run: node native/scripts/canonical-vectors.mjs --check
