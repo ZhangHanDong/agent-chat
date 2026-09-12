@@ -737,7 +737,12 @@ async fn native_file_service_shutdown_original_job_unwind() {
         .clone();
     assert!(original.info.lock().unwrap().live);
     gate.release();
-    tokio::time::timeout(Duration::from_secs(3), async {
+    // Fixture orchestration bound: the isolated child observes its own worker
+    // unwinding. Under a whole-workspace run on a four-core host three
+    // seconds expired on every iteration while the outer fixture allows
+    // twenty-five; ten seconds keeps the observation bounded without turning
+    // a missing unwind into a pass.
+    tokio::time::timeout(Duration::from_secs(10), async {
         while handle.registry.ready.load(Ordering::Acquire) {
             tokio::task::yield_now().await;
         }
