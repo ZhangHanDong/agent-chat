@@ -247,68 +247,85 @@ async fn native_file_delivery_worker_lost_and_queued() {
     );
     drop(db);
     for lock in [false, true] {
-        let root = tempfile::tempdir().unwrap();
-        let (db, cap) = fixture(root.path());
-        let store = DomainStore::start(db, 8).unwrap();
-        let (id, claim) = ready(&store, &cap).await;
-        let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
-        let mut release = None;
-        if lock {
-            sql.execute_batch("BEGIN IMMEDIATE;").unwrap();
-        } else {
-            let (entered, reached) = oneshot::channel();
-            let (resume, paused) = std::sync::mpsc::channel();
-            store
-                .tx
-                .try_send(Job::Run {
-                    operation: Box::new(move |_| {
-                        let _ = entered.send(());
-                        paused.recv_timeout(Duration::from_secs(2)).unwrap();
-                    }),
-                    _bytes: store.bytes.clone().try_acquire_owned().unwrap(),
-                })
-                .unwrap_or_else(|_| panic!("fixture admission"));
-            reached.await.unwrap();
-            release = Some(resume);
-        }
-        sql.execute(
-            "UPDATE runner_dispatches SET lease_until=?1 WHERE id='dispatch'",
-            [now() + 30],
-        )
-        .unwrap();
-        let begun = tokio::spawn({
-            let store = store.clone();
-            let cap = cap.clone();
-            async move { store.begin_file_publication(cap, claim).await }
-        });
-        if !lock {
-            tokio::time::timeout(Duration::from_secs(1), async {
-                while store.tx.capacity() == 8 {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
+        for attempt in 0..5 {
+            let root = tempfile::tempdir().unwrap();
+            let (db, cap) = fixture(root.path());
+            let store = DomainStore::start(db, 8).unwrap();
+            let (id, claim) = ready(&store, &cap).await;
+            let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+            let mut release = None;
+            if lock {
+                sql.execute_batch("BEGIN IMMEDIATE;").unwrap();
+            } else {
+                let (entered, reached) = oneshot::channel();
+                let (resume, paused) = std::sync::mpsc::channel();
+                store
+                    .tx
+                    .try_send(Job::Run {
+                        operation: Box::new(move |_| {
+                            let _ = entered.send(());
+                            paused.recv_timeout(Duration::from_secs(2)).unwrap();
+                        }),
+                        _bytes: store.bytes.clone().try_acquire_owned().unwrap(),
+                    })
+                    .unwrap_or_else(|_| panic!("fixture admission"));
+                reached.await.unwrap();
+                release = Some(resume);
+            }
+            sql.execute(
+                "UPDATE runner_dispatches SET lease_until=?1 WHERE id='dispatch'",
+                [now() + 30],
+            )
             .unwrap();
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        if lock {
-            sql.execute_batch("COMMIT;").unwrap();
-        } else {
-            release.unwrap().send(()).unwrap();
-        }
-        assert!(
-            matches!(begun.await.unwrap(), Err(Error::RunnerAuthority)),
-            "lock={lock}"
-        );
-        assert_eq!(
-            store
-                .inspect_file_delivery(cap, id.id().into())
+            let begun = tokio::spawn({
+                let store = store.clone();
+                let cap = cap.clone();
+                async move { store.begin_file_publication(cap, claim).await }
+            });
+            if !lock {
+                tokio::time::timeout(Duration::from_secs(1), async {
+                    while store.tx.capacity() == 8 {
+                        tokio::task::yield_now().await;
+                    }
+                })
                 .await
-                .unwrap()
-                .event,
-            FileEventState::Claimed
-        );
-        store.shutdown().await.unwrap();
+                .unwrap();
+            }
+            let held = std::time::Instant::now();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if lock {
+                sql.execute_batch("COMMIT;").unwrap();
+            } else {
+                release.unwrap().send(()).unwrap();
+            }
+            let hold = held.elapsed();
+            let outcome = begun.await.unwrap();
+            // The worker's Immediate transaction waits at most the production busy
+            // budget (100 ms) for this external lock. A loaded host (hosted
+            // Windows) can stretch the fixture's own 50 ms hold past that budget;
+            // then the lost-while-queued scenario was never modelled, so it is
+            // rebuilt, while a modelled scenario keeps its exact verdict below.
+            if lock && hold >= Duration::from_millis(90) && attempt < 4 {
+                eprintln!("fixture hold {hold:?} exceeded the worker busy budget; rebuilding");
+                drop(outcome);
+                store.shutdown().await.unwrap();
+                continue;
+            }
+            assert!(
+                matches!(outcome, Err(Error::RunnerAuthority)),
+                "lock={lock} hold={hold:?}"
+            );
+            assert_eq!(
+                store
+                    .inspect_file_delivery(cap, id.id().into())
+                    .await
+                    .unwrap()
+                    .event,
+                FileEventState::Claimed
+            );
+            store.shutdown().await.unwrap();
+            break;
+        }
     }
 }
 

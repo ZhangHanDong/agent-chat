@@ -7164,3 +7164,19 @@ client qualification and ongoing identity/key management remain separate.
   release build and artifact), Ubuntu and console-browser passed, Node CI
   passed. macOS failed only the transient `Locked` reopen fixed in the
   following commit.
+- Hosted run for `3899b45`: Node CI, console-browser, Ubuntu and macOS green;
+  Windows failed three timing-bound fixtures under the parallel test binary.
+  `native_receive_workspace_authority_read_deadline` gave the write one
+  second and hosted Windows materialized later than that, so the write window
+  is now three seconds while the elapsed-deadline refusal and the fresh
+  revalidation stay exactly as asserted. `native_file_delivery_worker_lost_and_queued`
+  (`lock=true`) holds an external Immediate transaction for 50 ms against the
+  worker's 100 ms busy budget; when the host stretches the fixture's own hold
+  past that budget the scenario was never modelled, so the fixture measures
+  its hold and rebuilds (bounded to five attempts) instead of judging the
+  worker, and a modelled hold still requires exactly `RunnerAuthority`.
+  `native_receive_uncertainty` reported `outcome_unknown` with a transport
+  timeout at `turn_start` (`response_ms` 1500, the fixture ceiling is 2000):
+  the incoming probe was still inside its MCP `tools/call` when the budget
+  expired. That one is left unchanged and recorded as a hosted Windows
+  process-spawn latency case for the Windows VM to reproduce.

@@ -446,7 +446,11 @@ async fn native_receive_workspace_authority_read_deadline() {
     let f = fixture();
     let mut operation = f.operation("usage-gate");
     let binding = started(&f, &mut operation).await;
-    let until = Instant::now() + Duration::from_secs(1);
+    // Hosted Windows once needed more than one second to materialize under the
+    // parallel test binary, so the write window is generous. The original
+    // write deadline still expires before the fresh revalidation below, which
+    // keeps proving that an elapsed write deadline never gates later reads.
+    let until = Instant::now() + Duration::from_secs(3);
     let mut held = binding
         .prepare_receive(&f.cap, grant(&f, 0, b"cached").await, until)
         .unwrap();
