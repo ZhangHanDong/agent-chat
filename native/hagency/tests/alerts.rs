@@ -98,8 +98,22 @@ async fn native_alerts_read_requires_operator_authority() {
 #[tokio::test]
 async fn native_alerts_read_publishes_open_ceiling_alerts() {
     let f = Fixture::new(true);
-    let swept = f.domain.sweep_ceiling_overruns(now_ms()).await.unwrap();
+    let t0 = now_ms();
+    let swept = f.domain.sweep_ceiling_overruns(t0).await.unwrap();
     assert_eq!(swept.raised, 2);
+    // Newest-first must be pinned by distinct timestamps, not by a tie. Every
+    // sweep refreshes every open-and-over row, so two open rows can only
+    // differ when one is skipped: remove pool_a's declared ceiling (unknown is
+    // not zero, so its alert stays open, untouched at t0) and sweep again at
+    // t1, which refreshes pool_b alone.
+    let ceilingless: hagency_core::project::Resource = serde_json::from_value(json!({
+        "presetId":"alerts_pool_a","seatId":"alerts_pool_a_seat","framework":"codex",
+        "model":"gpt-5.6-sol","reasoning":"medium"
+    }))
+    .unwrap();
+    f.domain.put_resource(ceilingless).await.unwrap();
+    let again = f.domain.sweep_ceiling_overruns(t0 + 1_000).await.unwrap();
+    assert_eq!((again.raised, again.updated, again.resolved), (0, 1, 0));
 
     let mut response = TestClient::get(f.url())
         .add_header("host", "127.0.0.1:13300", true)
@@ -124,12 +138,6 @@ async fn native_alerts_read_publishes_open_ceiling_alerts() {
     assert!(value["at_ms"].as_u64().unwrap() > 0);
     let alerts = value["alerts"].as_array().unwrap();
     assert_eq!(alerts.len(), 2);
-    // E3: make newest-first REAL rather than a tie. Both rows open in the t0
-    // sweep (identical last_seen_ms, the nondeterministic case the review
-    // flagged). Then a second sweep at t1 with pool_b back under its ceiling
-    // resolves only pool_b, and a third at t2 — pool_b lowered again —
-    // reopens pool_b at t2. Now pool_b's last_seen (t2) > pool_a's (t0) and
-    // the read's DESC order is pinned by distinct timestamps.
     let alert = &alerts[0];
     let expected_id = resource("alerts_pool_b", "alerts_pool_b_seat", 1).id();
     assert_eq!(alert["resource_id"], expected_id);
@@ -138,7 +146,10 @@ async fn native_alerts_read_publishes_open_ceiling_alerts() {
         format!("agent_ceiling_overrun:{expected_id}")
     );
     assert_eq!(alert["resolved"], false);
-    assert_eq!(alert["occurrences"], 1);
+    // Opened at t0 and refreshed at t1: the repeat rides the same row.
+    assert_eq!(alert["occurrences"], 2);
+    assert_eq!(alert["last_seen_ms"], t0 + 1_000);
+    assert_eq!(alerts[1]["last_seen_ms"], t0);
     assert!(alert["first_seen_ms"].as_u64().unwrap() > 0);
     assert!(alert["last_seen_ms"].as_u64().unwrap() > 0);
     assert!(
@@ -172,9 +183,8 @@ async fn native_alerts_read_publishes_open_ceiling_alerts() {
     // Limit respected: one row for ?limit=1, newest activity first.
     // E3 sequence: t1 raise pool_b → resolve sweep (pool_b gone, pool_a
     // untouched at t1); t2 lower pool_b → reopen sweep (pool_b's
-    // last_seen=t2, pool_a's still t0). Then the full read must list
-    // pool_b FIRST and ?limit=1 must return exactly pool_b.
-    let t0 = now_ms();
+    // last_seen=t2, pool_a's still t0 because it lost its ceiling above).
+    // Then the full read must list pool_b FIRST and ?limit=1 exactly pool_b.
     let t1 = t0 + 10_000;
     let t2 = t0 + 20_000;
     f.domain
