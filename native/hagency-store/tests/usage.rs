@@ -6,6 +6,7 @@ use hagency_store::*;
 use serde_json::json;
 mod usage {
     use super::*;
+    mod admission;
     mod bounds;
     mod ceiling;
     mod vectors;
@@ -19,10 +20,13 @@ struct Fixture {
 }
 impl Fixture {
     fn new(framework: Framework) -> Self {
+        Self::with_ceiling(framework, 1000)
+    }
+    fn with_ceiling(framework: Framework, ceiling: u64) -> Self {
         let root = tempfile::tempdir().unwrap();
         let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
         db.register(&registration()).unwrap();
-        let mut pool = resource("usage_pool", "usage_seat", 1000);
+        let mut pool = resource("usage_pool", "usage_seat", ceiling);
         if framework == Framework::Claude {
             pool.framework = "claude".into();
             pool.model = "claude-sonnet-5".into();

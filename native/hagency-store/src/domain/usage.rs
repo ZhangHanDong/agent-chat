@@ -11,6 +11,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::json;
 mod reads;
 mod types;
+pub(super) use reads::ceiling_report;
 pub use types::*;
 use types::{add, grow, period_keys, unknown};
 

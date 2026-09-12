@@ -310,5 +310,45 @@
       },
       "expected": "allocating 50k would exceed the 0 left on BigLittle — its ceiling is 9.0M per monthly; 9.0M is committed to active engagements and 100k of fresh tokens was measured this monthly (2026-08), so committed allocations is what is binding. To proceed, raise the ceiling on preset \"codex-strong\" or wait for the monthly to roll over."
     }
+  ],
+  "admission": [
+    {
+      "name": "admission-lockout",
+      "ceilingTokens": 10000000,
+      "alloc": 1000000,
+      "seed": {
+        "input": 604823,
+        "output": 76266,
+        "cacheWrite": 0,
+        "cacheRead": 12928512
+      },
+      "expected": {
+        "spent": 681089,
+        "consumed": 13609601,
+        "drawnBefore": 681089,
+        "byCeiling": 9318911,
+        "approved": true,
+        "remainingAfterApproval": 9000000
+      }
+    },
+    {
+      "name": "admission-fresh-exhaustion",
+      "ceilingTokens": 10000000,
+      "alloc": 1000000,
+      "seed": {
+        "input": 9500000,
+        "output": 500000,
+        "cacheWrite": 0,
+        "cacheRead": 0
+      },
+      "expected": {
+        "spent": 10000000,
+        "consumed": 10000000,
+        "drawnBefore": 10000000,
+        "byCeiling": 0,
+        "approved": false,
+        "remainingAfterApproval": 0
+      }
+    }
   ]
 }

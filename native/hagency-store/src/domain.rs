@@ -50,8 +50,8 @@ mod verified_ingress;
 pub use usage::{
     CeilingReport, KnownTokens, MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES,
     MAX_SOURCE_USAGE_RECEIPTS, MAX_USAGE_PERIODS, MAX_USAGE_RECEIPTS, MAX_USAGE_SOURCES,
-    SourceUsage, UsageEvidence, UsagePeriod, UsagePeriodKind, UsageReceipt, UsageReport,
-    UsageSource, UsageSummary,
+    SourceUsage, UsageCeiling, UsageEvidence, UsagePeriod, UsagePeriodKind, UsageReceipt,
+    UsageReport, UsageSource, UsageSummary,
 };
 
 pub struct DomainRepository {
@@ -277,7 +277,12 @@ fn record_decision(
     )?;
     Ok(())
 }
-fn budget(db: &Connection, resource: &Resource) -> Result<Budget, Error> {
+fn budget(
+    db: &Connection,
+    resource: &Resource,
+    exclude_engagement_id: Option<&str>,
+    for_auto_join: bool,
+) -> Result<Budget, Error> {
     let declaration: Option<String> = db
         .query_row(
             "SELECT config FROM seats WHERE id=?1",
@@ -319,8 +324,8 @@ fn budget(db: &Connection, resource: &Resource) -> Result<Budget, Error> {
         seat_id: resource.seat_id.clone(),
         declaration,
         commitments,
-        exclude_engagement_id: None,
-        for_auto_join: false,
+        exclude_engagement_id: exclude_engagement_id.map(str::to_owned),
+        for_auto_join,
     })?)
 }
 
@@ -607,7 +612,7 @@ impl DomainRepository {
         read_engagement(&self.db, id)
     }
     pub fn resource_budget(&self, id: &str) -> Result<Budget, Error> {
-        budget(&self.db, &read_resource(&self.db, id)?)
+        budget(&self.db, &read_resource(&self.db, id)?, None, false)
     }
 
     pub fn admit(&mut self, proof: &VerifiedRequest, now: u64) -> Result<Engagement, Error> {
@@ -713,31 +718,55 @@ impl DomainRepository {
         {
             return Err(Error::Unqualified);
         }
-        // Refusal identity mirrors the retained JavaScript split
-        // (engagement-store.js:618,638): unknown capacity is `no_ceiling`, a
-        // known ceiling exceeded by the allocation is `over_commit` with the
-        // binding-draw wording, and the shared-seat quota — a resource-pool
-        // concept the JavaScript does not have — keeps the existing
-        // `InsufficientCapacity` identity. The admission DECISION is unchanged
-        // in this slice; measured spend joins the context in slice 3.
-        let spent_budget = budget(&tx, &resource)?;
+        // Admission uses the drawn ceiling (backend-v2.js:14036-14060):
+        // `drawn = max(reserved, spent)` with unknown spend falling back to
+        // the commitment figure, never to zero; `by_ceiling` saturates at
+        // zero; the admitted figure is the minimum of the non-null limits.
+        // The engagement being decided is excluded exactly like the retained
+        // JavaScript decide() call (`excludeEngagementId: id`), and approve is
+        // the operator verdict path, so `for_auto_join` is false — auto-join
+        // is the other remainingFor caller, not this one.
+        let report = usage::ceiling_report(&tx, &resource.id(), now)?;
+        let spent_budget = budget(&tx, &resource, Some(id.as_str()), false)?;
+        // backend-v2.js:14057: a seat declaration whose period mismatches the
+        // pool's nulls the whole figure rather than falling back to the pool.
+        if spent_budget.seat.status == allocation::SeatStatus::PeriodMismatch {
+            return Err(Error::NoCeiling);
+        }
         let requested = u64::from(value.requested_tokens);
-        let pool_remaining = spent_budget.pool.remaining.map(u64::from);
-        let remaining = spent_budget.remaining_tokens.ok_or(Error::NoCeiling)?;
-        if remaining < value.requested_tokens {
-            if pool_remaining.is_some_and(|p| p < requested) {
+        let by_ceiling = report
+            .ceiling_tokens
+            .map(|c| c.saturating_sub(report.drawn));
+        let remaining = [
+            by_ceiling,
+            spent_budget.seat.remaining.map(u64::from),
+            spent_budget.pool.remaining.map(u64::from),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .ok_or(Error::NoCeiling)?;
+        if remaining < requested {
+            if by_ceiling.is_some_and(|b| b < requested) {
+                // The ceiling side is binding: the refusal names both draws,
+                // the binding one, the measurement's period key and the
+                // cache-read discrepancy, exactly as the JavaScript does.
+                let period_name = match report.period {
+                    UsagePeriodKind::Daily => "daily",
+                    UsagePeriodKind::Monthly => "monthly",
+                };
                 let message = ceiling_wording::over_commit_message(
                     value.agent_name.as_str(),
                     requested,
-                    u64::from(remaining),
+                    remaining,
                     Some(&SpendContext {
-                        period: spent_budget.pool.period.clone(),
-                        reserved: Some(u64::from(spent_budget.pool.committed)),
-                        spent: None,
-                        consumed: None,
-                        ceiling_tokens: spent_budget.pool.ceiling.map(u64::from),
-                        preset_name: Some(resource.preset_id.clone()),
-                        spend_period_key: None,
+                        period: Some(period_name.into()),
+                        reserved: Some(report.reserved),
+                        spent: report.spent,
+                        consumed: report.consumed,
+                        ceiling_tokens: report.ceiling_tokens,
+                        preset_name: Some(report.preset_name),
+                        spend_period_key: report.spend_period_key,
                     }),
                 );
                 return Err(Error::OverCommit { message });

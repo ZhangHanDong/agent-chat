@@ -1,5 +1,34 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — Ceiling slice 3: admission uses the draw, headroom published (ADR-123)
+
+- Folded the ADR-121 ceiling report into admission (`DomainRepository::approve`),
+  mirroring the retained `remainingFor` (backend-v2.js:14036-14060) verbatim:
+  `drawn = max(reserved, spent)` with unknown measurement falling back to
+  reserved (never zero), `by_ceiling = ceiling.saturating_sub(drawn)`, admitted
+  figure = min of the non-null limits (ceiling after draw, seat quota, pool),
+  and a seat-period mismatch nulls the figure (:14057). The engagement being
+  decided is excluded from its own commitment sum exactly like the retained
+  `decide()` call; `budget()`'s previously hardcoded `exclude_engagement_id`/
+  `for_auto_join` are now parameters (`resource_budget` keeps its shape).
+  The slice-2 `SpendContext` now carries `spent`/`consumed`/
+  `spend_period_key`, so `Error::OverCommit` names the binding draw, the
+  period key and the cache-read discrepancy from real measurements.
+- Published the authority's own figures on `UsageReport`: new
+  `ceiling: { tokens_drawn, tokens_used, remaining_tokens }` computed from the
+  same report and budget the decision uses; every existing key unchanged (the
+  usage API exact-key test extends with `ceiling`).
+- Oracle: `ceiling-vectors.mjs` gained end-to-end admission expectations
+  computed by the retained ledger + mirrored remainingFor arithmetic —
+  lockout approves 1M (remaining after 9.0M), fresh exhaustion refuses (0
+  left); fixture regenerated, `--check` green.
+- Tests: `native_ceiling_admission_uses_drawn_not_consumed` (13.6M consumed /
+  681k drawn approves 1M), `native_ceiling_admission_refuses_fresh_exhaustion`
+  (10M fresh refuses, naming measured spend), and
+  `native_ceiling_publishes_headroom_after_approval` (drawn 1_000_100, used
+  13.6M, remaining 8_999_900). The ceiling overrun alarm (G5) is a listed
+  follow-up, not implemented.
+
 ## 2026-09-12 — Ceiling slice 2: refusals name the binding draw (ADR-122)
 
 - Implemented slice 2 of the accepted ceiling-enforcement plan: pure wording

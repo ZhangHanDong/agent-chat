@@ -115,6 +115,24 @@ pub struct UsageReport {
     pub summary: UsageSummary,
     pub daily: Option<UsagePeriod>,
     pub monthly: Option<UsagePeriod>,
+    /// The authority's own ceiling figures for this engagement's resource
+    /// (slice 3): what drew the ceiling down, the display total, and the
+    /// headroom the admission decision itself uses — published so no client
+    /// re-derives `ceiling - committed` and diverges the moment metering
+    /// works (the console bug the retained JavaScript fixed).
+    pub ceiling: UsageCeiling,
+}
+/// `tokensDrawn`/`tokensUsed`/`remainingTokens` equivalents
+/// (`backend-v2.js:14012-14060`), snake_case like the rest of the report.
+/// Evidence stays untrusted: these are lower bounds, never allowances.
+#[derive(Debug, Serialize)]
+pub struct UsageCeiling {
+    /// `max(reserved, measured fresh)` with unknown falling back to reserved.
+    pub tokens_drawn: u64,
+    /// Display figure over all four kinds; `None` when nothing was measured.
+    pub tokens_used: Option<u64>,
+    /// min of the non-null limits (ceiling after draw, seat quota, pool).
+    pub remaining_tokens: Option<u64>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]

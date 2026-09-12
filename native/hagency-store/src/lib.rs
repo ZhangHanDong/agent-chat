@@ -20,8 +20,8 @@ pub use domain::{
     MAX_SOURCE_USAGE_RECEIPTS, MAX_USAGE_PERIODS, MAX_USAGE_RECEIPTS, MAX_USAGE_SOURCES,
     OwnedClaimProfile, OwnedClaimRoom, OwnedCompletion, OwnedDispatchScope, OwnedFailure,
     OwnedObservation, SourceUsage, UploadAdmission, UploadClaim, UploadIdentity, UploadPreparation,
-    UploadSend, UsageEvidence, UsagePeriod, UsagePeriodKind, UsageReceipt, UsageReport,
-    UsageSource, UsageSummary,
+    UploadSend, UsageCeiling, UsageEvidence, UsagePeriod, UsagePeriodKind, UsageReceipt,
+    UsageReport, UsageSource, UsageSummary,
 };
 pub use domain_worker::DomainStore;
 pub mod outbound;

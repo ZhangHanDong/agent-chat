@@ -25,7 +25,14 @@ async fn read(f: &Fixture, query: &str) -> Value {
         .collect();
     assert_eq!(
         fields,
-        ["at_ms", "daily", "engagement_id", "monthly", "summary"]
+        [
+            "at_ms",
+            "ceiling",
+            "daily",
+            "engagement_id",
+            "monthly",
+            "summary"
+        ]
     );
     let text = value.to_string();
     for private in [

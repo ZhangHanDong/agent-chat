@@ -128,6 +128,48 @@ const messageVectors = messageCases.map(({ name, agent, alloc, remaining, contex
   expected: overCommitMessage({ agent }, alloc, remaining, context),
 }));
 
+// Slice 3: end-to-end admission expectations transcribed from
+// tests/ceiling-draws-fresh-tokens.test.js:177-232. The ledger computes the
+// fresh draw; the admission rule is the mirrored remainingFor arithmetic
+// (backend-v2.js:14052-14057) — drawn = spent === null ? reserved :
+// max(reserved, spent); byCeiling = max(0, ceiling - drawn); approve iff
+// alloc <= min of non-null limits; after approval reserved grows by alloc.
+const CEILING = 10_000_000;
+const ALLOC = 1_000_000;
+const admissionCases = [
+  // THE LOCKOUT: 13.6M consumed, 681k drawn — approves 1M under a 10M ceiling.
+  { name: 'admission-lockout', seed: { input: 604_823, output: 76_266, cacheWrite: 0, cacheRead: 12_928_512 } },
+  // The counter-case: 10M FRESH — refuses 1M because the ceiling is genuinely gone.
+  { name: 'admission-fresh-exhaustion', seed: { input: 9_500_000, output: 500_000, cacheWrite: 0, cacheRead: 0 } },
+];
+const admissionVectors = admissionCases.map(({ name, seed }) => {
+  const ledger = createUsageLedger({ now: () => T0 });
+  ledger.record([{ agent: 'bound-agent', framework: 'claude', sessions: [{ key: 'a', totals: seed }] }]);
+  const bucket = ledger.currentPeriod('bound-agent', 'monthly', T0);
+  const spent = bucket ? bucket.drawn : null;
+  const consumed = bucket ? bucket.total : null;
+  const reservedBefore = 0;
+  const drawnBefore = spent === null ? reservedBefore : Math.max(reservedBefore, spent);
+  const byCeiling = Math.max(0, CEILING - drawnBefore);
+  const approved = ALLOC <= byCeiling;
+  const reservedAfter = approved ? reservedBefore + ALLOC : reservedBefore;
+  const drawnAfter = spent === null ? reservedAfter : Math.max(reservedAfter, spent);
+  return {
+    name,
+    ceilingTokens: CEILING,
+    alloc: ALLOC,
+    seed,
+    expected: {
+      spent,
+      consumed,
+      drawnBefore,
+      byCeiling,
+      approved,
+      remainingAfterApproval: Math.max(0, CEILING - drawnAfter),
+    },
+  };
+});
+
 const output = JSON.stringify({
   source: 'lib/metering/ledger.js + backend-v2.js remainingFor drawn rule',
   ledgerSha256,
@@ -136,6 +178,7 @@ const output = JSON.stringify({
   semantics: 'fresh-token draw per current period; max(reserved, spent) with unknown fallback',
   vectors,
   messages: messageVectors,
+  admission: admissionVectors,
 }, null, 2) + '\n';
 const path = new URL('../hagency-store/tests/fixtures/ceiling-vectors.json', import.meta.url);if (process.argv.includes('--check')) {
   if (readFileSync(path, 'utf8').replaceAll('\r\n', '\n') !== output) throw new Error('Ceiling vectors differ from retained JavaScript');
