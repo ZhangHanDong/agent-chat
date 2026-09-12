@@ -7912,3 +7912,50 @@ client qualification and ongoing identity/key management remain separate.
   `native_transport_hold_keeps_unparsed_input`); the 21 execution lib
   failures are the documented SQLite EPERM wall (all at the fixture's
   repository open), unchanged in count and cause.
+
+## 2026-09-12 — Withdraw the transport parse hold; quiet completion on a pre-send resolution
+
+- Per the designer's VM verdict: F1 (the mid-write parse hold) contradicted
+  two ADR-034 contract tests and no scoping could keep both, so it is
+  withdrawn together with its read guard (which only guarded the hold's
+  retained-input clobber). `step()` is restored to its pre-hold shape
+  (parse-first when input is pending; the select's read arm is reachable
+  only with an empty buffer again). `write_progress()` is withdrawn with it
+  — its only consumer was the `write-started` trace stamp, which is gone
+  (the stamp was also dead post-withdrawal: the write loop awaits to flush
+  without consulting `buffered_event`, so a mid-write Update is
+  unreachable); `prepared_admissible(id)` survives (F2 keeps it, read-only).
+  `native_transport_hold_keeps_unparsed_input` and its spec scenario are
+  deleted. Both contract tests pass unchanged again
+  (`--test transport`: 8 passed, 0 failed — `write_complete_and_early_rpc_response`
+  and `pressure_event_count_and_bytes` restored).
+- F2 reshaped: the `prepared_admissible` check stays before the send, but a
+  pre-send resolution now takes the quiet path the pre-admission resolution
+  already produces — the resolution is informational (ADR-046), the armed
+  frame is dropped without sending (never re-sent, never `Closed`), the
+  entry keeps `in_flight` so it is never re-selected, a new
+  `resolved-before-send` trace label is stamped, and the drive continues to
+  `Completed`. `Failure::ResponseUnavailable` and the
+  `response_unavailable` bootstrap label are removed entirely. The probe's
+  `owned-approval-resolve-first` mode now returns into the parent's terminal
+  turn (`turn/completed` ends the drive quietly), and scenario 2 asserts the
+  quiet outcome: protocol `Completed`, the macOS-aware cleanup verdict
+  elsewhere `None`, no `Closed` transport cause, no frame on the wire, no
+  bytes file, and zero accepted rows.
+- Kept as instructed: the in-flight flag, the deterministic scenario,
+  `ReceiptGate` + scenario 1, the brief-13 `unconfirmed()` phase trace and
+  derived bounds, and the reconcile (now VM-verified). The path-4
+  investigation (`Controlled::Event` early return) is deliberately not
+  touched — the next VM run's trace names the path.
+- ADR-034 gains a withdrawal amendment (both contract tests cited, what
+  survives, what is retired and why); ADR-046's hold/named-failures amendment
+  is replaced by the quiet-path amendment. The scenario-2 spec `Then` line
+  now states the quiet outcome.
+- Gates: fmt, clippy (runtime + execution + hagency, all targets),
+  `check --tests` clean; runtime lib 5 passed (hold test gone); execution
+  lib 7 passed with the 21 EPERM SQLite-wall failures (documented,
+  unchanged); `--test transport` 8 passed. Changed `Test:` selectors:
+  `native_transport_hold_keeps_unparsed_input` (deleted),
+  `native_owned_approval_resolved_before_first_byte` (quiet outcome),
+  `native_approval_trace_labels_every_phase` (vocabulary without
+  `write-started`).

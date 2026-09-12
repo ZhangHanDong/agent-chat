@@ -403,12 +403,6 @@ mod trace_tests {
                 "recorded",
             ]
         );
-        // `write-started` joins the vocabulary but is stamped only when an
-        // update is delivered while the transport holds accepted bytes
-        // (the F1 case-2 interleaving), so it is absent from the happy path.
-        let mut partial = PhaseTrace::new();
-        partial.mark("write-started");
-        assert_eq!(partial.as_slice(), ["retained", "write-started"]);
         // The cancellation primitive labels and outcomes, both directions.
         assert_eq!(resolution_outcome(true), ("resolved-before-write", true));
         assert_eq!(resolution_outcome(false), ("resolved-after-write", false));

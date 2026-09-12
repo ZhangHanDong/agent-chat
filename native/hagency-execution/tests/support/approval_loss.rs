@@ -1078,9 +1078,26 @@ async fn native_owned_approval_resolved_before_first_byte() {
     }
     gate.release.store(true, Ordering::Release);
     let report = op.wait().await.unwrap();
+    // The quiet path (Q2): a pre-send resolution completes the operation —
+    // the same quiet completion the pre-admission resolution produces, never
+    // a named failure (`ResponseUnavailable` is withdrawn) and never a
+    // transport refusal (`Closed`).
+    assert_eq!(
+        report.protocol,
+        Protocol::Completed,
+        "{:?} {:?}; {}",
+        report.failure,
+        report.runtime_observation(),
+        crate::approval::diagnostics::last_cancellation_trace(&cap.dispatch_id)
+    );
+    let expected = if cfg!(target_os = "macos") {
+        Some(Failure::CleanupUnknown)
+    } else {
+        None
+    };
     assert_eq!(
         report.failure,
-        Some(Failure::ResponseUnavailable),
+        expected,
         "{:?} {:?}; {}",
         report.failure,
         report.runtime_observation(),
@@ -1095,6 +1112,17 @@ async fn native_owned_approval_resolved_before_first_byte() {
             "{observation:?}"
         );
     }
+    // No frame reached the wire and no acceptance row exists.
     assert!(host_response_frames(&work).is_empty());
     assert!(!work.join("owned-dispatch.approval-bytes").exists());
+    let sql = rusqlite::Connection::open(root.path().join("state/domain.sqlite3")).unwrap();
+    assert_eq!(
+        sql.query_row(
+            "SELECT COUNT(*) FROM approval_responses WHERE write_accepted=1",
+            [],
+            |row| row.get::<_, u64>(0)
+        )
+        .unwrap(),
+        0
+    );
 }

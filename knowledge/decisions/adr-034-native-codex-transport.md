@@ -167,44 +167,35 @@ A normal event wait persists across Control returns and ends only upon an actual
 typed read result. Prepared-send buffer drains do not reset that read clock.
 No host execution budget, write timeout, partial-frame or request policy changes.
 
-## Amendment (2026-09-12): a frame mid-write owns the stream's parse order
 
-`Driver::step()` previously parsed buffered input before making any write or
-flush progress. Under the approval adapter's one-shot response protocol that
-parse-first order is a hazard: a `serverRequest/resolved` for the very frame
-being written could be queued between its first accepted byte and its flush,
-so the receipt (which the driver returns only after the flush) and the
-resolution (parsed mid-write, delivered by the next pump) could be consumed
-out of order by the session.
+## Amendment (2026-09-12, withdrawn): the mid-write parse hold and its read guard
 
-The rule now: while a frame has accepted bytes and is not yet flushed
-(`writing.offset != 0 && !flushed`), `step()` does not parse buffered input;
-parsing resumes after the flush is observed. The resolution bytes stay
-unparsed in `input` until the frame's receipt has been returned, so the host
-records its write acceptance before any resolution can be delivered. This
-changes no deadline, no read clock, no partial-frame or request policy — it
-only removes one reorderable interleaving between the write path and the
-event queue. Two read-only projections accompany it for host diagnostics:
-`write_progress()` (`(accepted, total)` of the frame in flight, or `None`)
-and `prepared_admissible(id)` (whether the connection still holds the
-prepared server request). Neither carries authority; neither admits a resend;
-neither changes a verdict.
+A previous amendment made `step()` hold parsing while a frame had accepted
+bytes and was not yet flushed, so a `serverRequest/resolved` for the frame
+being written could not be parsed between its write and its receipt, and
+guarded the select's stdout read arm (`read_ready`) so the held bytes could
+not be overwritten. **Both are withdrawn**, together with their test
+(`native_transport_hold_keeps_unparsed_input`): the hold contradicted this
+ADR's own transport contract. Two pinned integration tests fail under it —
+`native_codex_transport_write_complete_and_early_rpc_response` requires an
+upstream response written while only a prefix of a 32 768-byte stdin request
+was accepted to be **parsed and queued by receipt time** (`queued_events()
+== 1`), and `native_codex_transport_pressure_event_count_and_bytes` requires
+flood bytes arriving mid-write to be **parsed and counted as capacity
+pressure** (`Error::Capacity`) rather than discovered by the write deadline
+(`Error::Timeout`). Upstream bytes ready while the host's write is mid-flight
+are exactly the window the hold suppressed, and no scoping narrower than
+"hold everything" classifies a message before parsing it, which is itself a
+parse. `step()` is restored to its pre-hold shape: parse-first when input is
+pending, and the select's read arm is reachable only with an empty buffer —
+the invariant the original early return always provided. The read guard's
+sentence is retired with the hold: nothing relies on it once `step()` drains
+`input` before arming a read again.
 
-**Read guard (2026-09-12, with the hold above).** The hold removed the
-invariant that made the select's read arm safe: the old early return reached
-the select only with an empty buffer, so the read handler could be a bare
-overwrite of `input`. Under the hold, `step()` can reach the select with
-unparsed bytes pending (mid-write, parse suppressed), and an unguarded read
-would reset `input_start`/`input_end` over them, silently destroying wire
-bytes — strictly worse than a re-send, because the host then sends the frame
-into a corrupted stream. The select's stdout read arm is therefore armed only
-when the buffer is empty (`read_ready = input_start == input_end`): a read
-may only ever overwrite an empty buffer, mirroring the invariant the early
-return used to provide for free. The write/flush, stderr and deadline arms
-are unchanged; the flush that lifts the hold always remains armed, so
-suppressing the read arm cannot block the write (the other two read sites —
-the control loop and `first_write_step` — drain `input` via
-`buffered_event` before arming reads and run only at `offset == 0`, so they
-need no guard). `native_transport_hold_keeps_unparsed_input` pins the rule:
-the resolution and a further stdout line arriving mid-write are both parsed
-in order, after the receipt, with nothing lost.
+One read-only projection introduced with the hold survives:
+`prepared_admissible(id)` (whether the connection still holds the prepared
+server request, false once its `serverRequest/resolved` was parsed). It
+carries no authority, admits no resend, and changes no verdict; the approval
+adapter's send path uses it to drop — not send — a frame whose transmit path
+is already gone. `write_progress()` is withdrawn with the hold: no stamp
+remains that reads it.

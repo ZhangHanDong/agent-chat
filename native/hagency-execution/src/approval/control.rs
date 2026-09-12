@@ -300,12 +300,23 @@ impl ApprovalRun {
                 if let Some(entry) = self.callbacks.entries.get_mut(&sending.id) {
                     entry.mark("checked");
                 }
-                // The runtime resolved this request. The transport no longer
-                // holds the prepared frame, so re-entering the send path could
-                // only be refused as `Closed`. Report the consumed frame with
-                // its real cause; never send.
+                // The runtime resolved this request before any byte was
+                // accepted. The retained ADR-046 rule for a pre-send
+                // resolution is the quiet path: the resolution is
+                // informational, the armed frame is dropped (its transmit
+                // path is gone), the entry keeps `in_flight` so it is never
+                // re-selected, and the drive continues — the same quiet
+                // completion the pre-admission resolution produces, never a
+                // named failure.
                 if !runner.prepared_admissible(&sending.id) {
-                    return Err(Failure::ResponseUnavailable);
+                    let id = sending.id.clone();
+                    drop(self.sending.take());
+                    if let Some(entry) = self.callbacks.entries.get_mut(&id) {
+                        entry.in_flight = true;
+                        #[cfg(any(test, feature = "test-diagnostics"))]
+                        entry.mark("resolved-before-send");
+                    }
+                    continue;
                 }
                 let step = crate::operation::bounded(
                     runner.send_prepared_approval(&mut sending.prepared),
@@ -316,16 +327,6 @@ impl ApprovalRun {
                 .map_err(|_| Failure::Protocol)?;
                 match step {
                     PreparedUpdate::Update(update, observation) => {
-                        #[cfg(any(test, feature = "test-diagnostics"))]
-                        if runner.write_progress().is_some_and(|(n, _)| n > 0) {
-                            // The transport is mid-write on this frame (case 2:
-                            // bytes accepted, receipt pending). F1 holds
-                            // parsing until the flush, so any resolution the
-                            // probe emitted is still unparsed input.
-                            if let Some(entry) = self.callbacks.entries.get_mut(&sending.id) {
-                                entry.mark("write-started");
-                            }
-                        }
                         if drive
                             .update(&mut self.callbacks, runner, update, *observation)
                             .await?

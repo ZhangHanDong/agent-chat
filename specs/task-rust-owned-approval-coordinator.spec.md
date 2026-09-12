@@ -147,13 +147,7 @@ Scenario: A resolved-away frame is never sent
   Test: native_owned_approval_resolved_before_first_byte
   Given the resolution emitted while the frame is armed before its first byte
   When the host reaches the send
-  Then the operation reports ResponseUnavailable never Closed and no frame reaches the wire
-
-Scenario: Unparsed transport input survives a mid-write read
-  Test: native_transport_hold_keeps_unparsed_input
-  Given a frame with accepted unflushed bytes while the peer delivers its resolution and further stdout
-  When the read window opens mid-write
-  Then every byte parses in order after the flush with nothing lost and the resolution follows the receipt
+  Then the operation completes quietly with no failure no Closed cause no frame on the wire and no accepted row
 
 ## Out of Scope
 

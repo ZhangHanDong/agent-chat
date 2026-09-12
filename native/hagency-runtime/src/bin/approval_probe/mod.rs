@@ -77,10 +77,11 @@ pub(super) fn run(mode: &str, reader: &mut impl BufRead, marker: &Path) -> io::R
         return Ok(false);
     }
     if mode == "owned-approval-resolve-first" {
-        // F2's case: the resolution is emitted BEFORE any response is read —
-        // the §3 case-1 ordering (event buffered before the first byte). The
-        // host must refuse to send the resolved frame (ResponseUnavailable),
-        // never `Closed`, and no frame may reach the wire.
+        // The pre-send resolution case: the resolution is emitted while the
+        // host is held at the recheck gate — before the first byte of the
+        // frame. The retained ADR-046 rule is the quiet path: the host drops
+        // the armed frame without sending (never `Closed`, never a named
+        // failure) and the drive completes. No frame may reach the wire.
         gate(marker)?;
         resolved("approval-1")?;
         // Handshake: the resolution bytes are on the wire. The test waits for
@@ -92,8 +93,9 @@ pub(super) fn run(mode: &str, reader: &mut impl BufRead, marker: &Path) -> io::R
                 "frame after pre-first-byte resolution: {extra:?}"
             )));
         }
-        pulse(marker)?;
-        return Ok(false);
+        // Return into the parent's terminal turn: turn/completed ends the
+        // drive promptly, quietly, with no approval frame on the wire.
+        return Ok(true);
     }
     if mode == "owned-approval-gate-resolve" {
         // Host is held at the recheck gate: in_flight is set and the frame is

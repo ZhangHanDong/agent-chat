@@ -117,12 +117,6 @@ impl<R, W, E> SessionDriver<R, W, E> {
     pub fn transport_termination(&self) -> Option<&transport::Termination> {
         self.wire.termination()
     }
-    /// Read-only writer progress for host diagnostics: `(accepted, total)` of
-    /// the frame currently in the transport, or `None` when nothing is in
-    /// flight. Carries no authority, admits no resend, changes no verdict.
-    pub fn write_progress(&self) -> Option<(usize, usize)> {
-        self.wire.write_progress()
-    }
     /// Whether the connection still holds this prepared server request. False
     /// once `serverRequest/resolved` was parsed: the one-shot frame's transmit
     /// path is gone, so it must never be re-sent.
