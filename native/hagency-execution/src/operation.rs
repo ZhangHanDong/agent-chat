@@ -144,8 +144,17 @@ impl SettlementCause {
     }
 }
 /// Record the cause and preserve the existing terminal verdict exactly.
+///
+/// The **first** cause on a path is the root cause and is never replaced. The
+/// reconcile sets `AcceptanceUnrecorded` when its ordered read conclusively
+/// found no accepted row; a later unrelated refusal (`observe_owned_completion`,
+/// `publish_owned_completion`, `complete_owned_dispatch`) would otherwise
+/// overwrite that verdict with a refusal-derived marker and hide the record
+/// that actually went missing. So this only fills an unset marker.
 fn settlement_failure(report: &mut Report, error: &hagency_store::Error) -> Failure {
-    report.settlement_cause = Some(SettlementCause::of(error));
+    if report.settlement_cause.is_none() {
+        report.settlement_cause = Some(SettlementCause::of(error));
+    }
     Failure::SettlementUnknown
 }
 
@@ -927,7 +936,7 @@ async fn execute(
 
 #[cfg(test)]
 mod tests {
-    use super::SettlementCause;
+    use super::{Failure, Report, SettlementCause, settlement_failure};
     use hagency_store::Error;
 
     /// Every store refusal that can produce `Failure::SettlementUnknown` maps
@@ -987,5 +996,50 @@ mod tests {
                 assert_ne!(left, right);
             }
         }
+    }
+
+    /// The first cause on a path is the root cause. `settlement_failure` fills an
+    /// unset marker and never replaces one, so a later unrelated refusal cannot
+    /// overwrite `AcceptanceUnrecorded` — the verdict that names the record that
+    /// actually went missing.
+    #[test]
+    fn native_settlement_cause_keeps_the_first_marker() {
+        fn blank() -> Report {
+            Report::new(std::sync::Arc::new(std::sync::Mutex::new(None)))
+        }
+        let mut report = blank();
+        assert_eq!(report.settlement_cause, None);
+        // The reconcile's conclusive absence is the root cause.
+        report.settlement_cause = Some(SettlementCause::AcceptanceUnrecorded);
+        // A later refusal-derived marker must not replace it.
+        assert_eq!(
+            settlement_failure(&mut report, &Error::Busy),
+            Failure::SettlementUnknown
+        );
+        assert_eq!(
+            report.settlement_cause,
+            Some(SettlementCause::AcceptanceUnrecorded)
+        );
+        assert_eq!(
+            settlement_failure(&mut report, &Error::OutcomeUnknown),
+            Failure::SettlementUnknown
+        );
+        assert_eq!(
+            report.settlement_cause,
+            Some(SettlementCause::AcceptanceUnrecorded)
+        );
+        // An unset marker is still filled, so the first writer wins.
+        let mut fresh = blank();
+        settlement_failure(&mut fresh, &Error::OutcomeUnknown);
+        assert_eq!(fresh.settlement_cause, Some(SettlementCause::ReplyTimedOut));
+        assert_eq!(
+            settlement_failure(&mut fresh, &Error::Busy),
+            Failure::SettlementUnknown
+        );
+        assert_eq!(
+            fresh.settlement_cause,
+            Some(SettlementCause::ReplyTimedOut),
+            "the first refusal is the root cause"
+        );
     }
 }

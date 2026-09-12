@@ -401,6 +401,9 @@ impl ApprovalRun {
                                         // accepted row, so this is conclusive: the
                                         // record is genuinely absent. Name the cause
                                         // for the operator and keep the verdict.
+                                        // First writer on this path: nothing sets
+                                        // `settlement_cause` before the reconcile,
+                                        // so a direct assignment is exact here.
                                         *drive.settlement_cause =
                                             Some(SettlementCause::AcceptanceUnrecorded);
                                         return Err(Failure::SettlementUnknown);
@@ -417,6 +420,9 @@ impl ApprovalRun {
                                         // `SettlementUnknown` with the read's own
                                         // refusal as the cause. The original write
                                         // error is retained in the trace above.
+                                        // First writer on this path (see above): the
+                                        // read's own refusal is the root cause and is
+                                        // recorded directly.
                                         *drive.settlement_cause =
                                             Some(SettlementCause::of(&read_error));
                                         return Err(Failure::SettlementUnknown);

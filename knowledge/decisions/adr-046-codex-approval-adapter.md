@@ -247,6 +247,17 @@ is stated plainly: **when the read answers it is conclusive; when it does not
 answer at all (the writer is stalled) it is inconclusive** and the operation stays
 `SettlementUnknown`.
 
+The two halves of that ordering are proven separately and by different means, and
+the spec scenarios say which is which. The *skipped* half — the abandoned job does
+not execute, so no accepted row is manufactured from a lost reply — is proven on
+the store side by `native_domain_acceptance_reply_timeout_reconciles`, driving a
+real two-second reply-wait expiry with a parked writer. The *already executed*
+half — a committed record whose reply was lost, so the reconcile continues on the
+successful path — is reached by a test seam (`Fault::WriteAckLost`) that converts a
+successful call's result to an unknown; it is not an end-to-end replay of the
+timeout, because the host's own acceptance call cannot be made to hit the
+two-second wait from the execution crate.
+
 If the row reports `write_accepted`, the operation continues along precisely the
 path a successful call would have taken, and the trace marks the reconcile. If it
 does not, the operation reports `SettlementUnknown` with an `AcceptanceUnrecorded`

@@ -646,7 +646,11 @@ async fn native_owned_approval_acceptance_reconcile_unrecorded() {
         Some(crate::SettlementCause::AcceptanceUnrecorded),
         "a conclusive negative read names the missing record"
     );
-    assert_eq!(report.approval_custody(), (1, 1, 1, 0));
+    // The transport receipt was recorded (`entry.write = Some`) before the
+    // acceptance pump, and the write itself is a transport event unaffected by
+    // the database lock; the 4th slot counts that physical receipt, not the
+    // durable acceptance, which is exactly what this test shows is missing.
+    assert_eq!(report.approval_custody(), (1, 1, 1, 1));
     let requests =
         std::fs::read_to_string(work.join("owned-dispatch.requests")).unwrap_or_default();
     let responses: Vec<serde_json::Value> = requests

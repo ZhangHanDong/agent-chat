@@ -103,21 +103,21 @@ Scenario: Response admission uses the original post-lock clock and deadline
   When contention crosses scope expiry or the original response deadline
   Then response admission refuses without fresh deadlines or new authority
 
-Scenario: A lost acceptance reply reconciles to the committed record
+Scenario: A lost acceptance reply leaves the row unwritten when the abandoned job is skipped
   Test: native_domain_acceptance_reply_timeout_reconciles
   Given the acceptance reply bound expires while the single writer cannot run
   When the ordered reconcile read answers after the caller stopped waiting
   Then the abandoned acceptance job is skipped and no accepted row is manufactured
 
-Scenario: The reconcile continues when the record was committed
+Scenario: The reconcile continues on a record the reply-loss seam hid
   Test: native_owned_approval_acceptance_reconcile_accepted
-  Given a physically written response frame whose acceptance reply was lost
+  Given a written response frame whose acceptance call succeeded but whose reply the seam converted to an unknown
   When the single ordered read reports the committed accepted row
   Then the operation continues on the successful path with one frame and one accepted row
 
 Scenario: The reconcile reports a conclusive absence of the record
   Test: native_owned_approval_acceptance_reconcile_unrecorded
-  Given a physically written response frame whose acceptance was never committed
+  Given a written response frame whose acceptance write is refused by a held writer
   When the single ordered read answers that no accepted row exists
   Then SettlementUnknown carries the AcceptanceUnrecorded cause with no re-send and no record
 
