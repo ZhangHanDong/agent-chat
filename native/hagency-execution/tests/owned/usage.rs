@@ -1,5 +1,21 @@
 use super::*;
 
+/// Reopen the domain after an acknowledged shutdown. The writer drops its
+/// repository before it acknowledges, so the ownership lock is normally free;
+/// hosted macOS once reported `Locked` on the immediate reopen, so allow the
+/// release a bounded moment rather than failing on the first attempt.
+async fn reopen(state: &std::path::Path) -> DomainRepository {
+    let until = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        match DomainRepository::open(state) {
+            Err(hagency_store::Error::Locked) if tokio::time::Instant::now() < until => {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            other => return other.unwrap(),
+        }
+    }
+}
+
 #[tokio::test]
 async fn native_owned_usage_restart_and_capacity_keeps_execution_separate() {
     let f = Fixture::new();
@@ -55,7 +71,7 @@ async fn native_owned_usage_restart_and_capacity_keeps_execution_separate() {
     assert_eq!(report.protocol, Protocol::Completed);
     drop(report);
     f.domain.shutdown().await.unwrap();
-    let db = DomainRepository::open(&f.root.path().join("state")).unwrap();
+    let db = reopen(&f.root.path().join("state")).await;
     let source = db.restore_usage_source(&source).unwrap();
     let history = db.usage_source(&source).unwrap();
     assert_eq!(history.observations, 0);
@@ -144,7 +160,7 @@ async fn native_owned_usage_real_capture() {
         .unwrap();
     drop(report);
     f.domain.shutdown().await.unwrap();
-    let db = DomainRepository::open(&f.root.path().join("state")).unwrap();
+    let db = reopen(&f.root.path().join("state")).await;
     let source = db.restore_usage_source(&source).unwrap();
     let history = db.usage_source(&source).unwrap();
     assert_eq!(history.observations, 4);

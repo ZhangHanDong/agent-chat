@@ -7153,3 +7153,9 @@ client qualification and ongoing identity/key management remain separate.
   04:24Z). The native job budget is now 60 minutes. Ubuntu's single failure
   was the timing assertion relaxed above; macOS, console-browser and Node CI
   were green.
+- Hosted macOS failed `usage::native_owned_usage_real_capture` once on the run
+  for `c3b9ea8` with `Locked` on the immediate reopen after an acknowledged
+  shutdown. The writer provably drops its repository before acknowledging,
+  so the residual lock is a transient release lag; the usage tests now poll
+  the reopen for up to two seconds on `Locked` instead of failing on the
+  first attempt.
