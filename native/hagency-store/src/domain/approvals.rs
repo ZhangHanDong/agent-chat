@@ -71,12 +71,7 @@ impl std::io::Write for EncodedLimit {
     }
 }
 fn binding(db: &Connection, engagement: &str) -> Result<Binding, Error> {
-    db.query_row("SELECT b.engagement_id,room.fleet_id,room.project_id,room.registration_generation,room.server_name,room.room_id,room.owner_mxid,room.bot_mxid,room.device_id,room.generation,b.incarnation FROM approval_bindings b JOIN current_approval_bindings current ON current.engagement_id=b.engagement_id JOIN approval_rooms room ON room.server_name=b.server_name AND room.room_id=b.room_id WHERE b.engagement_id=?1",[engagement],|r|Ok(Binding{engagement:r.get(0)?,fleet:r.get(1)?,project:r.get(2)?,registration:r.get(3)?,server:r.get(4)?,room:r.get(5)?,owner:r.get(6)?,bot:r.get(7)?,device:r.get(8)?,room_generation:r.get(9)?,generation:r.get(10)?})).optional()?.ok_or_else(|| {
-        // Temporary hosted-Windows diagnostic (debug builds only).
-        #[cfg(debug_assertions)]
-        eprintln!("approval binding refused: no current binding row for {engagement}");
-        Error::RunnerAuthority
-    })
+    db.query_row("SELECT b.engagement_id,room.fleet_id,room.project_id,room.registration_generation,room.server_name,room.room_id,room.owner_mxid,room.bot_mxid,room.device_id,room.generation,b.incarnation FROM approval_bindings b JOIN current_approval_bindings current ON current.engagement_id=b.engagement_id JOIN approval_rooms room ON room.server_name=b.server_name AND room.room_id=b.room_id WHERE b.engagement_id=?1",[engagement],|r|Ok(Binding{engagement:r.get(0)?,fleet:r.get(1)?,project:r.get(2)?,registration:r.get(3)?,server:r.get(4)?,room:r.get(5)?,owner:r.get(6)?,bot:r.get(7)?,device:r.get(8)?,room_generation:r.get(9)?,generation:r.get(10)?})).optional()?.ok_or(Error::RunnerAuthority)
 }
 fn context(db: &Connection, id: &str) -> Result<Context, Error> {
     let value: String = db
@@ -86,12 +81,7 @@ fn context(db: &Connection, id: &str) -> Result<Context, Error> {
             |r| r.get(0),
         )
         .optional()?
-        .ok_or_else(|| {
-            // Temporary hosted-Windows diagnostic (debug builds only).
-            #[cfg(debug_assertions)]
-            eprintln!("approval context refused: no context row for {id}");
-            Error::RunnerAuthority
-        })?;
+        .ok_or(Error::RunnerAuthority)?;
     Ok(serde_json::from_str(&value)?)
 }
 fn request(db: &Connection, id: &str) -> Result<(Context, Request), Error> {
@@ -499,36 +489,17 @@ impl DomainRepository {
         input: &OwnerVerdictObservation,
         sample: impl FnOnce() -> Result<u64, Error>,
     ) -> Result<ApprovalSummary, Error> {
-        // Temporary hosted-Windows diagnostic (debug builds only): trace the
-        // stages so a refusal that precedes decide_verdict is visible.
-        let stage = |name: &str, result: &Result<(), Error>| {
-            #[cfg(debug_assertions)]
-            if let Err(error) = result {
-                eprintln!("approval verdict refused at {name}: {error:?}");
-            }
-            let _ = (name, result);
-        };
-        let validated: Result<(), Error> = (|| {
-            identifier(&input.request_id, 128)?;
-            text(&input.request_digest, 64)?;
-            matrix_user(&input.sender_mxid, &input.server_name)?;
-            matrix_room(&input.room_id, &input.server_name)?;
-            hagency_core::replies::matrix_event(&input.event_id)?;
-            Ok(())
-        })();
-        stage("input validation", &validated);
-        validated?;
+        identifier(&input.request_id, 128)?;
+        text(&input.request_digest, 64)?;
+        matrix_user(&input.sender_mxid, &input.server_name)?;
+        matrix_room(&input.room_id, &input.server_name)?;
+        hagency_core::replies::matrix_event(&input.event_id)?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = sample()?; // The original writer queue and SQLite lock waits have ended.
         clock(now)?;
-        let result = decide_verdict(&tx, input, now, None);
-        #[cfg(debug_assertions)]
-        if let Err(error) = &result {
-            eprintln!("approval verdict refused at decide_verdict: {error:?} now {now}");
-        }
-        let result = result?;
+        let result = decide_verdict(&tx, input, now, None)?;
         tx.commit()?;
         Ok(result)
     }

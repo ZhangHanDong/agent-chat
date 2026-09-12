@@ -41,9 +41,6 @@ pub(super) fn check(db: &Connection, session: &str) -> Result<(), Error> {
         |r| r.get(0),
     )?;
     if !valid {
-        // Temporary hosted-Windows diagnostic (debug builds only).
-        #[cfg(debug_assertions)]
-        eprintln!("matrix route refused: session {session} is not current");
         return Err(Error::RunnerAuthority);
     }
     Ok(())
