@@ -84,11 +84,29 @@ async fn native_matrix_owned_complete_workflow() {
     )
     .unwrap();
     let report = operation.wait().await.unwrap();
-    // Diagnostic only. Hosted Windows once saw `wait()` return Ok while this
-    // raw read-only connection still read InProgress; print the writer's own
-    // verdict and the observed row before asserting so the two views are
-    // distinguishable in the artifact.
+    // One event, N witnesses: when a shutdown stalled anywhere in this
+    // process, this mismatch is a symptom of that stall, so the stall is the
+    // reported reason. The test still fails either way.
     let observed = w.task(&intent.task_id);
+    let observed_status = observed.status;
+    let observed_epoch = observed.execution_epoch;
+    if observed_status != TaskState::Done || observed_epoch != 1 {
+        let stalled = common::stall::witness("owned_matrix complete workflow status");
+        // Diagnostic only. Hosted Windows once saw `wait()` return Ok while this
+        // raw read-only connection still read InProgress; print the writer's own
+        // verdict and the observed row before asserting so the two views are
+        // distinguishable in the artifact.
+        eprintln!(
+            "writer_view={:?} protocol={:?} settlement={:?} epoch={}",
+            report.canonical_status, report.protocol, report.settlement, observed.execution_epoch,
+        );
+        if stalled {
+            panic!(
+                "task status {observed_status:?} != Done in a process with a recorded \
+                 shutdown stall; see [shutdown-stall witness] above"
+            );
+        }
+    }
     assert_eq!(
         observed.status,
         TaskState::Done,

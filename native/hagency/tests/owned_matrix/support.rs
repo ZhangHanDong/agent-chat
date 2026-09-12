@@ -273,7 +273,22 @@ impl Workflow {
     }
     pub async fn close(self) {
         self.collector.close().await.unwrap();
-        self.f.store.shutdown().await.unwrap();
+        let state = self.f.root.path().join("state");
+        let (result, snapshot) = self.f.store.shutdown_observed().await;
+        let outcome = format!("{:?}", snapshot.outcome);
+        if let Err(error) = &result {
+            if common::stall::timed_out(&outcome) {
+                let teardown = common::stall::two_point_sample(&state);
+                eprintln!("[shutdown-stall] {outcome}; snapshot {snapshot:?}; teardown {teardown}");
+                common::stall::record_if_timed_out(
+                    &outcome,
+                    "owned_matrix::Workflow::close domain",
+                    format!("{snapshot:?}"),
+                    Some(teardown),
+                );
+            }
+            panic!("domain shutdown failed ({outcome}): {error:?}; {snapshot:?}");
+        }
     }
 }
 pub async fn outgoing(fake: &mut common::Fake, txn: &str) -> common::Request {
@@ -342,6 +357,19 @@ impl RunnerApi {
     pub async fn close(self) {
         self.handle.stop_graceful(Some(Duration::from_secs(1)));
         self.server.await.unwrap();
-        self.custody.shutdown().await.unwrap();
+        let (result, snapshot) = self.custody.shutdown_observed().await;
+        let outcome = format!("{:?}", snapshot.outcome);
+        if let Err(error) = &result {
+            if common::stall::timed_out(&outcome) {
+                eprintln!("[shutdown-stall] {outcome}; snapshot {snapshot:?}");
+                common::stall::record_if_timed_out(
+                    &outcome,
+                    "owned_matrix::RunnerApi::close custody",
+                    format!("{snapshot:?}"),
+                    None,
+                );
+            }
+            panic!("custody shutdown failed ({outcome}): {error:?}; {snapshot:?}");
+        }
     }
 }

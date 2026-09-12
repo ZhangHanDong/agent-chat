@@ -64,7 +64,7 @@ async fn native_owned_approval_resume() {
     }
     let f = Fixture::configured(true);
     let (mut op, mut notices) = operation(&f, "owned-approval-reuse", policy());
-    let request = notice(&mut notices).await;
+    let request = notice(&f, &mut op, &mut notices).await;
     choose(&f, &request.request_id, ApprovalChoice::Always).await;
     let report = op.wait().await.unwrap();
     assert_eq!(report.protocol, Protocol::Completed, "{:?}", report.failure);
@@ -80,14 +80,14 @@ async fn native_owned_approval_resume() {
 async fn native_owned_approval_barriers() {
     let f = Fixture::configured(true);
     let (mut op, mut notices) = operation(&f, "owned-approval-barriers", policy());
-    let first = notice(&mut notices).await;
-    let second = notice(&mut notices).await;
+    let first = notice(&f, &mut op, &mut notices).await;
+    let second = notice(&f, &mut op, &mut notices).await;
     choose(&f, &first.request_id, ApprovalChoice::Once).await;
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert!(responses(&f).is_empty());
     assert_eq!(f.state(), "parked");
     choose(&f, &second.request_id, ApprovalChoice::Deny).await;
-    let third = notice(&mut notices).await;
+    let third = notice(&f, &mut op, &mut notices).await;
     let before = responses(&f).len();
     assert!((1..=2).contains(&before));
     assert_eq!(f.state(), "parked");
@@ -124,7 +124,7 @@ async fn native_owned_approval_cancellation() {
             },
             policy(),
         );
-        let request = notice(&mut notices).await;
+        let request = notice(&f, &mut op, &mut notices).await;
         match mode {
             "owned-approval-resolve" => {
                 fs::write(f.work.join("owned-dispatch.approval-release"), b"release").unwrap();
@@ -170,7 +170,7 @@ async fn native_owned_approval_cancellation() {
         "owned-approval",
         hagency_execution::ApprovalHost::new(2, 1, 300, 1500).unwrap(),
     );
-    let request = notice(&mut notices).await;
+    let request = notice(&f, &mut op, &mut notices).await;
     let card = f
         .domain
         .private_approval(request.request_id.clone())
@@ -207,7 +207,7 @@ async fn native_owned_approval_capacity() {
     let shared = hagency_execution::ApprovalHost::new(3, 1, 20_000, 1500).unwrap();
     let first = Fixture::configured(true);
     let (mut a, mut notices) = operation(&first, "owned-approval", shared.clone());
-    notice(&mut notices).await;
+    notice(&first, &mut a, &mut notices).await;
     let second = Fixture::configured(true);
     let (mut b, _) = operation(&second, "owned-approval", shared.clone());
     let report = b.wait().await.unwrap();
@@ -226,7 +226,7 @@ async fn native_owned_approval_capacity() {
 async fn native_owned_approval_usage() {
     let f = Fixture::configured(true);
     let (mut op, mut notices) = operation(&f, "owned-approval-usage", policy());
-    let request = notice(&mut notices).await;
+    let request = notice(&f, &mut op, &mut notices).await;
     marker(&f, "approval-ready").await;
     let connection = f.sql();
     connection.execute_batch("BEGIN IMMEDIATE").unwrap();

@@ -1,5 +1,7 @@
 #[path = "../../hagency-store/tests/common/mod.rs"]
 mod common;
+#[path = "../../hagency-matrix/tests/common/stall.rs"]
+mod stall;
 #[path = "runner/verified_ingress.rs"]
 mod verified_ingress;
 use common::*;
@@ -210,7 +212,17 @@ impl Fixture {
     }
     async fn close(self) {
         let (result, snapshot) = self.domain.shutdown_observed().await;
-        if let Err(error) = result {
+        let outcome = format!("{:?}", snapshot.outcome);
+        if let Err(error) = &result {
+            if stall::timed_out(&outcome) {
+                eprintln!("[shutdown-stall] {outcome}; snapshot {snapshot:?}");
+                stall::record_if_timed_out(
+                    &outcome,
+                    "runner::Fixture::close domain",
+                    format!("{snapshot:?}"),
+                    None,
+                );
+            }
             // The writer is still stalled here; read the teardown artifacts
             // before unwinding. A present, non-zero `-wal`/`-shm` means the
             // unlink inside `sqlite3_close` is failing and retrying; absent
@@ -219,10 +231,23 @@ impl Fixture {
             tokio::time::sleep(Duration::from_millis(500)).await;
             let second = self.teardown_sample();
             panic!(
-                "domain shutdown failed: {error:?}; {snapshot:?}; teardown={first:?}; teardown_after_500ms={second:?}"
+                "domain shutdown failed ({outcome}): {error:?}; {snapshot:?}; teardown={first:?}; teardown_after_500ms={second:?}"
             );
         }
-        self.custody.shutdown().await.unwrap();
+        let (result, snapshot) = self.custody.shutdown_observed().await;
+        let outcome = format!("{:?}", snapshot.outcome);
+        if let Err(error) = &result {
+            if stall::timed_out(&outcome) {
+                eprintln!("[shutdown-stall] {outcome}; snapshot {snapshot:?}");
+                stall::record_if_timed_out(
+                    &outcome,
+                    "runner::Fixture::close custody",
+                    format!("{snapshot:?}"),
+                    None,
+                );
+            }
+            panic!("custody shutdown failed ({outcome}): {error:?}; {snapshot:?}");
+        }
     }
 }
 fn auth(builder: RequestBuilder, cap: &RunnerCapability) -> RequestBuilder {

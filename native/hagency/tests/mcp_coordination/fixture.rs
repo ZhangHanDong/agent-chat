@@ -213,11 +213,37 @@ impl Fixture {
     pub async fn close(self) {
         self.handle.stop_graceful(Some(Duration::from_secs(1)));
         self.server.await.unwrap();
+        let state = self.root.path().join("state");
         let (result, snapshot) = self.domain.shutdown_observed().await;
-        if let Err(error) = result {
-            panic!("domain shutdown failed: {error:?}; {snapshot:?}");
+        let outcome = format!("{:?}", snapshot.outcome);
+        if let Err(error) = &result {
+            if crate::stall::timed_out(&outcome) {
+                let teardown = crate::stall::two_point_sample(&state);
+                eprintln!("[shutdown-stall] {outcome}; snapshot {snapshot:?}; teardown {teardown}");
+                crate::stall::record_if_timed_out(
+                    &outcome,
+                    "mcp_coordination::Fixture::close domain",
+                    format!("{snapshot:?}"),
+                    Some(teardown),
+                );
+            }
+            panic!("domain shutdown failed ({outcome}): {error:?}; {snapshot:?}");
         }
-        self.custody.shutdown().await.unwrap();
+        let (result, snapshot) = self.custody.shutdown_observed().await;
+        let outcome = format!("{:?}", snapshot.outcome);
+        if let Err(error) = &result {
+            if crate::stall::timed_out(&outcome) {
+                let teardown = crate::stall::two_point_sample(&state);
+                eprintln!("[shutdown-stall] {outcome}; snapshot {snapshot:?}; teardown {teardown}");
+                crate::stall::record_if_timed_out(
+                    &outcome,
+                    "mcp_coordination::Fixture::close custody",
+                    format!("{snapshot:?}"),
+                    Some(teardown),
+                );
+            }
+            panic!("custody shutdown failed ({outcome}): {error:?}; {snapshot:?}");
+        }
     }
     pub fn count(&self, table: &str) -> u64 {
         rusqlite::Connection::open(self.root.path().join("state/domain.sqlite3"))

@@ -20,6 +20,7 @@ use tokio_rustls::{
 };
 #[path = "../../../hagency-store/tests/common/mod.rs"]
 pub mod domain;
+pub mod stall;
 pub const TOKEN: &str = "synthetic-Matrix-token-not-real";
 /// Tight fixture bounds for the transport-bound tests of this crate, which
 /// deliberately drive slow headers, idle bodies and deadlines against them.
@@ -185,10 +186,19 @@ where
     }
 }
 /// Observe the original domain shutdown once. A failure stays a failure; late
-/// worker cleanup or a future reopen cannot replace this Result.
+/// worker cleanup or a future reopen cannot replace this Result. A timeout is
+/// named as the stall with the `[shutdown-stall]` token and recorded in the
+/// process-wide latch so sibling witnesses can attribute their own failures.
 pub async fn shutdown_domain(store: &DomainStore, label: &'static str) {
     let (result, snapshot) = store.shutdown_observed().await;
-    result.unwrap_or_else(|error| panic!("domain shutdown {label}: {error:?}; {snapshot:?}"));
+    let outcome = format!("{:?}", snapshot.outcome);
+    if let Err(error) = &result {
+        if stall::timed_out(&outcome) {
+            eprintln!("[shutdown-stall] {outcome} at {label}; snapshot {snapshot:?}");
+            stall::record_if_timed_out(&outcome, label, format!("{snapshot:?}"), None);
+        }
+        panic!("domain shutdown {label} ({outcome}): {error:?}; {snapshot:?}");
+    }
 }
 struct ScriptedResponse {
     pieces: Vec<(Duration, Vec<u8>)>,
