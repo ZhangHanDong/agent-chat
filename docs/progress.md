@@ -7113,3 +7113,12 @@ client qualification and ongoing identity/key management remain separate.
   consistent route and binding, and a callback cwd of the verbatim
   `\\?\C:\...` form with no reusable scope, which a Once or Deny verdict does
   not need. The refusing predicate is still unidentified.
+- Windows root cause found through the probe's writer-side traces: the
+  refused verdict is the `Always` choice in the reuse half of
+  `native_owned_approval_resume`. The child launched in the verbatim canonical
+  root reported `\\?\C:\...` as its callback cwd, the parser refused it as
+  designed, no reusable scope existed and the persistent grant was refused.
+  ADR-116 is amended: the session and process working directory string is now
+  the ordinary projection of the retained root on every platform, with custody
+  unchanged on the handle. Temporary debug-only refusal traces remain in the
+  store until the hosted probe confirms the fix, then they are removed.

@@ -220,7 +220,14 @@ impl Host {
         }
         let root = self.workspaces.get(&workspace.id)?;
         root.check().map_err(|_| super::Failure::Admission)?;
-        let path = root.path().to_path_buf();
+        // ADR-116 amendment: the session and process working directory string
+        // is the ordinary projection of the retained root. On Windows the
+        // canonical root is a verbatim `\\?\` path; a child launched there
+        // reports that form as its callback cwd, which the untrusted path
+        // parser refuses, so no owner grant could ever gain a reusable scope.
+        // Directory custody still comes from the retained handle checked above;
+        // the projection refuses device namespaces and ambiguous aliases.
+        let path = std::path::PathBuf::from(root.approval_path()?);
         let resource = scope.resource();
         if resource.framework != "codex"
             || resource.provider.as_deref().is_some_and(|v| v != "openai")

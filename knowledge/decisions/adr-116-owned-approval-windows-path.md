@@ -36,3 +36,17 @@ Actual Windows canonical drive execution is required. Lexical UNC and domain
 binding tests do not establish a live UNC share or production availability.
 Implementation and qualification are governed by the exact seven-path contract
 specs/task-rust-owned-approval-windows-path.spec.md and are currently pending.
+
+## Amendment (2026-09-12)
+
+Projecting only the host context workspace was insufficient. A child launched
+in the verbatim canonical root reports that verbatim form as its callback
+`cwd`, the untrusted parser refuses it by design, and so no owner verdict on
+Windows could ever carry a reusable scope: hosted Windows refused every
+`Always` verdict in `native_owned_approval_resume`, five of five probe
+iterations, with `reusable choice without scope key`. The session and process
+working directory string is now the same ordinary projection of the retained
+root (`Root::approval_path`), on every platform. Directory custody is unchanged:
+the retained handle and its identity checks remain the authority, and the
+projection still refuses device namespaces and ambiguous aliases. Callback
+parameters stay byte-exact as reported by the runner.

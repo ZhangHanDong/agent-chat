@@ -18,7 +18,9 @@ namespace. Keep launch and filesystem custody unchanged.
   projection. Parse Windows path prefix/components; never blindly strip a prefix.
 - Support canonical disk and UNC disk paths; reject device namespaces and forms
   whose projection would introduce ambiguous Win32 aliases.
-- Keep original launch path, directory handle and callback params unchanged.
+- Keep the directory handle and callback params unchanged. The launch and
+  session working directory string is the ordinary projection of the retained
+  root (ADR-116 amendment); custody never derives from that string.
 - Generic untrusted PathFlavor parsing remains unchanged. An unrepresentable
   callback cwd has no reusable scope and remains Once/Deny only.
 - Preserve exact grants, original deadlines, sandbox defaults and no Applied claim.
@@ -31,6 +33,7 @@ namespace. Keep launch and filesystem custody unchanged.
 - native/hagency-execution/src/workspace.rs
 - native/hagency-execution/src/workspace/approval_path.rs
 - native/hagency-execution/src/operation.rs
+- native/hagency-execution/src/host.rs
 - native/hagency-execution/tests/owned/approvals.rs
 - specs/task-rust-owned-approval-windows-path.spec.md
 - knowledge/decisions/adr-116-owned-approval-windows-path.md
