@@ -83,6 +83,36 @@ pub fn phases_of(dispatch: &str, id: &str) -> Vec<&'static str> {
         .unwrap_or_default()
 }
 
+/// Every entry of one dispatch with its complete ordered phase history,
+/// formatted for a panic message: `id[label, label, …]`, entries in
+/// first-appearance order. The labels carry the coordinator flags a failing
+/// assertion needs: `admitted` (admission acknowledged), `in-flight` (the
+/// frame is armed), `write-accepted` (the transport receipt is on the
+/// entry), `recorded` (the durable row is written) — an absent label means
+/// that flag was never set on that path. Cancellation primitives
+/// (`resolved-before-write`, `turn-ended-unwritten`) are recorded separately
+/// by [`last_cancellation_trace`].
+pub fn dispatch_trace(dispatch: &str) -> String {
+    let Ok(journal) = PHASES.lock() else {
+        return String::new();
+    };
+    let mut entries: Vec<(String, Vec<&'static str>)> = Vec::new();
+    for (owner, id, label) in journal.iter() {
+        if owner != dispatch {
+            continue;
+        }
+        match entries.iter_mut().find(|(entry, _)| entry == id) {
+            Some((_, labels)) => labels.push(*label),
+            None => entries.push((id.clone(), vec![*label])),
+        }
+    }
+    entries
+        .iter()
+        .map(|(id, labels)| format!("{id}[{}]", labels.join(", ")))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Clear both structures, every dispatch. Tests call this before a
 /// deterministic drive.
 pub fn reset() {

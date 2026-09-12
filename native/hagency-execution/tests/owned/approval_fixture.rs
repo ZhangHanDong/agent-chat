@@ -283,10 +283,22 @@ pub(super) fn responses(f: &Fixture) -> Vec<serde_json::Value> {
         .collect()
 }
 pub(super) fn unconfirmed(f: &Fixture, report: &Report) {
+    // The trace names, per entry, every phase the coordinator stamped (the
+    // labels carry the flags: admitted / in-flight / write-accepted /
+    // recorded), plus the runtime observation and cancellation primitives —
+    // so a loaded miss says WHICH approval phases happened, not just that a
+    // row is missing.
+    let trace = hagency_execution::diagnostics::dispatch_trace(&f.cap.dispatch_id);
+    let cancellations = hagency_execution::diagnostics::last_cancellation_trace(&f.cap.dispatch_id);
+    let observation = match report.runtime_observation() {
+        Some(observation) => format!("{observation:?}"),
+        None => "none".to_owned(),
+    };
+    let detail = format!("phases[{trace}]; cancelled[{cancellations}]; runtime[{observation}]");
     assert_eq!(
         f.count("SELECT COUNT(*) FROM owner_approvals WHERE state='applied'"),
         0,
-        "wire ids {:?}; settlement={:?}",
+        "wire ids {:?}; settlement={:?}; {detail}",
         responses(f)
             .iter()
             .map(|value| value["id"].to_string())
@@ -302,7 +314,7 @@ pub(super) fn unconfirmed(f: &Fixture, report: &Report) {
     assert_eq!(
         recorded,
         expected,
-        "wire ids {:?}; recorded={recorded} expected={expected}; settlement={:?}; failure={:?}",
+        "wire ids {:?}; recorded={recorded} expected={expected}; settlement={:?}; failure={:?}; {detail}",
         responses(f)
             .iter()
             .map(|value| value["id"].to_string())

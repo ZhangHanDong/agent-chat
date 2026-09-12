@@ -707,6 +707,34 @@ fn host_response_frames(work: &std::path::Path) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// A marker/gate wait: one tenth of the operation budget the fixture grants
+/// (`Gate::OPERATION_BUDGET_MS`, 2.5 s at 25 s). A held probe or coordinator
+/// can never outlive the operation it serves. Derived — never literal — so
+/// the bound scales with the budget the fixture actually grants.
+const fn harness_wait() -> Duration {
+    Duration::from_millis(crate::approval::Gate::OPERATION_BUDGET_MS / 10)
+}
+/// Every `owned-dispatch.*` marker file currently present under `work`, so an
+/// expired wait reports what the probe DID emit: a Windows timing miss (the
+/// marker arrives late) is distinguishable from a logic miss (it never comes).
+fn markers_present(work: &std::path::Path) -> String {
+    std::fs::read_dir(work)
+        .map(|entries| {
+            let mut names: Vec<String> = entries
+                .filter_map(std::result::Result::ok)
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.starts_with("owned-dispatch."))
+                .collect();
+            names.sort();
+            if names.is_empty() {
+                "<none>".to_owned()
+            } else {
+                names.join(", ")
+            }
+        })
+        .unwrap_or_else(|_| "<unreadable>".to_owned())
+}
+
 /// The middle case (design §3a): the host is held at the recheck gate with
 /// `in_flight` set and the frame armed but unwritten; the fixture then emits
 /// the resolution for that in-flight id. The write must still complete — a
@@ -739,11 +767,12 @@ async fn native_owned_approval_in_flight_resolution_completes_write() {
         .unwrap()
         .unwrap();
     choose(&domain, notice.request_id).await;
-    let end = tokio::time::Instant::now() + Duration::from_secs(2);
+    let end = tokio::time::Instant::now() + harness_wait();
     while !gate.entered.load(Ordering::Acquire) {
         assert!(
             tokio::time::Instant::now() < end,
-            "original recheck did not reach gate"
+            "original recheck did not reach gate; probe markers present: {}",
+            markers_present(&work)
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
@@ -758,11 +787,12 @@ async fn native_owned_approval_in_flight_resolution_completes_write() {
     // confirms emission (`approval-resolving`) is the gate released, so the
     // send that follows can never race the resolution bytes.
     std::fs::write(work.join("owned-dispatch.approval-release"), b"release").unwrap();
-    let sent = tokio::time::Instant::now() + Duration::from_secs(2);
+    let sent = tokio::time::Instant::now() + harness_wait();
     while !work.join("owned-dispatch.approval-resolving").exists() {
         assert!(
             tokio::time::Instant::now() < sent,
-            "probe never emitted the in-flight resolution"
+            "probe never emitted the in-flight resolution; probe markers present: {}",
+            markers_present(&work)
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
@@ -931,11 +961,12 @@ async fn native_owned_approval_receipt_before_resolution() {
         .unwrap()
         .unwrap();
     choose(&domain, notice.request_id).await;
-    let end = tokio::time::Instant::now() + Duration::from_secs(2);
+    let end = tokio::time::Instant::now() + harness_wait();
     while !gate.entered.load(Ordering::Acquire) {
         assert!(
             tokio::time::Instant::now() < end,
-            "write receipt did not reach the receipt gate"
+            "write receipt did not reach the receipt gate; probe markers present: {}",
+            markers_present(&work)
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
@@ -943,11 +974,12 @@ async fn native_owned_approval_receipt_before_resolution() {
     // acceptance observation runs; the gate does not pump the session, so the
     // resolution it emits stays unparsed across the hold.
     let bytes = work.join("owned-dispatch.approval-bytes");
-    let end = tokio::time::Instant::now() + Duration::from_secs(2);
+    let end = tokio::time::Instant::now() + harness_wait();
     while !bytes.exists() {
         assert!(
             tokio::time::Instant::now() < end,
-            "probe never recorded the written frame"
+            "probe never recorded the written frame; probe markers present: {}",
+            markers_present(&work)
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
@@ -1022,11 +1054,12 @@ async fn native_owned_approval_resolved_before_first_byte() {
         .unwrap()
         .unwrap();
     choose(&domain, notice.request_id).await;
-    let end = tokio::time::Instant::now() + Duration::from_secs(2);
+    let end = tokio::time::Instant::now() + harness_wait();
     while !gate.entered.load(Ordering::Acquire) {
         assert!(
             tokio::time::Instant::now() < end,
-            "original recheck did not reach gate"
+            "original recheck did not reach gate; probe markers present: {}",
+            markers_present(&work)
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
@@ -1034,11 +1067,12 @@ async fn native_owned_approval_resolved_before_first_byte() {
     // first byte, confirm it is on the wire, then release the host.
     std::fs::write(work.join("owned-dispatch.approval-release"), b"release").unwrap();
     let resolving = work.join("owned-dispatch.approval-resolving");
-    let end = tokio::time::Instant::now() + Duration::from_secs(2);
+    let end = tokio::time::Instant::now() + harness_wait();
     while !resolving.exists() {
         assert!(
             tokio::time::Instant::now() < end,
-            "probe never emitted the pre-first-byte resolution"
+            "probe never emitted the pre-first-byte resolution; probe markers present: {}",
+            markers_present(&work)
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }

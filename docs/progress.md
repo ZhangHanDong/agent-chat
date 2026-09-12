@@ -7876,3 +7876,39 @@ client qualification and ongoing identity/key management remain separate.
   EPERM-blocked (19, the SQLite repository open) and the runtime owned-pipe
   suite remains environment-blocked (PeerEof at initialize, pre-existing —
   proven by the brief-10 stash baseline); the orchestrator runs both on the VM.
+
+## 2026-09-12 — Self-describing loaded Windows failures (harness only)
+
+- Harness-only diagnostics for the candidate's Windows loaded failures
+  (b042044a: `unconfirmed()` printed wire ids/settlement/failure but no
+  approval phases, so a loaded miss could not say which phases happened).
+  `unconfirmed()` now prints, on both assertions, every entry's complete
+  ordered phase trace via the new `diagnostics::dispatch_trace(dispatch)`
+  (keyed by the operation's dispatch id, entries in first-appearance order:
+  `id[retained, acknowledged, …, recorded]`), the recorded cancellation
+  primitives, and the runtime observation. The labels already carry the
+  flags a miss needs (`admitted`, `in-flight`, `write-accepted`,
+  `recorded`); an absent label names the phase that never happened. No new
+  stamping was needed — every expected label is already stamped on the
+  paths in question.
+- The three new scenarios' literal 2 s waits are now derived from one
+  budget source: `Gate::OPERATION_BUDGET_MS` (cfg(test)) sets the gate's
+  bound and `harness_wait()` (a tenth of it, 2.5 s at the 25 s operation
+  budget) sets every marker wait. On expiry each wait now lists the
+  `owned-dispatch.*` marker files actually present (`markers_present`), so
+  a Windows timing miss (marker late) is distinguishable from a logic miss
+  (marker never written).
+- The two failing runtime contract tests are untouched; their defeat lines
+  are recorded in the peer report for the design verdict: F1's mid-write
+  parse hold delays the parse-time capacity check past the write deadline
+  (`pressure_event_count_and_bytes`: `Capacity` → `Timeout` at 100 ms) and
+  defers queueing the early RPC response until after the flush
+  (`write_complete_and_early_rpc_response`: `queued_events() == 0` at the
+  immediate post-receipt assert).
+- Gates: fmt (after one reformat), clippy (runtime + execution + hagency,
+  all targets), `cargo check --tests`, and the runnable unit tests pass
+  (`native_approval_trace_labels_every_phase`,
+  `native_settlement_cause_markers_are_distinct`,
+  `native_transport_hold_keeps_unparsed_input`); the 21 execution lib
+  failures are the documented SQLite EPERM wall (all at the fixture's
+  repository open), unchanged in count and cause.
