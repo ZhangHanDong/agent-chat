@@ -25,6 +25,11 @@ pub(super) struct Pending {
     pub prepared: Option<PreparedApproval>,
     pub grant: Option<ApprovalResponseGrant>,
     pub write: Option<TransportWrite>,
+    // Set when this entry's prepared frame is handed to the transport, cleared
+    // when its write is accepted. `write` alone cannot distinguish "never sent"
+    // from "sent, receipt not yet recorded", and that distinction is exactly
+    // the middle case: a resolution must not cancel a frame that is in flight.
+    pub in_flight: bool,
     pub admitted: bool,
     pub recorded: bool,
     pub resolved: bool,
@@ -81,7 +86,14 @@ impl Pending {
             let (label, _cancels) = resolution_outcome(self.write.is_none());
             self.mark(label);
         }
-        if self.write.is_none() {
+        // Three cases. Before admission: cancel (ADR-046, unchanged). Admitted
+        // and in flight: the frame the runtime is answering is already
+        // committed to the transport, so the resolution is recorded and the
+        // write completes or fails on its own error. Admitted, not in flight,
+        // not written: the frame is prepared but not committed; it must not
+        // cancel either, because the send path still owns it and a
+        // cancellation here would strand it.
+        if self.write.is_none() && !self.admitted && !self.in_flight {
             Err(Failure::ApprovalCancelled)
         } else {
             Ok(false)
@@ -238,6 +250,7 @@ impl Callbacks {
                 prepared: None,
                 grant: None,
                 write: None,
+                in_flight: false,
                 admitted: false,
                 recorded: false,
                 resolved: false,
@@ -367,6 +380,7 @@ mod trace_tests {
             "prepared",
             "begun",
             "admitted",
+            "in-flight",
             "checked",
             "write-accepted",
             "recorded",
@@ -381,6 +395,7 @@ mod trace_tests {
                 "prepared",
                 "begun",
                 "admitted",
+                "in-flight",
                 "checked",
                 "write-accepted",
                 "recorded",
