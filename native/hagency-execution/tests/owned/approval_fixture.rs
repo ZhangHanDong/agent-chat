@@ -121,8 +121,39 @@ pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
                 },
             )
             .unwrap_or_else(|e| format!("liveness query failed: {e}"));
+        let contexts = sql
+            .prepare("SELECT id,config FROM approval_contexts")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |r| {
+                        Ok(format!(
+                            "{}={}",
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?
+                        ))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map(|rows| rows.join(" | "))
+            .unwrap_or_else(|e| format!("context query failed: {e}"));
+        let resources = sql
+            .prepare("SELECT dispatch_id,resource_id,exclusive FROM resource_leases")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |r| {
+                        Ok(format!(
+                            "{}:{}:{}",
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, i64>(2)?
+                        ))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map(|rows| rows.join(","))
+            .unwrap_or_else(|e| format!("lease query failed: {e}"));
         panic!(
-            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}",
+            "verdict refused: {error:?}; approval {summary:?}; dispatch {}; card expires_at {expires_at} now {}; marker {}; {liveness}; leases [{resources}]; contexts [{contexts}]",
             f.state(),
             now(),
             f.marker().exists()
