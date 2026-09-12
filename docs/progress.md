@@ -7139,3 +7139,10 @@ client qualification and ongoing identity/key management remain separate.
   projection. The other four (`native_runner_http_*`) failed the domain
   shutdown with `ReplyTimedOut` at SQLite close, a Windows teardown stall
   already observed at 85427cb before any of today's changes; it stays open.
+- Hosted Ubuntu failed `native_owned_runtime_failure_observation` once on the
+  run for `c96f76c`: it asserted `write == None` for the completed initialize
+  frame, but the transport keeps a fully written frame as unconfirmed until
+  its flush is observed (`native_codex_transport_failures_flush_broken_stream_and_eof`
+  relies on that), so an injected failure landing first reports the complete
+  frame. The assertion now accepts none or a fully written frame and still
+  rejects a partial one.

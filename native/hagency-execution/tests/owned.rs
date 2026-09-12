@@ -379,7 +379,17 @@ async fn native_owned_runtime_failure_observation() {
         assert_eq!(original.transport_cause, Some(cause));
         assert_eq!(original.pending_requests, Some(1));
         assert_eq!(original.pending_server_requests, Some(0));
-        assert_eq!(original.write, None); // the original initialize write completed
+        // The original initialize frame was fully written. The transport keeps
+        // a fully written frame as unconfirmed until its flush is observed, so
+        // an injected failure that lands before that observation reports the
+        // complete frame rather than None; a partial frame would be a defect.
+        assert!(
+            original
+                .write
+                .is_none_or(|write| write.accepted_bytes == write.total_bytes),
+            "{:?}",
+            original.write
+        );
         report.retry_stop();
         assert_eq!(report.runtime_observation(), Some(&original));
         assert_eq!(report.failure, Some(Failure::Protocol));
