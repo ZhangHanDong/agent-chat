@@ -179,10 +179,34 @@ impl Fixture {
             source_sequence,
         }
     }
+    /// Diagnostic only. Sampled from the caller while the writer is provably
+    /// still inside the SQLite close path (the caller has just timed out and
+    /// `connection_drop_finished_us` is unpublished). Sizes only, no content.
+    fn teardown_sample(&self) -> Vec<(&'static str, Option<u64>)> {
+        let state = self._root.path().join("state");
+        [
+            "domain.sqlite3-wal",
+            "domain.sqlite3-shm",
+            "domain.sqlite3-journal",
+        ]
+        .into_iter()
+        .map(|name| {
+            let len = std::fs::metadata(state.join(name)).ok().map(|m| m.len());
+            (name, len)
+        })
+        .collect()
+    }
     async fn close(self) {
         let (result, snapshot) = self.domain.shutdown_observed().await;
         if let Err(error) = result {
-            panic!("domain shutdown failed: {error:?}; {snapshot:?}");
+            // The writer is still stalled here; read the teardown artifacts
+            // before unwinding. A present, non-zero `-wal`/`-shm` means the
+            // unlink inside `sqlite3_close` is failing and retrying; absent
+            // means the wait is elsewhere (for example a stalled sync).
+            panic!(
+                "domain shutdown failed: {error:?}; {snapshot:?}; teardown={:?}",
+                self.teardown_sample()
+            );
         }
         self.custody.shutdown().await.unwrap();
     }
