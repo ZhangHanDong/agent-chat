@@ -1,5 +1,47 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — Slice (b) review edits E1–E8 (publication review of 51694e20)
+
+- E1: `Busy → 503 "busy"` confirmed in place (route + `native-api.js:56`
+  client map agree; the test never asserted 429). The ADR's stale
+  "intentional divergence: 429" sentence is deleted; the amendment now notes
+  the client mapping as the reason a 429 would have broken the mockup.
+- E2: kept 200/refuse as a DOCUMENTED deliberate divergence — the retained
+  cap is 500 at `alert-store.js:410` and it CLAMPS
+  (`Math.min(parseInt(limit) || 100, 500)`); the invented "retained
+  pagination cap" citation is gone from the constant doc, the read doc, the
+  route comment and the ADR, each now stating clamp-vs-refuse and why
+  (consistency with every other bounded read; a clamped limit hides client
+  bugs; 200 tighter than 500 for bounded cost).
+- E3: newest-first is now real — t0 sweep opens both rows (the tie the
+  review flagged), t1 resolves pool_b only, t2 reopens it, then the read
+  asserts pool_b first with `last_seen_ms == t2` and pool_a at t0; `?limit=1`
+  returns pool_b exactly.
+- E4: the busy-survival test now refuses with the store's OWN `Error::Busy` —
+  capacity-1 `DomainStore` plus a held SQLite write lock plus two queued
+  `put_resource` jobs saturate the mpsc so the tick observes
+  `Refused("busy")` exactly (bounded 3 s retry window ×5, exact assertion so
+  a catch-all `failed` would time out and fail); `OutcomeUnknown` needs a
+  parked-writer seam that is test-private to `hagency-store`, recorded in
+  the ADR as the store-side suite's arm.
+- E5: grep confirms no `u64::MAX` ceiling remains in
+  `native/hagency/tests/alerts*` (the fixture has used the JSON-safe
+  `GENEROUS` since slice (b)).
+- E6: future consumers are now the real retained pair — the SSE echo
+  (`backend-v2.js:1866`) and the console page; "Matrix delivery" dropped (no
+  retained counterpart).
+- E7/E8: ADR gains "Abort-vs-commit on shutdown" (skipped-or-committed,
+  never torn; a dequeued job commits whole, so abort means no NEW effect
+  beyond the tick's atomic unit) and the loop's doc comment states it; the
+  period stays const+builder, documented as the service's existing pattern
+  for background-owner tuning (no config value reaches `Bootstrap` today);
+  the immediate-first-tick behaviour is stated.
+- Store tests untouched per the brief; the orchestrator's three fixes there
+  (name collision, Reserved-state `register_session`, scoped-request
+  verifier) are noted for the `native/hagency/tests/alerts/` fixture to
+  follow — its one engagement per pool is admitted, approved and effective
+  through `admit`/`approve` only, so none of the three failure modes apply.
+
 ## 2026-09-12 — Alarm review edits B1–B7 + slice (b) Busy correction
 
 - B1: the remaining eleven `user_version == 23` head assertions (approvals,

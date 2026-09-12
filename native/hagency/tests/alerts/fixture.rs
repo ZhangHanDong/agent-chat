@@ -27,6 +27,13 @@ impl Fixture {
     /// exists precisely because the commitment was admissible when made.
     /// With `two`, a second resource on its own preset is seeded as well.
     pub fn new(two: bool) -> Self {
+        Self::with_capacity(two, 16)
+    }
+    /// E4 needs a saturated writer queue to produce the STORE's own
+    /// `Error::Busy` (the mpsc `try_send` refusal), not the SQLite busy
+    /// timeout's catch-all: capacity 1 keeps one job queued while the writer
+    /// grinds on another.
+    pub fn with_capacity(two: bool, capacity: usize) -> Self {
         let root = tempfile::tempdir().unwrap();
         let state = root.path().join("state");
         let custody = Store::start(Repository::open(&state).unwrap(), 16).unwrap();
@@ -53,7 +60,7 @@ impl Fixture {
         if two {
             seed(&mut db, "alerts_pool_b", 2_500_000, 2_000_000);
         }
-        let domain = DomainStore::start(db, 16).unwrap();
+        let domain = DomainStore::start(db, capacity).unwrap();
         let app = App::new(
             custody.clone(),
             TOKEN.as_bytes(),

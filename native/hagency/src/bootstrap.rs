@@ -419,7 +419,11 @@ pub const CEILING_SWEEP_PERIOD: Duration = Duration::from_secs(3600);
 /// one: never an in-line retry, never blocking admission traffic — the sweep
 /// is idempotent by dedupe key, so a missed tick is harmless. The returned
 /// watch channel is the observation hook a test awaits; no sleep-based
-/// polling. The loop exits when `shutdown` cancels.
+/// polling. The loop exits when `shutdown` cancels: a tick aborted at its
+/// await point is skipped or committed, never torn — a job the writer has
+/// not dequeued is dropped whole, a dequeued one runs its single `Immediate`
+/// transaction to commit — so cancellation means no NEW effect beyond the
+/// current tick's atomic unit (ADR-124, "Abort-vs-commit on shutdown").
 pub fn start_ceiling_sweep(
     domain: DomainStore,
     shutdown: CancellationToken,

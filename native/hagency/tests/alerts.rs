@@ -124,6 +124,12 @@ async fn native_alerts_read_publishes_open_ceiling_alerts() {
     assert!(value["at_ms"].as_u64().unwrap() > 0);
     let alerts = value["alerts"].as_array().unwrap();
     assert_eq!(alerts.len(), 2);
+    // E3: make newest-first REAL rather than a tie. Both rows open in the t0
+    // sweep (identical last_seen_ms, the nondeterministic case the review
+    // flagged). Then a second sweep at t1 with pool_b back under its ceiling
+    // resolves only pool_b, and a third at t2 — pool_b lowered again —
+    // reopens pool_b at t2. Now pool_b's last_seen (t2) > pool_a's (t0) and
+    // the read's DESC order is pinned by distinct timestamps.
     let alert = &alerts[0];
     let expected_id = resource("alerts_pool_b", "alerts_pool_b_seat", 1).id();
     assert_eq!(alert["resource_id"], expected_id);
@@ -164,6 +170,46 @@ async fn native_alerts_read_publishes_open_ceiling_alerts() {
     assert_eq!(detail["measuredTokens"], Value::Null);
 
     // Limit respected: one row for ?limit=1, newest activity first.
+    // E3 sequence: t1 raise pool_b → resolve sweep (pool_b gone, pool_a
+    // untouched at t1); t2 lower pool_b → reopen sweep (pool_b's
+    // last_seen=t2, pool_a's still t0). Then the full read must list
+    // pool_b FIRST and ?limit=1 must return exactly pool_b.
+    let t0 = now_ms();
+    let t1 = t0 + 10_000;
+    let t2 = t0 + 20_000;
+    f.domain
+        .put_resource(resource("alerts_pool_b", "alerts_pool_b_seat", GENEROUS))
+        .await
+        .unwrap();
+    let outcome = f.domain.sweep_ceiling_overruns(t1).await.unwrap();
+    assert_eq!(outcome.resolved, 1);
+    assert_eq!(outcome.updated, 0, "pool_a is untouched at t1");
+    f.domain
+        .put_resource(resource("alerts_pool_b", "alerts_pool_b_seat", 2_000_000))
+        .await
+        .unwrap();
+    let outcome = f.domain.sweep_ceiling_overruns(t2).await.unwrap();
+    assert_eq!(outcome.raised, 1, "pool_b reopens at t2");
+    assert_eq!(outcome.updated, 0, "pool_a is untouched at t2");
+    let mut response = TestClient::get(f.url())
+        .add_header("host", "127.0.0.1:13300", true)
+        .bearer_auth(TOKEN)
+        .send(&f.service)
+        .await;
+    let value = response.take_json::<Value>().await.unwrap();
+    let alerts = value["alerts"].as_array().unwrap();
+    assert_eq!(alerts.len(), 2);
+    assert_eq!(alerts[0]["resource_id"], expected_id, "t2 row is newest");
+    assert_eq!(
+        alerts[0]["last_seen_ms"].as_u64().unwrap(),
+        t2,
+        "distinct last_seen pins the order"
+    );
+    assert_eq!(
+        alerts[1]["resource_id"],
+        resource("alerts_pool_a", "alerts_pool_a_seat", 1).id()
+    );
+    assert_eq!(alerts[1]["last_seen_ms"].as_u64().unwrap(), t0);
     let mut response = TestClient::get(format!("{}/?limit=1", f.url()))
         .add_header("host", "127.0.0.1:13300", true)
         .bearer_auth(TOKEN)
@@ -342,7 +388,7 @@ async fn native_ceiling_alert_lost_ceiling_keeps_alert_open() {
 /// admission traffic.
 #[tokio::test]
 async fn native_alert_sweep_runs_hourly_and_survives_busy() {
-    let f = Fixture::new(false);
+    let f = Fixture::with_capacity(false, 1);
     let cancel = CancellationToken::new();
     let (handle, mut observed) =
         start_ceiling_sweep(f.domain.clone(), cancel.clone(), Duration::from_millis(50));
@@ -371,34 +417,56 @@ async fn native_alert_sweep_runs_hourly_and_survives_busy() {
     };
     assert_eq!(outcome.raised, 1);
 
-    // Hold the writer: another connection's BEGIN IMMEDIATE keeps the sweep
-    // transaction off the write lock, so every tick while it is held is a
-    // refusal. Which code surfaces depends on where the writer was when the
-    // lock appeared (`busy` from the queue bound, `outcome_unknown` from the
-    // reply bound, or a failed sqlite acquisition); the loop's rule is the
-    // same for all three — log and wait — and this test pins that rule.
-    let lock = rusqlite::Connection::open(&f.state).unwrap();
-    lock.execute_batch("BEGIN IMMEDIATE").unwrap();
-    until(&mut observed, |tick| {
-        matches!(tick, CeilingSweepTick::Refused(_))
-    })
-    .await;
-    let refusal = observed.borrow().clone();
-    let CeilingSweepTick::Refused(code) = refusal else {
-        unreachable!()
-    };
+    // E4: refuse with the STORE's own `Error::Busy`, not the SQLite busy
+    // timeout's catch-all. The seam (review §3): `Error::Busy` is the mpsc
+    // `try_send` refusal when the queue is full — reachable here by holding
+    // the SQLite write lock (the writer grinds inside a job for its 100 ms
+    // busy timeout) while a second job occupies the capacity-1 queue, so the
+    // loop's tick finds the queue full. The window is ~100 ms per attempt,
+    // so the maneuver retries within a bounded budget rather than trusting
+    // one shot; the assertion is exact — `Refused("busy")` — so a loop that
+    // only ever produced the Sqlite catch-all `failed` would time out and
+    // fail. (`OutcomeUnknown` needs a writer parked past the 2 s reply
+    // bound; the only such seam — `Probe::paused` — is `#[cfg(test)]`-
+    // private to hagency-store, so that arm stays for the store-side suite.)
+    let mut saw_busy = false;
+    for _ in 0..5 {
+        let lock = rusqlite::Connection::open(&f.state).unwrap();
+        lock.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let filler = resource("alerts_pool_a", "alerts_pool_a_seat", 1_000_000);
+        let held_filler = filler.clone();
+        let first_store = f.domain.clone();
+        let second_store = f.domain.clone();
+        let held = tokio::spawn(async move { first_store.put_resource(held_filler).await });
+        let queued = tokio::spawn(async move { second_store.put_resource(filler).await });
+        let seen = tokio::time::timeout(Duration::from_secs(3), async {
+            until(&mut observed, |tick| {
+                matches!(tick, CeilingSweepTick::Refused("busy"))
+            })
+            .await;
+        })
+        .await;
+        lock.execute_batch("COMMIT").unwrap();
+        drop(lock);
+        let _ = held.await;
+        let _ = queued.await;
+        if seen.is_ok() {
+            saw_busy = true;
+            break;
+        }
+    }
     assert!(
-        matches!(code, "busy" | "outcome_unknown" | "failed"),
-        "unexpected refusal code {code}"
+        saw_busy,
+        "the store's own Error::Busy arm was never observed"
     );
+    let refusal = observed.borrow().clone();
+    assert_eq!(refusal, CeilingSweepTick::Refused("busy"));
     assert!(
         !handle.is_finished(),
         "the sweep loop must survive a refusal"
     );
 
     // Release: the next tick sweeps again — recovery, not a restart.
-    lock.execute_batch("COMMIT").unwrap();
-    drop(lock);
     until(&mut observed, |tick| {
         matches!(tick, CeilingSweepTick::Swept(_))
     })

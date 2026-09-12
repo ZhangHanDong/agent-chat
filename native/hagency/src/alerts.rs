@@ -25,6 +25,10 @@ fn limit_query(req: &Request) -> Result<u32, ()> {
         return Err(());
     }
     let limit: u32 = values[0].parse().map_err(|_| ())?;
+    // Deliberate divergence from the retained route's clamp
+    // (`Math.min(parseInt(limit) || 100, 500)`, alert-store.js:410): an
+    // out-of-range limit is refused, not silently clamped, matching every
+    // other bounded read behind this boundary.
     if limit == 0 || limit > MAX_OPEN_CEILING_ALERTS as u32 {
         return Err(());
     }

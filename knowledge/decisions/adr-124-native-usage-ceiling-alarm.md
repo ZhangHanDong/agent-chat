@@ -106,18 +106,26 @@ under CI.
 `GET /api/native/v1/alerts?limit=` (`hagency/src/alerts.rs`, mounted in the
 existing `api/native/v1` chain), with exactly the `usage.rs` operator
 authority (bearer token plus local management authority) and its refusal
-mapping — one intentional divergence: `Busy` maps to `429` here (the brief's
-explicit instruction) where `usage.rs` uses `503`. The response is
+mapping, including `Busy → 503 "busy"` (`native-api.js:56` maps the same
+pair client-side, so a 429 would have fallen through to `native_unavailable`).
+The response is
 `{"at_ms": …, "alerts": [...]}` with snake_case keys; every retained field is
 published (dedupe key, resource id, summary, the parsed `detail` object,
 runbook, impact, recovery_condition, occurrences, first/last seen, resolved
 state), open rows only, newest activity first, limit defaulted to 100 (the
-retained `listAlerts` default) and bounded/refused at 200
-(`MAX_OPEN_CEILING_ALERTS`, the retained pagination cap). A corrupt `detail`
+retained `listAlerts` default, `alert-store.js:410`) and refused outside
+`1..=200` (`MAX_OPEN_CEILING_ALERTS`). That bound is a DELIBERATE divergence:
+the retained route clamps an over-large limit (`Math.min(parseInt(limit) ||
+100, 500)`, `alert-store.js:410-412`); native refuses it with
+`Error::Invalid`, matching every other bounded read behind this boundary — a
+silently-clamped limit hides a client bug, a refusal surfaces it — and the
+native cap (200) is tighter than the retained (500) for the same bounded-cost
+reason. A corrupt `detail`
 string is `Error::Schema` surfaced as `503 alerts_corrupt` — never a silent
 null. The route publishes what the sweep wrote; it never re-derives the draw.
-SSE, the console page and Matrix delivery are NOT in this slice; the retained
-SSE echo and console consumers remain future work on the same store read.
+The real future consumers on this store read are the retained SSE echo
+(`alert_created`/`alert_updated`/`alert_resolved` over `/api/stream`,
+`backend-v2.js:1866`) and the console page; neither ships in this slice.
 
 **Cadence and its rationale.** The sweep loop starts in `Bootstrap::serve`,
 beside the other background owners, and stops in `close`. The production
@@ -125,12 +133,33 @@ period is `CEILING_SWEEP_PERIOD` = 3600 s — the retained hourly cadence and
 its rationale (`backend-v2.js:17499-17504`): an overrun is a standing
 condition nobody requests, and a tighter loop would only re-file the same
 alert. Tests override it via `Bootstrap::with_ceiling_sweep_period` or drive
-`start_ceiling_sweep` directly with a short period.
+`start_ceiling_sweep` directly with a short period. The period is carried as
+a const plus builder because that is this service's existing pattern for
+background-owner tuning: the CLI surface (`main.rs`) passes a fixed default
+and no other bound reaches `Bootstrap` as a parsed config value — wiring an
+env/file knob here would be the first of its kind, so it is left to a real
+config surface if one ever lands. (tokio's `interval` fires the first tick
+immediately, so production also sweeps once at startup — an overrun present
+at boot is filed promptly; stated rather than discovered.)
+
+**Abort-vs-commit on shutdown.** `close()` aborts the loop handle BEFORE the
+domain writer shuts down. A tick aborted at its await point is skipped or
+committed, never torn: a job the writer has not dequeued is dropped whole
+(`reply.is_closed()` skips the operation, `domain_worker.rs:2379`); a job
+already dequeued runs its single `Immediate` transaction to `commit()`. So
+"abort" means no NEW effect beyond the current tick's atomic unit — a sweep
+may commit shortly after its caller is gone, which is harmless because the
+rows are diagnostic, idempotent by dedupe key, and independent of the reply.
 
 **Refusal-on-tick rule.** On `Busy` or `OutcomeUnknown` the tick logs the
 refusal code with the `[ceiling]` prefix and waits for the next tick — never
 an in-line retry, never blocking admission traffic: the sweep is idempotent
 by dedupe key, so a missed tick is harmless. The same rule covers a failed
-SQLite acquisition. The loop exposes a `tokio::sync::watch` of the last
+SQLite acquisition. The `Busy` arm is pinned by the loop test (a saturated
+capacity-1 writer queue yields the store's own mpsc `try_send` refusal,
+observed as `Refused("busy")` on the watch); the `OutcomeUnknown` arm needs a
+writer parked past the 2 s reply bound, whose only seam is test-private to
+`hagency-store`, so that arm is exercised by the store-side suite rather than
+this loop test. The loop exposes a `tokio::sync::watch` of the last
 `CeilingSweepTick` (`Swept(outcome)` / `Refused(code)`) so tests await
 transitions without sleep-based polling.

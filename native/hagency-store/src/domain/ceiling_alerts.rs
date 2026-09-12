@@ -16,10 +16,15 @@ const RESOLVED_RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 /// Retained bound (`lib/alert-store.js:28`, `MAX_PAYLOAD_SIZE`): the detail
 /// JSON string is capped at 4096 bytes.
 const MAX_DETAIL_BYTES: usize = 4096;
-/// Publication bound: one operator read returns at most this many open rows,
-/// mirroring the retained listAlerts pagination cap (alert-store.js:413).
+/// Publication bound: one operator read returns at most this many open rows.
+/// DELIBERATE DIVERGENCE from the retained `listAlerts` cap of 500
+/// (`lib/alert-store.js:410`, `Math.min(parseInt(limit) || 100, 500)`): the
+/// retained route CLAMPS an over-large limit, while native refuses it with
+/// `Error::Invalid` the way every other bounded read in this store behaves —
+/// a silently-clamped limit hides a client bug; a refusal surfaces it. The
+/// native cap is 200, tighter than the retained 500 for the same reason
+/// (bounded-cost reads on a table with at most one row per resource).
 pub const MAX_OPEN_CEILING_ALERTS: usize = 200;
-
 /// Counters one sweep produced. `raised` counts newly-open alerts (fresh
 /// insert or reopen after resolution); `updated` counts repeats against an
 /// already-open row; `resolved` and `pruned` count display-state and
@@ -205,9 +210,11 @@ impl DomainRepository {
     }
 
     /// Open alerts for the operator read (ADR-124 slice b), newest activity
-    /// first, at most `MAX_OPEN_CEILING_ALERTS` rows. A limit above the bound
-    /// is refused the way every bounded read here refuses (`Error::Invalid`)
-    /// rather than silently clamped. The stored `detail` string is PARSED
+    /// first, at most `MAX_OPEN_CEILING_ALERTS` rows. A limit of 0 or above
+    /// the bound is refused with `Error::Invalid` — a deliberate divergence
+    /// from the retained route's clamping (`alert-store.js:410`), chosen for
+    /// consistency with every other bounded read in this store. The stored
+    /// `detail` string is PARSED
     /// here: a corrupt row is `Error::Schema`, never a silently-empty object.
     pub fn open_ceiling_alerts(&self, limit: u32) -> Result<Vec<CeilingAlert>, Error> {
         let limit = usize::try_from(limit)
