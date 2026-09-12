@@ -1,6 +1,7 @@
 //! Bounded, untrusted transcript normalization. Reports do not establish Agent
 //! attribution, provider authenticity, quota availability or task completion.
 
+pub mod attribution;
 mod json;
 pub mod observation;
 pub mod runtime_usage;

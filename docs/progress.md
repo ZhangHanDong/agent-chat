@@ -7192,3 +7192,21 @@ client qualification and ongoing identity/key management remain separate.
   changed: the hosted Windows suite now fails a rotating set of two to four
   timing-bound fixtures per run, so the next step is the Windows VM
   reproduction and the shutdown analysis the `dsflash` peer is producing.
+
+## 2026-09-12 — Native transcript attribution search (ADR118)
+
+- Ported the pure attribution chain of `lib/metering/attribute.js` to
+  `hagency_metering::attribution` (ADR-118, proposed): workspace precedence
+  (lastWorkspacePath → workspacePath → workdir/homeDir for on-demand runners,
+  JS-trim), Claude's forward-only `/`→`-` project mapping, per-framework
+  search descriptors (claude narrowed/non-recursive, codex flat-keyed by date
+  so not narrowed and recursive), session totalling over injected `(file,
+  text)` pairs with the exact JavaScript `available: false` reason strings,
+  and the fleet summary that keeps shared workspaces ambiguous. No filesystem
+  access; per-session totals reuse the ADR-055 `parse_session`. Unknown stays
+  `null`, never zero; refused parses count as skipped.
+- Gates: `native/scripts/attribution-vectors.mjs` generates the 107-vector
+  oracle fixture from the retained JavaScript and its `--check` was added to
+  the Rust CI job after `metering-vectors.mjs --check`;
+  `cargo fmt/clippy -D warnings` and `cargo test -p hagency-metering --locked`
+  (13 tests, including the three new replay tests) all pass locally.
