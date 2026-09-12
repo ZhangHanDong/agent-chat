@@ -7122,3 +7122,11 @@ client qualification and ongoing identity/key management remain separate.
   the ordinary projection of the retained root on every platform, with custody
   unchanged on the handle. Temporary debug-only refusal traces remain in the
   store until the hosted probe confirms the fix, then they are removed.
+- Probe run 34668960156 confirms the amendment: hosted Windows passed
+  `native_owned_approval_resume`, both other approval fixtures and the Palpo
+  hostname-mismatch test five of five each; hosted Ubuntu passed the two
+  delivery scenarios five of five. The three temporary debug-only writer
+  traces are reverted, and the fixture's bounded verdict retry is removed
+  again since a refusal is a real defect; its retained-state dump stays.
+  The `probe/windows-approval` branch remains as the trigger for future
+  probes until the workflow reaches the default branch.

@@ -83,21 +83,10 @@ pub(super) async fn choose(f: &Fixture, id: &str, choice: ApprovalChoice) {
         encrypted: true,
         choice,
     };
-    // Hosted Windows refused verdicts with every retained liveness fact intact
-    // except a 5 s dispatch lease renewed on a 100 ms cadence. A bounded retry
-    // distinguishes a transient lease lapse from a persistent refusal; the
-    // attempt count is reported so that a lapse is never silent.
-    let mut attempts = 0;
-    let result = loop {
-        attempts += 1;
-        match f.domain.observe_owner_verdict(observation.clone()).await {
-            Err(hagency_store::Error::RunnerAuthority) if attempts < 5 => {
-                eprintln!("verdict attempt {attempts} refused with RunnerAuthority; retrying");
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-            other => break other,
-        }
-    };
+    // One attempt: hosted Windows once refused every verdict here because the
+    // runner reported a verbatim callback cwd (ADR-116 amendment). A refusal
+    // is a real defect, so it is reported with the retained state below.
+    let result = f.domain.observe_owner_verdict(observation).await;
     if let Err(error) = result {
         // Hosted Windows has refused verdicts here without any local
         // reproduction; report the retained state instead of a bare unwrap.
