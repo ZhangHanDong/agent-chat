@@ -40,6 +40,9 @@ impl OwnedClaimRoom {
 }
 pub struct OwnedClaimProfile(String);
 impl OwnedClaimProfile {
+    pub(super) fn from_account_binding(encoded: String) -> Self {
+        Self(encoded)
+    }
     pub fn new(
         transport: hagency_core::replies::MatrixTransportObservation,
         rooms: Vec<OwnedClaimRoom>,
@@ -112,6 +115,7 @@ pub struct OwnedDispatchScope {
     input: DispatchInput,
     task: Task,
     resource: Resource,
+    pub(super) account: Option<super::accounts::Association>,
     fingerprint: String,
     started: Option<(String, u64, String)>,
 }
@@ -123,6 +127,7 @@ impl OwnedDispatchScope {
             &self.input,
             &self.task,
             &self.resource,
+            &self.account,
             &self.fingerprint,
             &self.started,
         )
@@ -143,6 +148,9 @@ impl OwnedDispatchScope {
     }
     pub fn task(&self) -> &Task {
         &self.task
+    }
+    pub fn requires_managed_account(&self) -> bool {
+        self.account.is_some()
     }
     pub fn resource(&self) -> &Resource {
         &self.resource
@@ -250,15 +258,17 @@ pub(super) fn projection(
     }
     // Task status/heartbeat may change through authorized canonical operations;
     // its identity and execution epoch must remain fixed for this attempt.
+    let account = super::accounts::association(db, &resource)?;
     let fingerprint = canonical::payload_digest(&json!({
         "input":input,"task_id":task.id,"task_epoch":completed_epoch.unwrap_or(task.execution_epoch),
         "session":session,"engagement":engagement.id,"generation":generation,
-        "resource":resource,"runtime_name":engagement.runtime_name,
+        "resource":resource,"runtime_name":engagement.runtime_name,"account":account,
     }))?;
     Ok(OwnedDispatchScope {
         input,
         task,
         resource,
+        account,
         fingerprint,
         started: None,
     })
@@ -270,7 +280,9 @@ impl DomainRepository {
         cap: &RunnerCapability,
         now: u64,
     ) -> Result<OwnedDispatchScope, Error> {
-        scope(&self.db, cap, now, &["leased"])
+        let scope = scope(&self.db, cap, now, &["leased"])?;
+        self.accounts.check_resource(&self.db, scope.resource())?;
+        Ok(scope)
     }
 
     pub fn start_owned_dispatch(
@@ -293,6 +305,7 @@ impl DomainRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = clock()?; // After writer queue and any SQLite lock wait.
         let before = scope(&tx, cap, now, &["leased"])?;
+        self.accounts.check_resource(&tx, before.resource())?;
         if before.fingerprint != expected {
             return Err(Error::RunnerAuthority);
         }
@@ -317,6 +330,7 @@ impl DomainRepository {
         now: u64,
     ) -> Result<Task, Error> {
         let value = scope(&self.db, cap, now, &["started"])?;
+        self.accounts.check_resource(&self.db, value.resource())?;
         if value.fingerprint != expected {
             return Err(Error::RunnerAuthority);
         }
@@ -334,6 +348,7 @@ impl DomainRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = clock()?; // The original queue and SQLite lock waits have ended.
         let value = scope(&tx, cap, now, &["started"])?;
+        self.accounts.check_resource(&tx, value.resource())?;
         if value.fingerprint != expected {
             return Err(Error::RunnerAuthority);
         }
@@ -353,6 +368,7 @@ impl DomainRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = clock()?;
         let value = scope(&tx, cap, now, &["started"])?;
+        self.accounts.check_resource(&tx, value.resource())?;
         if value.fingerprint != expected {
             return Err(Error::RunnerAuthority);
         }
@@ -376,6 +392,7 @@ impl DomainRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = clock()?;
         let value = scope(&tx, cap, now, &["started"])?;
+        self.accounts.check_resource(&tx, value.resource())?;
         if value.fingerprint != expected || now > hagency_core::JSON_SAFE_MAX - lease_ms {
             return Err(Error::RunnerAuthority);
         }

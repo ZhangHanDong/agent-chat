@@ -320,6 +320,24 @@ fn main() -> io::Result<()> {
     if args.as_slice() != [std::ffi::OsString::from("app-server")] {
         return Err(invalid());
     }
+    if Path::new("account-probe.required").exists() {
+        let home = std::env::var_os("HOME").ok_or_else(invalid)?;
+        let codex = std::env::var_os("CODEX_HOME").ok_or_else(invalid)?;
+        if home != codex
+            || std::env::var_os("OPENAI_API_KEY").is_some()
+            || std::env::var_os("CODEX_API_KEY").is_some()
+        {
+            return Err(invalid());
+        }
+        let marker = fs::read_to_string(Path::new(&home).join("fixture-account-marker"))?;
+        if marker != "bootstrap-selected" {
+            return Err(invalid());
+        }
+        fs::write(
+            "account-observed.json",
+            serde_json::to_vec(&json!({"marker":marker,"same_home":true,"ambient_key":false}))?,
+        )?;
+    }
     // Disposable peer-wide bound: even a broken synchronous pipe cannot hang a
     // fixture forever. No detached daemon cleanup and no successful exit claim.
     let (release, wait) = mpsc::sync_channel::<()>(1);

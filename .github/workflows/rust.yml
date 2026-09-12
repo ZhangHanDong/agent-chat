@@ -67,6 +67,7 @@ jobs:
       - run: node native/scripts/matrix-format-vectors.mjs --check
       - run: node native/scripts/metering-vectors.mjs --check
       - run: node native/scripts/usage-vectors.mjs --check
+      - run: node native/scripts/account-vectors.mjs --check
       - run: node native/scripts/canonical-vectors.mjs --check
       - run: node native/scripts/allocation-vectors.mjs --check
       - run: node native/scripts/project-vectors.mjs --check

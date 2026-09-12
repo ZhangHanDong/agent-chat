@@ -13,6 +13,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "owned/accounts.rs"]
+mod accounts;
 #[path = "owned/approval_fixture.rs"]
 mod approval_fixture;
 #[path = "owned/approvals.rs"]
@@ -55,14 +57,55 @@ impl Fixture {
         Self::configured(false)
     }
     fn configured(approvals: bool) -> Self {
+        Self::configured_account(approvals, false)
+    }
+    fn configured_account(approvals: bool, managed: bool) -> Self {
         let root = tempfile::tempdir().unwrap();
         let work = root.path().join("固定 工作目录");
         hagency_store::private::directory(&work).unwrap();
         let work = work.canonicalize().unwrap();
         let mut db = DomainRepository::open(&root.path().join("state")).unwrap();
         db.register(&registration()).unwrap();
-        let pool = resource("pool", "seat", 1000);
-        db.put_resource(&pool).unwrap();
+        let mut accounts = Vec::new();
+        let pool = if managed {
+            for marker in ["selected-A", "other-B"] {
+                let prepared = db.reserve_account(hagency_store::ACCOUNT_PROFILE).unwrap();
+                let choice = db.materialize_account(&prepared.id).unwrap();
+                fs::write(
+                    root.path()
+                        .join("state")
+                        .join(&choice.id)
+                        .join("fixture-account-marker"),
+                    marker,
+                )
+                .unwrap();
+                accounts.push(choice.id);
+            }
+            let account = db.managed_account(&accounts[0]).unwrap();
+            let choice = db.account_choices().unwrap().remove(0);
+            let access = hagency_store::AccountEnrollmentAccess::new(
+                std::time::Instant::now() + Duration::from_secs(30),
+                Default::default(),
+            );
+            let command = access
+                .prepare(
+                    &account,
+                    choice.revision,
+                    "gpt-5.6-sol".into(),
+                    Some("medium".into()),
+                    Some(
+                        serde_json::from_value(json!({"tokens":1000,"period":"monthly"})).unwrap(),
+                    ),
+                    std::time::Instant::now() + Duration::from_secs(5),
+                )
+                .unwrap();
+            let result = db.enroll_account_resource(command).unwrap();
+            db.resource_configuration(&result.resource_id).unwrap()
+        } else {
+            let pool = resource("pool", "seat", 1000);
+            db.put_resource(&pool).unwrap();
+            pool
+        };
         let proof = proof(&request("allocation", "Worker", &pool, 100));
         let e = db.admit(&proof, 1000).unwrap();
         db.approve("approved", &proof, 1000).unwrap();
@@ -134,6 +177,15 @@ impl Fixture {
             limits(),
         )
         .unwrap()
+    }
+    fn account_ids(&self) -> Vec<String> {
+        self.sql()
+            .prepare("SELECT id FROM managed_accounts ORDER BY ordinal")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
     }
     fn sql(&self) -> rusqlite::Connection {
         rusqlite::Connection::open(self.root.path().join("state/domain.sqlite3")).unwrap()

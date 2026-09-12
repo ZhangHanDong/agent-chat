@@ -2,8 +2,17 @@
 //! a portable identity, namespace lock, or replacement for retaining the objects.
 use std::{fs::File, io};
 
-pub fn same_directory(left: &File, right: &File) -> io::Result<bool> {
-    if !left.metadata()?.is_dir() || !right.metadata()?.is_dir() {
+/// A local physical observation. Serialized identity is never a directory grant.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DirectoryIdentity {
+    platform: String,
+    volume: String,
+    object: [u8; 16],
+}
+
+pub fn directory_identity(file: &File) -> io::Result<DirectoryIdentity> {
+    if !file.metadata()?.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "directory required",
@@ -12,9 +21,14 @@ pub fn same_directory(left: &File, right: &File) -> io::Result<bool> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        let left = left.metadata()?;
-        let right = right.metadata()?;
-        Ok(left.dev() == right.dev() && left.ino() == right.ino())
+        let meta = file.metadata()?;
+        let mut object = [0; 16];
+        object[8..].copy_from_slice(&meta.ino().to_be_bytes());
+        Ok(DirectoryIdentity {
+            platform: "unix-v1".into(),
+            volume: format!("{:016x}", meta.dev()),
+            object,
+        })
     }
     #[cfg(windows)]
     {
@@ -22,34 +36,35 @@ pub fn same_directory(left: &File, right: &File) -> io::Result<bool> {
         use windows_sys::Win32::Storage::FileSystem::{
             FILE_ID_INFO, FileIdInfo, GetFileInformationByHandleEx,
         };
-        fn identity(file: &File) -> io::Result<FILE_ID_INFO> {
-            let mut value = FILE_ID_INFO::default();
-            // SAFETY: the borrowed File owns a live handle throughout the call;
-            // initialized output has the exact Win32 size and alignment. Read
-            // it only after success. Preserve all 128 ID bits (including ReFS).
-            if unsafe {
-                GetFileInformationByHandleEx(
-                    file.as_raw_handle(),
-                    FileIdInfo,
-                    (&mut value as *mut FILE_ID_INFO).cast(),
-                    std::mem::size_of::<FILE_ID_INFO>() as u32,
-                )
-            } == 0
-            {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(value)
+        let mut value = FILE_ID_INFO::default();
+        // SAFETY: the borrowed File retains a live handle; the initialized output
+        // has the exact Win32 size/alignment and is read only after success.
+        if unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle(),
+                FileIdInfo,
+                (&mut value as *mut FILE_ID_INFO).cast(),
+                std::mem::size_of::<FILE_ID_INFO>() as u32,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
         }
-        let left = identity(left)?;
-        let right = identity(right)?;
-        Ok(left.VolumeSerialNumber == right.VolumeSerialNumber
-            && left.FileId.Identifier == right.FileId.Identifier)
+        Ok(DirectoryIdentity {
+            platform: "windows-v1".into(),
+            volume: format!("{:016x}", value.VolumeSerialNumber),
+            object: value.FileId.Identifier,
+        })
     }
     #[cfg(not(any(unix, windows)))]
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "directory identity unavailable",
     ))
+}
+
+pub fn same_directory(left: &File, right: &File) -> io::Result<bool> {
+    Ok(directory_identity(left)? == directory_identity(right)?)
 }
 
 #[cfg(test)]

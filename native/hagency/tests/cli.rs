@@ -220,3 +220,71 @@ async fn native_guardian_cli_entry() {
         Some(report)
     );
 }
+
+#[test]
+fn native_account_cli() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let invoke = |args: &[&str]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_hagency"));
+        command
+            .args(args)
+            .arg("--state-dir")
+            .arg(&state)
+            .env("PATH", "")
+            .env("HOME", "/untrusted-fixture-home")
+            .env("CODEX_HOME", "/untrusted-fixture-codex")
+            .env("OPENAI_API_KEY", "offline-fixture-key");
+        command.output().unwrap()
+    };
+    assert!(invoke(&["init"]).status.success());
+    let prepared = invoke(&["account", "prepare"]);
+    assert!(
+        prepared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    let choices: serde_json::Value = serde_json::from_slice(&prepared.stdout).unwrap();
+    let id = choices[0]["id"].as_str().unwrap();
+    assert_eq!(choices[0]["authentication"], "unknown");
+    assert!(choices[0]["quota"].is_null());
+    assert!(fs::read_dir(state.join(id)).unwrap().next().is_none());
+    let inspect = invoke(&["account", "inspect"]);
+    assert!(inspect.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&inspect.stdout).unwrap(),
+        choices
+    );
+    let owned = hagency_store::Repository::open(&state).unwrap();
+    let busy = invoke(&["account", "prepare"]);
+    assert!(!busy.status.success());
+    drop(owned);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&invoke(&["account", "inspect"]).stdout)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let retired = invoke(&["account", "retire", "--id", id]);
+    assert!(
+        retired.status.success(),
+        "{}",
+        String::from_utf8_lossy(&retired.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&retired.stdout).unwrap()[0]["state"],
+        "retired"
+    );
+    assert!(state.join(id).is_dir());
+    let output = String::from_utf8(prepared.stdout).unwrap();
+    for private in [
+        "seat_native_",
+        "fixture-key",
+        "CODEX_HOME",
+        state.to_str().unwrap(),
+    ] {
+        assert!(!output.contains(private));
+    }
+}

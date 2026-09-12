@@ -321,7 +321,30 @@ fn main() -> io::Result<()> {
             // Fixed host installation entrypoint for offline dispatch fixtures.
             // The environment is explicitly supplied by that test host only.
             let mode = std::env::var("HAGENCY_OFFLINE_MODE").map_err(io::Error::other)?;
-            fake(&mode, &std::env::current_dir()?.join("owned-dispatch"))
+            if mode == "account" {
+                let home = std::env::var_os("HOME").ok_or(io::ErrorKind::InvalidInput)?;
+                let codex = std::env::var_os("CODEX_HOME").ok_or(io::ErrorKind::InvalidInput)?;
+                if home != codex
+                    || std::env::var_os("OPENAI_API_KEY").is_some()
+                    || std::env::var_os("CODEX_API_KEY").is_some()
+                {
+                    return Err(io::ErrorKind::InvalidInput.into());
+                }
+                let marker = fs::read_to_string(Path::new(&home).join("fixture-account-marker"))?;
+                if marker != "selected-A" {
+                    return Err(io::ErrorKind::InvalidInput.into());
+                }
+                fs::write(
+                    "account-observed.json",
+                    serde_json::to_vec(
+                        &json!({"marker":marker,"same_home":true,"ambient_key":false}),
+                    )?,
+                )?;
+            }
+            fake(
+                if mode == "account" { "normal" } else { &mode },
+                &std::env::current_dir()?.join("owned-dispatch"),
+            )
         }
         #[cfg(windows)]
         [mode, marker] if mode == "owner-crash" => owner_crash(Path::new(marker)),

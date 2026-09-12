@@ -113,6 +113,8 @@ impl DomainRepository {
         let check = |now| gate.access.check_at(*revoked, gate.deadline, now);
         check(clock())?;
         let mut resource = read_resource(&tx, &gate.resource)?;
+        self.accounts.check_resource(&tx, &resource)?;
+        let source = resource.clone();
         if resource_publication_revision(&resource)? != gate.revision {
             return Err(Error::Conflict);
         }
@@ -153,6 +155,9 @@ impl DomainRepository {
         if let Some(preset) = command.preset {
             resource.preset_id = preset;
         }
+        if create {
+            super::accounts::copy_association(&tx, &source, &resource)?;
+        }
         let resource = prepare_resource_write(&tx, &resource, create.then_some(true), create)?;
         let result = ResourceConfigurationResult {
             resource_id: resource.id(),
@@ -160,9 +165,14 @@ impl DomainRepository {
             published: resource.published,
         };
         check(clock())?;
+        self.accounts.check_resource(&tx, &resource)?;
         write_resource_configuration(&tx, &resource, create)?;
         check(clock())?;
+        self.accounts.check_resource(&tx, &resource)?;
         tx.commit()?;
+        self.accounts
+            .check_resource(&self.db, &resource)
+            .map_err(|_| Error::OutcomeUnknown)?;
         check(clock()).map_err(|_| Error::OutcomeUnknown)?;
         Ok(result)
     }

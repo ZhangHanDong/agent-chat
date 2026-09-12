@@ -157,6 +157,7 @@ impl DomainRepository {
             .access
             .check_at(*revoked, command.deadline, clock())?;
         let mut resource = read_resource(&tx, &command.resource)?;
+        self.accounts.check_resource(&tx, &resource)?;
         if resource_publication_revision(&resource)? != command.revision {
             return Err(Error::Conflict);
         }
@@ -177,7 +178,11 @@ impl DomainRepository {
         command
             .access
             .check_at(*revoked, command.deadline, clock())?;
+        self.accounts.check_resource(&tx, &resource)?;
         tx.commit()?;
+        self.accounts
+            .check_resource(&self.db, &resource)
+            .map_err(|_| Error::OutcomeUnknown)?;
         // An already committed write is never described as rolled back.
         command
             .access

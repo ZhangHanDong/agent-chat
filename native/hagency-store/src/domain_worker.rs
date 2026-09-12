@@ -24,7 +24,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 
 #[cfg(test)]
 #[path = "../tests/common/mod.rs"]
-mod clock_fixtures;
+pub(crate) mod clock_fixtures;
 
 type Operation = Box<dyn FnOnce(&mut DomainRepository) + Send>;
 enum ReceiverPolicy {
@@ -2425,6 +2425,24 @@ impl DomainStore {
     ) -> Result<hagency_core::project::Resource, Error> {
         self.call(256, move |db| db.resource_configuration(&id))
             .await
+    }
+    pub async fn account_choices(&self) -> Result<Vec<crate::AccountChoice>, Error> {
+        self.call(256, |db| db.account_choices()).await
+    }
+    pub async fn managed_account(&self, id: String) -> Result<crate::ManagedAccount, Error> {
+        if id.len() > 128 {
+            return Err(Error::Capacity);
+        }
+        self.call(256, move |db| db.managed_account(&id)).await
+    }
+    pub async fn enroll_account_resource(
+        &self,
+        command: crate::AccountEnrollmentCommand,
+    ) -> Result<crate::ResourceConfigurationResult, Error> {
+        self.call(command.weight(), move |db| {
+            db.enroll_account_resource(command)
+        })
+        .await
     }
     pub async fn configure_resource(
         &self,

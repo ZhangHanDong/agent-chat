@@ -36,3 +36,42 @@ fn native_owner_approval_recovery_crlf_fixture() {
             .unwrap();
     }
 }
+
+#[test]
+fn native_account_schema22() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("state");
+    let mut domain = hagency_store::DomainRepository::open(&state).unwrap();
+    let resource = common::resource("schema22-resource", "schema22-seat", 1000);
+    domain.put_resource(&resource).unwrap();
+    domain.put_seat(&serde_json::from_value(serde_json::json!({"id":"schema22-seat","declaration":{"quotaTokens":5000,"period":"monthly"}})).unwrap()).unwrap();
+    domain.register(&common::registration()).unwrap();
+    let proof = common::proof(&common::request(
+        "schema22-request",
+        "Worker",
+        &resource,
+        100,
+    ));
+    domain.admit(&proof, 1000).unwrap();
+    domain.approve("schema22-approval", &proof, 1000).unwrap();
+    drop(domain);
+    let sql = rusqlite::Connection::open(state.join("domain.sqlite3")).unwrap();
+    sql.execute_batch("DROP TABLE resource_accounts; DROP TABLE managed_accounts; DROP TABLE account_identity_key; PRAGMA user_version=22;").unwrap();
+    let snapshot = |sql: &rusqlite::Connection| -> Vec<(String, String, String)> {
+        sql.prepare("SELECT 'resources',id,config FROM resources UNION ALL SELECT 'seats',id,config FROM seats UNION ALL SELECT 'engagements',id,context FROM engagements ORDER BY 1,2").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().collect::<Result<_,_>>().unwrap()
+    };
+    let before = snapshot(&sql);
+    drop(sql);
+    let domain = hagency_store::DomainRepository::open(&state).unwrap();
+    assert!(domain.account_choices().unwrap().is_empty());
+    drop(domain);
+    let sql = rusqlite::Connection::open(state.join("domain.sqlite3")).unwrap();
+    assert_eq!(
+        sql.query_row("PRAGMA user_version", [], |r| r.get::<_, u64>(0))
+            .unwrap(),
+        23
+    );
+    assert_eq!(before, snapshot(&sql));
+    drop(sql);
+    drop(hagency_store::DomainRepository::open(&state).unwrap());
+}

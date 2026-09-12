@@ -7054,3 +7054,21 @@ client qualification and ongoing identity/key management remain separate.
   scenarios under a `rust` tag, which both spec-binding checkers would have
   rejected; those scenarios now live in a sibling Node contract (`9e0354a`).
   Rust bindings 628 and Node bindings 547 with none missing.
+- The codex/native-receive-service-20260911 worktree's uncommitted checkpoint
+  (receive catalog, runner and task-client received modules) is superseded:
+  those files already landed through the receive-executable slice
+  (`3110f9f`, `1cb60d7`). Nothing from that worktree needs integration.
+- Adopted Codex's unfinished managed-account binding slice (ADR-114 part A,
+  schema 23) from the feat/native-managed-account-binding-20260911 worktree.
+  Its pre-stop diff applied to the current branch with a three-way merge
+  without conflicts. Four completions were needed: the driver test fixture
+  lacked the new `managed_account` field; the `account` subcommand declared a
+  required global `--state-dir`, which clap rejects at debug time
+  (`native_account_cli` panicked in clap's debug asserts), so the flag is now
+  an optional global that the command refuses without; twelve store
+  migration tests still asserted schema 22 after rewinding and now assert 23;
+  and the accounts unit tests loaded `tests/common/mod.rs` a second time,
+  which clippy's duplicate-module lint denies, so they reuse the worker's
+  `clock_fixtures` include instead. All eight bound scenarios
+  pass locally: identity, preparation, association, retirement, schema22,
+  host consumer, owned current and the offline CLI, plus the bootstrap check.

@@ -5,7 +5,7 @@ mod child_identity;
 pub use child_identity::{ChildIdentity, OwnedChildIdentity, SignalOutcome};
 #[allow(unsafe_code)]
 mod directory_identity;
-pub use directory_identity::same_directory;
+pub use directory_identity::{DirectoryIdentity, directory_identity, same_directory};
 #[allow(unsafe_code)]
 mod file_identity;
 pub use file_identity::same_file;

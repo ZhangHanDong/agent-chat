@@ -35,6 +35,15 @@ enum Command {
         #[arg(long)]
         state_dir: PathBuf,
     },
+    /// Prepare or inspect fresh host-owned Codex credential namespaces offline.
+    Account {
+        // clap forbids required global arguments; the offline account commands
+        // accept --state-dir before or after their verb and refuse without it.
+        #[arg(long, global = true)]
+        state_dir: Option<PathBuf>,
+        #[command(subcommand)]
+        command: hagency::bootstrap::accounts::Command,
+    },
     /// Print a short-lived read-only console link using local operator authority.
     ConsoleAccess {
         #[arg(long)]
@@ -122,6 +131,11 @@ async fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "Initialized native state. Operator token is in operator.token; keep it private."
             );
+        }
+        Command::Account { state_dir, command } => {
+            let state_dir = state_dir.ok_or("account commands require --state-dir")?;
+            let result = hagency::bootstrap::accounts::run(&state_dir, command)?;
+            println!("{}", serde_json::to_string(&result)?);
         }
         Command::Serve {
             state_dir,

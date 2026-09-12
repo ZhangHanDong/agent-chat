@@ -20,6 +20,8 @@ const EXECUTABLE_BYTES: u64 = 512 * 1024 * 1024;
 struct Config {
     profile: String,
     #[serde(default)]
+    managed_account: Option<String>,
+    #[serde(default)]
     send_file: bool,
     #[serde(default)]
     receive_file: bool,
@@ -70,6 +72,7 @@ struct Room {
 }
 pub(super) struct Prepared {
     pub host: Host,
+    pub managed_account: Option<String>,
     pub matrix: Option<HostConfig>,
     pub files: Option<crate::file_service::Setup>,
     pub receives: Option<crate::receive_service::Setup>,
@@ -300,6 +303,7 @@ impl Prepared {
         }
         Ok(Self {
             host,
+            managed_account: config.managed_account,
             matrix: Some(matrix),
             files,
             receives: config

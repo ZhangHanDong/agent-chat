@@ -15,6 +15,11 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub struct Running(Child);
+impl Running {
+    pub fn from_child(child: Child) -> Self {
+        Self(child)
+    }
+}
 #[cfg(unix)]
 impl Running {
     pub fn request_shutdown(&self) {
@@ -63,6 +68,9 @@ fn now() -> u64 {
 }
 impl Fixture {
     pub async fn new(fenced: bool) -> Self {
+        Self::with_account(fenced, false).await
+    }
+    pub async fn with_account(fenced: bool, managed: bool) -> Self {
         let root = tempfile::tempdir().unwrap();
         let state_dir = root.path().join("state");
         let init = Command::new(env!("CARGO_BIN_EXE_hagency"))
@@ -80,8 +88,41 @@ impl Fixture {
         let work = work.canonicalize().unwrap();
         let mut db = DomainRepository::open(&state_dir).unwrap();
         db.register(&common::domain::registration()).unwrap();
-        let resource = common::domain::resource("pool", "seat", 1000);
-        db.put_resource(&resource).unwrap();
+        let mut account_id = None;
+        let resource = if managed {
+            let reserved = db.reserve_account(hagency_store::ACCOUNT_PROFILE).unwrap();
+            let choice = db.materialize_account(&reserved.id).unwrap();
+            fs::write(
+                state_dir.join(&choice.id).join("fixture-account-marker"),
+                "bootstrap-selected",
+            )
+            .unwrap();
+            fs::write(work.join("account-probe.required"), b"required").unwrap();
+            let account = db.managed_account(&choice.id).unwrap();
+            let access = hagency_store::AccountEnrollmentAccess::new(
+                std::time::Instant::now() + Duration::from_secs(30),
+                Default::default(),
+            );
+            let command = access
+                .prepare(
+                    &account,
+                    choice.revision,
+                    "gpt-5.6-sol".into(),
+                    Some("medium".into()),
+                    Some(
+                        serde_json::from_value(json!({"tokens":1000,"period":"monthly"})).unwrap(),
+                    ),
+                    std::time::Instant::now() + Duration::from_secs(5),
+                )
+                .unwrap();
+            let result = db.enroll_account_resource(command).unwrap();
+            account_id = Some(choice.id);
+            db.resource_configuration(&result.resource_id).unwrap()
+        } else {
+            let resource = common::domain::resource("pool", "seat", 1000);
+            db.put_resource(&resource).unwrap();
+            resource
+        };
         let request = common::domain::request("bootstrap", "Worker", &resource, 100);
         let mut observation = common::domain::observation(&request);
         observation.observed_at_ms = now();
@@ -161,7 +202,7 @@ impl Fixture {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
-        let config = json!({"profile":"codex_app_server_development_v1","executable":executable,"executable_sha256":executable_sha256,"workspaces":{"work":work},"file_limit":4194304,"operation_ms":10000,"response_ms":1500,
+        let config = json!({"profile":"codex_app_server_development_v1","managed_account":account_id,"executable":executable,"executable_sha256":executable_sha256,"workspaces":{"work":work},"file_limit":4194304,"operation_ms":10000,"response_ms":1500,
             "matrix":{"origin":fake.endpoint,"server_name":"example.test","registration_fingerprint":"a".repeat(64),"engagement_id":e.id,"registration_generation":1,"transport_generation":1,"sender_mxid":"@worker:example.test","device_id":"DEVICE_1","rooms":[{"id":"!project:example.test","generation":1,"privacy":{"kind":"group"}}]}});
         private::write_new(
             &state_dir.join("development-driver.json"),

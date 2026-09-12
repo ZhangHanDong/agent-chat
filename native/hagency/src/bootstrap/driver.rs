@@ -46,6 +46,8 @@ impl Driver {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let future = run(Attempt {
                         domain: &domain,
+                        // Bootstrap already consumed the original account into
+                        // both this Host and its exact claim profile.
                         host: prepared.host,
                         profile: prepared.claim,
                         limits: prepared.limits,
@@ -415,6 +417,7 @@ mod tests {
                 BTreeMap::from([("work".into(), root.canonicalize().unwrap())]),
             )
             .unwrap(),
+            managed_account: None,
             matrix: Some(
                 f.config(endpoint)
                     .with_root_pem(include_bytes!(

@@ -15,6 +15,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{fs::File, path::Path};
+pub(crate) mod accounts;
 mod approvals;
 pub use approvals::card::PrivateApprovalCard;
 mod attachments;
@@ -54,6 +55,7 @@ pub use usage::{
 
 pub struct DomainRepository {
     db: Connection,
+    accounts: accounts::Registry,
     _ownership: File,
     approval_owner: std::sync::Arc<()>,
 }
@@ -62,7 +64,13 @@ impl DomainRepository {
         use crate::shutdown::{Phase, SqliteCloseScope};
         // Match the declared field drop order. Ownership is still a local
         // guard, so unwinding from connection destruction also releases it.
-        let Self { db, _ownership, .. } = self;
+        let Self {
+            db,
+            _ownership,
+            accounts,
+            ..
+        } = self;
+        drop(accounts);
         let close_scope = SqliteCloseScope::install(&db, probe);
         probe.observe_domain_writer();
         probe.mark(Phase::ConnectionDropStarted);
@@ -342,7 +350,7 @@ impl DomainRepository {
                 name: "domain.sqlite3",
                 lock: "domain.lock",
                 application_id: 0x48414732,
-                version: 22,
+                version: 23,
                 migrations: &[
                     (2, include_str!("migrations/002-role-publication.sql")),
                     (3, include_str!("migrations/003-task-dispatch.sql")),
@@ -368,9 +376,11 @@ impl DomainRepository {
                     (20, include_str!("migrations/020-file-deliveries.sql")),
                     (21, include_str!("migrations/021-received-files.sql")),
                     (22, include_str!("migrations/022-approval-responses.sql")),
+                    (23, include_str!("migrations/023-managed-accounts.sql")),
                 ],
                 sql: include_str!("domain.sql"),
                 verify: &[
+                    "SELECT k.secret,k.deployment,k.root_identity,a.id,a.ordinal,a.generation,a.state,a.namespace_identity,a.identity_tuple,a.seat_id,r.preset_id,r.account_id,r.binding_generation FROM account_identity_key k CROSS JOIN managed_accounts a CROSS JOIN resource_accounts r LIMIT 0",
                     "SELECT request_id,context_id,capability_digest,decision_digest,state,write_accepted,authorized_at,response_started_at FROM approval_responses LIMIT 0",
                     "SELECT id,capability_digest,event_id,workspace_id,binding,binding_digest,byte_limit,facts,state,failure FROM received_files LIMIT 0",
                     "SELECT id,upload_id,dispatch_id,call_id,request,request_hash,captured,event_state,claim_fence,claim_hash,claim_until,transaction_id,publication,cancel_requested,failure,acceptance,created_at,updated_at FROM file_deliveries LIMIT 0",
@@ -420,8 +430,14 @@ impl DomainRepository {
         approvals::recover(&tx)?;
         tx.execute("UPDATE approval_responses SET state='outcome_unknown' WHERE state IN ('authorized','response_may_send')", [])?;
         tx.execute("UPDATE received_files SET state='outcome_unknown',failure='outcome_unknown' WHERE state IN ('reserved','write_possible')", [])?;
+        tx.execute(
+            "UPDATE managed_accounts SET state='uncertain' WHERE state='preparing'",
+            [],
+        )?;
         tx.commit()?;
+        let accounts = accounts::Registry::open(&database.connection, directory)?;
         Ok(Self {
+            accounts,
             db: database.connection,
             _ownership: database.ownership,
             approval_owner: std::sync::Arc::new(()),
@@ -476,6 +492,7 @@ impl DomainRepository {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let resource = prepare_resource_write(&tx, resource, publication, false)?;
+        self.accounts.check_resource(&tx, &resource)?;
         write_resource_configuration(&tx, &resource, false)?;
         tx.commit()?;
         Ok(resource.catalog())
@@ -485,6 +502,9 @@ impl DomainRepository {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if seat.id.starts_with("seat_native_") {
+            return Err(Error::Unqualified);
+        }
         bounded_row(&tx, "seats", "id", &seat.id, 2048)?;
         tx.execute("INSERT INTO seats(id,config) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET config=excluded.config", params![seat.id,serialize(seat)?])?;
         tx.commit()?;
@@ -516,6 +536,11 @@ impl DomainRepository {
         let mut output = Vec::new();
         for row in rows {
             let resource: Resource = serde_json::from_str(&row?)?;
+            match self.accounts.check_resource(&self.db, &resource) {
+                Ok(()) => {}
+                Err(Error::LocalAuthority | Error::Unqualified) => continue,
+                Err(error) => return Err(error),
+            }
             let mut public = resource.catalog();
             public.roles.retain(|role| allowed.contains(role.as_str()));
             if !public.roles.is_empty() {
@@ -606,6 +631,7 @@ impl DomainRepository {
         }
         bounded_row(&tx, "engagements", "id", &id, 10_000)?;
         let resource = read_resource(&tx, &request.agent_definition.resource_id)?;
+        self.accounts.check_resource(&tx, &resource)?;
         if !resource.qualifies(&request.role)
             || !role_available(&tx, &request.role, Some(&request.fleet_id))?
         {
@@ -680,6 +706,7 @@ impl DomainRepository {
             return Err(Error::State);
         }
         let resource = read_resource(&tx, &value.resource_id)?;
+        self.accounts.check_resource(&tx, &resource)?;
         if !resource.qualifies(&value.role)
             || !role_available(&tx, &value.role, Some(&request.fleet_id))?
         {
@@ -905,6 +932,7 @@ fn prepare_resource_write(
     create_only: bool,
 ) -> Result<Resource, Error> {
     resource.validate()?;
+    accounts::association(tx, resource)?;
     let mut resource = resource.clone();
     bounded_row(tx, "resources", "id", &resource.id(), 2048)?;
     let previous = match read_resource(tx, &resource.id()) {

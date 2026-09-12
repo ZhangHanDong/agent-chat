@@ -40,6 +40,7 @@ pub struct Host {
     executable: PathBuf,
     environment: BTreeMap<OsString, OsString>,
     workspaces: Workspaces,
+    managed_account: Option<hagency_store::ManagedAccount>,
     task_helper: Option<(PathBuf, SocketAddr)>,
     file_tools: bool,
     receive_tools: bool,
@@ -92,6 +93,7 @@ impl Host {
             executable,
             environment,
             workspaces,
+            managed_account: None,
             task_helper: None,
             file_tools: false,
             receive_tools: false,
@@ -106,6 +108,18 @@ impl Host {
             #[cfg(test)]
             panic_after_workspace: false,
         })
+    }
+    /// Consume the original registry binding. Managed scope cannot fall through
+    /// to the fixed development HOME, and another account cannot replace it.
+    pub fn with_managed_account(
+        mut self,
+        account: hagency_store::ManagedAccount,
+    ) -> Result<Self, super::Failure> {
+        if self.managed_account.is_some() {
+            return Err(super::Failure::Admission);
+        }
+        self.managed_account = Some(account);
+        Ok(self)
     }
     /// Host-selected native executable and literal loopback endpoint only. The
     /// task/capability are supplied later from the validated owned dispatch.
@@ -227,6 +241,19 @@ impl Host {
             return Err(super::Failure::Admission);
         }
         let mut environment = self.environment.clone();
+        let account = match &self.managed_account {
+            Some(account) => {
+                let launch = account
+                    .prepare_launch(scope)
+                    .map_err(|_| super::Failure::Admission)?;
+                launch
+                    .apply_codex_environment(&mut environment)
+                    .map_err(|_| super::Failure::Admission)?;
+                Some(launch)
+            }
+            None if scope.requires_managed_account() => return Err(super::Failure::Admission),
+            None => None,
+        };
         if let Some((executable, address)) = &self.task_helper {
             let mut helper = TaskMcp::new(
                 executable.clone(),
@@ -273,6 +300,7 @@ impl Host {
             },
             input,
             root,
+            account,
         })
     }
 }
@@ -283,6 +311,7 @@ pub(crate) struct Prepared {
     pub(crate) io_limits: transport::Limits,
     pub(crate) input: String,
     pub(crate) root: Arc<Root>,
+    pub(crate) account: Option<hagency_store::ManagedLaunch>,
 }
 
 #[cfg(test)]

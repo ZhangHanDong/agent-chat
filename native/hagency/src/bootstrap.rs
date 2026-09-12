@@ -1,4 +1,5 @@
 //! Explicit one-attempt development startup; no production scheduler or file tool.
+pub mod accounts;
 mod config;
 mod driver;
 pub(crate) mod palpo;
@@ -452,11 +453,26 @@ impl Bootstrap {
         )
         .map_err(|_| Failure::Startup)?;
         tracing::trace!(target: "hagency_startup_observation", "native startup boundary: domain_entered");
-        let domain = DomainStore::start(
-            DomainRepository::open(&state).map_err(|_| Failure::Startup)?,
-            queue_capacity,
-        )
-        .map_err(|_| Failure::Startup)?;
+        let repository = DomainRepository::open(&state).map_err(|_| Failure::Startup)?;
+        prepared = prepared
+            .map(|mut prepared| {
+                if let Some(id) = prepared.managed_account.take() {
+                    let account = repository
+                        .managed_account(&id)
+                        .map_err(|_| Failure::Config)?;
+                    prepared.claim = account
+                        .bind_claim_profile(prepared.claim)
+                        .map_err(|_| Failure::Config)?;
+                    prepared.host = prepared
+                        .host
+                        .with_managed_account(account)
+                        .map_err(|_| Failure::Config)?;
+                }
+                Ok::<_, Failure>(prepared)
+            })
+            .transpose()?;
+        let domain =
+            DomainStore::start(repository, queue_capacity).map_err(|_| Failure::Startup)?;
         tracing::trace!(target: "hagency_startup_observation", "native startup boundary: shared_entered");
         let shared = prepared
             .as_mut()

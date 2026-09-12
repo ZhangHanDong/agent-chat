@@ -97,3 +97,8 @@ pub use domain::{
 };
 
 pub use domain::{OwnedApprovalScope, OwnedApprovalStatus};
+
+pub use domain::accounts::{
+    ACCOUNT_PROFILE, AccountChoice, AccountEnrollmentAccess, AccountEnrollmentCommand,
+    AccountState, ManagedAccount, ManagedLaunch,
+};

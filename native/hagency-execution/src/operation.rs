@@ -151,6 +151,7 @@ pub struct Report {
     usage: Option<UsageRun>,
     // After owner in field order: actual cleanup drops before retained roots.
     workspace: Option<Arc<Binding>>,
+    account: Option<hagency_store::ManagedLaunch>,
     handoff: Handoff,
     registration: Option<Gate>,
 }
@@ -171,6 +172,7 @@ impl Report {
             reconciliation: None,
             usage: None,
             workspace: None,
+            account: None,
             handoff,
             registration: None,
         }
@@ -522,7 +524,9 @@ async fn execute(
         io_limits,
         input,
         root,
+        account,
     } = host.prepare(&scope, cap, limits)?;
+    report.account = account;
     checkpoint(cancel, until)?;
     let start_reply = bounded(
         domain.start_owned_dispatch(cap.clone(), expected.clone()),
@@ -598,6 +602,9 @@ async fn execute(
         checkpoint(cancel, until)?;
     }
     workspace.check_root().map_err(|_| Failure::Admission)?;
+    if let Some(account) = &report.account {
+        account.check().map_err(|_| Failure::LostAuthority)?;
+    }
     checkpoint(cancel, until)?;
     let approval_may_write = !settings.is_read_only();
     if let Some(live) = &mut report.live {
