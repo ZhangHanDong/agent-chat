@@ -7283,3 +7283,24 @@ client qualification and ongoing identity/key management remain separate.
   and one restart recovery miss. That class also appeared before ADR-120
   and is the next analysis target; it is a different producer of
   `OutcomeUnknown` than the domain shutdown.
+
+## 2026-09-12 — Native bounded transcript reader (ADR119)
+
+- Ported `lib/metering/reader.js` to `hagency_metering::reader` (ADR-119,
+  proposed): the four ceilings with their defaults (30-day window, 200 files,
+  8 MiB per transcript, 20 000 walked entries), `ReaderLimits::from_env`
+  parsing explicit strings with the JavaScript `parseInt` positive-integer
+  rule, the breadth-first walk that recurses only where the layout says so
+  (nested Codex date tree recursive, Claude project directory flat), the
+  narrowed-vs-unread age split, newest-first reads under the file ceiling,
+  line-boundary truncation with `lastIndexOf`-exact semantics, and
+  `bounds_report` with the exact JavaScript wording keeping understatement
+  and unknown-ownership claims apart. `meter_fleet` ports the TTL cache
+  (force, `computedAt` stamp, `reset`) keyed over fleet identity and home
+  directory with an injected clock.
+- Gates: `native/scripts/reader-vectors.mjs` records 21 vectors (13 reads,
+  5 reports, 3 fleets) from the retained JavaScript over synthetic trees and
+  its `--check` was added to the Rust CI job after the attribution line;
+  `cargo fmt/clippy -D warnings` and `cargo test -p hagency-metering
+  --locked` (18 tests, five new reader tests) pass locally, plus the
+  attribution and metering vector checks.

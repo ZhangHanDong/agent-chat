@@ -72,7 +72,15 @@ jobs:
       # so its oracle exists only on POSIX hosts. The recorded fixture is still
       # replayed by the Rust tests on every OS in the test step below.
       - run: node native/scripts/attribution-vectors.mjs --check
+<<<<<<< HEAD
         if: runner.os != 'Windows'
+=======
+      # Same POSIX-only oracle as the attribution vectors: the retained reader
+      # joins and relativizes with the host path module. The recorded fixture is
+      # replayed by the Rust reader tests on every OS in the test step below.
+      - run: node native/scripts/reader-vectors.mjs --check
+        if: runner.os != 'Windows'
+>>>>>>> 04980c46 (feat(native): port the bounded transcript reader to hagency-metering)
       - run: node native/scripts/usage-vectors.mjs --check
       - run: node native/scripts/account-vectors.mjs --check
       - run: node native/scripts/canonical-vectors.mjs --check

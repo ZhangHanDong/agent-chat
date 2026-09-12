@@ -4,6 +4,7 @@
 pub mod attribution;
 mod json;
 pub mod observation;
+pub mod reader;
 pub mod runtime_usage;
 
 use serde::Serialize;
