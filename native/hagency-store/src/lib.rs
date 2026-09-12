@@ -54,6 +54,10 @@ pub enum Error {
     Unqualified,
     #[error("selected resource or declared shared seat has insufficient capacity")]
     InsufficientCapacity,
+    #[error("cannot allocate against an agent with no declared ceiling")]
+    NoCeiling,
+    #[error("{message}")]
+    OverCommit { message: String },
     #[error("domain operation is not valid in its current state")]
     State,
     #[error("state is owned by another process")]

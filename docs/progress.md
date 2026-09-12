@@ -1,5 +1,34 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — Ceiling slice 2: refusals name the binding draw (ADR-122)
+
+- Implemented slice 2 of the accepted ceiling-enforcement plan: pure wording
+  plus refusal identity, admission decision unchanged. `hagency_core::ceiling`
+  now exports `over_commit_message(agent, alloc, remaining, ctx)` and
+  `SpendContext` — a byte-faithful port of the retained
+  `lib/engagement-store.js:58-103` (`compactTokens`, plain head, ceiling
+  sentence, both binding-draw sentences with the period-key parenthetical,
+  the conditional cache-read note, preset/period remedy).
+- Store error split at the approve sites (`domain.rs:717-719`): unknown
+  capacity → new `Error::NoCeiling` (the JS `no_ceiling` wording); a known
+  pool ceiling the allocation exceeds → new `Error::OverCommit { message }`
+  carrying the wording; the shared-seat quota binding keeps the existing
+  `Error::InsufficientCapacity` — the resource-pool refusal the JavaScript
+  does not model, per the brief. The three tests matching the old variant are
+  re-pointed (`tests/domain.rs:130`, `tests/resource_configuration.rs:120` →
+  `OverCommit`; `tests/domain.rs:150` seat-binding keeps
+  `InsufficientCapacity`).
+- Oracle: `ceiling-vectors.mjs` now imports the retained `overCommitMessage`
+  (sha256-pinned via `engagementStoreSha256`), computes three message vectors
+  mirroring `tests/ceiling-draws-fresh-tokens.test.js:279-346`; fixture
+  regenerated, `--check` green. Three core tests replay it and pass anywhere;
+  the fourth (store-level `no_ceiling` vs `over_commit` distinction) uses
+  explicit match arms and needs a repository open (CI).
+- Gates: fmt, clippy `-p hagency-core -p hagency-store --all-targets` clean;
+  `cargo test -p hagency-core --locked` green (wording tests 3/3); the store
+  suite cannot open repositories in this sandbox (known cap-std ancestor
+  EPERM, as in every slice) — the store selector compiles and is CI's to run.
+
 ## 2026-09-12 — OutcomeUnknown attribution: writer dequeue, runner 504, heartbeat, file view
 
 - Implemented the accepted design (`.peer/evidence/context-outcome-unknown-attribution.md`)

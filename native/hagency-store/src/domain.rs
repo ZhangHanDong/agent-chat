@@ -5,6 +5,7 @@ use hagency_core::{
     allocation::{self, Budget},
     authority::{Registration, VerifiedRequest},
     canonical,
+    ceiling::{self as ceiling_wording, SpendContext},
     project::{
         self, CatalogResource, CleanupState, ConfiguredResource, Engagement, EngagementState,
         Resource, Seat,
@@ -712,10 +713,37 @@ impl DomainRepository {
         {
             return Err(Error::Unqualified);
         }
-        let remaining = budget(&tx, &resource)?
-            .remaining_tokens
-            .ok_or(Error::InsufficientCapacity)?;
+        // Refusal identity mirrors the retained JavaScript split
+        // (engagement-store.js:618,638): unknown capacity is `no_ceiling`, a
+        // known ceiling exceeded by the allocation is `over_commit` with the
+        // binding-draw wording, and the shared-seat quota — a resource-pool
+        // concept the JavaScript does not have — keeps the existing
+        // `InsufficientCapacity` identity. The admission DECISION is unchanged
+        // in this slice; measured spend joins the context in slice 3.
+        let spent_budget = budget(&tx, &resource)?;
+        let requested = u64::from(value.requested_tokens);
+        let pool_remaining = spent_budget.pool.remaining.map(u64::from);
+        let remaining = spent_budget.remaining_tokens.ok_or(Error::NoCeiling)?;
         if remaining < value.requested_tokens {
+            if pool_remaining.is_some_and(|p| p < requested) {
+                let message = ceiling_wording::over_commit_message(
+                    value.agent_name.as_str(),
+                    requested,
+                    u64::from(remaining),
+                    Some(&SpendContext {
+                        period: spent_budget.pool.period.clone(),
+                        reserved: Some(u64::from(spent_budget.pool.committed)),
+                        spent: None,
+                        consumed: None,
+                        ceiling_tokens: spent_budget.pool.ceiling.map(u64::from),
+                        preset_name: Some(resource.preset_id.clone()),
+                        spend_period_key: None,
+                    }),
+                );
+                return Err(Error::OverCommit { message });
+            }
+            // The declared shared seat is the binding side: the resource-pool
+            // refusal keeps its pre-existing identity and shape.
             return Err(Error::InsufficientCapacity);
         }
         value.state = EngagementState::Reserved;

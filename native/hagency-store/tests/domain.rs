@@ -127,7 +127,9 @@ async fn domain_reservations_are_atomic() {
     );
     assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
     let (winner, command, request) = if let Ok(a_result) = first {
-        assert!(matches!(second, Err(Error::InsufficientCapacity)));
+        // The pool ceiling is declared, so the loser is an over-commit with the
+        // binding-draw wording, not an unknown-capacity refusal.
+        assert!(matches!(second, Err(Error::OverCommit { .. })));
         (a_result, "approve_a", &a)
     } else {
         (second.unwrap(), "approve_b", &b)
@@ -144,7 +146,9 @@ async fn domain_reservations_are_atomic() {
     let budget = store.resource_budget(pool.id()).await.unwrap();
     assert_eq!(u64::from(budget.pool.committed), 60);
     assert_eq!(u64::from(budget.remaining_tokens.unwrap()), 40);
-    // Other pool still has 100 but its shared seat has only 90.
+    // Other pool still has 100 but its shared seat has only 90: the seat is
+    // the binding side, which is the resource-pool refusal this identity
+    // predates the ceiling split for and still carries.
     assert!(matches!(
         store.approve("approve_c".into(), proof(&c), 1000).await,
         Err(Error::InsufficientCapacity)
@@ -304,4 +308,50 @@ fn domain_effect_recovery_and_revocation() {
         db.get(&engagement.id).unwrap().cleanup,
         CleanupState::Complete
     );
+}
+
+#[test]
+fn native_ceiling_no_ceiling_distinct_from_over_commit() {
+    let (_dir, mut db) = setup();
+    // Unknown capacity is not an over-commit: a declared ceiling whose seat
+    // declaration mismatches the pool period leaves remaining unknown, which
+    // the retained JavaScript refuses as no_ceiling.
+    let pool = resource("preset_no_ceiling", "mismatched_seat", 100);
+    db.put_resource(&pool).unwrap();
+    let seat: Seat = serde_json::from_value(
+        json!({"id":"mismatched_seat","declaration":{"quotaTokens":50,"period":"daily"}}),
+    )
+    .unwrap();
+    db.put_seat(&seat).unwrap();
+    let a = request("no_ceiling", "NoCeilingWorker", &pool, 10);
+    db.admit(&proof(&a), 1000).unwrap();
+    match db.approve("approve_no_ceiling", &proof(&a), 1000) {
+        Err(Error::NoCeiling) => {}
+        Err(Error::OverCommit { message }) => {
+            panic!("unknown capacity must not carry over-commit wording: {message}")
+        }
+        Err(Error::InsufficientCapacity) => {
+            panic!("unknown capacity must be named, not the pool-refusal variant")
+        }
+        other => panic!("expected NoCeiling, got {other:?}"),
+    }
+    // The mirror on the same store: a known ceiling the allocation exceeds
+    // refuses as over_commit and names the draw, the preset and the period.
+    let pool = resource("preset_over_commit", "aligned_seat", 100);
+    db.put_resource(&pool).unwrap();
+    let b = request("over_commit", "OverCommitWorker", &pool, 500);
+    db.admit(&proof(&b), 1000).unwrap();
+    match db.approve("approve_over_commit", &proof(&b), 1000) {
+        Err(Error::NoCeiling) => panic!("a declared ceiling must not read as unknown"),
+        Err(Error::OverCommit { message }) => {
+            assert!(message.contains("would exceed the 100 left on OverCommitWorker"));
+            assert!(message.contains("its ceiling is 100 per monthly"));
+            assert!(message.contains("nothing has been measured"));
+            assert!(message.contains("preset_over_commit"));
+        }
+        Err(Error::InsufficientCapacity) => {
+            panic!("a ceiling exceeded by the allocation must be named, not pooled")
+        }
+        other => panic!("expected OverCommit, got {other:?}"),
+    }
 }

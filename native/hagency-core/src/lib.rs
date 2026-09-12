@@ -3,6 +3,7 @@ pub mod allocation;
 pub mod attachments;
 pub mod authority;
 pub mod canonical;
+pub mod ceiling;
 pub mod conversations;
 pub mod custody;
 pub mod execution;

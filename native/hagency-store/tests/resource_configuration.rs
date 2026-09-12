@@ -117,7 +117,9 @@ async fn native_resource_configuration_create_edit() {
     db.configure_resource(edit).unwrap();
     assert!(matches!(
         db.approve("configuration_pending_capacity", &pending, 1000),
-        Err(Error::InsufficientCapacity)
+        // The ceiling is declared (as zero), so the refusal names the draw
+        // rather than reporting unknown capacity.
+        Err(Error::OverCommit { .. })
     ));
     let proof = common::proof(&common::request(
         "configuration_commitment",

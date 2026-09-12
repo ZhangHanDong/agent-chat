@@ -14,10 +14,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createUsageLedger } from '../../lib/metering/ledger.js';
+import { overCommitMessage } from '../../lib/engagement-store.js';
 
 const sha = (p) => createHash('sha256').update(readFileSync(new URL(p, import.meta.url), 'utf8').replaceAll('\r\n', '\n')).digest('hex');
 const ledgerSha256 = sha('../../lib/metering/ledger.js');
 const backendSha256 = sha('../../backend-v2.js');
+const engagementStoreSha256 = sha('../../lib/engagement-store.js');
 
 // The Rust fixture (native/hagency-store/tests/usage.rs Fixture::new) commits
 // exactly one approved 100-token engagement on the resource, so reserved is
@@ -79,15 +81,63 @@ const vectors = cases.map(({ name, sources, queryAt }) => {
   };
 });
 
+// Slice 2: refusal-message vectors. The expected strings are computed by
+// importing overCommitMessage from the retained engagement-store.js (exported
+// at :73), so the Rust over_commit_message stays pinned byte-for-byte to the
+// JavaScript wording. The three cases mirror
+// tests/ceiling-draws-fresh-tokens.test.js:279-346 exactly.
+const messageCases = [
+  { name: 'plain-form', agent: 'a1', alloc: 500, remaining: 100, context: null },
+  {
+    name: 'measured-binding',
+    agent: 'BigLittle',
+    alloc: 50_000,
+    remaining: 0,
+    context: {
+      period: 'monthly',
+      reserved: 250_000,
+      spent: 10_000_000,
+      consumed: 13_609_601,
+      ceilingTokens: 10_000_000,
+      presetName: 'codex-strong',
+      spendPeriodKey: '2026-08',
+    },
+  },
+  {
+    name: 'committed-binding-mirror',
+    agent: 'BigLittle',
+    alloc: 50_000,
+    remaining: 0,
+    context: {
+      period: 'monthly',
+      reserved: 9_000_000,
+      spent: 100_000,
+      consumed: 100_000,
+      ceilingTokens: 9_000_000,
+      presetName: 'codex-strong',
+      spendPeriodKey: '2026-08',
+    },
+  },
+];
+const messageVectors = messageCases.map(({ name, agent, alloc, remaining, context }) => ({
+  name,
+  agent,
+  alloc,
+  remaining,
+  context,
+  expected: overCommitMessage({ agent }, alloc, remaining, context),
+}));
+
 const output = JSON.stringify({
   source: 'lib/metering/ledger.js + backend-v2.js remainingFor drawn rule',
   ledgerSha256,
   backendSha256,
+  engagementStoreSha256,
   semantics: 'fresh-token draw per current period; max(reserved, spent) with unknown fallback',
   vectors,
+  messages: messageVectors,
 }, null, 2) + '\n';
-const path = new URL('../hagency-store/tests/fixtures/ceiling-vectors.json', import.meta.url);
-if (process.argv.includes('--check')) {
+const path = new URL('../hagency-store/tests/fixtures/ceiling-vectors.json', import.meta.url);if (process.argv.includes('--check')) {
   if (readFileSync(path, 'utf8').replaceAll('\r\n', '\n') !== output) throw new Error('Ceiling vectors differ from retained JavaScript');
 } else writeFileSync(path, output);
 console.log(JSON.stringify({ vectors: vectors.length }));
