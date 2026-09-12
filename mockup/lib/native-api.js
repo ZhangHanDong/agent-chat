@@ -16,9 +16,16 @@ const period = (v) => v === null || (object(v, ['kind', 'key', 'observed_growth'
   && counts(v.observed_growth, true) && counts(v.known_growth_lower_bound, false)
   && typeof v.incomplete === 'boolean' && number(v.observations) && evidence(v.evidence));
 
+// Ceiling headroom published with the report (ADR-123): the drawn figure is
+// always known; used and remaining are null when nothing was measured or no
+// limit is declared. Unknown is rendered as unknown, never as zero.
+const headroom = (v) => object(v, ['tokens_drawn', 'tokens_used', 'remaining_tokens']) && number(v.tokens_drawn)
+  && (v.tokens_used === null || number(v.tokens_used)) && (v.remaining_tokens === null || number(v.remaining_tokens));
+
 export function validateReport(v, selected) {
   const s = v?.summary;
-  if (!object(v, ['engagement_id', 'at_ms', 'summary', 'daily', 'monthly']) || v.engagement_id !== selected || !number(v.at_ms)
+  if (!object(v, ['engagement_id', 'at_ms', 'summary', 'daily', 'monthly', 'ceiling']) || v.engagement_id !== selected || !number(v.at_ms)
+    || !headroom(v.ceiling)
     || !object(s, ['sources', 'latest_counts', 'known_high_water_lower_bound', 'latest_incomplete_sources', 'historically_incomplete_sources', 'regression_observations', 'evidence'])
     || !['sources', 'latest_incomplete_sources', 'historically_incomplete_sources', 'regression_observations'].every((k) => number(s[k]))
     || !(s.latest_counts === null || counts(s.latest_counts, true))

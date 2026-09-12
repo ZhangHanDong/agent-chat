@@ -7650,3 +7650,11 @@ client qualification and ongoing identity/key management remain separate.
   the integration chain filtered the test output through a pipeline without
   `pipefail`, so the failure did not stop the push. Each test now admits its
   own agent; the arithmetic assertions are unchanged and pass.
+- 2026-09-12: the usage report's new `ceiling` headroom (ADR-123) broke the
+  console usage page: the client validates the report against an exact key
+  list and threw `invalid_native_response`, so the page never reached its
+  ready state and both usage browser drivers timed out on the hosted run.
+  The client now requires the headroom object with its exact shape (drawn
+  always known; used and remaining null when unmeasured or undeclared) and
+  the usage page renders it bilingually next to the summary. Verified with
+  the real browser: all 13 console tests pass.

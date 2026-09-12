@@ -56,6 +56,11 @@ export default function NativeUsage() {
           <div className="split even"><Counts value={report.summary.latest_counts} label={t('nu.latest')} />
           <Counts value={report.summary.known_high_water_lower_bound} label={t('nu.highWater')} /></div>
         </section>
+        <section className="panel"><h2 className="sec" style={{ marginTop: 0 }}>{t('nu.ceiling')}</h2><p>{t('nu.ceilingHelp')}</p><dl>
+          {['tokens_drawn', 'tokens_used', 'remaining_tokens'].map((key) => <div key={key} className="kv">
+            <dt>{t(`nu.${key}`)}</dt><dd data-ceiling={key}>{report.ceiling[key] == null ? t('nu.unknown') : report.ceiling[key].toLocaleString()}</dd>
+          </div>)}
+        </dl></section>
         <Period period={report.daily} title={t('nu.daily')} /><Period period={report.monthly} title={t('nu.monthly')} />
       </div>}
     </div>}
