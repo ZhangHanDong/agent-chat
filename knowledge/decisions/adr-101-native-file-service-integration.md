@@ -328,3 +328,16 @@ state and risks granting new execution after crash. Automatic POST/PUT retries o
 fresh encryption after Unknown would alter the exact original external operation.
 Privileged mount namespaces could provide a stronger optional profile, but are
 not required by the accepted host-exclusive stable-ancestor development boundary.
+
+**Amendment (2026-09-12) — the safe result names which unknown it is.** The
+fixed `error_code` for `outcome_unknown` now distinguishes the two causes this
+ADR already enumerates: the durable-receipt projection (`FileView::from_receipt`)
+keeps the existing `outcome_unknown` code, while local custody that was neither
+acknowledged nor released (`Job::mark_unknown`) reports
+`outcome_unknown_custody`. Both remain `FileStatus::OutcomeUnknown`;
+`FileView::validate` accepts the closed set of exactly these two codes and
+still refuses any other string for that status. No status, deadline, retry,
+schema or settlement changes. The custody label is observable on the live job
+view; `inspect` and exact replay continue to rebuild through the durable
+receipt and therefore report the base code, which is stated here so the two
+are not confused.

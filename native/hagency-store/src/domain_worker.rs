@@ -19,7 +19,13 @@ use hagency_core::{
     },
 };
 use serde::Serialize;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU8, AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 
 #[cfg(test)]
@@ -201,6 +207,7 @@ mod shutdown_tests {
         let full = DomainStore {
             tx,
             bytes: Arc::new(Semaphore::new(1)),
+            progress: Arc::new(Progress::default()),
         };
         let (reply, _) = oneshot::channel();
         full.tx
@@ -216,6 +223,68 @@ mod shutdown_tests {
             snapshot.native_writer,
             crate::NativeWriterObservation::Unobserved
         );
+    }
+
+    /// The two `OutcomeUnknown` cases must be distinguishable: a command the
+    /// writer had begun versus one still queued when the reply bound expired
+    /// (accepted design §1.4). Neither is a retryable success; the bit is a
+    /// diagnosis only. Note the tail: `shutdown()` drains the queue and
+    /// closes the writer (no `Shutdown` was enqueued otherwise, so a bare
+    /// channel-close wait could not resolve).
+    #[tokio::test]
+    async fn native_domain_unknown_reports_dequeue() {
+        // Case 1: the writer is parked inside an earlier job, so this command
+        // is still queued when its two-second reply bound expires.
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let store = DomainStore::start(DomainRepository::open(&state).unwrap(), 2).unwrap();
+        let (entered, reached) = oneshot::channel();
+        let (resume, paused) = std::sync::mpsc::channel::<()>();
+        store
+            .tx
+            .try_send(Job::Run {
+                operation: Box::new(move |_| {
+                    let _ = entered.send(());
+                    let _ = paused.recv_timeout(Duration::from_secs(6));
+                }),
+                _bytes: store.bytes.clone().try_acquire_owned().unwrap(),
+            })
+            .unwrap_or_else(|_| panic!("parking job was not admitted"));
+        tokio::time::timeout(Duration::from_secs(2), reached)
+            .await
+            .unwrap()
+            .unwrap();
+        let queued = store
+            .call_with_policy(1, ReceiverPolicy::CancelIfDropped, |_| Ok(()))
+            .await;
+        assert!(matches!(queued, Err(Error::OutcomeUnknown)));
+        assert_eq!(
+            store.last_unknown_dequeued(),
+            Some(false),
+            "a command behind a parked writer must not be reported as dequeued"
+        );
+        // The command is NOT withdrawn: the writer runs it once released, so
+        // the outcome genuinely remains unknown rather than "not executed".
+        resume.send(()).unwrap();
+        store.shutdown().await.unwrap();
+
+        // Case 2: the writer begins this command and it outlives the bound.
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let store = DomainStore::start(DomainRepository::open(&state).unwrap(), 1).unwrap();
+        let running = store
+            .call_with_policy(1, ReceiverPolicy::CancelIfDropped, |_| {
+                std::thread::sleep(Duration::from_secs(3));
+                Ok(())
+            })
+            .await;
+        assert!(matches!(running, Err(Error::OutcomeUnknown)));
+        assert_eq!(
+            store.last_unknown_dequeued(),
+            Some(true),
+            "a command the writer had begun must be reported as dequeued"
+        );
+        store.shutdown().await.unwrap();
     }
 
     #[tokio::test]
@@ -1301,6 +1370,30 @@ mod clock_tests {
 pub struct DomainStore {
     tx: mpsc::Sender<Job>,
     bytes: Arc<Semaphore>,
+    progress: Arc<Progress>,
+}
+/// Queue-position diagnostic for a bounded reply wait (accepted design §1.1:
+/// one monotonic ticket counter plus one "which ticket is running now" cell).
+/// These values are observations, never execution authority: nothing here may
+/// release a lease, mark a task Done or authorize a retry. `started` holds the
+/// running job's ticket + 1 so a default-initialised cell means "no job begun
+/// yet".
+#[derive(Default)]
+struct Progress {
+    next: AtomicU64,
+    started: AtomicU64,
+    /// 0 = no `Error::OutcomeUnknown` recorded, 1 = the job was dequeued,
+    /// 2 = it had not been dequeued when the reply bound expired.
+    last_unknown: AtomicU8,
+}
+impl Progress {
+    fn unknown_dequeued(&self) -> Option<bool> {
+        match self.last_unknown.load(Ordering::Acquire) {
+            1 => Some(true),
+            2 => Some(false),
+            _ => None,
+        }
+    }
 }
 fn weight(value: &impl Serialize) -> Result<u32, Error> {
     let len = serde_json::to_vec(value)?.len();
@@ -2219,6 +2312,7 @@ impl DomainStore {
             return Err(hagency_core::InvalidInput("queue capacity must be 1..128").into());
         }
         let (tx, mut rx) = mpsc::channel(capacity);
+        let progress = Arc::new(Progress::default());
         std::thread::Builder::new()
             .name("hagency-domain".into())
             .spawn(move || {
@@ -2246,6 +2340,7 @@ impl DomainStore {
         Ok(Self {
             tx,
             bytes: Arc::new(Semaphore::new(8 * 1024 * 1024)),
+            progress,
         })
     }
     async fn call<T: Send + 'static>(
@@ -2262,13 +2357,23 @@ impl DomainStore {
         policy: ReceiverPolicy,
         operation: impl FnOnce(&mut DomainRepository) -> Result<T, Error> + Send + 'static,
     ) -> Result<T, Error> {
+        let ticket = self.progress.next.fetch_add(1, Ordering::AcqRel);
         let permit = self
             .bytes
             .clone()
             .try_acquire_many_owned(bytes)
             .map_err(|_| Error::Busy)?;
         let (reply, rx) = oneshot::channel();
+        let progress = self.progress.clone();
         let operation = Box::new(move |db: &mut DomainRepository| {
+            // Publish the running ticket BEFORE this job's operation can block,
+            // so a caller whose reply bound expires while this job runs
+            // observes "dequeued" and never "still queued" (accepted design
+            // §1.1). Directly enqueued test jobs take no ticket and never
+            // publish, which leaves `started` at its default.
+            progress
+                .started
+                .store(ticket.wrapping_add(1), Ordering::Release);
             // An admitted negative observation must retire its exact old scope
             // even after receiver loss. Ordinary abandoned work still stops here.
             if matches!(policy, ReceiverPolicy::RetainEnqueuedInvalidation) || !reply.is_closed() {
@@ -2286,8 +2391,29 @@ impl DomainStore {
             })?;
         tokio::time::timeout(Duration::from_secs(2), rx)
             .await
-            .map_err(|_| Error::OutcomeUnknown)?
+            .map_err(|_| {
+                // Attribution by equality, not inequality: this job was the
+                // one running exactly when the writer published this ticket
+                // + 1. Any other value means the reply bound expired while
+                // this command was still queued behind another job.
+                let dequeued =
+                    self.progress.started.load(Ordering::Acquire) == ticket.wrapping_add(1);
+                self.progress
+                    .last_unknown
+                    .store(u8::from(dequeued) + 1, Ordering::Release);
+                Error::OutcomeUnknown
+            })?
             .map_err(|_| Error::Unavailable)?
+    }
+    /// Diagnostic attribution for the most recent `Error::OutcomeUnknown` this
+    /// store produced: whether the writer had dequeued (begun) that command
+    /// when its reply bound expired. `None` when no such error occurred. The
+    /// cell is shared across callers, so it is exact for a single expiring
+    /// caller and diagnostic-only otherwise. It is never execution authority:
+    /// nothing may read it to release a lease, mark a task Done or authorize a
+    /// retry (accepted design §1.3).
+    pub fn last_unknown_dequeued(&self) -> Option<bool> {
+        self.progress.unknown_dequeued()
     }
     pub async fn shutdown(&self) -> Result<(), Error> {
         self.shutdown_tracked(None).await.0

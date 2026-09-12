@@ -43,6 +43,7 @@ one bounded operation, while keeping production workspace and sandbox qualificat
 - native/hagency-store/tests/owned_dispatch.rs
 - native/hagency-runtime/src/bin/hagency-runtime-probe.rs
 - native/hagency-platform/src/lib.rs
+- native/hagency/src/runner.rs
 - knowledge/decisions/adr-053-native-owned-dispatch.md
 - specs/task-rust-owned-dispatch.spec.md
 - docs/**
@@ -62,6 +63,12 @@ Scenario: Native completion remains distinct from canonical completion
   Given a fresh DomainStore and an actual owned native child
   When the exact turn completes and its owner is stopped
   Then canonical Done is not inferred and uncertain platform cleanup keeps leases quarantined
+
+Scenario: A bounded reply expiry names its side of the writer queue
+  Test: native_domain_unknown_reports_dequeue
+  Given a parked earlier job with a command still queued and then a command the writer begins
+  When the two-second reply bound expires in each position
+  Then the dequeue attribution distinguishes running from queued and grants no retry or completion authority
 
 Scenario: Cancellation and lost replies retain custody
   Test: native_owned_dispatch_cancel_and_unknown

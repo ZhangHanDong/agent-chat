@@ -183,6 +183,13 @@ Scenario: MCP and default service boundaries remain explicit and bounded
   And the existing helper context request IDs frame limits and deadlines remain unchanged
   And default serve remains passive with production capability flags false
 
+Scenario: The safe result names which unknown it is
+  Test: native_file_service_protocol_missing_failure_stays_unknown
+  Given receipt-derived and local-custody projections of the same delivery
+  When either produces FileStatus OutcomeUnknown
+  Then the fixed error code names its producer within the closed two-code set and any invented code is refused
+  And inspect and replay still report the receipt-derived base code because they rebuild through the durable receipt
+
 Scenario: Original executable failures retain bounded child evidence
   Level: integration
   Test Double: actual native children with valid and refused private configuration

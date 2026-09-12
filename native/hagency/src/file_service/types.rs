@@ -56,6 +56,24 @@ pub(crate) enum FileStatus {
     Failed,
     Delivered,
 }
+/// Which producer an `outcome_unknown` code came from (ADR-101 amendment
+/// 2026-09-12). The receipt-derived projection keeps the base code; local
+/// custody that was neither acknowledged nor released carries the custody
+/// label. Both stay `FileStatus::OutcomeUnknown` and neither is terminal.
+pub(crate) enum UnknownOrigin {
+    /// The durable receipt is not a terminal outcome (from_receipt fallback).
+    Remote,
+    /// The local job's custody was neither acknowledged nor released.
+    Custody,
+}
+impl UnknownOrigin {
+    pub(crate) const fn code(self) -> &'static str {
+        match self {
+            Self::Remote => "outcome_unknown",
+            Self::Custody => "outcome_unknown_custody",
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FileView {
@@ -80,7 +98,13 @@ impl FileView {
         }
         let valid = match self.status {
             FileStatus::Queued | FileStatus::Delivered => self.error_code.is_none(),
-            FileStatus::OutcomeUnknown => self.error_code.as_deref() == Some("outcome_unknown"),
+            // A closed set: the base code or the custody-labelled variant. No
+            // other string may be attached to OutcomeUnknown.
+            FileStatus::OutcomeUnknown => matches!(
+                self.error_code.as_deref(),
+                Some(code)
+                    if code == UnknownOrigin::Remote.code() || code == UnknownOrigin::Custody.code()
+            ),
             FileStatus::Failed => matches!(
                 self.error_code.as_deref(),
                 Some("cancelled" | "source_refused" | "staging_refused" | "publication_refused")
@@ -112,13 +136,13 @@ impl FileView {
             _ => FileStatus::OutcomeUnknown,
         };
         let error_code = match status {
-            FileStatus::OutcomeUnknown => Some("outcome_unknown"),
+            FileStatus::OutcomeUnknown => Some(UnknownOrigin::Remote.code()),
             FileStatus::Failed => Some(match receipt.error_code {
                 Some(FileDeliveryFailure::Cancelled) => "cancelled",
                 Some(FileDeliveryFailure::SourceRefused) => "source_refused",
                 Some(FileDeliveryFailure::StagingRefused) => "staging_refused",
                 Some(FileDeliveryFailure::PublicationRefused) => "publication_refused",
-                None => "outcome_unknown",
+                None => UnknownOrigin::Remote.code(),
             }),
             _ => None,
         }

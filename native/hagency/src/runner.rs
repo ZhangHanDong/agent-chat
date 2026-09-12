@@ -66,7 +66,7 @@ async fn change_conversation(req: &mut Request, depot: &mut Depot, res: &mut Res
     .await;
     match result {
         Ok(value) => res.render(Json(value)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 #[handler]
@@ -83,7 +83,7 @@ async fn send_peer(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         .await
     {
         Ok(value) => res.render(Json(value)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 #[handler]
@@ -106,7 +106,7 @@ async fn peer_inbox(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     .await;
     match result {
         Ok(value) => res.render(Json(value)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 fn single_header<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
@@ -129,7 +129,7 @@ async fn open_conversation(req: &mut Request, depot: &mut Depot, res: &mut Respo
         .await
     {
         Ok(value) => res.render(Json(value)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 #[handler]
@@ -145,7 +145,7 @@ async fn conversation(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     .await;
     match result {
         Ok(value) => res.render(Json(value)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 #[handler]
@@ -162,7 +162,7 @@ async fn delegate(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         .await
     {
         Ok(value) => res.render(Json(value)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 fn credential(req: &Request) -> Option<RunnerCapability> {
@@ -200,6 +200,13 @@ fn credential(req: &Request) -> Option<RunnerCapability> {
     })
 }
 fn failure(res: &mut Response, error: Error) {
+    // Submodule callers (completion/replies/workflows, via `use super::*`)
+    // have no store parameter here and keep today's plain code; the runner.rs
+    // sites below call `attributed_failure` with the store (see the report:
+    // the accepted design's 13-site count missed these four callers).
+    attributed_failure(res, None, error);
+}
+fn attributed_failure(res: &mut Response, store: Option<&DomainStore>, error: Error) {
     let (status, code) = match error {
         Error::RunnerAuthority | Error::NotFound => (StatusCode::FORBIDDEN, "task_scope_required"),
         Error::Invalid(_) => (StatusCode::BAD_REQUEST, "invalid_task_operation"),
@@ -208,7 +215,17 @@ fn failure(res: &mut Response, error: Error) {
             (StatusCode::CONFLICT, "state_conflict")
         }
         Error::Busy | Error::Capacity => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
-        Error::OutcomeUnknown => (StatusCode::GATEWAY_TIMEOUT, "outcome_unknown"),
+        // A 504 stays a 504: the command's outcome is unknown either way and
+        // must be reconciled, never retried as success (ADR-053:100-104,147-148).
+        // The code names WHICH side of the writer queue the expiry happened on,
+        // using the store's own diagnostic bit. It grants no retry authority.
+        Error::OutcomeUnknown => (
+            StatusCode::GATEWAY_TIMEOUT,
+            match store.and_then(DomainStore::last_unknown_dequeued) {
+                Some(true) => "outcome_unknown_running",
+                _ => "outcome_unknown",
+            },
+        ),
         _ => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
     };
     refusal(res, status, code);
@@ -251,7 +268,7 @@ async fn authenticate(
             ctrl.skip_rest();
         }
         Err(error) => {
-            failure(res, error);
+            attributed_failure(res, Some(&store), error);
             ctrl.skip_rest();
         }
     }
@@ -310,7 +327,7 @@ async fn list_tasks(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     .await;
     match result {
         Ok(tasks) => res.render(Json(tasks)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 #[handler]
@@ -326,7 +343,7 @@ async fn get_task(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     .await;
     match result {
         Ok(task) => res.render(Json(task)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 #[handler]
@@ -350,7 +367,7 @@ async fn comments(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     .await;
     match result {
         Ok(rows) => res.render(Json(rows)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 #[handler]
@@ -373,7 +390,7 @@ async fn inbox(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     .await;
     match result {
         Ok(rows) => res.render(Json(rows)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }
 #[handler]
@@ -407,6 +424,6 @@ async fn mutate(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     .await;
     match result {
         Ok(value) => res.render(Json(value)),
-        Err(error) => failure(res, error),
+        Err(error) => attributed_failure(res, Some(&c.store), error),
     }
 }

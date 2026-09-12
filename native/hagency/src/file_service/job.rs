@@ -1,4 +1,4 @@
-use super::{FileError, FileStatus, FileView, SendFile};
+use super::{FileError, FileStatus, FileView, SendFile, types::UnknownOrigin};
 use hagency_core::{file_delivery::FileDeliveryRequest, tasks::RunnerCapability};
 use hagency_files::Snapshot;
 use hagency_matrix::{
@@ -54,7 +54,9 @@ impl Job {
             match info.result.as_mut() {
                 Some(Ok(view)) if view.status == FileStatus::Queued => {
                     view.status = FileStatus::OutcomeUnknown;
-                    view.error_code = Some("outcome_unknown".into());
+                    // Name the producer: this unknown is local custody that was
+                    // not acknowledged or released, not a durable remote outcome.
+                    view.error_code = Some(UnknownOrigin::Custody.code().into());
                 }
                 // Existing terminal receipts remain durable facts even when
                 // local custody cannot be acknowledged or released.

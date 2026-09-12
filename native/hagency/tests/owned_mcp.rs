@@ -249,6 +249,13 @@ async fn roundtrip(done: bool) {
     )
     .unwrap();
     let mut observations = Vec::new();
+    // Distinguish "the parent probe never started" from "the helper never
+    // reported". `owned-mcp.requests` is written by the parent before it spawns
+    // the helper, and `owned-mcp.spawned` is written by the parent the instant
+    // the helper is created. Both are checked so an empty stage list names its
+    // own cause.
+    let parent_started = f.work.join("owned-mcp.requests").is_file();
+    let helper_spawned = f.work.join("owned-mcp.spawned").is_file();
     for stage in ["ack", "readback", "receipt"] {
         let path = f.work.join(format!("owned-mcp.{stage}"));
         let content = match fs::read_to_string(path) {
@@ -275,7 +282,11 @@ async fn roundtrip(done: bool) {
         assert_eq!(
             observations,
             ["ack", "readback", "receipt"],
-            "heartbeat must confirm real helper response, readback and exit"
+            "heartbeat must confirm real helper response, readback and exit \
+             (parent_started={parent_started}, helper_spawned={helper_spawned}, \
+             protocol={:?}, cleanup={:?})",
+            report.protocol,
+            report.cleanup
         );
     }
     assert_eq!(task.execution_epoch, initial_epoch + u64::from(done));

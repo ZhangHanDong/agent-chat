@@ -151,6 +151,11 @@ fn helper(params: &Value, mode: &str) -> io::Result<()> {
         command.process_group(0);
     }
     let mut child = Helper(command.spawn()?);
+    // The earliest fact this fixture can publish about the helper: it exists and
+    // its stdio is retained. Written BEFORE any MCP exchange, so an absent
+    // `ack`/`readback`/`receipt` can be attributed to the helper rather than to a
+    // probe that never reached this line.
+    receipt("spawned", json!({"helper":"spawned"}))?;
     let mut output = child.0.stdin.take().ok_or_else(invalid)?;
     let mut input = BufReader::new(child.0.stdout.take().ok_or_else(invalid)?);
     let mut stderr = child.0.stderr.take().ok_or_else(invalid)?;

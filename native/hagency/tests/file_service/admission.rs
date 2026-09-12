@@ -776,6 +776,13 @@ async fn native_file_service_shutdown_original_job_unwind() {
         .unwrap();
     assert_eq!(inspected.status, FileStatus::OutcomeUnknown);
     assert_eq!(inspected.error_code, replay.error_code);
+    // The receipt-derived projection stays `outcome_unknown`: `inspect` rebuilds
+    // through `from_receipt` and never reads the job's custody-mutated view. The
+    // local custody label is therefore observable only on the original job.
+    assert_eq!(
+        crate::file_service::types::UnknownOrigin::Remote.code(),
+        inspected.error_code.as_deref().unwrap()
+    );
     let receipt =
         h.f.store
             .inspect_file_delivery(h.cap.clone(), queued.delivery_id)

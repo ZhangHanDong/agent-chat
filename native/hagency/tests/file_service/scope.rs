@@ -163,8 +163,32 @@ fn native_file_service_protocol_missing_failure_stays_unknown() {
     };
     let projected = FileView::from_receipt(receipt.clone(), false);
     assert_eq!(projected.status, FileStatus::OutcomeUnknown);
-    assert_eq!(projected.error_code.as_deref(), Some("outcome_unknown"));
+    assert_eq!(
+        projected.error_code.as_deref(),
+        Some(crate::file_service::types::UnknownOrigin::Remote.code())
+    );
     projected.validate().unwrap();
+    // The two producers must be distinguishable, and both must validate.
+    assert_ne!(
+        crate::file_service::types::UnknownOrigin::Remote.code(),
+        crate::file_service::types::UnknownOrigin::Custody.code()
+    );
+    let custody = FileView {
+        delivery_id: projected.delivery_id.clone(),
+        filename: projected.filename.clone(),
+        status: FileStatus::OutcomeUnknown,
+        replayed: false,
+        error_code: Some(
+            crate::file_service::types::UnknownOrigin::Custody
+                .code()
+                .into(),
+        ),
+    };
+    custody.validate().unwrap();
+    // The closed set still refuses an invented code for this status.
+    let mut invented = custody.clone();
+    invented.error_code = Some("outcome_unknown_somewhere".into());
+    assert!(invented.validate().is_err());
     let mut contradictory = receipt;
     contradictory.status = FileDeliveryStatus::Delivered;
     contradictory.error_code = Some(FileDeliveryFailure::SourceRefused);

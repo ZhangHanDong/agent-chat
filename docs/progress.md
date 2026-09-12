@@ -1,5 +1,45 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — OutcomeUnknown attribution: writer dequeue, runner 504, heartbeat, file view
+
+- Implemented the accepted design (`.peer/evidence/context-outcome-unknown-attribution.md`)
+  under ADR-053/ADR-101 amendments, no production bound or behavior change.
+  `DomainStore` now attributes each `Error::OutcomeUnknown` to whether the
+  writer had dequeued that command: one monotonic ticket per call, published
+  when the dequeued job starts running, compared by equality on reply-bound
+  expiry, exposed as `DomainStore::last_unknown_dequeued()`. The verdict stays
+  single (`OutcomeUnknown` — reconcile before retrying); the bit is diagnostic
+  only. The runner task surface projects it into its 504 code
+  (`outcome_unknown_running` vs `outcome_unknown`).
+- Deviations from the design, both flagged in the peer report: (1) the ticket
+  is published inside the dequeued closure rather than as a new `Job::Run`
+  field, because the field would force edits to seven `Job::Run` test
+  constructors outside this slice's ownership; the §1.1 invariant (publish
+  before the operation can block) is preserved. (2) `failure()` keeps its
+  2-arg signature and delegates to `attributed_failure(Option<&DomainStore>)`
+  — the design's signature change broke four callers in runner submodules
+  (`completion.rs`, `replies.rs` ×2, `workflows.rs`) that the design's
+  13-site count missed and that are outside ownership; their behavior is
+  unchanged (plain `outcome_unknown`).
+- Heartbeat observability: the MCP probe writes an atomic `owned-mcp.spawned`
+  receipt immediately after the helper exists, and the failing owned-MCP
+  assertion now reports `parent_started`/`helper_spawned` plus protocol and
+  cleanup, so an empty stage list names its own cause. File view:
+  `UnknownOrigin::{Remote,Custody}` names the producer of an unknown
+  (`outcome_unknown` from the durable receipt vs `outcome_unknown_custody`
+  from unacknowledged local custody) with a closed validate set; `inspect`
+  and replay still report the receipt-derived base code (ADR-101 amendment
+  says so explicitly). ADR-053 and ADR-101 gained dated amendment paragraphs;
+  the dispatch spec gained the dequeue scenario (and `runner.rs` in Allowed
+  Changes), the file-service spec the two-label scenario.
+- Gates: `cargo fmt --all --check`, `cargo clippy -p hagency-store -p
+  hagency --all-targets --locked -- -D warnings` and `cargo check --tests -p
+  hagency` pass. `cargo test -p hagency-store --locked
+  native_domain_unknown_reports_dequeue` cannot execute here: the selector
+  compiles and runs but fails at fixture setup (`DomainRepository::open`,
+  `Io(EPERM)`) — the same sandbox ancestor-directory denial recorded in the
+  two entries above; CI is the authoritative executor.
+
 ## 2026-09-12 — Ordered per-entry approval phase trace (ADR-046 stage-1 diagnostic)
 
 - Diagnostic only, no behavior change, per the accepted approval-barriers

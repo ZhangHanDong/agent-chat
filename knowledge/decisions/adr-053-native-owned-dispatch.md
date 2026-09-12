@@ -130,6 +130,24 @@ explicit bounded negative-only retry. Cancelling that retry preserves its handle
 It never retries successful settlement or authorizes clearing dirty leases.
 Dropping a report does not silently certify an unresolved cleanup or settlement.
 
+**Amendment (2026-09-12) — attributing a bounded reply expiry.** The two-second
+`DomainStore` receipt deadline is unchanged, and this amendment raises no
+production bound. A hosted eight-way probe showed the runner task surface
+returning 504 (`Error::OutcomeUnknown`, the runner failure mapping) for commands
+whose expiry was caused by queue contention rather than by a stalled writer, and
+the artifact could not distinguish the two. `DomainStore` now records, per
+expiry, whether the writer had begun that command: one monotonic ticket per
+call, published when the dequeued job starts running, compared by equality when
+the bound expires, exposed as `DomainStore::last_unknown_dequeued()` and
+projected into the runner's refusal code as `outcome_unknown_running` versus
+`outcome_unknown`. The verdict is deliberately single: a command that is still
+queued has not been withdrawn and may commit after the caller returned, so it
+remains `OutcomeUnknown` and "reconcile before retrying" stands unchanged. The
+new code is a diagnosis for the operator and grants no retry, reply, lease or
+completion authority. Deciding whether to schedule the receipt wait after
+dequeue is explicitly deferred: it would change when the bound starts, so it
+needs its own decision and its own evidence.
+
 ### Settlement and historical fencing
 
 Protocol Completed alone cannot mark a canonical task Done, send a Matrix reply,
