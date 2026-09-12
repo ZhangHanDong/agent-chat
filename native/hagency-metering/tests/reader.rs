@@ -263,9 +263,11 @@ fn assert_read_matches(
     let expected_files = vector["expected"]["files"].as_array().expect("files");
     assert_eq!(files.len(), expected_files.len(), "file count for {name}");
     for (actual, expected) in files.iter().zip(expected_files) {
+        // Paths compare by component: the walk joins with the host separator
+        // while the recorded oracle path uses `/`.
         assert_eq!(
-            actual.0,
-            actualize(expected["file"].as_str().unwrap(), home),
+            Path::new(&actual.0),
+            Path::new(&actualize(expected["file"].as_str().unwrap(), home)),
             "file for {name}"
         );
         assert_eq!(
@@ -399,11 +401,11 @@ fn native_metering_reader_layout_discovery() {
         "year, month, day directories and files"
     );
     assert!(
-        files[0].file.ends_with("2026/08/31/rollout-2.jsonl"),
+        Path::new(&files[0].file).ends_with("2026/08/31/rollout-2.jsonl"),
         "newest first"
     );
     assert!(
-        files[2].file.ends_with("2026/09/01/rollout-0.jsonl"),
+        Path::new(&files[2].file).ends_with("2026/09/01/rollout-0.jsonl"),
         "oldest last"
     );
 
@@ -428,7 +430,7 @@ fn native_metering_reader_layout_discovery() {
     assert!(search.narrowed);
     let (files, bounds) = SessionReader::new(ReaderLimits::default(), &|| now).read(&search);
     assert_eq!(files.len(), 1, "flat project directory only");
-    assert!(files[0].file.ends_with("session.jsonl"));
+    assert!(Path::new(&files[0].file).ends_with("session.jsonl"));
     assert_eq!(
         bounds.entries_walked, 2,
         "session.jsonl and the nested directory"
