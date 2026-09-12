@@ -1,7 +1,8 @@
 //! One historical host source per fresh native execution session. Observations
 //! never confer current execution, provider authenticity or quota authority.
 use super::{
-    DomainRepository, OwnedDispatchScope, execution, owned_dispatch, read_engagement, serialize,
+    DomainRepository, OwnedDispatchScope, execution, owned_dispatch, read_engagement,
+    read_resource, serialize,
 };
 use crate::Error;
 use hagency_core::{canonical, project::identifier, tasks::RunnerCapability};

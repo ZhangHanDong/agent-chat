@@ -121,6 +121,38 @@ pub struct UsageReport {
 pub enum UsageEvidence {
     HostAttributedUntrustedUsage,
 }
+/// Read-side projection of one resource's ceiling draw (slice 1 of the
+/// ceiling-enforcement plan). Mirrors the retained JavaScript `ceilingSpendFor`
+/// object exactly (`backend-v2.js:14012-14034`): what is committed, what fresh
+/// tokens were measured this period, what was consumed in total, and the
+/// context (ceiling, preset, period) a refusal or console must never re-derive.
+///
+/// Evidence stays untrusted: `spent`/`consumed` are lower bounds over host
+/// observations and confer no allocation authority in this slice. An absent
+/// period bucket is `None` — unknown, not zero — so the commitment figure
+/// stands alone.
+#[derive(Debug, Serialize)]
+pub struct CeilingReport {
+    /// Ceiling granularity in force; defaults to monthly like the JavaScript.
+    pub period: UsagePeriodKind,
+    /// Commitments of `reserved`/`active` engagements on this resource.
+    pub reserved: u64,
+    /// Fresh-token draw (input+output+cacheWrite) for the current period;
+    /// `None` when no usage bucket exists.
+    pub spent: Option<u64>,
+    /// Display figure (all four kinds) for the same period; `None` with spent.
+    pub consumed: Option<u64>,
+    /// Declared ceiling tokens; `None` when the resource declares none.
+    pub ceiling_tokens: Option<u64>,
+    /// Preset identity of the resource, named so an operator can raise it.
+    pub preset_name: String,
+    /// Period key the measurement belongs to; `None` when unmeasured.
+    pub spend_period_key: Option<String>,
+    /// The figure a ceiling is drawn down by: `max(reserved, spent)`, falling
+    /// back to `reserved` when measurement is unknown (`backend-v2.js:14052`).
+    pub drawn: u64,
+    pub evidence: UsageEvidence,
+}
 #[derive(Debug, Serialize)]
 pub struct UsagePeriod {
     pub kind: UsagePeriodKind,

@@ -1,0 +1,271 @@
+{
+  "source": "lib/metering/ledger.js + backend-v2.js remainingFor drawn rule",
+  "ledgerSha256": "0d6dbf3da4c957d6edebba3a7cc9c37cf5302d149b6ec3fe8fe9c66873777a54",
+  "backendSha256": "c1baf3c3c0ec556422c86e6671112298d76008184ee7a18055cb951f79997c53",
+  "semantics": "fresh-token draw per current period; max(reserved, spent) with unknown fallback",
+  "vectors": [
+    {
+      "name": "lockout-cache-swamp",
+      "reserved": 100,
+      "ceilingTokens": 1000,
+      "period": "monthly",
+      "queryAt": 1786795200000,
+      "sources": [
+        {
+          "key": "a",
+          "observations": [
+            {
+              "at": 1786795200000,
+              "totals": {
+                "input": 604823,
+                "output": 76266,
+                "cacheWrite": 0,
+                "cacheRead": 12928512
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "reserved": 100,
+        "spent": 681089,
+        "consumed": 13609601,
+        "drawn": 681089,
+        "spendPeriodKey": "2026-08"
+      }
+    },
+    {
+      "name": "fresh-exhaustion",
+      "reserved": 100,
+      "ceilingTokens": 1000,
+      "period": "monthly",
+      "queryAt": 1786795200000,
+      "sources": [
+        {
+          "key": "a",
+          "observations": [
+            {
+              "at": 1786795200000,
+              "totals": {
+                "input": 9500000,
+                "output": 500000,
+                "cacheWrite": 0,
+                "cacheRead": 0
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "reserved": 100,
+        "spent": 10000000,
+        "consumed": 10000000,
+        "drawn": 10000000,
+        "spendPeriodKey": "2026-08"
+      }
+    },
+    {
+      "name": "no-cache-parity",
+      "reserved": 100,
+      "ceilingTokens": 1000,
+      "period": "monthly",
+      "queryAt": 1786795200000,
+      "sources": [
+        {
+          "key": "a",
+          "observations": [
+            {
+              "at": 1786795200000,
+              "totals": {
+                "input": 1000,
+                "output": 500,
+                "cacheWrite": 250,
+                "cacheRead": 0
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "reserved": 100,
+        "spent": 1750,
+        "consumed": 1750,
+        "drawn": 1750,
+        "spendPeriodKey": "2026-08"
+      }
+    },
+    {
+      "name": "cache-write-draws",
+      "reserved": 100,
+      "ceilingTokens": 1000,
+      "period": "monthly",
+      "queryAt": 1786795200000,
+      "sources": [
+        {
+          "key": "a",
+          "observations": [
+            {
+              "at": 1786795200000,
+              "totals": {
+                "input": 0,
+                "output": 0,
+                "cacheWrite": 5000,
+                "cacheRead": 0
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "reserved": 100,
+        "spent": 5000,
+        "consumed": 5000,
+        "drawn": 5000,
+        "spendPeriodKey": "2026-08"
+      }
+    },
+    {
+      "name": "committed-binding",
+      "reserved": 100,
+      "ceilingTokens": 1000,
+      "period": "monthly",
+      "queryAt": 1786795200000,
+      "sources": [
+        {
+          "key": "a",
+          "observations": [
+            {
+              "at": 1786795200000,
+              "totals": {
+                "input": 40,
+                "output": 0,
+                "cacheWrite": 0,
+                "cacheRead": 0
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "reserved": 100,
+        "spent": 40,
+        "consumed": 40,
+        "drawn": 100,
+        "spendPeriodKey": "2026-08"
+      }
+    },
+    {
+      "name": "cache-read-growth-never-draws",
+      "reserved": 100,
+      "ceilingTokens": 1000,
+      "period": "monthly",
+      "queryAt": 1786798800000,
+      "sources": [
+        {
+          "key": "a",
+          "observations": [
+            {
+              "at": 1786795200000,
+              "totals": {
+                "input": 100,
+                "output": 50,
+                "cacheWrite": 0,
+                "cacheRead": 0
+              }
+            },
+            {
+              "at": 1786798800000,
+              "totals": {
+                "input": 100,
+                "output": 50,
+                "cacheWrite": 0,
+                "cacheRead": 5000
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "reserved": 100,
+        "spent": 150,
+        "consumed": 5150,
+        "drawn": 150,
+        "spendPeriodKey": "2026-08"
+      }
+    },
+    {
+      "name": "month-roll-unknown",
+      "reserved": 100,
+      "ceilingTokens": 1000,
+      "period": "monthly",
+      "queryAt": 1789473600000,
+      "sources": [
+        {
+          "key": "a",
+          "observations": [
+            {
+              "at": 1786795200000,
+              "totals": {
+                "input": 700,
+                "output": 0,
+                "cacheWrite": 0,
+                "cacheRead": 0
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "reserved": 100,
+        "spent": null,
+        "consumed": null,
+        "drawn": 100,
+        "spendPeriodKey": null
+      }
+    },
+    {
+      "name": "two-sources-additive",
+      "reserved": 100,
+      "ceilingTokens": 1000,
+      "period": "monthly",
+      "queryAt": 1786798800000,
+      "sources": [
+        {
+          "key": "a",
+          "observations": [
+            {
+              "at": 1786795200000,
+              "totals": {
+                "input": 100,
+                "output": 0,
+                "cacheWrite": 0,
+                "cacheRead": 0
+              }
+            }
+          ]
+        },
+        {
+          "key": "b",
+          "observations": [
+            {
+              "at": 1786798800000,
+              "totals": {
+                "input": 0,
+                "output": 50,
+                "cacheWrite": 0,
+                "cacheRead": 0
+              }
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "reserved": 100,
+        "spent": 150,
+        "consumed": 150,
+        "drawn": 150,
+        "spendPeriodKey": "2026-08"
+      }
+    }
+  ]
+}

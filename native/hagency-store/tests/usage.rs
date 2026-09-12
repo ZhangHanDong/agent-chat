@@ -7,6 +7,7 @@ use serde_json::json;
 mod usage {
     use super::*;
     mod bounds;
+    mod ceiling;
     mod vectors;
 }
 

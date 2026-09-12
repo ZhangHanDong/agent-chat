@@ -15,12 +15,13 @@ pub use domain::resource_publication::{
 };
 pub use domain::uploads::UploadSettlement;
 pub use domain::{
-    AttachmentTicket, DomainRepository, Effect, EffectOutcome, EffectState, KnownTokens,
-    MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES, MAX_SOURCE_USAGE_RECEIPTS,
-    MAX_USAGE_PERIODS, MAX_USAGE_RECEIPTS, MAX_USAGE_SOURCES, OwnedClaimProfile, OwnedClaimRoom,
-    OwnedCompletion, OwnedDispatchScope, OwnedFailure, OwnedObservation, SourceUsage,
-    UploadAdmission, UploadClaim, UploadIdentity, UploadPreparation, UploadSend, UsageEvidence,
-    UsagePeriod, UsagePeriodKind, UsageReceipt, UsageReport, UsageSource, UsageSummary,
+    AttachmentTicket, CeilingReport, DomainRepository, Effect, EffectOutcome, EffectState,
+    KnownTokens, MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES,
+    MAX_SOURCE_USAGE_RECEIPTS, MAX_USAGE_PERIODS, MAX_USAGE_RECEIPTS, MAX_USAGE_SOURCES,
+    OwnedClaimProfile, OwnedClaimRoom, OwnedCompletion, OwnedDispatchScope, OwnedFailure,
+    OwnedObservation, SourceUsage, UploadAdmission, UploadClaim, UploadIdentity, UploadPreparation,
+    UploadSend, UsageEvidence, UsagePeriod, UsagePeriodKind, UsageReceipt, UsageReport,
+    UsageSource, UsageSummary,
 };
 pub use domain_worker::DomainStore;
 pub mod outbound;

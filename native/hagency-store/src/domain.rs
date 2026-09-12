@@ -47,7 +47,7 @@ mod usage;
 pub use uploads::{UploadAdmission, UploadClaim, UploadIdentity, UploadPreparation, UploadSend};
 mod verified_ingress;
 pub use usage::{
-    KnownTokens, MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES,
+    CeilingReport, KnownTokens, MAX_ENGAGEMENT_USAGE_PERIODS, MAX_ENGAGEMENT_USAGE_SOURCES,
     MAX_SOURCE_USAGE_RECEIPTS, MAX_USAGE_PERIODS, MAX_USAGE_RECEIPTS, MAX_USAGE_SOURCES,
     SourceUsage, UsageEvidence, UsagePeriod, UsagePeriodKind, UsageReceipt, UsageReport,
     UsageSource, UsageSummary,

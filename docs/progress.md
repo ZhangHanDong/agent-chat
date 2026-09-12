@@ -1,5 +1,37 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — Native read-side resource ceiling draw (ADR121)
+
+- Slice one of the ceiling-enforcement port (accepted gap analysis,
+  `.peer/evidence/report-ceiling-enforcement.md`): added
+  `DomainRepository::resource_ceiling(resource_id, at)` returning a
+  `CeilingReport` that mirrors the retained JavaScript `ceilingSpendFor`
+  object — `reserved` (SQLite SUM over the resource's `reserved`/`active`
+  engagements), `spent` (fresh kinds only: input+output+cacheWrite from the
+  current period's per-engagement `known_growth` lower bounds), `consumed`
+  (display sum over all four kinds), `ceiling_tokens`, `preset_name`,
+  `spend_period_key`, and `drawn = max(reserved, spent)` with an unmeasured
+  period falling back to commitments (`backend-v2.js:14052-14053` mirrored
+  verbatim). An absent period bucket stays `None`, never zero. Read-side
+  only: no admission, refusal or publication change; evidence stays
+  host-attributed and untrusted.
+- Oracle `native/scripts/ceiling-vectors.mjs`: the retained
+  `lib/metering/ledger.js` computes spent/consumed for eight vectors
+  including the BigLittle lockout (681,089 drawn vs 13,609,601 consumed) and
+  a month-roll unknown case; ledger and backend sources pinned by sha256;
+  `--check` added to the Rust CI job after `usage-vectors.mjs --check`.
+  Rust replay: the four selectors in
+  `specs/task-rust-usage-ceiling-draw.spec.md` (ADR-121, Proposed).
+- Local gates: `cargo fmt --all --check`, `cargo clippy -p hagency-store
+  --all-targets --locked -- -D warnings`, `node ceiling-vectors.mjs --check`
+  and `node usage-vectors.mjs --check` pass. `cargo test -p hagency-store`
+  cannot run in this sandbox: every `DomainRepository::open` fails with
+  `Io(EPERM)` because `accounts::Registry::open` walks the store directory's
+  ancestor components via cap-std `openat` from `/`, and the sandbox denies
+  opening `/Users` and the home ancestors (probe evidence in the peer
+  report). Verified pre-existing: a clean-HEAD stash control reproduces the
+  identical failure on untouched test binaries.
+
 ## 2026-09-09 — Project names and revoke feedback
 
 Verified Edison's prior revocation and the missing project-name projection.

@@ -1,7 +1,7 @@
 use super::*;
+use hagency_core::JSON_SAFE_MAX;
 use rusqlite::Transaction;
 use types::{optional_add, zero};
-
 pub(super) fn credit_period(
     tx: &Transaction<'_>,
     engagement: &str,
@@ -142,5 +142,103 @@ impl DomainRepository {
             })
         })
         .transpose()
+    }
+    /// Read-side ceiling draw for one resource (slice 1 of the ceiling
+    /// enforcement plan). This is the counterpart of the retained JavaScript
+    /// `ceilingSpendFor` + `remainingFor` drawn rule (`backend-v2.js:14012-14060`):
+    /// fresh tokens only (never cache reads), period-scoped, combined with
+    /// commitments by `max`, with an unmeasured period falling back to the
+    /// commitment figure rather than to zero.
+    ///
+    /// No enforcement decision is made here. The report is aggregate untrusted
+    /// evidence for later slices and for operator inspection.
+    pub fn resource_ceiling(&self, resource_id: &str, at: u64) -> Result<CeilingReport, Error> {
+        identifier(resource_id, 128)?;
+        let resource = read_resource(&self.db, resource_id)?;
+        // Period granularity from the ceiling declaration, monthly unless the
+        // preset says daily — mirroring backend-v2.js:14015. `Period` keeps the
+        // JS missing-vs-null distinction private; serde reads the plain value.
+        let period_value = resource
+            .ceiling
+            .as_ref()
+            .map(|c| serde_json::to_value(&c.period))
+            .transpose()?
+            .unwrap_or(serde_json::Value::Null);
+        let period = if period_value == serde_json::json!("daily") {
+            UsagePeriodKind::Daily
+        } else {
+            UsagePeriodKind::Monthly
+        };
+        let ceiling_tokens = resource
+            .ceiling
+            .as_ref()
+            .and_then(|c| c.tokens)
+            .map(u64::from);
+        let key = match period {
+            UsagePeriodKind::Daily => period_keys(at)?.0,
+            UsagePeriodKind::Monthly => period_keys(at)?.1,
+        };
+        // Commitments aggregated in SQLite like budget() (domain.rs:293): SUM
+        // over the resource's holding engagements, never a store scan in Rust.
+        let reserved: u64 = self.db.query_row(
+            "SELECT COALESCE(SUM(tokens),0) FROM engagements WHERE resource_id=?1 AND state IN ('reserved','active')",
+            params![resource_id],
+            |r| r.get(0),
+        )?;
+        if reserved > JSON_SAFE_MAX {
+            return Err(Error::Capacity);
+        }
+        // Fresh draw for the current period: the per-kind known-growth lower
+        // bounds of every holding engagement's bucket, folded with the same
+        // JSON-safe addition the summary uses. No bucket at all is unknown —
+        // not zero — so the commitment figure stands alone (backend-v2.js:14050).
+        let mut statement = self.db.prepare(
+            "SELECT p.known_growth FROM usage_periods p JOIN engagements e ON e.id=p.engagement_id \
+             WHERE e.resource_id=?1 AND e.state IN ('reserved','active') AND p.granularity=?2 AND p.period_key=?3",
+        )?;
+        let rows = statement.query_map(params![resource_id, period.name(), key], |r| {
+            r.get::<_, String>(0)
+        })?;
+        let mut known = KnownTokens::default();
+        let mut measured = false;
+        for row in rows {
+            let growth: KnownTokens = serde_json::from_str(&row?)?;
+            known = known.adding(counts_from([
+                Some(growth.input),
+                Some(growth.output),
+                Some(growth.cache_write),
+                Some(growth.cache_read),
+            ]))?;
+            measured = true;
+        }
+        drop(statement);
+        let (spent, consumed) = if measured {
+            (
+                Some(known.observed_fresh_lower_bound()?),
+                Some(known.observed_display_lower_bound()?),
+            )
+        } else {
+            (None, None)
+        };
+        // `max(reserved, spent)` with unknown-measurement fallback, mirroring
+        // backend-v2.js:14052-14053 verbatim.
+        let drawn = match spent {
+            Some(spent) => reserved.max(spent),
+            None => reserved,
+        };
+        if drawn > JSON_SAFE_MAX {
+            return Err(Error::Capacity);
+        }
+        Ok(CeilingReport {
+            period,
+            reserved,
+            spent,
+            consumed,
+            ceiling_tokens,
+            preset_name: resource.preset_id,
+            spend_period_key: measured.then_some(key),
+            drawn,
+            evidence: UsageEvidence::HostAttributedUntrustedUsage,
+        })
     }
 }
