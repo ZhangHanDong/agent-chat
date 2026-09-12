@@ -84,8 +84,21 @@ async fn native_matrix_owned_complete_workflow() {
     )
     .unwrap();
     let report = operation.wait().await.unwrap();
-    assert_eq!(w.task(&intent.task_id).status, TaskState::Done);
-    assert_eq!(w.task(&intent.task_id).execution_epoch, 1);
+    // Diagnostic only. Hosted Windows once saw `wait()` return Ok while this
+    // raw read-only connection still read InProgress; print the writer's own
+    // verdict and the observed row before asserting so the two views are
+    // distinguishable in the artifact.
+    let observed = w.task(&intent.task_id);
+    assert_eq!(
+        observed.status,
+        TaskState::Done,
+        "writer_view={:?} protocol={:?} settlement={:?} epoch={}",
+        report.canonical_status,
+        report.protocol,
+        report.settlement,
+        observed.execution_epoch,
+    );
+    assert_eq!(observed.execution_epoch, 1);
     assert_eq!(report.canonical_status, Some(TaskState::Done));
     // This fixture intentionally emits no terminal Codex turn after the helper
     // finish. Writer completion, retained cleanup and delivery stay independent.

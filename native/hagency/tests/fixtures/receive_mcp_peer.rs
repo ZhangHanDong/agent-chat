@@ -78,6 +78,9 @@ fn rpc(
         out,
         json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
     )?;
+    // Diagnostic only: prove the request was flushed, so a later host-side
+    // timeout can be attributed to delivery rather than to this peer stalling.
+    receipt("sent", json!({"rpc_id":id,"method":method}))?;
     let response = read(input)?;
     if response["id"] != id || response.get("error").is_some() {
         return Err(invalid());
@@ -351,6 +354,10 @@ fn fake() -> io::Result<()> {
         &mut output,
         json!({"id":turn["id"],"result":{"turn":{"id":"owned-turn","status":"inProgress","items":[]}}}),
     )?;
+    // Diagnostic only: the host's response budget once expired while this
+    // peer was inside helper(). This stage separates "reply emitted, delivery
+    // slow" from "reply never emitted" without changing any budget.
+    receipt("stage", json!({"stage":"turn_start_replied"}))?;
     helper(params, &turn["params"], &mut output)?;
     {
         send(

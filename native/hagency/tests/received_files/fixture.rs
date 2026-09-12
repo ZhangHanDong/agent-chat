@@ -613,12 +613,14 @@ impl Fixture {
                     status["state"].as_str(),
                     Some("unavailable" | "outcome_unknown" | "no_work")
                 ),
-                "actual incoming workflow refused: {status}; intake={}, GET={}, keys={}, runtime_entry={:?}, helper_phase={:?}, list={:?}, first={:?}",
+                "actual incoming workflow refused: {status}; intake={}, GET={}, keys={}, runtime_entry={:?}, helper_phase={:?}, sent={:?}, stage={:?}, list={:?}, first={:?}",
                 self.intakes,
                 self.gets,
                 self.sender.server.writes.len(),
                 self.receipt("entry"),
                 self.receipt("phase"),
+                self.receipt("sent"),
+                self.receipt("stage"),
                 self.receipt("list"),
                 self.receipt("first")
             );
