@@ -198,7 +198,143 @@ async fn native_alerts_read_publishes_open_ceiling_alerts() {
     f.close().await;
 }
 
-/// The trigger: a short period, one tick observed sweeping, a tick refused
+/// B5: the 7-day prune, all three sides — a resolved row older than the TTL
+/// is pruned, a younger one is kept, an open row is never pruned — with the
+/// `pruned` count asserted. All sweeps go through the fixture's own store
+/// wrapper (one writer); the only second connection is read/update SQL.
+#[tokio::test]
+async fn native_ceiling_alert_prunes_resolved_rows_after_seven_days() {
+    let f = Fixture::new(false);
+    // The fixture seeded pool_a over (committed 1.5M, ceiling lowered 1M).
+    let outcome = f.domain.sweep_ceiling_overruns(1_000_000).await.unwrap();
+    assert_eq!(outcome.raised, 1);
+    // Restore: the next sweep resolves it.
+    f.domain
+        .put_resource(resource("alerts_pool_a", "alerts_pool_a_seat", GENEROUS))
+        .await
+        .unwrap();
+    let outcome = f.domain.sweep_ceiling_overruns(2_000_000).await.unwrap();
+    assert_eq!(outcome.resolved, 1);
+    // Backdate the resolution 8+ days before the final sweep's clock.
+    let connection = rusqlite::Connection::open(&f.state).unwrap();
+    connection
+        .execute("UPDATE ceiling_alerts SET resolved_at_ms=1000", [1000u64])
+        .unwrap();
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM ceiling_alerts", [], |r| r.get(0))
+        .unwrap();
+    drop(connection);
+    assert_eq!(count, 1);
+    let cutoff_sweep = 1000 + 7 * 24 * 60 * 60 * 1000 + 1;
+    let outcome = f.domain.sweep_ceiling_overruns(cutoff_sweep).await.unwrap();
+    assert_eq!(outcome.pruned, 1);
+    let connection = rusqlite::Connection::open(&f.state).unwrap();
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM ceiling_alerts", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 0, "the old resolved row is gone");
+    // A young resolved row is kept: over again, then resolved just now.
+    f.domain
+        .put_resource(resource("alerts_pool_a", "alerts_pool_a_seat", 1_000_000))
+        .await
+        .unwrap();
+    let outcome = f
+        .domain
+        .sweep_ceiling_overruns(cutoff_sweep + 1)
+        .await
+        .unwrap();
+    assert_eq!(outcome.raised, 1);
+    f.domain
+        .put_resource(resource("alerts_pool_a", "alerts_pool_a_seat", GENEROUS))
+        .await
+        .unwrap();
+    let outcome = f
+        .domain
+        .sweep_ceiling_overruns(cutoff_sweep + 2)
+        .await
+        .unwrap();
+    assert_eq!(outcome.resolved, 1);
+    let outcome = f
+        .domain
+        .sweep_ceiling_overruns(cutoff_sweep + 3)
+        .await
+        .unwrap();
+    assert_eq!(outcome.pruned, 0, "a young resolved row is kept");
+    // An open row is never pruned, however old: over again and leave it open.
+    f.domain
+        .put_resource(resource("alerts_pool_a", "alerts_pool_a_seat", 1_000_000))
+        .await
+        .unwrap();
+    let outcome = f
+        .domain
+        .sweep_ceiling_overruns(cutoff_sweep + 4)
+        .await
+        .unwrap();
+    assert_eq!(outcome.raised, 1);
+    let outcome = f
+        .domain
+        .sweep_ceiling_overruns(cutoff_sweep + 40 * 24 * 60 * 60 * 1000)
+        .await
+        .unwrap();
+    assert_eq!(outcome.pruned, 0, "an open row is never pruned");
+    assert_eq!(outcome.updated, 1);
+    let connection = rusqlite::Connection::open(&f.state).unwrap();
+    let (count, resolved): (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), resolved_at_ms IS NULL FROM ceiling_alerts",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((count, resolved), (1, 1));
+    drop(connection);
+    f.close().await;
+}
+
+/// B7/§3.4: a resource that LOSES its declared ceiling keeps its alert open —
+/// Node behaves the same way (`backend-v2.js:9397-9400` `continue`s on a
+/// missing ceiling, so auto-resolve is never reached and the alert persists
+/// until an operator closes it through the alert surface). Native slices
+/// (a)/(b) have no operator close path either, so the parity — no crash, no
+/// resolve, no prune, row stays open — is the pinned behaviour, not a defect
+/// to paper over with an invented auto-resolve the retained code lacks.
+#[tokio::test]
+async fn native_ceiling_alert_lost_ceiling_keeps_alert_open() {
+    let f = Fixture::new(false);
+    let outcome = f.domain.sweep_ceiling_overruns(1_000_000).await.unwrap();
+    assert_eq!(outcome.raised, 1);
+    // Remove the declared ceiling entirely (resource stays otherwise valid).
+    let ceilingless: hagency_core::project::Resource = serde_json::from_value(serde_json::json!({
+        "presetId": "alerts_pool_a",
+        "seatId": "alerts_pool_a_seat",
+        "framework": "codex",
+        "model": "gpt-5.6-sol",
+        "reasoning": "medium"
+    }))
+    .unwrap();
+    f.domain.put_resource(ceilingless).await.unwrap();
+    let outcome = f.domain.sweep_ceiling_overruns(2_000_000).await.unwrap();
+    assert_eq!(
+        outcome,
+        hagency_store::SweepOutcome::default(),
+        "no ceiling is unknown, not zero: skipped for raise AND resolve"
+    );
+    let connection = rusqlite::Connection::open(&f.state).unwrap();
+    let (count, resolved): (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), resolved_at_ms IS NULL FROM ceiling_alerts",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (count, resolved),
+        (1, 1),
+        "the alert stays open, as in Node"
+    );
+    drop(connection);
+    f.close().await;
+}
 /// while another connection holds the SQLite write lock, and the loop alive
 /// and sweeping again after release — awaited on the watch hook, never by
 /// sleeping. Refusal handling is the loop's contract: log with the `[ceiling]`

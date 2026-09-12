@@ -53,7 +53,7 @@ async fn list(req: &mut Request, depot: &mut Depot, res: &mut Response) {
             let (status, code) = match error {
                 Error::Invalid(_) => (StatusCode::BAD_REQUEST, "invalid_alerts_query"),
                 Error::Schema => (StatusCode::SERVICE_UNAVAILABLE, "alerts_corrupt"),
-                Error::Busy => (StatusCode::TOO_MANY_REQUESTS, "busy"),
+                Error::Busy => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
                 Error::OutcomeUnknown => (StatusCode::GATEWAY_TIMEOUT, "outcome_unknown"),
                 _ => (StatusCode::SERVICE_UNAVAILABLE, "alerts_unavailable"),
             };

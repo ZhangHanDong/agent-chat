@@ -1,5 +1,49 @@
 # Repository audit — 2026-09-05
 
+## 2026-09-12 — Alarm review edits B1–B7 + slice (b) Busy correction
+
+- B1: the remaining eleven `user_version == 23` head assertions (approvals,
+  conversations, file_delivery, file_uploads, owned_completion,
+  received_files, replies, verified_ingress/attachments,
+  verified_ingress/notice_custody, workflows/mod, workflows/custody) moved to
+  24 — the schema-head bump is now complete; post-edit grep finds no other.
+- B2: the sweep doc comment and ADR now state the honest fact — the sweep
+  reads the read-side projection `usage::ceiling_report` (ADR-121), the SAME
+  drawn rule admission enforces on but a distinct code path from
+  `budget()`/`resource_budget`, exactly the retained split (Node's sweep reads
+  `ceilingSpendFor`, admission reads `remainingFor`); agreement is by shared
+  rule and oracle, not by construction.
+- B3: reopen/dedupe UPDATEs no longer write `runbook` (only a fresh insert
+  writes the four text fields, matching `alert-store.js:231-271`); the dedupe
+  test plants a sentinel runbook across two more sweeps and asserts it
+  survives.
+- B4: `detail_json` truncates at 4096 the way the retained `truncatePayload`
+  does (encode then slice, `alert-store.js:61-64`) instead of aborting with
+  `Error::Capacity`; the column CHECK stays as the last line of defence, and a
+  unit pins the truncation (valid sweep inputs cannot reach the bound, so it
+  is defence-in-depth at the owning function).
+- B5: `native_ceiling_alert_prunes_resolved_rows_after_seven_days` — old
+  resolved row pruned (`pruned == 1`), young resolved kept, open never
+  pruned, all through the fixture's own store wrapper.
+- §3.4/B7: `native_ceiling_alert_lost_ceiling_keeps_alert_open` pins the
+  parity — a ceiling-less resource is skipped for raise AND resolve, the alert
+  stays open exactly as Node's `continue` leaves it (`backend-v2.js:9397-9400`)
+  — and ADR-124 records the no-operator-close-path asymmetry.
+- B6: the oracle's sweep vectors are now computed by EXECUTING the retained
+  `createAlertStore` (fake clock, in-memory save; ingest `created` flag and
+  `autoResolve` returns derive the counters) rather than by a local mirror;
+  regenerated fixture is byte-identical in expectations, `--check` green ×3;
+  ADR notes the execution and the one non-encoded transition (reopen window).
+- B7: ADR must-never now names completion (owned dispatch, canonical Done,
+  final reply custody) beside admission/leases/retries.
+- Slice (b) correction: the alerts route maps `Busy → 503 "busy"` exactly as
+  `usage.rs` does (the brief's 429 was the orchestrator's error); recorded in
+  ADR-124's amendment section.
+- Store-test CI defect fixed in-passing: the nine `u64::MAX` fixture ceilings
+  in `tests/ceiling_alerts.rs` (which `Tokens` rejects above JSON_SAFE_MAX)
+  replaced with the JSON-safe `GENEROUS` constant — same class as B1, would
+  have failed every alarm test in CI once the EPERM lifted.
+
 ## 2026-09-12 — Ceiling alarm slice (b): publish open alerts, sweep hourly (ADR-124 amendment)
 
 - Store read `DomainRepository::open_ceiling_alerts(limit)` (and the

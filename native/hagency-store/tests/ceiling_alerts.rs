@@ -8,6 +8,10 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::json;
 use std::path::PathBuf;
 
+/// JSON-safe generous ceiling: `Tokens` refuses anything above JSON_SAFE_MAX,
+/// so an unrepresentable "infinite" figure would panic at deserialization.
+const GENEROUS: u64 = 9_000_000_000_000_000;
+
 /// Compact alarm fixture: one resource, optional approved engagement, and
 /// the dispatch machinery needed to bind a usage source and measure it.
 struct Alarm {
@@ -44,7 +48,7 @@ fn set_ceiling(alarm: &mut Alarm, framework: Framework, ceiling: u64) {
 }
 
 fn engaged(alarm: &mut Alarm, id: &str, tokens: u64, at: u64) -> String {
-    let pool = resource("alarm_pool", "alarm_seat", u64::MAX);
+    let pool = resource("alarm_pool", "alarm_seat", GENEROUS);
     let ask = request(id, "Worker", &pool, tokens);
     let proof = proof(&ask);
     alarm.db.admit(&proof, at).unwrap();
@@ -154,7 +158,7 @@ fn state_path(alarm: &Alarm) -> PathBuf {
 /// a port missing any field would file an `info` nobody pages on.
 #[test]
 fn native_ceiling_alert_sweep_files_warning_with_actionable_fields() {
-    let mut alarm = open(Framework::Codex, u64::MAX);
+    let mut alarm = open(Framework::Codex, GENEROUS);
     engaged(&mut alarm, "overcommit", 1_500_000, 1000);
     set_ceiling(&mut alarm, Framework::Codex, 1_000_000);
     let outcome = alarm.db.sweep_ceiling_overruns(1_000_000).unwrap();
@@ -203,7 +207,7 @@ fn native_ceiling_alert_sweep_files_warning_with_actionable_fields() {
 /// drawn/measured/over — the properties that kill both mutants.
 #[test]
 fn native_ceiling_alert_measured_over_raises_with_nothing_committed() {
-    let mut alarm = open(Framework::Claude, u64::MAX);
+    let mut alarm = open(Framework::Claude, GENEROUS);
     let engagement = engaged(&mut alarm, "measured", 1, 1000);
     record(
         &mut alarm,
@@ -226,7 +230,7 @@ fn native_ceiling_alert_measured_over_raises_with_nothing_committed() {
 /// operator whose configuration is exactly right.
 #[test]
 fn native_ceiling_alert_inside_and_on_boundary_raise_nothing() {
-    let mut inside = open(Framework::Codex, u64::MAX);
+    let mut inside = open(Framework::Codex, GENEROUS);
     engaged(&mut inside, "inside", 500_000, 1000);
     set_ceiling(&mut inside, Framework::Codex, 2_000_000);
     let outcome = inside.db.sweep_ceiling_overruns(1_000_000).unwrap();
@@ -240,7 +244,7 @@ fn native_ceiling_alert_inside_and_on_boundary_raise_nothing() {
         }
     );
     assert!(row(&inside).is_none());
-    let mut exact = open(Framework::Codex, u64::MAX);
+    let mut exact = open(Framework::Codex, GENEROUS);
     engaged(&mut exact, "exact", 1_000_000, 1000);
     set_ceiling(&mut exact, Framework::Codex, 1_000_000);
     let outcome = exact.db.sweep_ceiling_overruns(1_000_000).unwrap();
@@ -252,7 +256,7 @@ fn native_ceiling_alert_inside_and_on_boundary_raise_nothing() {
 /// (`:199`): `resolved_by = 'system'`, same-row transition.
 #[test]
 fn native_ceiling_alert_resolves_when_draw_falls_back_under() {
-    let mut alarm = open(Framework::Codex, u64::MAX);
+    let mut alarm = open(Framework::Codex, GENEROUS);
     engaged(&mut alarm, "resolve_me", 1_500_000, 1000);
     set_ceiling(&mut alarm, Framework::Codex, 1_000_000);
     alarm.db.sweep_ceiling_overruns(1_000_000).unwrap();
@@ -268,7 +272,7 @@ fn native_ceiling_alert_resolves_when_draw_falls_back_under() {
 /// repeat count rides ON the row (occurrences), never a second row.
 #[test]
 fn native_ceiling_alert_dedupes_across_repeated_sweeps() {
-    let mut alarm = open(Framework::Codex, u64::MAX);
+    let mut alarm = open(Framework::Codex, GENEROUS);
     engaged(&mut alarm, "dedupe_me", 1_500_000, 1000);
     set_ceiling(&mut alarm, Framework::Codex, 1_000_000);
     let mut total = SweepOutcome::default();
@@ -289,6 +293,29 @@ fn native_ceiling_alert_dedupes_across_repeated_sweeps() {
         .unwrap();
     assert_eq!(count, 1);
     assert_eq!(occurrences, 3);
+    // B3 sentinel: the retained store never rewrites the four text fields on
+    // dedupe/reopen (`alert-store.js:231-249,254-271` update summary,
+    // lastPayload, occurrences — not runbook/impact/recoveryCondition). Plant
+    // a sentinel runbook, sweep twice more, and assert it survived: an UPDATE
+    // that rewrote runbook would restore the composed wording and fail here.
+    drop(sql);
+    let sql = Connection::open(state_path(&alarm)).unwrap();
+    sql.execute(
+        "UPDATE ceiling_alerts SET runbook='sentinel_runbook_unmodified'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+    alarm.db.sweep_ceiling_overruns(11_800_000).unwrap();
+    let sql = Connection::open(state_path(&alarm)).unwrap();
+    let (runbook, occurrences): (String, i64) = sql
+        .query_row("SELECT runbook, occurrences FROM ceiling_alerts", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    drop(sql);
+    assert_eq!(runbook, "sentinel_runbook_unmodified");
+    assert_eq!(occurrences, 4);
 }
 
 /// No declared ceiling is unknown, not zero (`:220`): such a resource is
@@ -345,7 +372,7 @@ fn native_ceiling_alerts_match_javascript() {
         } else {
             Framework::Codex
         };
-        let mut alarm = open(framework, u64::MAX);
+        let mut alarm = open(framework, GENEROUS);
         let engagement = engaged(&mut alarm, &format!("oracle_{name}"), reserved, 1000);
         if let Some(spent) = measured {
             record(
@@ -397,7 +424,7 @@ fn native_ceiling_alerts_match_javascript() {
     }
     // Reopen after resolution (the retained store's :254-271 window, here as
     // the same-row reopen the ADR records): over → resolve → over again.
-    let mut alarm = open(Framework::Codex, u64::MAX);
+    let mut alarm = open(Framework::Codex, GENEROUS);
     engaged(&mut alarm, "reopen", 1_500_000, 1000);
     set_ceiling(&mut alarm, Framework::Codex, 1_000_000);
     alarm.db.sweep_ceiling_overruns(1_000_000).unwrap();

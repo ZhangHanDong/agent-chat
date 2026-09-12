@@ -32,16 +32,42 @@ never `compactTokens`), `detail` as a JSON string capped at 4096 bytes,
 
 **Sweep.** `DomainRepository::sweep_ceiling_overruns(&mut self, now: u64) ->
 Result<SweepOutcome, Error>` as one `Immediate` transaction over every
-resource with a declared finite ceiling, reading the same `ceiling_report`
-the admission decision reads — never a second arithmetic path, so the alarm
-and admission cannot disagree about whether a resource is over. Strictly
+resource with a declared finite ceiling, reading the read-side projection
+`usage::ceiling_report` (`resource_ceiling`, ADR-121) — the SAME drawn rule
+admission enforces on (`max(reserved, spent)`, unknown falls back to
+reserved, `backend-v2.js:14052-14053` cited by both), though a distinct code
+path from `budget()`/`resource_budget`. That is exactly the retained split:
+Node's sweep reads `ceilingSpendFor` while admission reads `remainingFor`
+(`backend-v2.js:9402` vs `:14823`). The two agree by shared rule and the
+oracle, not by construction. Strictly
 `drawn > ceiling` raises; `drawn <= ceiling` auto-resolves with
 `resolved_by = 'system'`; a repeat against an open row increments
-`occurrences`; a re-over after resolution reopens the same row; resolved rows
+`occurrences` (and, like the retained store's dedupe path
+`alert-store.js:231-249,254-271`, refreshes summary/detail but never
+rewrites the four text fields — only a fresh insert writes them); a re-over
+after resolution reopens the same row; resolved rows
 older than 7 days are pruned (`ALERT_RESOLVED_TTL_MS` parity). No timer, no
 route, no console change: the sweep cadence is the caller's concern until
 slice (b), and the async `DomainStore::sweep_ceiling_overruns(now)` wrapper is
 the `sweepCeilingOverrunsForTest` shape — tests drive it directly.
+
+**A resource that loses its ceiling.** The sweep skips a resource with no
+declared ceiling (`backend-v2.js:9397-9400` `continue`) — correct for raising
+(an absent ceiling is unknown, not zero) — which also means auto-resolve is
+never reached for it: an alert opened while the ceiling existed, then the
+ceiling removed, stays open. Node behaves identically but offers manual
+resolve routes on its alert surface; native slices (a)/(b) have no operator
+close path, so the row persists until the ceiling is redeclared. This is
+parity in mechanism with an asymmetry in escape hatches, the same class as
+the episode-model divergence below; an operator close path is future work.
+
+**Oracle.** The `sweeps` vectors are computed by EXECUTING the retained
+`lib/alert-store.js` `createAlertStore` (fake clock, in-memory save) — not a
+transcription: `ingest`'s `created` flag and `autoResolve`'s return derive
+raised/updated/resolved from the store's own outcomes, and the fixture pins
+`alertStoreSha256`. The one non-encoded transition is the reopen-window
+divergence below (Node mints a new record outside 5 minutes; native reopens
+the one row), which native's own replay test pins.
 
 **Divergence from Node's episode model.** The retained store is an id-based
 episode log: a re-over within the 5-minute reopen window reopens the same
@@ -56,7 +82,9 @@ surface ever appears.
 
 **What auto-resolve must never do.** An alert is diagnostic, never
 enforcement: raising one must not revoke or end engagements, block or permit
-admission (admission already refuses by its own rule), release leases, or
+admission (admission already refuses by its own rule), release leases,
+complete owned dispatches or mark tasks Done (canonical completion and final
+reply custody are as out of bounds as admission), or
 authorize retries. Auto-resolve flips the row's display state and nothing
 else. "Resolved" is a display state on the alert record, full stop.
 

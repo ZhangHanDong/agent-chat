@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createUsageLedger } from '../../lib/metering/ledger.js';
 import { overCommitMessage } from '../../lib/engagement-store.js';
+import { createAlertStore } from '../../lib/alert-store.js';
 
 const sha = (p) => createHash('sha256').update(readFileSync(new URL(p, import.meta.url), 'utf8').replaceAll('\r\n', '\n')).digest('hex');
 const ledgerSha256 = sha('../../lib/metering/ledger.js');
@@ -171,21 +172,24 @@ const admissionVectors = admissionCases.map(({ name, seed }) => {
   };
 });
 
-// Slice (a) of the alarm plan: the overrun alert state machine transcribed
-// from the retained sweep (backend-v2.js:9393-9452) over lib/alert-store.js
-// semantics (ingest-dedupe :231-249, reopen :254-271, autoResolve :337-355,
-// 7-day resolved TTL :25). The sweep arithmetic is the same drawn rule the
-// admission vectors use; this section pins what the STORE must do with it:
-// strictly drawn > ceiling raises; a repeat against an open row increments
-// occurrences (one open alert per key); falling back under resolves
-// (resolved_by 'system'); a re-over reopens the same row; resolved rows
-// older than 7 days are pruned.
+// Slice (a)/(B6): the alert state machine EXECUTED by the retained
+// lib/alert-store.js, not transcribed. Each case drives a real
+// createAlertStore (fake clock, in-memory save) through the same transitions
+// the native sweep performs — ingest on over (the payload shape
+// backend-v2.js:9422-9447 sends), autoResolve on recovery — and derives
+// raised/updated/resolved from the store's own outcomes (the ingest `created`
+// flag, autoResolve's return), the mapping onto the native SweepOutcome
+// counters. The one deliberate non-encoding: the reopen-window divergence
+// (Node mints a NEW record when a re-over lands outside the 5-minute window,
+// alert-store.js:254-271; native reopens the one row, ADR-124) — the vectors
+// cover only the sequences where the two agree, and native's reopen is
+// pinned by its own replay-test block.
 const ALERT_RESOLVED_TTL_MS = 7 * 86400_000;
 const sweepSeed = (name, ceiling, seed) => ({ name, ceiling, seed });
 
 // Each case is a SEQUENCE of sweeps over one resource: state carries forward
-// so reopen/dedupe/resolve transitions are exercised in order. `reserved` is
-// the native fixture's commitment figure (100) except where a case says 0.
+// so dedupe/resolve transitions are exercised in order. `reserved` is the
+// native fixture's commitment figure (100) except where a case says 0.
 const sweepCases = [
   // Over by commitment: the 1.5M-committed-then-lowered-to-1M case the
   // retained test uses (:86). Unknown measurement falls back to reserved.
@@ -201,47 +205,65 @@ const sweepCases = [
   sweepSeed('no-ceiling', null, { reserved: 900_000, spent: null, sweeps: 1 }),
 ];
 
-// The retained store, mirrored: one record per dedupe key, occurrences on
-// it, resolved rows reopened on the next over, pruned after 7 days.
-const mirrorSweep = (seed, ceiling, atMs) => {
-  const drawn = seed.spent === null || seed.spent === undefined
-    ? seed.reserved
-    : Math.max(seed.reserved, seed.spent);
-  return { drawn, over: ceiling === null ? null : drawn - ceiling };
-};
+// One retained-store ingest carrying the sweep's payload
+// (backend-v2.js:9422-9447); the actionability fields keep it a `warning`
+// (buildActionability, alert-store.js:102-138).
+function ingestOverrun(store, name, ceiling, reserved, spent, drawn, over) {
+  const dedupeKey = `agent_ceiling_overrun:${name}`;
+  return store.ingest({
+    alertType: 'agent_ceiling_overrun',
+    dedupeKey,
+    severity: 'warning',
+    source: 'backend',
+    sourceAgent: name,
+    summary: `${name} has drawn ${drawn} against a ceiling of ${ceiling} — ${over} past it`,
+    detail: {
+      agent: name, presetId: 'preset', ceilingTokens: ceiling,
+      committedTokens: reserved, measuredTokens: spent ?? null,
+      drawnTokens: drawn, overByTokens: over,
+    },
+    owner: 'hagency-operator',
+    runbook: 'raise the ceiling on preset preset to cover what is already committed',
+    impact: 'no new engagement can be approved against this agent',
+    recoveryCondition: 'the drawn figure falls back under the ceiling',
+    correlation: { dedupeKey },
+    tags: ['ceiling', 'budget'],
+  });
+}
 
 const sweepVectors = sweepCases.map(({ name, ceiling, seed }) => {
   const sweeps = seed.sweeps ?? 1;
-  const t0 = 1_000_000; // arbitrary fixed epoch ms
+  const t0 = 1_000_000;
+  const key = `agent_ceiling_overrun:${name}`;
+  let clock = t0;
+  const store = createAlertStore({ now: () => clock, save: () => {} });
   const states = [];
-  // In-memory mirror of the one-row-per-key table.
-  let row = null; // { occurrences, firstSeen, lastSeen, resolvedAt, resolvedBy }
   for (let i = 0; i < sweeps; i += 1) {
-    const at = t0 + i * 3_600_000;
-    const { over } = mirrorSweep(seed, ceiling, at);
+    clock = t0 + i * 3_600_000;
+    const drawn = seed.spent === null || seed.spent === undefined
+      ? seed.reserved
+      : Math.max(seed.reserved, seed.spent);
+    const over = ceiling === null ? null : drawn - ceiling;
     let raised = 0; let updated = 0; let resolved = 0;
     if (over !== null && over > 0) {
-      if (row === null) {
-        row = { occurrences: 1, firstSeen: at, lastSeen: at, resolvedAt: null, resolvedBy: null };
-        raised = 1;
-      } else if (row.resolvedAt !== null) {
-        row.occurrences += 1; row.lastSeen = at; row.resolvedAt = null; row.resolvedBy = null;
-        raised = 1;
-      } else {
-        row.occurrences += 1; row.lastSeen = at;
-        updated = 1;
-      }
-    } else if (row !== null && row.resolvedAt === null) {
-      row.resolvedAt = at; row.resolvedBy = 'system';
+      const { created } = ingestOverrun(store, name, ceiling, seed.reserved, seed.spent, drawn, over);
+      if (created) raised = 1; else updated = 1;
+    } else if (store.autoResolve(key)) {
       resolved = 1;
     }
-    states.push({ at, raised, updated, resolved });
+    states.push({ at: clock, raised, updated, resolved });
   }
-  // Retention over the same timeline: a resolved row older than 7 days from
-  // the final sweep disappears.
+  const [row] = store.listAlerts();
+  const finalRow = row
+    ? {
+        occurrences: row.occurrences,
+        resolvedAt: row.status === 'resolved' ? row.resolvedAt : null,
+        resolvedBy: row.status === 'resolved' ? row.resolvedBy : null,
+      }
+    : null;
   const finalAt = t0 + (sweeps - 1) * 3_600_000;
-  const pruned = row !== null && row.resolvedAt !== null
-    && (finalAt - row.resolvedAt) > ALERT_RESOLVED_TTL_MS ? 1 : 0;
+  const pruned = row && row.status === 'resolved'
+    && (finalAt - row.resolvedAt) > ALERT_RESOLVED_TTL_MS ? store.pruneResolved() : 0;
   return {
     name,
     ceilingTokens: ceiling,
@@ -249,54 +271,45 @@ const sweepVectors = sweepCases.map(({ name, ceiling, seed }) => {
     spent: seed.spent ?? null,
     consumed: seed.consumed ?? null,
     sweeps,
-    expected: {
-      states,
-      finalRow: row === null ? null : {
-        occurrences: row.occurrences,
-        resolvedAt: row.resolvedAt,
-        resolvedBy: row.resolvedBy,
-      },
-      pruned,
-    },
+    expected: { states, finalRow, pruned },
   };
 });
 
 // Month rollover: an unmeasured NEW period means spent=null so drawn falls
 // back to reserved; a resource over only by the CLOSED period's measurement
 // auto-resolves on the first post-rollover sweep (backend-v2.js:9410 with
-// ceilingSpendFor reading the CURRENT period). Two phases: over by
-// measurement, then the new period is unmeasured and the alert resolves.
+// ceilingSpendFor reading the CURRENT period). Two phases through the REAL
+// store: over by measurement, then the new period is unmeasured.
 const rolloverVector = (() => {
+  const name = 'month-rollover-resolves';
   const ceiling = 1_000;
   const reserved = 100;
   const t0 = 1_000_000;
   const nextMonth = t0 + 31 * 86400_000;
+  const key = `agent_ceiling_overrun:${name}`;
+  let clock = t0;
+  const store = createAlertStore({ now: () => clock, save: () => {} });
   const phases = [
-    { at: t0, spent: 1_200 },       // measured over: 1.2M-ish fresh vs 1k
+    { at: t0, spent: 1_200 },       // measured over: fresh vs 1k
     { at: nextMonth, spent: null }, // new period unmeasured
   ];
-  let row = null;
   const states = [];
   for (const phase of phases) {
+    clock = phase.at;
     const drawn = phase.spent === null ? reserved : Math.max(reserved, phase.spent);
     const over = drawn - ceiling;
     let raised = 0; let updated = 0; let resolved = 0;
     if (over > 0) {
-      if (row === null) {
-        row = { occurrences: 1, resolvedAt: null, resolvedBy: null };
-        raised = 1;
-      } else {
-        row.occurrences += 1; row.resolvedAt = null; row.resolvedBy = null;
-        raised = 1;
-      }
-    } else if (row !== null && row.resolvedAt === null) {
-      row.resolvedAt = phase.at; row.resolvedBy = 'system';
+      const { created } = ingestOverrun(store, name, ceiling, reserved, phase.spent, drawn, over);
+      if (created) raised = 1; else updated = 1;
+    } else if (store.autoResolve(key)) {
       resolved = 1;
     }
     states.push({ at: phase.at, raised, updated, resolved });
   }
+  const [row] = store.listAlerts();
   return {
-    name: 'month-rollover-resolves',
+    name,
     ceilingTokens: ceiling,
     reserved,
     spent: phases[0].spent,
@@ -304,7 +317,11 @@ const rolloverVector = (() => {
     sweeps: phases.length,
     expected: {
       states,
-      finalRow: { occurrences: 1, resolvedAt: nextMonth, resolvedBy: 'system' },
+      finalRow: {
+        occurrences: row.occurrences,
+        resolvedAt: row.status === 'resolved' ? row.resolvedAt : null,
+        resolvedBy: row.status === 'resolved' ? row.resolvedBy : null,
+      },
       pruned: 0,
     },
     note: 'unknown != zero: the closed period is not carried, so the first post-rollover sweep resolves',

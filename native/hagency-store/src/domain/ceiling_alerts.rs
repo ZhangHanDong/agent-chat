@@ -44,7 +44,12 @@ fn bounded(value: u64) -> Result<u64, Error> {
 }
 
 /// The retained ingest payload (`backend-v2.js:9422-9447`) with raw numbers:
-/// `detail` is a JSON string, never an object, capped at 4096 bytes.
+/// `detail` is a JSON string, never an object, capped at 4096 bytes the way
+/// the retained `truncatePayload` caps it (`lib/alert-store.js:61-64`):
+/// string-encode, then slice to the first MAX_PAYLOAD_SIZE characters — a
+/// truncated value stays a valid row (Node logs and continues; an aborting
+/// sweep would let one long resource id suppress every other alert). The
+/// column CHECK remains the last line of defence, never the truncation site.
 fn detail_json(
     resource_id: &str,
     preset_name: &str,
@@ -53,7 +58,7 @@ fn detail_json(
     measured: Option<u64>,
     drawn: u64,
     over: u64,
-) -> Result<String, Error> {
+) -> String {
     let detail = serde_json::json!({
         "agent": resource_id,
         "presetId": preset_name,
@@ -63,11 +68,12 @@ fn detail_json(
         "drawnTokens": drawn,
         "overByTokens": over,
     });
-    let text = serde_json::to_string(&detail)?;
+    let text = serde_json::to_string(&detail).unwrap_or_default();
     if text.len() > MAX_DETAIL_BYTES {
-        return Err(Error::Capacity);
+        text.chars().take(MAX_DETAIL_BYTES).collect()
+    } else {
+        text
     }
-    Ok(text)
 }
 
 impl DomainRepository {
@@ -76,10 +82,14 @@ impl DomainRepository {
     /// strictly `drawn > ceiling` raises, `drawn <= ceiling` auto-resolves,
     /// repeats increment `occurrences`, a re-over after resolution reopens
     /// the same row, and resolved rows older than 7 days are pruned. One
-    /// `Immediate` transaction; the draw comes from `ceiling_report` — the
-    /// identical read the admission decision uses, never a second arithmetic
-    /// path, so the alarm and admission cannot disagree about whether a
-    /// resource is over.
+    /// `Immediate` transaction. The draw comes from the read-side projection
+    /// `usage::ceiling_report` (`resource_ceiling`, ADR-121) — the SAME drawn
+    /// rule admission enforces on (`max(reserved, spent)`, unknown falls back
+    /// to reserved, `backend-v2.js:14052-14053` cited by both), though a
+    /// distinct code path from `budget()`/`resource_budget`, exactly the
+    /// retained split: Node's sweep reads `ceilingSpendFor` while admission
+    /// reads `remainingFor` (`backend-v2.js:9402` vs `:14823`). The two
+    /// agree by shared rule and oracle, not by construction.
     pub fn sweep_ceiling_overruns(&mut self, now: u64) -> Result<SweepOutcome, Error> {
         let tx = self
             .db
@@ -116,7 +126,7 @@ impl DomainRepository {
                     report.spent,
                     report.drawn,
                     over,
-                )?;
+                );
                 let summary = format!(
                     "{} has drawn {} against a ceiling of {} — {} past it",
                     resource.id(),
@@ -154,13 +164,13 @@ impl DomainRepository {
                     }
                     Some(was_resolved) => {
                         let changed = tx.execute(
-                            if was_resolved {
-                                "UPDATE ceiling_alerts SET resource_id=?2,summary=?3,detail=?4,runbook=?5,occurrences=occurrences+1,last_seen_ms=?6,resolved_at_ms=NULL,resolved_by=NULL WHERE dedupe_key=?1"
-                            } else {
-                                "UPDATE ceiling_alerts SET resource_id=?2,summary=?3,detail=?4,runbook=?5,occurrences=occurrences+1,last_seen_ms=?6 WHERE dedupe_key=?1"
-                            },
-                            params![key, resource.id(), summary, detail, runbook, now],
-                        )?;
+                    if was_resolved {
+                        "UPDATE ceiling_alerts SET resource_id=?2,summary=?3,detail=?4,occurrences=occurrences+1,last_seen_ms=?5,resolved_at_ms=NULL,resolved_by=NULL WHERE dedupe_key=?1"
+                    } else {
+                        "UPDATE ceiling_alerts SET resource_id=?2,summary=?3,detail=?4,occurrences=occurrences+1,last_seen_ms=?5 WHERE dedupe_key=?1"
+                    },
+                    params![key, resource.id(), summary, detail, now],
+                )?;
                         if was_resolved {
                             outcome.raised += 1;
                         } else {
@@ -274,4 +284,42 @@ pub struct CeilingAlert {
     pub first_seen_ms: u64,
     pub last_seen_ms: u64,
     pub resolved: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// B4: the `detail` JSON string truncates the way the retained
+    /// `truncatePayload` does (`lib/alert-store.js:61-64`: encode, then slice
+    /// to the first MAX_PAYLOAD_SIZE characters) instead of aborting the
+    /// sweep. Valid sweep inputs cannot reach the bound — preset ids are
+    /// ≤128 chars and resource ids are fixed-length hashes — so the bound is
+    /// defence-in-depth, and this pins it at the function that owns it. The
+    /// retained sweep files its alert with the truncated detail and
+    /// continues; the CHECK constraint is the last line of defence, never
+    /// the truncation site.
+    #[test]
+    fn native_ceiling_alert_detail_truncates_like_retained_store() {
+        let short = detail_json("resource_a", "pool", 1_000, 100, None, 1_500, 500);
+        assert!(short.len() <= MAX_DETAIL_BYTES);
+        assert!(short.starts_with('{'));
+        // The over-long id path: an absurd agent name pushes the encoded
+        // detail past the cap; the result is still exactly-capped and the
+        // caller proceeds (no Error::Capacity, no sweep abort).
+        let absurd = "a".repeat(8_192);
+        let long = detail_json(&absurd, "pool", 1_000, 100, None, 1_500, 500);
+        assert!(
+            long.len() <= MAX_DETAIL_BYTES,
+            "capped at {MAX_DETAIL_BYTES}"
+        );
+        assert_eq!(long.chars().count(), MAX_DETAIL_BYTES);
+        assert!(long.starts_with('{'), "a prefix of the encoded JSON");
+        // The retained rule slices characters, not bytes: an ASCII slice is
+        // both. (The composed detail is all-ASCII digits/keys in practice.)
+        assert!(
+            long.is_ascii(),
+            "an ASCII slice is characters and bytes alike"
+        );
+    }
 }

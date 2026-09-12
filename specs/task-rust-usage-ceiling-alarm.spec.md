@@ -118,3 +118,21 @@ Scenario: The sweep loop runs on its period and survives a busy writer
   Given the sweep loop on a short injected period and an open alert
   When one tick is observed, the writer is held busy so a tick is refused, and the hold is released
   Then the loop keeps running and the tick after release sweeps again, awaited on the observation hook without sleeping
+
+Scenario: Resolved alerts are pruned after seven days
+  Test: native_ceiling_alert_prunes_resolved_rows_after_seven_days
+  Given a resolved row older than the retention window, a younger resolved row, and an open row
+  When the sweep runs past the cutoff
+  Then the old resolved row is deleted with pruned asserted, the young resolved row is kept, and the open row is never pruned
+
+Scenario: A resource that loses its ceiling keeps its alert open
+  Test: native_ceiling_alert_lost_ceiling_keeps_alert_open
+  Given an open overrun alert whose resource then loses its declared ceiling
+  When the sweep runs
+  Then the resource is skipped as unknown for raise and resolve alike and the alert stays open, matching the retained sweep
+
+Scenario: An over-long detail truncates instead of aborting the sweep
+  Test: native_ceiling_alert_detail_truncates_like_retained_store
+  Given a detail JSON string past the 4096-byte cap
+  When it is composed
+  Then it is sliced to the cap the way the retained truncatePayload does and the sweep continues
