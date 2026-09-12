@@ -7606,3 +7606,12 @@ client qualification and ongoing identity/key management remain separate.
   skipped (`node_modules` absent offline). The browser test itself runs in
   the hosted console-browser job (Chromium + native console assets), not in
   this sandbox.
+- 2026-09-12: Windows intermittents made self-describing. The palpo TLS
+  hostname-refusal test now accepts the documented refusal set (`Transport`
+  or `Timeout`, both ADR-042 refusals with identical custody semantics; the
+  fixture's 300 ms header budget decides which one surfaces on a host whose
+  loopback drop is silent) while still requiring that no request reaches the
+  peer; the fixture names the handshake outcome. The MCP catalog test reports
+  the helper child's `try_wait` state when `tools/list` fails, so a
+  `TransportClosed` can be attributed to "helper exited" or "pipe closed
+  while alive". Analysis: peer `dsflash` brief 10.

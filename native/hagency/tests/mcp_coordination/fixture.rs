@@ -257,6 +257,12 @@ pub struct Client {
     child: Child,
 }
 impl Client {
+    /// Diagnostic only: expose the helper's exit state so a `TransportClosed`
+    /// can be attributed to "helper exited" rather than "pipe closed while
+    /// alive". `try_wait` is non-blocking and does not reap a running child.
+    pub fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child.try_wait()
+    }
     pub async fn new(address: SocketAddr, cap: &RunnerCapability, task: &str) -> Self {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_hagency"));
         cmd.arg("mcp")

@@ -210,7 +210,14 @@ impl Fake {
                         let tx = tx.clone(); let acceptor = acceptor.clone();
                         jobs.spawn(async move {
                             if let Some(acceptor) = acceptor {
-                                if let Ok(Ok(stream)) = timeout(Duration::from_secs(1), acceptor.accept(stream)).await { serve(stream, tx).await; }
+                                // Diagnostic only: name the handshake outcome so a
+                                // client-side Timeout can be attributed to a silent
+                                // peer drop rather than guessed at.
+                                match timeout(Duration::from_secs(1), acceptor.accept(stream)).await {
+                                    Ok(Ok(stream)) => serve(stream, tx).await,
+                                    Ok(Err(error)) => eprintln!("fixture tls handshake refused: {error:?}"),
+                                    Err(_) => eprintln!("fixture tls handshake deadline"),
+                                }
                             } else { serve(stream, tx).await; }
                         });
                     }

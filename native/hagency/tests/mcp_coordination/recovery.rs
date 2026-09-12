@@ -115,8 +115,17 @@ async fn native_mcp_coordination_recovery() {
 #[tokio::test]
 async fn native_mcp_coordination_catalog() {
     let f = Fixture::new().await;
-    let c = f.client().await;
-    let tools = c.service.list_all_tools().await.unwrap();
+    let mut c = f.client().await;
+    // Diagnostic only: rmcp's `TransportClosed` means the helper's stdio
+    // closed, not a deadline, so the deciding evidence is the child's own exit
+    // state, which is otherwise never queried before `close()`.
+    let tools = match c.service.list_all_tools().await {
+        Ok(tools) => tools,
+        Err(error) => {
+            let status = c.try_wait();
+            panic!("tools/list failed: {error:?}; helper try_wait={status:?}");
+        }
+    };
     let names: std::collections::BTreeSet<_> = tools.iter().map(|t| t.name.as_ref()).collect();
     assert_eq!(
         names,
