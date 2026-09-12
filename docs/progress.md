@@ -7180,3 +7180,15 @@ client qualification and ongoing identity/key management remain separate.
   the incoming probe was still inside its MCP `tools/call` when the budget
   expired. That one is left unchanged and recorded as a hosted Windows
   process-spawn latency case for the Windows VM to reproduce.
+- Hosted run for `a5a8018`: Node CI, console-browser, Ubuntu and macOS green;
+  the two widened fixtures passed on Windows. Windows failed two different
+  tests of the `owned_matrix` binary in the same four-second window:
+  `native_matrix_owned_notice_failure` got `OutcomeUnknown` from the domain
+  shutdown at `Workflow::close` (the same teardown stall as the earlier
+  `native_runner_http_*` failures) and `native_matrix_owned_complete_workflow`
+  saw the task still `InProgress` after `operation.wait()` returned (no
+  stdout beyond the assertion; `response_ms` 2000, `operation_ms` 30000).
+  Neither test had failed on any earlier hosted run. Both are recorded, not
+  changed: the hosted Windows suite now fails a rotating set of two to four
+  timing-bound fixtures per run, so the next step is the Windows VM
+  reproduction and the shutdown analysis the `dsflash` peer is producing.
