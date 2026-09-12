@@ -121,7 +121,15 @@ fn actualize(text: &str, home: &Path) -> String {
 }
 
 fn relativize(text: &str, home: &Path) -> String {
-    text.replace(&format!("{}/", home.display()), &format!("{HOME_TOKEN}/"))
+    let text = text.replace(&format!("{}/", home.display()), &format!("{HOME_TOKEN}/"));
+    // The walk joins with the host separator; the recorded oracle uses `/`.
+    // Only the components below the home token are rewritten, so the actual
+    // home spelling is never compared.
+    if cfg!(windows) && text.starts_with(HOME_TOKEN) {
+        text.replace('\\', "/")
+    } else {
+        text
+    }
 }
 
 #[test]
