@@ -7250,3 +7250,36 @@ client qualification and ongoing identity/key management remain separate.
   `native_store_close_leaves_wal_for_replay`. Durability stays on
   `synchronous=FULL` at commit. The whole-package Windows probe decides
   whether the stall is gone.
+- Probe run 34681480044 (deepened sample, every `hagency` target, eight
+  threads, four iterations) failed two of four iterations with fourteen
+  distinct tests across the `hagency` library tests (file service, MCP
+  coordination, bootstrap driver) and four `mcp_coordination` domain
+  shutdowns with the same signature as the runner stalls: SQLite close
+  entered, nothing after it, zero writer CPU, four threads of one process.
+  The stall is therefore process-wide under load and not tied to one
+  fixture, which is what ADR-120 addresses; the runner fixture's deepened
+  sample did not fire because its own binary passed in that run.
+- Hosted run for `94c1177`: console-browser and macOS green, Windows
+  cancelled by the following push, Ubuntu failed once on
+  `approvals::native_owned_approval_cancellation` with "notice channel
+  closed" (the operation ended before committing an approval request; the
+  test prints nothing else). Second occurrence of this selector on hosted
+  Ubuntu. Recorded, not changed; the fixture should print the operation
+  report when the notice channel closes before it is treated further.
+- Operator Windows VM (`54.156.69.166`, Server 2025, 4 vCPU, 16 GB, Defender
+  on, MSVC 2022 Build Tools, Rust 1.95.0 MSVC): every `hagency` test target
+  at `94c1177` ran four times under eight test threads with no shutdown
+  stall (0 of 4 failed), so the package-level probe does not reproduce on
+  this VM even though it reproduces one in four on hosted `windows-2025`.
+  The CI-equivalent whole-workspace suite is now running there three times
+  at the same baseline before the ADR-120 tree is tried.
+- Probe run 34682424382 (ADR-120 tree, every `hagency` target, eight
+  threads, four iterations): no domain shutdown timed out in any iteration,
+  the first hosted whole-package run without a `ReplyTimedOut` snapshot.
+  Three of four iterations still failed, dominated by "collector completed
+  before its HTTP script: Err(OutcomeUnknown)" from the shared scripted
+  fixture (`hagency-matrix/tests/common/mod.rs:148`) across file service,
+  owned Matrix and bootstrap tests, plus one fixture orchestration budget
+  and one restart recovery miss. That class also appeared before ADR-120
+  and is the next analysis target; it is a different producer of
+  `OutcomeUnknown` than the domain shutdown.
