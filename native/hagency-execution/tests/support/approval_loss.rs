@@ -552,7 +552,18 @@ async fn native_owned_approval_acceptance_reconcile_accepted() {
         report.failure,
         report.runtime_observation()
     );
-    assert!(report.failure.is_none(), "{:?}", report.failure);
+    // The retained owner process cleanup reports unknown on macOS, as in
+    // tests/owned/usage.rs; the reconcile itself adds no failure anywhere.
+    assert_eq!(
+        report.failure,
+        if cfg!(target_os = "macos") {
+            Some(Failure::CleanupUnknown)
+        } else {
+            None
+        },
+        "{:?}",
+        report.runtime_observation()
+    );
     assert_eq!(report.settlement_cause, None);
     // One callback, one retained frame, one grant, one accepted write.
     assert_eq!(report.approval_custody(), (1, 1, 1, 1));
